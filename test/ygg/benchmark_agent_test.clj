@@ -4417,6 +4417,43 @@
            (mapv :path selected)))
     (is (= [1 2 3 4] (mapv :rank selected)))))
 
+(deftest compact-output-prunes-score-separated-fill-tail
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "lib/adapters/http.js" 1
+                    {:docCount 2
+                     :matchedTokenCount 4
+                     :rankScore 18.0})
+               (row "tests/setup/server.js" 2
+                    {:docCount 1
+                     :matchedTokenCount 5
+                     :rankScore 16.0})
+               (row "tests/unit/adapters/http.test.js" 3
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :directFileCandidateCount 1
+                     :fileIdentitySupportLabelCount 4
+                     :matchedTokenCount 5
+                     :rankScore 15.5})
+               (row "tests/unit/adapters/fetch.test.js" 4
+                    {:docCount 1
+                     :matchedTokenCount 4
+                     :rankScore 10.0})
+               (row "tests/unit/adapters/adapters.test.js" 5
+                    {:docCount 1
+                     :matchedTokenCount 3
+                     :rankScore 9.0})]
+        selected (compact-output files 5 nil)]
+    (is (= ["lib/adapters/http.js"
+            "tests/setup/server.js"
+            "tests/unit/adapters/http.test.js"]
+           (mapv :path selected)))
+    (is (= [1 2 3] (mapv :rank selected)))))
+
 (deftest compact-agent-result-prefers-included-decision-candidate-paths
   (let [root (temp-dir "ygg-bench-compact-decision-output")
         _ (doseq [path ["docs/noise.md"

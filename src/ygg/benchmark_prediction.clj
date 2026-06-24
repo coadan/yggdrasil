@@ -214,6 +214,14 @@
   2)
 (def ^:private compact-output-preserved-head-count
   1)
+(def ^:private compact-output-score-tail-min-files
+  5)
+(def ^:private compact-output-score-tail-prefix-min-files
+  3)
+(def ^:private compact-output-score-tail-prefix-max-files
+  4)
+(def ^:private compact-output-score-tail-score-ratio
+  0.8)
 (def ^:private compact-output-identity-support-min
   4)
 (def ^:private compact-output-architecture-token-min
@@ -2715,72 +2723,112 @@
             selected
             (take remaining-limit remaining))))
 
+(defn- compact-output-score-tail-cut
+  [selected]
+  (let [selected (vec selected)]
+    (when (and (<= compact-output-score-tail-min-files (count selected))
+               (not-any? prediction-rank-protected? selected))
+      (some (fn [prefix-size]
+              (let [prefix (subvec selected 0 prefix-size)
+                    next-row (nth selected prefix-size nil)
+                    score-floor (apply min (map row-rank-score prefix))
+                    next-score (row-rank-score next-row)]
+                (when (and next-row
+                           (pos? score-floor)
+                           (<= next-score
+                               (* compact-output-score-tail-score-ratio
+                                  score-floor)))
+                  prefix-size)))
+            (range compact-output-score-tail-prefix-min-files
+                   (inc (min compact-output-score-tail-prefix-max-files
+                             (dec (count selected)))))))))
+
+(defn- compact-output-prune-score-tail
+  [selected limit result-scope source-kinds kind-by-path]
+  (let [limit (long limit)
+        selected (vec selected)]
+    (if-let [prefix-size (when (and (<= limit 5)
+                                    (= limit (count selected))
+                                    (not (inspection-files-scope? result-scope)))
+                           (compact-output-score-tail-cut selected))]
+      (let [compacted (subvec selected 0 prefix-size)]
+        (if (covers-source-kinds? source-kinds kind-by-path compacted)
+          (renumber-file-ranks compacted)
+          selected))
+      selected)))
+
 (defn- compact-output-selected-files
-  [files limit result-scope]
-  (let [limit (when limit (long limit))]
-    (cond
-      (nil? limit)
-      files
+  ([files limit result-scope]
+   (compact-output-selected-files files limit result-scope [] {}))
+  ([files limit result-scope source-kinds kind-by-path]
+   (let [limit (when limit (long limit))]
+     (cond
+       (nil? limit)
+       files
 
-      (or (inspection-files-scope? result-scope)
-          (< limit 5))
-      (vec (take limit files))
+       (or (inspection-files-scope? result-scope)
+           (< limit 5))
+       (vec (take limit files))
 
-      :else
-      (let [head-count (min compact-output-preserved-head-count limit)
-            empty-selection {:rows []
-                             :keys #{}}
-            head-selection (reduce add-compact-output-row
-                                   empty-selection
-                                   (take head-count files))
-            architecture-row (compact-output-architecture-supported-row
-                              files
-                              (:keys head-selection))
-            selected (if architecture-row
-                       (add-compact-output-row head-selection architecture-row)
-                       (let [selected (add-compact-output-row
-                                       empty-selection
-                                       (compact-output-doc-supported-row
-                                        files
-                                        (:keys empty-selection)))
-                             selected (add-compact-output-row
-                                       selected
-                                       (compact-output-identity-supported-row
-                                        files
-                                        (:keys selected)
-                                        (:rows selected)))]
-                         (reduce add-compact-output-row
-                                 selected
-                                 (take head-count files))))
-            selected (add-compact-output-row
-                      selected
-                      (compact-output-query-evidence-source-row
-                       files
-                       (:keys selected)
-                       (:rows selected)))
-            selected (add-compact-output-row
-                      selected
-                      (compact-output-co-located-candidate-row
-                       files
-                       (:keys selected)
-                       (:rows selected)))
-            minimum-count (min limit 2)
-            selected (if (< (count (:rows selected)) minimum-count)
-                       (reduce add-compact-output-row
-                               selected
-                               (take (- minimum-count (count (:rows selected)))
-                                     (remove #(contains? (:keys selected)
-                                                         (file-row-key %))
-                                             files)))
-                       selected)
-            selected (fill-compact-output-selection selected files limit)]
-        (->> (:rows selected)
-             (take limit)
-             (sort-by #(or (::compact-output-sort-rank %)
-                           (:rank %)
-                           Long/MAX_VALUE))
-             (map #(dissoc % ::compact-output-sort-rank))
-             renumber-file-ranks)))))
+       :else
+       (let [head-count (min compact-output-preserved-head-count limit)
+             empty-selection {:rows []
+                              :keys #{}}
+             head-selection (reduce add-compact-output-row
+                                    empty-selection
+                                    (take head-count files))
+             architecture-row (compact-output-architecture-supported-row
+                               files
+                               (:keys head-selection))
+             selected (if architecture-row
+                        (add-compact-output-row head-selection architecture-row)
+                        (let [selected (add-compact-output-row
+                                        empty-selection
+                                        (compact-output-doc-supported-row
+                                         files
+                                         (:keys empty-selection)))
+                              selected (add-compact-output-row
+                                        selected
+                                        (compact-output-identity-supported-row
+                                         files
+                                         (:keys selected)
+                                         (:rows selected)))]
+                          (reduce add-compact-output-row
+                                  selected
+                                  (take head-count files))))
+             selected (add-compact-output-row
+                       selected
+                       (compact-output-query-evidence-source-row
+                        files
+                        (:keys selected)
+                        (:rows selected)))
+             selected (add-compact-output-row
+                       selected
+                       (compact-output-co-located-candidate-row
+                        files
+                        (:keys selected)
+                        (:rows selected)))
+             minimum-count (min limit 2)
+             selected (if (< (count (:rows selected)) minimum-count)
+                        (reduce add-compact-output-row
+                                selected
+                                (take (- minimum-count (count (:rows selected)))
+                                      (remove #(contains? (:keys selected)
+                                                          (file-row-key %))
+                                              files)))
+                        selected)
+             selected (fill-compact-output-selection selected files limit)]
+         (-> (:rows selected)
+             (->> (take limit)
+                  (sort-by #(or (::compact-output-sort-rank %)
+                                (:rank %)
+                                Long/MAX_VALUE))
+                  (map #(dissoc % ::compact-output-sort-rank))
+                  renumber-file-ranks)
+             (compact-output-prune-score-tail limit
+                                              result-scope
+                                              source-kinds
+                                              kind-by-path)))))))
 
 (defn- decision-file-by-path
   [files]
@@ -3046,7 +3094,9 @@
                                            (compact-output-selected-files
                                             rich-suspected-files
                                             compact-output-limit
-                                            result-scope))
+                                            result-scope
+                                            source-kind-order
+                                            kind-by-path))
                                        rich-suspected-files)
          suspected-files (if compact-result?
                            (compact-suspected-files output-rich-suspected-files)
