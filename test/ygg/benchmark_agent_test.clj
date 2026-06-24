@@ -4390,6 +4390,123 @@
            (mapv :path selected)))
     (is (= [1 2 3 4 5] (mapv :rank selected)))))
 
+(deftest compact-output-reserves-repeated-retrieved-source-row
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/unit/adapters/http.test.js" 1
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :architectureSupportBoost 5.0
+                     :matchedTokenCount 8
+                     :rareQueryTokenScore 2.0})
+               (row "tests/smoke/files.test.js" 2
+                    {:docCount 1
+                     :matchedTokenCount 5
+                     :retrievedSourceCount 1})
+               (row "tests/setup/server.js" 3
+                    {:docCount 1
+                     :matchedTokenCount 5
+                     :retrievedSourceCount 1})
+               (row "tests/unit/adapters/fetch.test.js" 4
+                    {:docCount 1
+                     :matchedTokenCount 9
+                     :retrievedSourceCount 1})
+               (row "tests/unit/axiosHeaders.test.js" 5
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :matchedTokenCount 4})
+               (row "lib/adapters/http.js" 8
+                    {:docCount 2
+                     :matchedTokenCount 2
+                     :retrievedSourceCount 2
+                     :repeatedRetrievedSourceBoost 2.4
+                     :rankScore 20.0})]
+        selected (compact-output files 5 nil)]
+    (is (some #{"lib/adapters/http.js"} (map :path selected)))
+    (is (not-any? #{"tests/unit/axiosHeaders.test.js"} (map :path selected)))))
+
+(deftest compact-output-prunes-to-direct-and-retrieved-core
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/unit/adapters/http.test.js" 1
+                    {:candidateFileCount 2
+                     :docCount 0
+                     :directFileCandidateCount 1
+                     :fileIdentitySupportLabelCount 4
+                     :architectureSupportBoost 5.0
+                     :matchedTokenCount 8
+                     :rankScore 14.6})
+               (row "tests/smoke/files.test.js" 2
+                    {:candidateFileCount 1
+                     :docCount 1
+                     :matchedTokenCount 5
+                     :retrievedSourceCount 1
+                     :rankScore 15.8})
+               (row "tests/setup/server.js" 3
+                    {:candidateFileCount 1
+                     :docCount 1
+                     :matchedTokenCount 5
+                     :retrievedSourceCount 1
+                     :rankScore 21.0})
+               (row "lib/adapters/http.js" 4
+                    {:candidateFileCount 1
+                     :docCount 2
+                     :matchedTokenCount 2
+                     :retrievedSourceCount 2
+                     :repeatedRetrievedSourceBoost 2.4
+                     :rankScore 20.9})
+               (row "tests/unit/adapters/fetch.test.js" 5
+                    {:candidateFileCount 2
+                     :docCount 1
+                     :matchedTokenCount 9
+                     :retrievedSourceCount 1
+                     :rankScore 17.4})
+               (row "tests/unit/axios.test.js" 6
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :matchedTokenCount 4
+                     :rankScore 8.4})
+               (row "tests/unit/axiosHeaders.test.js" 7
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :matchedTokenCount 4
+                     :rankScore 8.3})]
+        selected (compact-output files 7 nil)]
+    (is (= ["tests/unit/adapters/http.test.js"
+            "lib/adapters/http.js"]
+           (mapv :path selected)))))
+
+(deftest compact-output-caps-all-candidate-only-surface
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank score]
+              {:path path
+               :rank rank
+               :metrics {:candidateFileCount 1
+                         :docCount 0
+                         :entityCount 0
+                         :matchedTokenCount 3
+                         :rankScore score}})
+        files [(row "site/src/pages/index.astro" 1 15.0)
+               (row "site/src/pages/docs/index.astro" 2 9.8)
+               (row "site/src/pages/docs/[version]/[...slug].astro" 3 8.9)
+               (row "site/src/pages/docs/[version]/examples/index.astro" 4 8.8)
+               (row "site/src/pages/docs/versions.astro" 5 7.7)
+               (row "site/src/pages/docs/[version]/index.astro" 6 7.5)]
+        kind-by-path (zipmap (map :path files)
+                             (repeat "web-framework"))
+        selected (compact-output files 7 nil ["web-framework"] kind-by-path)]
+    (is (= ["site/src/pages/index.astro"
+            "site/src/pages/docs/index.astro"
+            "site/src/pages/docs/[version]/[...slug].astro"
+            "site/src/pages/docs/[version]/examples/index.astro"]
+           (mapv :path selected)))))
+
 (deftest compact-output-prefers-architecture-supported-edit-surface
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]
@@ -4553,6 +4670,140 @@
             :candidateFileOnlyQuota 2
             :candidateFileOnlySelected 2}
            (:selection result)))))
+
+(deftest source-kind-lanes-prefer-strong-mechanical-evidence
+  (let [prioritize @#'benchmark-prediction/prioritize-coverage-source-lanes
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        rows [(row "tests/setup/server.js"
+                   1
+                   {:docCount 1
+                    :candidateFileCount 1
+                    :retrievedSourceCount 1
+                    :matchedTokenCount 5
+                    :rankScore 21.0})
+              (row "tests/smoke/files.test.js"
+                   2
+                   {:docCount 1
+                    :candidateFileCount 1
+                    :retrievedSourceCount 1
+                    :matchedTokenCount 5
+                    :rankScore 15.0})
+              (row "lib/adapters/http.js"
+                   4
+                   {:docCount 2
+                    :candidateFileCount 1
+                    :retrievedSourceCount 2
+                    :repeatedRetrievedSourceBoost 2.4
+                    :matchedTokenCount 2
+                    :rankScore 20.9})]
+        kind-by-path {"tests/setup/server.js" "javascript"
+                      "tests/smoke/files.test.js" "javascript"
+                      "lib/adapters/http.js" "javascript"}]
+    (is (= ["lib/adapters/http.js"
+            "tests/setup/server.js"
+            "tests/smoke/files.test.js"]
+           (mapv :path (prioritize ["javascript"] kind-by-path rows))))))
+
+(deftest source-kind-lanes-prefer-architecture-supported-runtime-row
+  (let [prioritize @#'benchmark-prediction/prioritize-coverage-source-lanes
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        rows [(row "ansible/files/kong_config/kong.env.j2"
+                   1
+                   {:candidateFileCount 1
+                    :directFileCandidateCount 1
+                    :matchedTokenCount 4
+                    :rankScore 10.4})
+              (row "migrations/db/migrations/event-trigger.sql"
+                   2
+                   {:docCount 1
+                    :candidateFileCount 2
+                    :architectureSupportBoost 5.25
+                    :matchedTokenCount 5
+                    :rankScore 21.4})
+              (row "migrations/.env"
+                   4
+                   {:candidateFileCount 2
+                    :architectureSupportBoost 1.25
+                    :matchedTokenCount 3
+                    :rankScore 10.3})]
+        kind-by-path {"ansible/files/kong_config/kong.env.j2" "env"
+                      "migrations/.env" "env"
+                      "migrations/db/migrations/event-trigger.sql" "sql"}]
+    (is (= ["migrations/.env"
+            "migrations/db/migrations/event-trigger.sql"
+            "ansible/files/kong_config/kong.env.j2"]
+           (mapv :path (prioritize ["env" "sql"] kind-by-path rows))))))
+
+(deftest source-kind-lanes-require-competitive-support-score
+  (let [prioritize @#'benchmark-prediction/prioritize-coverage-source-lanes
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        rows [(row "site/src/pages/docs/index.astro"
+                   1
+                   {:candidateFileCount 2
+                    :architectureSupportBoost 1.25
+                    :matchedTokenCount 3
+                    :rankScore 9.8})
+              (row "site/src/pages/index.astro"
+                   2
+                   {:candidateFileCount 1
+                    :matchedTokenCount 4
+                    :rankScore 15.0})
+              (row "site/src/pages/docs/[version]/examples/index.astro"
+                   3
+                   {:candidateFileCount 1
+                    :matchedTokenCount 3
+                    :rankScore 8.8})]
+        kind-by-path {"site/src/pages/docs/index.astro" "web-framework"
+                      "site/src/pages/index.astro" "web-framework"
+                      "site/src/pages/docs/[version]/examples/index.astro" "web-framework"}]
+    (is (= ["site/src/pages/index.astro"
+            "site/src/pages/docs/index.astro"
+            "site/src/pages/docs/[version]/examples/index.astro"]
+           (mapv :path (prioritize ["web-framework"] kind-by-path rows))))))
+
+(deftest source-kind-lanes-allow-direct-identity-support-below-score-floor
+  (let [prioritize @#'benchmark-prediction/prioritize-coverage-source-lanes
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        rows [(row "tests/setup/server.js"
+                   1
+                   {:candidateFileCount 1
+                    :docCount 1
+                    :matchedTokenCount 5
+                    :rankScore 21.0})
+              (row "tests/unit/adapters/fetch.test.js"
+                   2
+                   {:candidateFileCount 2
+                    :docCount 1
+                    :architectureSupportBoost 4.7
+                    :matchedTokenCount 9
+                    :rankScore 17.4})
+              (row "tests/unit/adapters/http.test.js"
+                   6
+                   {:candidateFileCount 2
+                    :directFileCandidateCount 1
+                    :fileIdentitySupportLabelCount 4
+                    :architectureSupportBoost 5.0
+                    :matchedTokenCount 8
+                    :rankScore 14.6})]
+        kind-by-path {"tests/setup/server.js" "javascript"
+                      "tests/unit/adapters/fetch.test.js" "javascript"
+                      "tests/unit/adapters/http.test.js" "javascript"}]
+    (is (= ["tests/unit/adapters/http.test.js"
+            "tests/setup/server.js"
+            "tests/unit/adapters/fetch.test.js"]
+           (mapv :path (prioritize ["javascript"] kind-by-path rows))))))
 
 (deftest limited-agent-result-prunes-unsaturated-decision-tail
   (let [select-limited @#'benchmark-prediction/select-limited-suspected-files
