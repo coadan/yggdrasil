@@ -1134,6 +1134,25 @@
             :commandless false}
            (:commandTelemetry diagnostic)))))
 
+(deftest agent-output-diagnostic-keeps-internal-ripgrep-out-of-shell-search-counts
+  (let [diagnostic (#'benchmark/agent-output-diagnostic
+                    {:agent {:commands []
+                             :topFiles [{:path "src/app.clj"}]}
+                     :yggHints {:search {:instrumentation {:grep-searches 2
+                                                           :grep-search-ms 31
+                                                           :grep-raw-matches 7}}}})]
+    (is (= {:commandCount 0
+            :searchCommandCount 0
+            :internalRipgrepSearchCount 2
+            :internalRipgrepElapsedMs 31
+            :internalRipgrepMatchCount 7}
+           (select-keys (:commandTelemetry diagnostic)
+                        [:commandCount
+                         :searchCommandCount
+                         :internalRipgrepSearchCount
+                         :internalRipgrepElapsedMs
+                         :internalRipgrepMatchCount])))))
+
 (deftest agent-output-diagnostic-counts-compound-command-segments
   (let [diagnostic (#'benchmark/agent-output-diagnostic
                     {:agent {:commands ["cat src/app.clj | rg broken"

@@ -41,6 +41,8 @@
 (def ^:private aggregate-ranked-file-diagnostic-limit
   20)
 
+(declare result-hints)
+
 (def ^:private aggregate-score-keys
   [:fileRecallAt5
    :fileRecallAt10
@@ -226,9 +228,11 @@
         raw-count (long (or (get-in result [:agent :rawSuspectedFileCount])
                             (count top-files)))
         ranked-count (long (count top-files))
-        command-telemetry (command-telemetry
-                           commands
-                           {:candidate-paths (keep :path top-files)})
+        command-telemetry (merge (command-telemetry
+                                  commands
+                                  {:candidate-paths (keep :path top-files)})
+                                 (benchmark-command-telemetry/internal-ripgrep-telemetry
+                                  (result-hints result)))
         command-count (:commandCount command-telemetry)
         prepared-evidence-only? (prepared-ygg-evidence-only? result top-files)
         candidate-count (:candidateFiles selection)

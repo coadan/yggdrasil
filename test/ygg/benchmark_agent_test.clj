@@ -319,7 +319,18 @@
                         :declarations [{:label "connector/contract"
                                         :kind "clj-var"
                                         :sourceLine 42}]
-                        :evidence ["prepared-declaration:src/connector.clj lines 42 label=\"connector/contract\""]}]}})
+                        :evidence ["prepared-declaration:src/connector.clj lines 42 label=\"connector/contract\""]}]}
+                     :relatedFiles
+                     [{:rank 1
+                       :path "src/consumer.clj"
+                       :relation "imports-package"
+                       :via [{:seedPath "src/connector.clj"
+                              :sourceLine 7}]
+                       :evidence ["source-graph: src/connector.clj imports src/consumer line 7"]}
+                      {:rank 2
+                       :path "src/ignored-helper.clj"
+                       :relation "same-directory"
+                       :evidence ["source-graph: same directory"]}]})
         prompt (#'benchmark/agent-run-prompt
                 {:suite-id "suite"
                  :case-id "case-1"
@@ -365,6 +376,18 @@
                        "at most 2 evidence strings per file"))
     (is (str/includes? prompt
                        "summary, reasons, and evidence to short single sentences"))
+    (is (str/includes? prompt
+                       "Do not emit provisional JSON before local inspection"))
+    (is (str/includes? prompt
+                       "primary package contract file as the suspectedFile"))
+    (is (str/includes? prompt
+                       "related graph files from import-package edges"))
+    (is (str/includes? prompt
+                       "Related graph files from prepared import edges"))
+    (is (str/includes? prompt "src/consumer.clj"))
+    (is (str/includes? prompt
+                       "source-graph: src/connector.clj imports src/consumer line 7"))
+    (is (not (str/includes? prompt "src/ignored-helper.clj")))
     (is (not (str/includes? prompt "Yggdrasil hints JSON: /tmp/hints.json")))
     (is (not (str/includes? prompt "Yggdrasil context JSON: /tmp/context.json")))
     (is (str/includes? prompt "Yggdrasil is prepared and warm"))
@@ -1948,6 +1971,30 @@
            (:auditScopes hints)))
     (is (not (contains? hints :groundTruth)))
     (is (not (contains? hints :inputHints)))))
+
+(deftest context-packet-agent-hints-preserve-search-instrumentation
+  (let [prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "project"
+                  :worktreeRoot "/tmp/repo"
+                  :worktreeRoots {"repo" "/tmp/repo"}
+                  :coverage {:declaredSourceKinds []}}
+        packet {:query "connector"
+                :search {:instrumentation {:grep-searches 2
+                                           :grep-search-ms 17
+                                           :grep-raw-matches 11}}
+                :candidateFiles []
+                :docs []
+                :entities []
+                :edges []
+                :warnings []}
+        hints (benchmark/context-packet->agent-hints prepared packet {})]
+    (is (= {:instrumentation {:grep-searches 2
+                              :grep-search-ms 17
+                              :grep-raw-matches 11}}
+           (:search hints)))))
+
 (deftest context-packet-agent-result-uses-scanned-kind-for-extensionless-files
   (let [root (temp-dir "ygg-bench-extensionless-coverage")
         _ (spit-file! root "test/fast/Unit tests/nvm_remote_version"
