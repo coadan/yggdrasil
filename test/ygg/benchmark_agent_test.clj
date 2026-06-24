@@ -4277,6 +4277,37 @@
     (is (some #{"src/flask/sansio/app.py"} paths))
     (is (not-any? #{"src/head-12.py"} paths))))
 
+(deftest compact-output-reserves-co-located-direct-candidate
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        doc-row (fn [path rank tokens]
+                  {:path path
+                   :rank rank
+                   :metrics {:docCount 1
+                             :candidateFileCount 1
+                             :matchedTokenCount tokens}})
+        direct-row (fn [path rank source-rank]
+                     {:path path
+                      :rank rank
+                      :metrics {:docCount 0
+                                :candidateFileCount 1
+                                :directFileCandidateCount 1
+                                :matchedTokenCount 4
+                                :candidateSourceRank source-rank
+                                :sourceGraphCandidateEvidenceScore 4.0}})
+        files [(doc-row "variables.tf" 1 8)
+               (doc-row "vpc-flow-logs.tf" 2 7)
+               (doc-row "modules/flow-log/main.tf" 3 7)
+               (direct-row "modules/vpc-endpoints/main.tf" 4 4)
+               (direct-row "main.tf" 12 12)
+               (direct-row "wrappers/flow-log/main.tf" 13 13)]
+        selected (compact-output files 5 nil)]
+    (is (= ["variables.tf"
+            "vpc-flow-logs.tf"
+            "main.tf"
+            "modules/flow-log/main.tf"
+            "modules/vpc-endpoints/main.tf"]
+           (mapv :path selected)))))
+
 (deftest compact-output-reserves-doc-supported-and-identity-supported-rows
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]

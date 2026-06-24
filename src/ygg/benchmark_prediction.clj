@@ -2612,6 +2612,70 @@
        (sort-by query-evidence-source-candidate-key)
        first))
 
+(defn- path-directory
+  [path]
+  (let [path (str path)
+        idx (.lastIndexOf path "/")]
+    (if (neg? idx)
+      ""
+      (subs path 0 idx))))
+
+(defn- path-depth
+  [dir]
+  (if (str/blank? dir)
+    0
+    (count (remove str/blank? (str/split (str dir) #"/")))))
+
+(defn- compact-output-directory-counts
+  [rows]
+  (frequencies (map #(path-directory (:path %)) rows)))
+
+(defn- compact-output-co-located-candidate-key
+  [directory-counts row]
+  (let [dir (path-directory (:path row))]
+    [(- (long (or (get directory-counts dir) 0)))
+     (path-depth dir)
+     (row-candidate-source-rank row)
+     (:rank row)
+     (:repo-id row)
+     (:path row)]))
+
+(defn- compact-output-co-located-sort-rank
+  [files selected-rows row]
+  (let [dir (path-directory (:path row))
+        row-rank (or (:rank row) Long/MAX_VALUE)
+        same-dir-ranks (->> (concat selected-rows files)
+                            (filter #(= dir (path-directory (:path %))))
+                            (filter #(pos? (positive-metric % :docCount)))
+                            (filter #(< (or (:rank %) Long/MAX_VALUE)
+                                        row-rank))
+                            (keep :rank)
+                            seq)]
+    (if same-dir-ranks
+      (+ (double (apply max same-dir-ranks)) 0.5)
+      (double (or (:rank row) Long/MAX_VALUE)))))
+
+(defn- compact-output-co-located-candidate-row
+  [files selected-keys selected-rows]
+  (let [directory-counts (compact-output-directory-counts selected-rows)]
+    (->> files
+         (filter #(let [dir (path-directory (:path %))]
+                    (and (not (contains? selected-keys (file-row-key %)))
+                         (pos? (long (or (get directory-counts dir) 0)))
+                         (direct-file-candidate-row? %)
+                         (pos? (row-metric-double
+                                %
+                                :sourceGraphCandidateEvidenceScore))
+                         (<= candidate-file-only-query-evidence-token-min
+                             (positive-metric % :matchedTokenCount)))))
+         (sort-by #(compact-output-co-located-candidate-key directory-counts %))
+         first
+         (#(when %
+             (assoc % ::compact-output-sort-rank
+                    (compact-output-co-located-sort-rank files
+                                                         selected-rows
+                                                         %)))))))
+
 (defn- add-compact-output-row
   [selected row]
   (if (and row (not (contains? (:keys selected) (file-row-key row))))
@@ -2670,6 +2734,12 @@
                       (compact-output-query-evidence-source-row
                        files
                        (:keys selected)))
+            selected (add-compact-output-row
+                      selected
+                      (compact-output-co-located-candidate-row
+                       files
+                       (:keys selected)
+                       (:rows selected)))
             minimum-count (min limit 2)
             selected (if (< (count (:rows selected)) minimum-count)
                        (reduce add-compact-output-row
@@ -2682,7 +2752,10 @@
             selected (fill-compact-output-selection selected files limit)]
         (->> (:rows selected)
              (take limit)
-             (sort-by #(or (:rank %) Long/MAX_VALUE))
+             (sort-by #(or (::compact-output-sort-rank %)
+                           (:rank %)
+                           Long/MAX_VALUE))
+             (map #(dissoc % ::compact-output-sort-rank))
              renumber-file-ranks)))))
 
 (defn- decision-file-by-path
