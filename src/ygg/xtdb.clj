@@ -197,11 +197,12 @@
   (loop [remaining (seq coll)
          seen #{}
          out []]
-    (if-let [value (first remaining)]
-      (if (or (nil? value)
-              (contains? seen value))
-        (recur (next remaining) seen out)
-        (recur (next remaining) (conj seen value) (conj out value)))
+    (if (seq remaining)
+      (let [value (first remaining)]
+        (if (or (nil? value)
+                (contains? seen value))
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen value) (conj out value))))
       out)))
 
 (declare fallback-constrained-rows rows-by-field)
@@ -410,6 +411,19 @@
                   (some nil? values))
       (zipmap tuple-fields values))))
 
+(defn- distinct-match-tuples
+  [tuple-fields tuples]
+  (loop [remaining (seq tuples)
+         seen #{}
+         out []]
+    (if (seq remaining)
+      (let [tuple (normalize-match-tuple tuple-fields (first remaining))]
+        (if (or (nil? tuple)
+                (contains? seen tuple))
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen tuple) (conj out tuple))))
+      out)))
+
 (defn rows-with-field-values
   "Return rows where field equals any value.
 
@@ -450,10 +464,7 @@
          :or {constraints {}
               read-context {}}}]
   (let [tuple-fields (vec tuple-fields)
-        tuples (->> tuples
-                    (keep #(normalize-match-tuple tuple-fields %))
-                    distinct
-                    vec)
+        tuples (distinct-match-tuples tuple-fields tuples)
         tuple-key (fn [row] (mapv #(get row %) tuple-fields))]
     (cond
       (or (empty? tuple-fields) (empty? tuples))
