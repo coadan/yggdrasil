@@ -62,7 +62,8 @@
 
 (defn- filter-scope
   [rows opts]
-  (filter #(scope-match? (effective-scope opts) %) rows))
+  (let [scope (effective-scope opts)]
+    (filter #(scope-match? scope %) rows)))
 
 (defn- scope-constraints
   [opts]
@@ -93,14 +94,15 @@
 
 (defn- distinct-by
   [f coll]
-  (first
-   (reduce (fn [[rows seen] row]
-             (let [k (f row)]
-               (if (contains? seen k)
-                 [rows seen]
-                 [(conj rows row) (conj seen k)])))
-           [[] #{}]
-           coll)))
+  (loop [remaining (seq coll)
+         seen #{}
+         out []]
+    (if-let [row (first remaining)]
+      (let [k (f row)]
+        (if (contains? seen k)
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen k) (conj out row))))
+      out)))
 
 (declare all-nodes all-edges all-system-nodes)
 
@@ -242,18 +244,20 @@
 (defn- rows-by-ids
   [xtdb table ids opts all-fn return-fields]
   (let [ids (distinct-by identity ids)
-        id-set (set ids)
-        rows (if (store/xtdb-handle? xtdb)
-               (store/rows-with-field-values
-                xtdb
-                {:table table
-                 :field :xt/id
-                 :values ids
-                 :constraints (scope-constraints opts)
-                 :return-fields return-fields
-                 :read-context (read-context opts)})
-               (filter #(contains? id-set (:xt/id %)) (all-fn xtdb opts)))]
-    (filter-scope (keep (into {} (map (juxt :xt/id identity)) rows) ids) opts)))
+        id-set (set ids)]
+    (if (empty? ids)
+      []
+      (let [rows (if (store/xtdb-handle? xtdb)
+                   (store/rows-with-field-values
+                    xtdb
+                    {:table table
+                     :field :xt/id
+                     :values ids
+                     :constraints (scope-constraints opts)
+                     :return-fields return-fields
+                     :read-context (read-context opts)})
+                   (filter #(contains? id-set (:xt/id %)) (all-fn xtdb opts)))]
+        (filter-scope (keep (into {} (map (juxt :xt/id identity)) rows) ids) opts)))))
 
 (defn nodes-by-ids
   "Return node rows for concrete node ids within the requested scope."
@@ -262,17 +266,19 @@
 
 (defn- rows-by-field-values
   [xtdb table field values opts return-fields]
-  (let [values (distinct-by identity values)
-        rows (store/rows-with-field-values
-              xtdb
-              {:table table
-               :field field
-               :values values
-               :constraints (scope-constraints opts)
-               :return-fields return-fields
-               :read-context (read-context opts)})
-        rows-by-value (group-by field (filter-scope rows opts))]
-    (mapcat #(get rows-by-value % []) values)))
+  (let [values (distinct-by identity values)]
+    (if (empty? values)
+      []
+      (let [rows (store/rows-with-field-values
+                  xtdb
+                  {:table table
+                   :field field
+                   :values values
+                   :constraints (scope-constraints opts)
+                   :return-fields return-fields
+                   :read-context (read-context opts)})
+            rows-by-value (group-by field (filter-scope rows opts))]
+        (mapcat #(get rows-by-value % []) values)))))
 
 (defn nodes-by-file-ids
   "Return node rows for concrete file ids within the requested scope."
@@ -431,17 +437,19 @@
 (defn chunks-by-paths
   "Return chunk rows for concrete file paths within the requested scope."
   [xtdb paths opts]
-  (let [paths (distinct-by identity paths)
-        rows (store/rows-with-field-values
-              xtdb
-              {:table (:chunks store/tables)
-               :field :path
-               :values paths
-               :constraints (scope-constraints opts)
-               :return-fields chunk-row-query-fields
-               :read-context (read-context opts)})
-        rows-by-path (group-by :path (filter-scope rows opts))]
-    (mapcat #(get rows-by-path % []) paths)))
+  (let [paths (distinct-by identity paths)]
+    (if (empty? paths)
+      []
+      (let [rows (store/rows-with-field-values
+                  xtdb
+                  {:table (:chunks store/tables)
+                   :field :path
+                   :values paths
+                   :constraints (scope-constraints opts)
+                   :return-fields chunk-row-query-fields
+                   :read-context (read-context opts)})
+            rows-by-path (group-by :path (filter-scope rows opts))]
+        (mapcat #(get rows-by-path % []) paths)))))
 
 (defn all-diagnostics
   ([xtdb] (all-diagnostics xtdb {}))
@@ -486,19 +494,20 @@
 (defn- system-evidence-by-field-values
   [xtdb field values opts]
   (let [values (distinct-by identity values)
-        value-set (set values)
-        rows (if (store/xtdb-handle? xtdb)
-               (store/rows-with-field-values
-                xtdb
-                {:table (:system-evidence store/tables)
-                 :field field
-                 :values values
-                 :constraints (assoc (scope-constraints opts) :active? true)
-                 :return-fields system-evidence-row-query-fields
-                 :read-context (read-context opts)})
-               (filter #(contains? value-set (get % field))
-                       (all-system-evidence xtdb opts)))]
-    rows))
+        value-set (set values)]
+    (if (empty? values)
+      []
+      (if (store/xtdb-handle? xtdb)
+        (store/rows-with-field-values
+         xtdb
+         {:table (:system-evidence store/tables)
+          :field field
+          :values values
+          :constraints (assoc (scope-constraints opts) :active? true)
+          :return-fields system-evidence-row-query-fields
+          :read-context (read-context opts)})
+        (filter #(contains? value-set (get % field))
+                (all-system-evidence xtdb opts))))))
 
 (defn system-evidence-by-ids
   "Return active system evidence rows for concrete ids within the requested scope."
@@ -519,17 +528,19 @@
 
 (defn- edges-from-source-ids
   [xtdb ids opts]
-  (->> (store/rows-with-field-values
-        xtdb
-        {:table (:edges store/tables)
-         :field :source-id
-         :values ids
-         :constraints (scope-constraints opts)
-         :return-fields path-edge-row-query-fields
-         :read-context (read-context opts)})
-       (#(filter-scope % opts))
-       (distinct-by :xt/id)
-       vec))
+  (if (empty? ids)
+    []
+    (->> (store/rows-with-field-values
+          xtdb
+          {:table (:edges store/tables)
+           :field :source-id
+           :values ids
+           :constraints (scope-constraints opts)
+           :return-fields path-edge-row-query-fields
+           :read-context (read-context opts)})
+         (#(filter-scope % opts))
+         (distinct-by :xt/id)
+         vec)))
 
 (defn system-edges-touching-ids
   "Return active system edges whose source or target is in ids.
@@ -538,59 +549,65 @@
   batched-value helper. Non-XTDB tests keep the same visible row semantics via
   the store fallback boundary."
   [xtdb ids opts]
-  (let [constraints (assoc (scope-constraints opts) :active? true)
-        ctx (read-context opts)
-        min-confidence (some-> (:min-confidence opts) double)
-        confidence-filter (when (some? min-confidence)
-                            {:min-field :confidence
-                             :min-value min-confidence})
-        rows (concat
-              (store/rows-with-field-values
-               xtdb
-               (merge {:table (:system-edges store/tables)
-                       :field :source-id
-                       :values ids
-                       :constraints constraints
-                       :return-fields system-edge-row-query-fields
-                       :read-context ctx}
-                      confidence-filter))
-              (store/rows-with-field-values
-               xtdb
-               (merge {:table (:system-edges store/tables)
-                       :field :target-id
-                       :values ids
-                       :constraints constraints
-                       :return-fields system-edge-row-query-fields
-                       :read-context ctx}
-                      confidence-filter)))]
-    (->> rows
-         (filter :active?)
-         (#(filter-scope % opts))
-         (distinct-by :xt/id)
-         vec)))
+  (if (empty? ids)
+    []
+    (let [constraints (assoc (scope-constraints opts) :active? true)
+          ctx (read-context opts)
+          min-confidence (some-> (:min-confidence opts) double)
+          confidence-filter (when (some? min-confidence)
+                              {:min-field :confidence
+                               :min-value min-confidence})
+          rows (concat
+                (store/rows-with-field-values
+                 xtdb
+                 (merge {:table (:system-edges store/tables)
+                         :field :source-id
+                         :values ids
+                         :constraints constraints
+                         :return-fields system-edge-row-query-fields
+                         :read-context ctx}
+                        confidence-filter))
+                (store/rows-with-field-values
+                 xtdb
+                 (merge {:table (:system-edges store/tables)
+                         :field :target-id
+                         :values ids
+                         :constraints constraints
+                         :return-fields system-edge-row-query-fields
+                         :read-context ctx}
+                        confidence-filter)))]
+      (->> rows
+           (filter :active?)
+           (#(filter-scope % opts))
+           (distinct-by :xt/id)
+           vec))))
 
 (defn- system-edges-from-source-ids
   [xtdb ids opts]
-  (let [constraints (assoc (scope-constraints opts) :active? true)]
-    (->> (store/rows-with-field-values
-          xtdb
-          {:table (:system-edges store/tables)
-           :field :source-id
-           :values ids
-           :constraints constraints
-           :return-fields (scoped-system-path-edge-row-query-fields opts)
-           :read-context (read-context opts)})
-         (filter :active?)
-         (#(filter-scope % opts))
-         (distinct-by :xt/id)
-         vec)))
+  (if (empty? ids)
+    []
+    (let [constraints (assoc (scope-constraints opts) :active? true)]
+      (->> (store/rows-with-field-values
+            xtdb
+            {:table (:system-edges store/tables)
+             :field :source-id
+             :values ids
+             :constraints constraints
+             :return-fields (scoped-system-path-edge-row-query-fields opts)
+             :read-context (read-context opts)})
+           (filter :active?)
+           (#(filter-scope % opts))
+           (distinct-by :xt/id)
+           vec))))
 
 (defn- edges-touching-ids
   [xtdb ids opts]
-  (vec (store/edge-rows-touching-ids xtdb
-                                     ids
-                                     (scope-constraints opts)
-                                     (read-context opts))))
+  (if (empty? ids)
+    []
+    (vec (store/edge-rows-touching-ids xtdb
+                                       ids
+                                       (scope-constraints opts)
+                                       (read-context opts)))))
 
 (defn edges-touching-node-ids
   "Return source graph edges whose source or target is one of the supplied ids."
@@ -767,45 +784,40 @@
 
 (defn- token-frequencies
   [query-token-set tokens]
-  (reduce (fn [freqs token]
-            (if (contains? query-token-set token)
-              (update freqs token (fnil inc 0))
-              freqs))
-          {}
-          tokens))
-
-(defn- lexical-doc-stat
-  [query-token-set doc]
-  (let [tokens (:tokens doc)]
-    {:doc doc
-     :token-count (count tokens)
-     :query-token-frequencies (token-frequencies query-token-set tokens)}))
-
-(defn- document-frequencies-from-stats
-  [doc-stats]
-  (reduce
-   (fn [acc {:keys [query-token-frequencies]}]
-     (reduce #(update %1 %2 (fnil inc 0))
-             acc
-             (keys query-token-frequencies)))
-   {}
-   doc-stats))
+  (if (empty? query-token-set)
+    {}
+    (reduce (fn [freqs token]
+              (if (contains? query-token-set token)
+                (update freqs token (fnil inc 0))
+                freqs))
+            {}
+            tokens)))
 
 (defn- lexical-score-input
   [query-token-set docs]
   (reduce
    (fn [state doc]
-     (let [{:keys [token-count query-token-frequencies] :as stat} (lexical-doc-stat
-                                                                   query-token-set
-                                                                   doc)
+     (let [tokens (:tokens doc)
+           token-count (count tokens)
+           query-token-frequencies (token-frequencies query-token-set tokens)
            scored-doc? (or (seq query-token-frequencies)
                            (and (zero? token-count)
                                 (number? (:score doc))))
            state (update state :token-total + token-count)]
        (cond-> state
          scored-doc?
-         (update :doc-stats conj stat))))
+         (update :doc-stats conj {:doc doc
+                                  :token-count token-count
+                                  :query-token-frequencies query-token-frequencies})
+
+         (seq query-token-frequencies)
+         (update :doc-freqs
+                 #(reduce (fn [doc-freqs token]
+                            (update doc-freqs token (fnil inc 0)))
+                          %
+                          (keys query-token-frequencies))))))
    {:token-total 0
+    :doc-freqs {}
     :doc-stats []}
    docs))
 
@@ -1020,16 +1032,16 @@
                                  :grep-searches (count search-results)
                                  :grep-raw-matches (reduce + 0 (map :match-count search-results))
                                  :grep-indexed-paths matched-indexed-paths
-                                 :grep-candidates (count (filter (comp pos? val) scores))
+                                 :grep-candidates (count scores)
                                  :grep-diagnostic-kinds (diagnostic-kind-counts all-diagnostics)}})))))))
 
 (defn- lexical-scores
   [query-tokens docs]
   (let [doc-count (max 1 (count docs))
         query-token-set (set query-tokens)
-        {:keys [doc-stats token-total]} (lexical-score-input query-token-set
-                                                             docs)
-        doc-freqs (document-frequencies-from-stats doc-stats)
+        {:keys [doc-stats doc-freqs token-total]} (lexical-score-input
+                                                   query-token-set
+                                                   docs)
         idf-by-token (inverse-document-frequencies query-tokens doc-freqs doc-count)
         avgdl (max 1.0 (/ (double token-total) doc-count))]
     (->> doc-stats
@@ -1047,66 +1059,95 @@
          (into {})
          normalize-scores)))
 
-(defn- current-embeddings-by-target
-  [docs embeddings provider model]
+(defn- semantic-scores
+  [query-vector docs embeddings provider model]
   (let [current-inputs (into {}
                              (map (juxt :target-id :input-sha))
                              docs)]
-    (->> embeddings
-         (filter #(and (= provider (:provider %))
-                       (= model (:model %))
-                       (= (:input-sha %) (get current-inputs (:target-id %)))))
-         (map (juxt :target-id identity))
-         (into {}))))
+    (reduce
+     (fn [scores row]
+       (let [target-id (:target-id row)]
+         (if (and (= provider (:provider row))
+                  (= model (:model row))
+                  (= (:input-sha row) (get current-inputs target-id)))
+           (let [score (embedding/cosine01 query-vector (:vector row))]
+             (if (pos? score)
+               (assoc scores target-id score)
+               scores))
+           scores)))
+     {}
+     embeddings)))
 
-(defn- semantic-scores
-  [query-vector docs embeddings provider model]
-  (let [embeddings-by-target (current-embeddings-by-target docs embeddings provider model)]
-    (->> docs
-         (keep (fn [doc]
-                 (when-let [row (get embeddings-by-target (:target-id doc))]
-                   [(:target-id doc)
-                    (embedding/cosine01 query-vector (:vector row))])))
-         (into {}))))
+(defn- score-entry-sort-key
+  [[_ score]]
+  (- score))
+
+(defn- bounded-score-entries
+  [entries entry n]
+  (let [entries (conj (or entries []) entry)]
+    (if (<= (count entries) n)
+      entries
+      (vec (take n (sort-by score-entry-sort-key entries))))))
 
 (defn- top-ids
   [scores n]
-  (->> scores
-       (filter (comp pos? val))
-       (sort-by (comp - val))
-       (take n)
-       (mapv key)))
+  (if (pos? n)
+    (->> scores
+         (reduce
+          (fn [entries entry]
+            (if (pos? (double (val entry)))
+              (bounded-score-entries entries entry n)
+              entries))
+          [])
+         (sort-by score-entry-sort-key)
+         (mapv key))
+    []))
 
-(defn- positive-count
-  [scores]
-  (count (filter (comp pos? val) scores)))
+(defn- update-rows-by-kind-counts
+  [counts row]
+  (update counts (:target-kind row) (fnil inc 0)))
 
 (defn- rows-by-kind
   [rows]
-  (reduce
-   (fn [counts row]
-     (update counts (:target-kind row) (fnil inc 0)))
-   (sorted-map)
-   rows))
+  (reduce update-rows-by-kind-counts (sorted-map) rows))
+
+(defn- candidate-sort-key
+  [candidate]
+  [(- (:score candidate)) (:label candidate) (:path candidate)])
+
+(defn- bounded-kind-candidates
+  [candidates candidate n]
+  (let [candidates (conj (or candidates []) candidate)]
+    (if (<= (count candidates) n)
+      candidates
+      (vec (take n (sort-by candidate-sort-key candidates))))))
 
 (defn- top-ids-by-kind
   [scores docs n]
-  (->> docs
-       (keep (fn [doc]
-               (let [score (double (get scores (:target-id doc) 0.0))]
-                 (when (pos? score)
-                   {:target-id (:target-id doc)
-                    :group [(:target-kind doc) (or (:kind doc) :unknown)]
-                    :score score
-                    :label (:label doc)
-                    :path (:path doc)}))))
-       (group-by :group)
-       vals
-       (mapcat #(->> %
-                     (sort-by (juxt (comp - :score) :label :path))
-                     (take n)
-                     (map :target-id)))
-       vec))
+  (if (pos? n)
+    (->> docs
+         (reduce
+          (fn [candidates-by-kind doc]
+            (let [score (double (get scores (:target-id doc) 0.0))]
+              (if (pos? score)
+                (let [candidate {:target-id (:target-id doc)
+                                 :score score
+                                 :label (:label doc)
+                                 :path (:path doc)}
+                      group [(:target-kind doc) (or (:kind doc) :unknown)]]
+                  (update candidates-by-kind
+                          group
+                          bounded-kind-candidates
+                          candidate
+                          n))
+                candidates-by-kind)))
+          {})
+         vals
+         (mapcat #(->> %
+                       (sort-by candidate-sort-key)
+                       (map :target-id)))
+         vec)
+    []))
 
 (defn- concrete-path?
   [path]
@@ -1135,28 +1176,59 @@
 
 (defn- matching-query-token-count
   [query-token-set text]
-  (if (empty? query-token-set)
-    0
-    (let [text-token-set (set (text/tokenize text))]
-      (count (filter text-token-set query-token-set)))))
+  (let [query-token-count (count query-token-set)]
+    (if (zero? query-token-count)
+      0
+      (count
+       (reduce
+        (fn [matches token]
+          (if (contains? query-token-set token)
+            (let [matches (conj matches token)]
+              (if (= query-token-count (count matches))
+                (reduced matches)
+                matches))
+            matches))
+        #{}
+        (text/tokenize text))))))
+
+(defn- path-token-sort-key
+  [candidate]
+  [(- (:matches candidate)) (:path candidate) (:label candidate)])
+
+(defn- bounded-path-token-candidates
+  [candidates candidate n]
+  (let [candidates (conj (or candidates []) candidate)]
+    (if (<= (count candidates) n)
+      candidates
+      (vec (take n (sort-by path-token-sort-key candidates))))))
 
 (defn- path-token-candidate-data
   [query-token-set docs n]
-  (let [matches (->> docs
-                     (keep (fn [doc]
-                             (let [match-count (long (matching-query-token-count
-                                                      query-token-set
-                                                      (:path doc)))]
-                               (when (pos? match-count)
-                                 {:target-id (:target-id doc)
-                                  :matches match-count
-                                  :path (:path doc)
-                                  :label (:label doc)}))))
-                     vec)]
-    {:match-counts (into {} (map (juxt :target-id :matches)) matches)
-     :candidate-ids (->> matches
-                         (sort-by (juxt (comp - :matches) :path :label))
-                         (take n)
+  (let [{:keys [match-counts candidates]} (reduce
+                                           (fn [state doc]
+                                             (let [match-count (long (matching-query-token-count
+                                                                      query-token-set
+                                                                      (:path doc)))]
+                                               (if (pos? match-count)
+                                                 (let [candidate {:target-id (:target-id doc)
+                                                                  :matches match-count
+                                                                  :path (:path doc)
+                                                                  :label (:label doc)}]
+                                                   (cond-> (assoc-in state
+                                                                     [:match-counts (:target-id doc)]
+                                                                     match-count)
+                                                     (pos? n)
+                                                     (update :candidates
+                                                             bounded-path-token-candidates
+                                                             candidate
+                                                             n)))
+                                                 state)))
+                                           {:match-counts {}
+                                            :candidates []}
+                                           docs)]
+    {:match-counts match-counts
+     :candidate-ids (->> candidates
+                         (sort-by path-token-sort-key)
                          (mapv :target-id))}))
 
 (def relation-graph-weights
@@ -1169,25 +1241,26 @@
    :declares-module 0.4
    :defines 0.2})
 
+(defn- update-neighbor-score
+  [scores id score]
+  (update scores id #(max (double (or % 0.0)) score)))
+
 (defn- graph-neighbor-scores
   [edges seed-ids]
   (let [seeds (set seed-ids)]
-    (->> edges
-         (filter #(or (contains? seeds (:source-id %))
-                      (contains? seeds (:target-id %))))
-         (mapcat (fn [{:keys [source-id target-id relation]}]
-                   (let [score (double (get relation-graph-weights relation 0.25))]
-                     (cond-> []
-                       (and (contains? seeds source-id)
-                            (not (contains? seeds target-id)))
-                       (conj [target-id score])
+    (reduce
+     (fn [scores {:keys [source-id target-id relation]}]
+       (let [source-seed? (contains? seeds source-id)
+             target-seed? (contains? seeds target-id)
+             score (double (get relation-graph-weights relation 0.25))]
+         (cond-> scores
+           (and source-seed? (not target-seed?))
+           (update-neighbor-score target-id score)
 
-                       (and (contains? seeds target-id)
-                            (not (contains? seeds source-id)))
-                       (conj [source-id score])))))
-         (reduce (fn [scores [id score]]
-                   (update scores id #(max (double (or % 0.0)) score)))
-                 {}))))
+           (and target-seed? (not source-seed?))
+           (update-neighbor-score source-id score))))
+     {}
+     edges)))
 
 (defn- same-label-expansion
   [docs seed-ids]
@@ -1226,14 +1299,17 @@
                                                                paths #{}
                                                                target-ids []}}]
                                                       (let [count (inc count)]
-                                                        (cond-> {:count count
-                                                                 :paths (cond-> paths
-                                                                          path (conj path))
-                                                                 :target-ids target-ids}
-                                                          (and (<= count
-                                                                   default-same-label-doc-label-fanout-limit)
-                                                               (not (contains? seed-set target-id)))
-                                                          (update :target-ids conj target-id))))))))
+                                                        (if (> count
+                                                               default-same-label-doc-label-fanout-limit)
+                                                          {:count count
+                                                           :paths paths
+                                                           :target-ids target-ids}
+                                                          (cond-> {:count count
+                                                                   :paths (cond-> paths
+                                                                            path (conj path))
+                                                                   :target-ids target-ids}
+                                                            (not (contains? seed-set target-id))
+                                                            (update :target-ids conj target-id)))))))))
                                              {:node-ids #{}
                                               :label-states {}}
                                              docs)
@@ -1265,19 +1341,26 @@
       (pos? (matching-query-token-count query-token-set (:label doc))) (+ 0.05 path-token-boost)
       :else path-token-boost)))
 
-(defn- docs-by-candidate-target
-  [docs candidate-ids]
-  (reduce
-   (fn [docs-by-target doc]
-     (let [target-id (:target-id doc)]
-       (if (contains? candidate-ids target-id)
-         (assoc docs-by-target target-id doc)
-         docs-by-target)))
-   {}
-   docs))
+(defn- ranked-result-sort-key
+  [row]
+  [(- (:score row)) (:label row) (:path row)])
+
+(defn- bounded-ranked-results
+  [results row n]
+  (let [results (conj (or results []) row)]
+    (if (<= (count results) n)
+      results
+      (vec (take n (sort-by ranked-result-sort-key results))))))
+
+(defn- add-ranked-result
+  [state row n]
+  (let [state (update state :ranked-count inc)]
+    (if (pos? n)
+      (update state :ranked bounded-ranked-results row n)
+      state)))
 
 (defn- ranked-candidates
-  [{:keys [query-text query-tokens docs lexical semantic grep neighbor-scores same-label-scores retriever]}]
+  [{:keys [query-text query-tokens docs lexical semantic grep neighbor-scores same-label-scores retriever limit]}]
   (let [query (str/lower-case (str/trim query-text))
         query-path-shaped? (path-shaped-query? query)
         query-token-set (set query-tokens)
@@ -1320,8 +1403,64 @@
                                   path-token-candidates
                                   (keys neighbor-scores)
                                   same-label-candidates)))
-        candidate-docs-by-target (docs-by-candidate-target docs candidates)
-        candidate-docs (vec (keep candidate-docs-by-target candidates))]
+        rank-limit (long (or limit Long/MAX_VALUE))
+        rank-data (reduce
+                   (fn [rank-data doc]
+                     (if (contains? candidates (:target-id doc))
+                       (let [rank-data (-> rank-data
+                                           (update :candidate-doc-count inc)
+                                           (update :candidates-by-kind
+                                                   update-rows-by-kind-counts
+                                                   doc))
+                             semantic-score (double (get semantic (:target-id doc) 0.0))
+                             lexical-score (double (get lexical (:target-id doc) 0.0))
+                             grep-score (double (get grep (:target-id doc) 0.0))
+                             graph-score (double (get neighbor-scores (:target-id doc) 0.0))
+                             same-label-score (double (get same-label-scores (:target-id doc) 0.0))
+                             exact-score (exact-match-boost query
+                                                            query-token-set
+                                                            query-path-shaped?
+                                                            path-token-match-counts
+                                                            doc)
+                             total (+ (case retriever
+                                        :semantic semantic-score
+                                        :lexical (+ lexical-score
+                                                    (* lexical-grep-weight grep-score)
+                                                    (* lexical-graph-weight graph-score)
+                                                    (* lexical-same-label-weight same-label-score))
+                                        (+ (* 0.70 semantic-score)
+                                           (* 0.20 lexical-score)
+                                           (* hybrid-grep-weight grep-score)
+                                           (* hybrid-graph-weight graph-score)
+                                           (* hybrid-same-label-weight same-label-score)))
+                                      exact-score)]
+                         (if (pos? total)
+                           (add-ranked-result
+                            rank-data
+                            (-> doc
+                                (assoc :result-kind (:target-kind doc)
+                                       :score total
+                                       :score-components {:semantic semantic-score
+                                                          :lexical lexical-score
+                                                          :grep grep-score
+                                                          :graph graph-score
+                                                          :sameLabel same-label-score
+                                                          :exact exact-score}
+                                       :reason (cond
+                                                 (pos? semantic-score) "embedding match"
+                                                 (pos? lexical-score) "lexical match"
+                                                 (pos? grep-score) "literal grep match"
+                                                 (pos? graph-score) "graph neighbor"
+                                                 (pos? same-label-score) "same-label candidate"
+                                                 :else "candidate")))
+                            rank-limit)
+                           rank-data))
+                       rank-data))
+                   {:ranked []
+                    :ranked-count 0
+                    :candidate-doc-count 0
+                    :candidates-by-kind (sorted-map)}
+                   docs)]
     {:semantic-candidates (set semantic-candidates)
      :lexical-candidates (set lexical-candidates)
      :grep-candidates (set grep-candidates)
@@ -1329,49 +1468,11 @@
      :path-token-candidates (set path-token-candidates)
      :same-label-candidates (set same-label-candidates)
      :candidates candidates
-     :candidate-docs candidate-docs
-     :ranked (->> candidate-docs
-                  (map (fn [doc]
-                         (let [semantic-score (double (get semantic (:target-id doc) 0.0))
-                               lexical-score (double (get lexical (:target-id doc) 0.0))
-                               grep-score (double (get grep (:target-id doc) 0.0))
-                               graph-score (double (get neighbor-scores (:target-id doc) 0.0))
-                               same-label-score (double (get same-label-scores (:target-id doc) 0.0))
-                               exact-score (exact-match-boost query
-                                                              query-token-set
-                                                              query-path-shaped?
-                                                              path-token-match-counts
-                                                              doc)
-                               total (+ (case retriever
-                                          :semantic semantic-score
-                                          :lexical (+ lexical-score
-                                                      (* lexical-grep-weight grep-score)
-                                                      (* lexical-graph-weight graph-score)
-                                                      (* lexical-same-label-weight same-label-score))
-                                          (+ (* 0.70 semantic-score)
-                                             (* 0.20 lexical-score)
-                                             (* hybrid-grep-weight grep-score)
-                                             (* hybrid-graph-weight graph-score)
-                                             (* hybrid-same-label-weight same-label-score)))
-                                        exact-score)]
-                           (-> doc
-                               (assoc :result-kind (:target-kind doc)
-                                      :score total
-                                      :score-components {:semantic semantic-score
-                                                         :lexical lexical-score
-                                                         :grep grep-score
-                                                         :graph graph-score
-                                                         :sameLabel same-label-score
-                                                         :exact exact-score}
-                                      :reason (cond
-                                                (pos? semantic-score) "embedding match"
-                                                (pos? lexical-score) "lexical match"
-                                                (pos? grep-score) "literal grep match"
-                                                (pos? graph-score) "graph neighbor"
-                                                (pos? same-label-score) "same-label candidate"
-                                                :else "candidate"))))))
-                  (filter #(pos? (:score %)))
-                  (sort-by (juxt (comp - :score) :label :path))
+     :candidate-doc-count (:candidate-doc-count rank-data)
+     :candidates-by-kind (:candidates-by-kind rank-data)
+     :ranked-count (:ranked-count rank-data)
+     :ranked (->> (:ranked rank-data)
+                  (sort-by ranked-result-sort-key)
                   vec)}))
 
 (defn- query-vector
@@ -1486,9 +1587,7 @@
                                                           :same-label-scores (:same-label-scores seed-data)
                                                           :retriever retriever
                                                           :limit limit}))
-        ranked-all (:ranked ranked-data)
-        ranked (vec (take limit ranked-all))
-        candidate-docs (:candidate-docs ranked-data)
+        ranked (:ranked ranked-data)
         instrumentation (merge
                          timings
                          (:instrumentation grep-data)
@@ -1500,9 +1599,9 @@
                           :search-docs (count docs)
                           :search-docs-by-kind (rows-by-kind docs)
                           :query-tokens (count query-tokens)
-                          :lexical-positive (positive-count lexical)
-                          :grep-positive (positive-count grep)
-                          :semantic-positive (positive-count semantic)
+                          :lexical-positive (count lexical)
+                          :grep-positive (count grep)
+                          :semantic-positive (count semantic)
                           :seed-count (count (:seed-ids seed-data))
                           :grep-seed-count (count (:grep-seed-ids seed-data))
                           :same-label-seed-count (count (:same-label-ids seed-data))
@@ -1513,8 +1612,8 @@
                           :exact-path-candidates (count (:exact-path-candidates ranked-data))
                           :path-token-candidates (count (:path-token-candidates ranked-data))
                           :candidate-count (count (:candidates ranked-data))
-                          :candidates-by-kind (rows-by-kind candidate-docs)
-                          :ranked-count (count ranked-all)
+                          :candidates-by-kind (:candidates-by-kind ranked-data)
+                          :ranked-count (:ranked-count ranked-data)
                           :returned-count (count ranked)})
         created-at-ms (System/currentTimeMillis)
         query-row {:xt/id (str "query:" (hash/short-hash [query-text created-at-ms]))

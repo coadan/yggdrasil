@@ -96,18 +96,18 @@
 (deftest lexical-frequency-builders-count-only-query-tokens
   (let [query-token-set #{"auth" "proxy"}
         token-frequencies @#'query/token-frequencies
-        document-frequencies-from-stats @#'query/document-frequencies-from-stats
-        lexical-doc-stat @#'query/lexical-doc-stat
+        lexical-score-input @#'query/lexical-score-input
         docs [{:tokens ["auth" "auth" "noise" "noise"]}
               {:tokens ["proxy" "proxy" "auth" "other"]}
               {:tokens ["noise" "other"]}]]
     (is (= {"auth" 2
             "proxy" 1}
            (token-frequencies query-token-set ["auth" "auth" "proxy" "noise"])))
+    (is (= {}
+           (token-frequencies #{} ["auth" "auth" "proxy" "noise"])))
     (is (= {"auth" 2
             "proxy" 1}
-           (document-frequencies-from-stats
-            (mapv #(lexical-doc-stat query-token-set %) docs))))))
+           (:doc-freqs (lexical-score-input query-token-set docs))))))
 
 (deftest indexes-and-queries-sample-repo
   (let [xtdb-path (temp-dir "ygg-xtdb")
