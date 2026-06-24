@@ -696,6 +696,7 @@
     "  hook status <project.edn>"
     ""
     "Server integration:"
+    "  daemon start|status|stop"
     "  mcp [--root DIR] [--config project.edn] [--map ygg.map.json] [--queue-dir DIR] [--tools default,sync,work|all]"
     ""
     "Benchmarks:"
