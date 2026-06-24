@@ -1248,32 +1248,35 @@
 
 (defn- path-token-candidate-data
   [query-token-set docs n]
-  (let [{:keys [match-counts candidates]} (reduce
-                                           (fn [state doc]
-                                             (let [match-count (long (matching-query-token-count
-                                                                      query-token-set
-                                                                      (:path doc)))]
-                                               (if (pos? match-count)
-                                                 (let [candidate {:target-id (:target-id doc)
-                                                                  :matches match-count
-                                                                  :path (:path doc)
-                                                                  :label (:label doc)}]
-                                                   (cond-> (assoc-in state
-                                                                     [:match-counts (:target-id doc)]
-                                                                     match-count)
-                                                     (pos? n)
-                                                     (update :candidates
-                                                             bounded-path-token-candidates
-                                                             candidate
-                                                             n)))
-                                                 state)))
-                                           {:match-counts {}
-                                            :candidates []}
-                                           docs)]
-    {:match-counts match-counts
-     :candidate-ids (->> candidates
-                         (sort-by path-token-sort-key)
-                         (mapv :target-id))}))
+  (if (empty? query-token-set)
+    {:match-counts {}
+     :candidate-ids []}
+    (let [{:keys [match-counts candidates]} (reduce
+                                             (fn [state doc]
+                                               (let [match-count (long (matching-query-token-count
+                                                                        query-token-set
+                                                                        (:path doc)))]
+                                                 (if (pos? match-count)
+                                                   (let [candidate {:target-id (:target-id doc)
+                                                                    :matches match-count
+                                                                    :path (:path doc)
+                                                                    :label (:label doc)}]
+                                                     (cond-> (assoc-in state
+                                                                       [:match-counts (:target-id doc)]
+                                                                       match-count)
+                                                       (pos? n)
+                                                       (update :candidates
+                                                               bounded-path-token-candidates
+                                                               candidate
+                                                               n)))
+                                                   state)))
+                                             {:match-counts {}
+                                              :candidates []}
+                                             docs)]
+      {:match-counts match-counts
+       :candidate-ids (->> candidates
+                           (sort-by path-token-sort-key)
+                           (mapv :target-id))})))
 
 (def relation-graph-weights
   {:references 1.0
