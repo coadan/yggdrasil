@@ -146,6 +146,14 @@
   2)
 (def ^:private rank-score-retrieved-source-count-weight
   0.25)
+(def ^:private rank-score-repeated-retrieved-source-token-min
+  2)
+(def ^:private rank-score-repeated-retrieved-source-base
+  2.4)
+(def ^:private rank-score-repeated-retrieved-source-extra-token-weight
+  0.25)
+(def ^:private rank-score-repeated-retrieved-source-cap
+  3.2)
 (def ^:private file-identity-part-min-length
   5)
 (def ^:private retrieved-source-rank-bonus-window
@@ -484,6 +492,20 @@
          (- retrieved-source-rank-bonus-max
             (* retrieved-source-rank-bonus-step
                (dec first-source-rank))))
+    0.0))
+(defn- repeated-retrieved-source-boost
+  [doc-count retrieved-source-count matched-token-count definition-kinds]
+  (if (and (<= 2 (long doc-count))
+           (<= 2 (long retrieved-source-count))
+           (seq definition-kinds)
+           (<= rank-score-repeated-retrieved-source-token-min
+               (long matched-token-count)))
+    (min rank-score-repeated-retrieved-source-cap
+         (+ rank-score-repeated-retrieved-source-base
+            (* rank-score-repeated-retrieved-source-extra-token-weight
+               (max 0
+                    (- (long matched-token-count)
+                       rank-score-repeated-retrieved-source-token-min)))))
     0.0))
 (defn- robust-candidate-only?
   [candidate-source-rank doc-count support-count graph-neighbor-score]
@@ -1269,6 +1291,10 @@
                                     0
                                     (keep :matched-identity-compound-token-span-length
                                           ordered))
+                             definition-kinds (->> ordered
+                                                   (keep :definition-kind)
+                                                   distinct
+                                                   vec)
                              identity-compound-span-score
                              (identity-compound-token-span-score
                               matched-identity-compound-token-span-length)
@@ -1392,6 +1418,12 @@
                               retrieved-source-count
                               (:source-rank best-row)
                               matched-identity-compound-token-span-length)
+                             repeated-retrieved-source-boost
+                             (repeated-retrieved-source-boost
+                              doc-count
+                              retrieved-source-count
+                              (count matched-tokens)
+                              definition-kinds)
                              graph-neighbor-boost (graph-neighbor-boost
                                                    doc-count
                                                    graph-neighbor-score
@@ -1485,6 +1517,7 @@
                                            identity-compound-span-score
                                            retrieved-long-identity-compound-span-score
                                            retrieved-early-long-identity-compound-span-score
+                                           repeated-retrieved-source-boost
                                            candidate-support-label-score
                                            (* 0.08 (min rank-score-support-count-cap
                                                         support-count))
@@ -1519,10 +1552,7 @@
                                               :maxConfidence confidence
                                               :rankScore rank-score
                                               :matchedTokenCount (count matched-tokens)
-                                              :definitionKinds (->> ordered
-                                                                    (keep :definition-kind)
-                                                                    distinct
-                                                                    vec)}
+                                              :definitionKinds definition-kinds}
                                        (seq matched-token-pairs)
                                        (assoc :matchedTokenPairCount
                                               (count matched-token-pairs))
@@ -1544,6 +1574,9 @@
                                        (pos? retrieved-early-long-identity-compound-span-score)
                                        (assoc :retrievedEarlyLongIdentityCompoundTokenSpanScore
                                               retrieved-early-long-identity-compound-span-score)
+                                       (pos? repeated-retrieved-source-boost)
+                                       (assoc :repeatedRetrievedSourceBoost
+                                              repeated-retrieved-source-boost)
                                        (pos? candidate-support-label-count)
                                        (assoc :candidateSupportLabelCount
                                               candidate-support-label-count)

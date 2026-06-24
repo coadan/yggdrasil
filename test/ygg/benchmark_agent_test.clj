@@ -2186,6 +2186,34 @@
     (is (= 10 (get-in files [1 :metrics :matchedTokenCount])))
     (is (> (get-in files [0 :metrics :rankScore])
            (get-in files [1 :metrics :rankScore])))))
+
+(deftest file-ranking-boosts-repeated-query-matched-retrieved-source
+  (let [root (temp-dir "ygg-bench-repeated-retrieved-source")
+        _ (spit-file! root "src/adapter.js" "export const __setProxy = setProxy;\n")
+        packet {:query "native proxy adapter boundary"
+                :docs [{:source {:path "src/adapter.js"
+                                 :heading "src.adapter/__setProxy"
+                                 :definitionKind :var
+                                 :lines [1 1]}
+                        :score 1.1
+                        :snippet "proxy adapter"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "src/adapter.js"
+                                 :heading "src.adapter/__proxyBoundary"
+                                 :definitionKind :var
+                                 :lines [1 1]}
+                        :score 1.0
+                        :snippet "native proxy boundary"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        row (first (:suspectedFiles result))]
+    (is (= "src/adapter.js" (:path row)))
+    (is (= 2 (get-in row [:metrics :retrievedSourceCount])))
+    (is (= 2 (get-in row [:metrics :docCount])))
+    (is (pos? (get-in row [:metrics :repeatedRetrievedSourceBoost])))))
+
 (deftest file-ranking-uses-retrieved-candidate-file-support
   (let [root (temp-dir "ygg-bench-candidate-files")
         _ (spit-file! root "src/seed.clj" "(ns seed)\n")
