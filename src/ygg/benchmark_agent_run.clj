@@ -207,23 +207,38 @@
       (concat (result-scope-rules (:resultScope task))
               evidence-citation-rules
               result-integrity-rules))))
+
+(declare ygg-mode?)
+
 (defn- agent-prompt-profile-lines
-  [profile result-scope]
+  [profile packet result-scope]
   (case profile
-    "fast" ["## Fast Localization Profile"
-            "- Localization only. Do not patch files."
-            "- Do not run full test/build suites."
-            "- Use at most 8 local shell commands."
-            "- Inspect at most 12 files or snippets."
-            "- Prefer `rg`, focused `sed`, and packet-provided Yggdrasil query commands."
-            "- Constrain `rg` to exact files or shallow globs and cap output; avoid recursive directory searches that dump support files."
-            "- Return the best 1-5 suspected files as soon as evidence is sufficient."
-            (str "- " (str/join "\n- " (result-scope-rules result-scope)))
-            (str "- " (str/join "\n- " evidence-citation-rules))
-            (str "- " (str/join "\n- " result-integrity-rules))
-            "- If structured output is active, make the final response the result JSON."
-            "- Otherwise write JSON to `YGG_BENCH_RESULT`; do not include prose outside JSON."
-            ""]
+    "fast" (vec
+            (remove nil?
+                    ["## Fast Localization Profile"
+                     "- Localization only. Do not patch files."
+                     "- Do not run full test/build suites."
+                     (if (ygg-mode? packet)
+                       "- Yggdrasil fast mode hard cap: use at most 3 local shell commands; zero commands is valid when prepared evidence is sufficient."
+                       "- Use at most 8 local shell commands.")
+                     "- Inspect at most 12 files or snippets."
+                     (if (ygg-mode? packet)
+                       "- Use the Prepared Yggdrasil Summary first; if shell proof is needed, run only the listed minimal proof commands unless they fail."
+                       "- Prefer `rg`, focused `sed`, and packet-provided Yggdrasil query commands.")
+                     (if (ygg-mode? packet)
+                       "- Do not invent separate `rg` commands for prepared candidates, and do not run `rg` on file-only candidates without declaration labels."
+                       "- Constrain `rg` to exact files or shallow globs and cap output; avoid recursive directory searches that dump support files.")
+                     (when (ygg-mode? packet)
+                       "- Keep result JSON compact: `suspectedSymbols` may be empty; include at most 3 symbols, at most 2 evidence strings per file, and at most 1 evidence string per symbol.")
+                     (when (ygg-mode? packet)
+                       "- Keep summary, reasons, and evidence to short single sentences; cite only the strongest distinct evidence.")
+                     "- Return the best 1-5 suspected files as soon as evidence is sufficient."
+                     (str "- " (str/join "\n- " (result-scope-rules result-scope)))
+                     (str "- " (str/join "\n- " evidence-citation-rules))
+                     (str "- " (str/join "\n- " result-integrity-rules))
+                     "- If structured output is active, make the final response the result JSON."
+                     "- Otherwise write JSON to `YGG_BENCH_RESULT`; do not include prose outside JSON."
+                     ""]))
     []))
 (defn- decision-prompt-lines
   [packet]
@@ -498,7 +513,7 @@
           candidates
           (when (seq proof-commands)
             (concat
-             ["" "Minimal proof commands; run only until direct evidence is sufficient:"]
+             ["" "Minimal proof commands; if shell proof is needed, run only these until direct evidence is sufficient:"]
              (map #(str "- `" % "`") proof-commands)))
           [""]))))))
 
@@ -544,9 +559,9 @@
           "Use full hints or context only when the prepared summary and focused "
           "file reads cannot answer the task. Run suggested proof commands only "
           "until direct evidence is sufficient before inventing new commands. "
-          "For file-only candidates "
-          "without declaration labels, use the suggested `sed` window instead "
-          "of `rg` over generic identifiers. Prefer exact-file `rg -n` for "
+          "Do not invent extra `rg` commands for prepared candidates. For "
+          "file-only candidates without declaration labels, use the suggested "
+          "`sed` window instead of `rg` over generic identifiers. Prefer exact-file `rg -n` for "
           "named declarations and references before long `sed` dumps; keep "
           "each `sed` window at 90 lines or fewer unless a shorter read fails "
           "to expose required evidence. Focused file reads can satisfy "
@@ -592,7 +607,7 @@
        "- `YGG_BENCH_PROJECT` is the generated Yggdrasil project config."
        "- `YGG_BENCH_XTDB_PATH` and `YGG_XTDB_PATH` point to the graph store."
        ""]
-      (agent-prompt-profile-lines profile result-scope)
+      (agent-prompt-profile-lines profile packet result-scope)
       (issue-lines packet)
       ["## Task"
        (get-in packet [:task :objective])

@@ -197,6 +197,19 @@
                    (seq other)
                    (conj "At least one Yggdrasil run has an unrecognized agentPreparation status."))})))
 
+(defn- prepared-evidence-string?
+  [value]
+  (str/starts-with? (str value) "prepared-"))
+
+(defn- prepared-ygg-evidence-only?
+  [result top-files]
+  (and (= "ygg" (get-in result [:agent :mode]))
+       (= "reused" (get-in result [:agentPreparation :status]))
+       (seq top-files)
+       (every? (fn [row]
+                 (some prepared-evidence-string? (:evidence row)))
+               top-files)))
+
 (defn agent-output-diagnostic
   [result]
   (let [top-files (get-in result [:agent :topFiles])
@@ -217,6 +230,7 @@
                            commands
                            {:candidate-paths (keep :path top-files)})
         command-count (:commandCount command-telemetry)
+        prepared-evidence-only? (prepared-ygg-evidence-only? result top-files)
         candidate-count (:candidateFiles selection)
         filtered-count (long (or (:coverageFilteredCandidateFiles selection) 0))
         token-usage (get-in result [:agent :tokenUsage])
@@ -235,8 +249,12 @@
              :identityWarnings identity-warnings
              :hasIdentityMismatch (boolean (seq identity-warnings))
              :emptyResult (zero? ranked-count)
-             :commandless (:commandless command-telemetry)
+             :commandless (and (:commandless command-telemetry)
+                               (not prepared-evidence-only?))
              :noRawSuspectedFiles (zero? raw-count)}
+      prepared-evidence-only?
+      (assoc :preparedEvidenceOnly true)
+
       selection
       (assoc :selection selection)
 

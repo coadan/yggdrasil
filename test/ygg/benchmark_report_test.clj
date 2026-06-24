@@ -49,6 +49,23 @@
                                              :blocking false
                                              :message "Package version conflicts are present in indexed dependency facts."}]}]}))
 
+(deftest prepared-ygg-evidence-only-results-are-not-commandless
+  (let [top-files [{:path "src/app.clj"
+                    :evidence ["prepared-declaration:src/app.clj lines 10 label=\"app/start\""]}]
+        ygg-diagnostic (benchmark-report/agent-output-diagnostic
+                        {:agent {:mode "ygg"
+                                 :topFiles top-files
+                                 :commands []}
+                         :agentPreparation {:status "reused"}})
+        shell-diagnostic (benchmark-report/agent-output-diagnostic
+                          {:agent {:mode "shell-only"
+                                   :topFiles top-files
+                                   :commands []}})]
+    (is (:preparedEvidenceOnly ygg-diagnostic))
+    (is (false? (:commandless ygg-diagnostic)))
+    (is (not (:preparedEvidenceOnly shell-diagnostic)))
+    (is (:commandless shell-diagnostic))))
+
 (deftest reports-agent-score-artifacts
   (let [out (temp-dir "ygg-agent-report")
         suite {:id "suite"

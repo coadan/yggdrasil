@@ -351,6 +351,20 @@
                        "do not read `YGG_BENCH_PACKET` only to recover the issue"))
     (is (str/includes? prompt
                        "`YGG_BENCH_CASE_ID`, `YGG_BENCH_CASE_FINGERPRINT`, and `YGG_BENCH_AGENT_INPUT_FINGERPRINT`"))
+    (is (str/includes? prompt
+                       "Yggdrasil fast mode hard cap: use at most 3 local shell commands"))
+    (is (not (str/includes? prompt
+                            "Use at most 8 local shell commands")))
+    (is (str/includes? prompt
+                       "run only the listed minimal proof commands"))
+    (is (str/includes? prompt
+                       "do not run `rg` on file-only candidates without declaration labels"))
+    (is (str/includes? prompt
+                       "`suspectedSymbols` may be empty; include at most 3 symbols"))
+    (is (str/includes? prompt
+                       "at most 2 evidence strings per file"))
+    (is (str/includes? prompt
+                       "summary, reasons, and evidence to short single sentences"))
     (is (not (str/includes? prompt "Yggdrasil hints JSON: /tmp/hints.json")))
     (is (not (str/includes? prompt "Yggdrasil context JSON: /tmp/context.json")))
     (is (str/includes? prompt "Yggdrasil is prepared and warm"))
@@ -380,9 +394,9 @@
     (is (str/includes? prompt
                        "keep each `sed` window at 90 lines or fewer"))
     (is (str/includes? prompt
-                       "Constrain `rg` to exact files or shallow globs and cap output"))
-    (is (str/includes? prompt
                        "Do not run directory-wide `rg` just to reconfirm prepared top-file"))
+    (is (str/includes? prompt
+                       "Do not invent extra `rg` commands for prepared candidates"))
     (is (str/includes? prompt "narrow `sed` windows"))
     (is (str/includes? prompt
                        "Use full hints or context only when the prepared summary and focused"))
