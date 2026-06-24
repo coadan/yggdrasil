@@ -315,15 +315,23 @@
                      {:candidates
                       [{:rank 1
                         :path "src/connector.clj"
+                        :repoId "core"
                         :confidence 0.98
                         :declarations [{:label "connector/contract"
                                         :kind "clj-var"
                                         :sourceLine 42}]
                         :evidence ["prepared-declaration:src/connector.clj lines 42 label=\"connector/contract\""]}]}
+                     :topFiles
+                     [{:rank 1
+                       :path "src/context.clj"
+                       :repoId "core"
+                       :confidence 0.91
+                       :evidence ["context-doc:src/context.clj lines 10-20 provenance=retrieved-doc"]}]
                      :relatedFiles
                      [{:rank 1
                        :path "src/consumer.clj"
                        :relation "imports-package"
+                       :repoId "core"
                        :via [{:seedPath "src/connector.clj"
                               :sourceLine 7}]
                        :evidence ["source-graph: src/connector.clj imports src/consumer line 7"]}
@@ -382,6 +390,12 @@
                        "primary package contract file as the suspectedFile"))
     (is (str/includes? prompt
                        "related graph files from import-package edges"))
+    (is (str/includes? prompt
+                       "Context-ranked files from compact Yggdrasil topFiles"))
+    (is (str/includes? prompt "src/context.clj"))
+    (is (str/includes? prompt "repo core"))
+    (is (str/includes? prompt
+                       "context-doc:src/context.clj lines 10-20"))
     (is (str/includes? prompt
                        "Related graph files from prepared import edges"))
     (is (str/includes? prompt "src/consumer.clj"))

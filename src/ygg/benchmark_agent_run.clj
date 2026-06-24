@@ -345,9 +345,20 @@
            (when source-line
              (str ":" source-line))))))
 
+(defn- row-repo
+  [row]
+  (some-> (or (:repoId row) (:repo-id row) (:repo row)) str not-empty))
+
+(defn- confidence-fragment
+  [row]
+  (when-let [confidence (when (number? (:confidence row))
+                          (:confidence row))]
+    (format " confidence %.2f" (double confidence))))
+
 (defn- prepared-candidate-summary
   [candidate]
   (let [path (compact-text 120 (:path candidate))
+        repo (compact-text 80 (row-repo candidate))
         declarations (->> (:declarations candidate)
                           (keep declaration-summary)
                           (take 2)
@@ -355,9 +366,9 @@
         evidence (compact-text 120 (first (:evidence candidate)))]
     (when path
       (str "- " (:rank candidate) ". `" path "`"
-           (when-let [confidence (when (number? (:confidence candidate))
-                                   (:confidence candidate))]
-             (format " confidence %.2f" (double confidence)))
+           (when repo
+             (str " repo " repo))
+           (confidence-fragment candidate)
            (when (seq declarations)
              (str " declarations: " (str/join "; " declarations)))
            (when (and (seq declarations) evidence)
@@ -370,6 +381,7 @@
 (defn- related-file-summary
   [row]
   (let [path (compact-text 120 (:path row))
+        repo (compact-text 80 (row-repo row))
         relation (compact-text 40 (:relation row))
         source (some-> row :via first)
         source-path (compact-text 90 (:seedPath source))
@@ -377,12 +389,27 @@
         evidence (compact-text 140 (first (:evidence row)))]
     (when path
       (str "- related " (:rank row) ". `" path "`"
+           (when repo
+             (str " repo " repo))
            (when relation
              (str " relation: " relation))
            (when source-path
              (str " via " source-path
                   (when source-line
                     (str ":" source-line))))
+           (when evidence
+             (str " | evidence: " evidence))))))
+
+(defn- context-file-summary
+  [row]
+  (let [path (compact-text 120 (:path row))
+        repo (compact-text 80 (row-repo row))
+        evidence (compact-text 140 (first (:evidence row)))]
+    (when path
+      (str "- context " (:rank row) ". `" path "`"
+           (when repo
+             (str " repo " repo))
+           (confidence-fragment row)
            (when evidence
              (str " | evidence: " evidence))))))
 
@@ -421,6 +448,12 @@
   (->> related-files
        (filter #(some-> (:path %) str not-empty))
        (filter #(= "imports-package" (some-> (:relation %) str)))
+       (take 8)))
+
+(defn- select-context-summary-files
+  [top-files]
+  (->> top-files
+       (filter #(some-> (:path %) str not-empty))
        (take 8)))
 
 (defn- terraform-declaration-pattern
@@ -531,23 +564,32 @@
           candidates (->> selected-candidates
                           (keep prepared-candidate-summary)
                           vec)
+          context-files (->> (:topFiles hints)
+                             select-context-summary-files
+                             (keep context-file-summary)
+                             vec)
           related-files (->> (:relatedFiles hints)
                              select-related-summary-files
                              (keep related-file-summary)
                              vec)
           proof-commands (proof-commands hints selected-candidates)]
-      (when (or (seq candidates) (seq related-files))
+      (when (or (seq candidates) (seq context-files) (seq related-files))
         (vec
          (concat
           ["## Prepared Yggdrasil Summary"
            "Start from this compact prepared localization summary before opening hint artifacts."
            "These rows are a starter audit surface, not an edit list; return only files with direct task evidence."
+           "Context-ranked files are compact Yggdrasil topFiles rows with path evidence and repo identity."
            "Related graph files come from explicit import-package edges and can cover requested package-level targets."
            "Do not run a first-step `jq` projection over `YGG_BENCH_YGG_HINTS`; the file is available only for evidence gaps."
            "Do not grep Yggdrasil hint/context artifacts for extra citations; summary evidence strings and local file lines are enough when they answer the task."
            "Use exact-file `rg -n --fixed-strings <symbol> <path...>` or narrow `sed` windows on these paths when proof is needed."
            ""]
           candidates
+          (when (seq context-files)
+            (concat
+             ["" "Context-ranked files from compact Yggdrasil topFiles:"]
+             context-files))
           (when (seq related-files)
             (concat
              ["" "Related graph files from prepared import edges:"]
