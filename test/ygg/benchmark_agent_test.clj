@@ -2264,6 +2264,43 @@
     (is (= "Yggdrasil retrieved candidate file src/adjacent.clj lines 2-4 from result rank 3."
            (get-in files [0 :reason])))))
 
+(deftest candidate-file-sibling-identity-adds-existing-base-file
+  (let [root (temp-dir "ygg-bench-candidate-file-sibling")
+        _ (spit-file! root "Dapper/SqlMapper.cs" "public static partial class SqlMapper {}\n")
+        _ (spit-file! root "Dapper/SqlMapper.ITypeHandler.cs" "public interface ITypeHandler {}\n")
+        _ (spit-file! root "Dapper/Noise.cs" "public class Noise {}\n")
+        packet {:query "postgresql jsonb Dapper core type handler"
+                :candidateFiles [{:path "Dapper/SqlMapper.ITypeHandler.cs"
+                                  :rank 7
+                                  :score 10.2
+                                  :targetKind "chunk"
+                                  :label "Dapper/SqlMapper"
+                                  :supportLabels ["Dapper"
+                                                  "Dapper/ITypeHandler.SetValue"]
+                                  :scoreComponents {:sourceGraph 10.2
+                                                    :lexical 0.61
+                                                    :grep 0.002
+                                                    :sameLabel 1.0
+                                                    :exact 0.2}}
+                                 {:path "Dapper/Noise.cs"
+                                  :rank 8
+                                  :score 9.0
+                                  :targetKind "file"
+                                  :label "Dapper/Noise"
+                                  :scoreComponents {:sourceGraph 9.0
+                                                    :lexical 0.55}}]}
+        result (benchmark/context-packet->agent-result packet {:root root})
+        files (:suspectedFiles result)
+        file-by-path (into {} (map (juxt :path identity)) files)
+        sibling (get file-by-path "Dapper/SqlMapper.cs")
+        partial (get file-by-path "Dapper/SqlMapper.ITypeHandler.cs")]
+    (is sibling)
+    (is (< (:rank sibling) (:rank partial)))
+    (is (str/includes? (first (:evidence sibling))
+                       "candidate-file-sibling:Dapper/SqlMapper.cs"))
+    (is (= 3 (get-in sibling [:metrics :matchedTokenCount])))
+    (is (pos? (get-in sibling [:metrics :candidateSourceRank])))))
+
 (deftest candidate-file-support-labels-contribute-to-file-ranking
   (let [root (temp-dir "ygg-bench-candidate-support-labels")
         _ (spit-file! root "src/candidate.cs" "namespace Demo.Tests;\n")
@@ -4280,6 +4317,69 @@
         paths (mapv :path (compact-output files 12 nil))]
     (is (some #{"src/flask/sansio/app.py"} paths))
     (is (not-any? #{"src/head-12.py"} paths))))
+
+(deftest compact-output-reserves-retrieved-label-source-graph-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files (vec
+               (concat (mapv (fn [idx]
+                               (row (str "src/head-" idx ".cs")
+                                    idx
+                                    {:docCount 1
+                                     :matchedTokenCount 2
+                                     :rankScore (+ 10 idx)}))
+                             (range 1 8))
+                       [(row "Dapper/SqlMapper.cs"
+                             16
+                             {:candidateFileCount 3
+                              :docCount 0
+                              :entityCount 0
+                              :candidateSourceRank 7
+                              :matchedTokenCount 6
+                              :matchedTokenPairCount 1
+                              :matchedCompoundTokenPairCount 1
+                              :matchedIdentityCompoundTokenPairCount 1
+                              :sourceGraphCandidateEvidenceScore 6.1
+                              :retrievedSupportLabelCount 3
+                              :retrievedSupportLabelBoost 4.8
+                              :candidateGrepScore 0.002
+                              :rankScore 15.3})]))
+        paths (mapv :path (compact-output files 7 nil))]
+    (is (some #{"Dapper/SqlMapper.cs"} paths))
+    (is (not-any? #{"src/head-7.cs"} paths))))
+
+(deftest compact-output-reserves-retrieved-label-doc-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files (vec
+               (concat (mapv (fn [idx]
+                               (row (str "src/head-" idx ".cs")
+                                    idx
+                                    {:docCount 1
+                                     :matchedTokenCount 2
+                                     :rankScore (+ 10 idx)}))
+                             (range 1 8))
+                       [(row "tests/Dapper.Tests/TypeHandlerTests.cs"
+                             12
+                             {:candidateFileCount 1
+                              :docCount 1
+                              :entityCount 0
+                              :candidateSourceRank 22
+                              :matchedTokenCount 6
+                              :matchedTokenPairCount 2
+                              :matchedCompoundTokenPairCount 1
+                              :sourceGraphCandidateEvidenceScore 8.6
+                              :retrievedSupportLabelCount 4
+                              :rankScore 24.5})]))
+        paths (mapv :path (compact-output files 7 nil))]
+    (is (some #{"tests/Dapper.Tests/TypeHandlerTests.cs"} paths))
+    (is (not-any? #{"src/head-7.cs"} paths))))
 
 (deftest compact-output-anchors-query-evidence-beside-selected-directory
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files

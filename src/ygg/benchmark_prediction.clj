@@ -947,6 +947,63 @@
        (when-some [score (:score candidate)]
          (str " score=" score))
        (score-component-evidence score-components)))
+
+(defn- candidate-path-directory
+  [path]
+  (when-let [idx (str/last-index-of (str path) "/")]
+    (subs (str path) 0 idx)))
+
+(defn- path-extension
+  [path]
+  (let [filename (or (last (str/split (str path) #"/"))
+                     (str path))]
+    (second (re-find #"(\.[^.]+)$" filename))))
+
+(defn- path-in-directory
+  [dir filename]
+  (if (str/blank? (str dir))
+    filename
+    (str dir "/" filename)))
+
+(defn- candidate-file-sibling-stem
+  [path label]
+  (let [candidate-stem (identity-tail path)
+        label-stem (support-label-terminal-identifier label)]
+    (when (and (not (benchmark-util/blankish? candidate-stem))
+               (not (benchmark-util/blankish? label-stem))
+               (str/starts-with? candidate-stem (str label-stem ".")))
+      label-stem)))
+
+(defn- candidate-file-sibling-paths
+  [file-root candidate]
+  (let [path (:path candidate)
+        dir (candidate-path-directory path)
+        ext (path-extension path)]
+    (when (and path ext)
+      (->> (concat [(:label candidate)] (:supportLabels candidate))
+           (keep #(candidate-file-sibling-stem path %))
+           distinct
+           (map #(path-in-directory dir (str % ext)))
+           (remove #{path})
+           (filter #(existing-file-path? file-root %))
+           vec))))
+
+(defn- candidate-file-sibling-evidence
+  [candidate score-components path sibling-path]
+  (str "candidate-file-sibling:"
+       sibling-path
+       " from="
+       path
+       " rank="
+       (:rank candidate)
+       (when-let [label (not-empty (str (:label candidate)))]
+         (str " label=" (pr-str label)))
+       (when-let [support-labels (seq (:supportLabels candidate))]
+         (str " supportLabels=" (pr-str (vec support-labels))))
+       (when-some [score (:score candidate)]
+         (str " score=" score))
+       (score-component-evidence score-components)))
+
 (defn- candidate-file-prediction
   [root roots query-tokens retrieved-identities idx candidate]
   (let [path (:path candidate)
@@ -1053,6 +1110,135 @@
           (and (pos? graph-score)
                graph-score-supported?)
           (assoc :graph-neighbor-score graph-score))))))
+
+(defn- candidate-file-sibling-prediction
+  [roots query-tokens retrieved-identities idx candidate sibling-path]
+  (let [path (:path candidate)
+        source-repo-id (:repo candidate)
+        repo-id (prediction-repo-id roots source-repo-id)
+        support-labels (vec (remove benchmark-util/blankish?
+                                    (concat [(:label candidate)]
+                                            (:supportLabels candidate))))
+        target-kind (field-name (or (:targetKind candidate)
+                                    (:target-kind candidate)
+                                    (:resultKind candidate)
+                                    (:result-kind candidate)))
+        evidence-text (str/join "\n"
+                                (remove benchmark-util/blankish?
+                                        (concat [sibling-path
+                                                 path
+                                                 (:label candidate)]
+                                                (:supportLabels candidate))))
+        {:keys [matched-tokens matched-token-pairs]}
+        (token-and-pair-matches query-tokens evidence-text)
+        matched-compound-token-pairs (compact-compound-token-pair-matches
+                                      query-tokens
+                                      evidence-text)
+        matched-identity-compound-token-pairs (apply
+                                               identity-compound-token-pair-matches
+                                               query-tokens
+                                               sibling-path
+                                               (:label candidate)
+                                               support-labels)
+        file-identity-support-label-count (file-identity-support-label-count
+                                           sibling-path
+                                           support-labels)
+        exported-support-label-count (exported-support-label-count
+                                      support-labels)
+        retrieved-support-label-count (retrieved-support-label-count
+                                       sibling-path
+                                       (:label candidate)
+                                       support-labels
+                                       retrieved-identities)
+        score-components (or (:scoreComponents candidate)
+                             (:score-components candidate))
+        candidate-rank (long (or (parse-double-safe (:rank candidate))
+                                 (inc idx)))
+        graph-score (double (or (parse-double-safe (:graph score-components))
+                                0.0))
+        lexical-score (double (or (parse-double-safe (:lexical score-components))
+                                  0.0))
+        grep-score (double (or (parse-double-safe (:grep score-components))
+                               0.0))
+        source-graph-score (double (or (parse-double-safe (:sourceGraph
+                                                           score-components))
+                                       0.0))
+        graph-score-supported? (or (>= (count matched-tokens) 2)
+                                   (seq matched-token-pairs)
+                                   (and (>= graph-score
+                                            rank-score-graph-support-min)
+                                        (>= lexical-score
+                                            rank-score-graph-lexical-support-min)))]
+    (cond-> {:path sibling-path
+             :source-rank (+ 540 (inc idx))
+             :confidence (bounded-confidence (:score candidate))
+             :evidence-score (* 0.6 (double (or (parse-double-safe
+                                                 (:score candidate))
+                                                0.0)))
+             :evidence-kind :candidate-file
+             :retrieved-source? false
+             :exact-path-source? false
+             :definition-kind (or target-kind "candidate-sibling")
+             :matched-tokens matched-tokens
+             :matched-token-pairs matched-token-pairs
+             :matched-compound-token-pairs matched-compound-token-pairs
+             :matched-identity-compound-token-pairs matched-identity-compound-token-pairs
+             :file-identity-support-label-count file-identity-support-label-count
+             :exported-support-label-count exported-support-label-count
+             :retrieved-support-label-count retrieved-support-label-count
+             :candidate-support-label-count (count support-labels)
+             :matched-identity-compound-token-span-length
+             (apply identity-compound-token-span-length
+                    query-tokens
+                    sibling-path
+                    (:label candidate)
+                    support-labels)
+             :evidence [(candidate-file-sibling-evidence candidate
+                                                         score-components
+                                                         path
+                                                         sibling-path)]
+             :reason (str "Yggdrasil derived existing sibling file "
+                          sibling-path
+                          " from candidate "
+                          path
+                          " with parser label "
+                          (pr-str (:label candidate))
+                          ".")}
+      repo-id
+      (assoc :repo-id repo-id)
+
+      (pos? source-graph-score)
+      (assoc :candidate-source-rank candidate-rank)
+
+      (pos? lexical-score)
+      (assoc :candidate-lexical-score lexical-score)
+
+      (pos? grep-score)
+      (assoc :candidate-grep-score grep-score)
+
+      (and (pos? graph-score)
+           graph-score-supported?)
+      (assoc :graph-neighbor-score graph-score))))
+
+(defn- candidate-file-predictions
+  [root roots query-tokens retrieved-identities idx candidate]
+  (let [path (:path candidate)
+        source-repo-id (:repo candidate)
+        file-root (row-root root roots {:repo-id source-repo-id :path path})]
+    (when-let [row (candidate-file-prediction root
+                                              roots
+                                              query-tokens
+                                              retrieved-identities
+                                              idx
+                                              candidate)]
+      (into [row]
+            (map #(candidate-file-sibling-prediction roots
+                                                     query-tokens
+                                                     retrieved-identities
+                                                     idx
+                                                     candidate
+                                                     %))
+            (candidate-file-sibling-paths file-root candidate)))))
 (defn- decision-candidate-file-evidence
   [candidate path]
   (str "decision-candidate:"
@@ -2674,6 +2860,33 @@
        (sort-by compact-output-retrieved-supported-key)
        first))
 
+(defn- compact-output-retrieved-label-doc-key
+  [row]
+  [(- (row-rank-score row))
+   (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
+   (- (positive-metric row :retrievedSupportLabelCount))
+   (- (positive-metric row :matchedTokenCount))
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-retrieved-label-doc-row?
+  [row]
+  (and (pos? (positive-metric row :docCount))
+       (<= 2 (positive-metric row :retrievedSupportLabelCount))
+       (<= candidate-file-only-query-evidence-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= candidate-file-only-query-evidence-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))))
+
+(defn- compact-output-retrieved-label-doc-row
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (compact-output-retrieved-label-doc-row? %)))
+       (sort-by compact-output-retrieved-label-doc-key)
+       first))
+
 (defn- path-directory
   [path]
   (let [path (str path)
@@ -2727,6 +2940,40 @@
            (assoc % ::compact-output-sort-rank
                   (compact-output-selected-directory-sort-rank selected-rows
                                                                %))))))
+
+(defn- compact-output-retrieved-label-source-key
+  [row]
+  [(- (positive-metric row :retrievedSupportLabelCount))
+   (- (row-metric-double row :retrievedSupportLabelBoost))
+   (- (positive-metric row :matchedIdentityCompoundTokenPairCount))
+   (- (positive-metric row :matchedCompoundTokenPairCount))
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
+   (row-candidate-source-rank row)
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-retrieved-label-source-row?
+  [row]
+  (and (candidate-file-only-row? row)
+       (<= 2 (positive-metric row :retrievedSupportLabelCount))
+       (<= candidate-file-only-query-evidence-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= candidate-file-only-query-evidence-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))))
+
+(defn- compact-output-retrieved-label-source-row
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (compact-output-retrieved-label-source-row? %)))
+       (sort-by compact-output-retrieved-label-source-key)
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  (double (min (long (or (:rank %) Long/MAX_VALUE))
+                               (row-candidate-source-rank %))))))))
 
 (defn- compact-output-directory-counts
   [rows]
@@ -2795,13 +3042,23 @@
             selected
             (take remaining-limit remaining))))
 
+(defn- compact-output-prune-protected-row?
+  [row]
+  (or (compact-output-retrieved-label-doc-row? row)
+      (compact-output-retrieved-label-source-row? row)))
+
 (defn- compact-output-score-tail-cut
   [selected source-kinds kind-by-path]
-  (let [selected (vec selected)]
+  (let [selected (vec selected)
+        protected-keys (->> selected
+                            (filter compact-output-prune-protected-row?)
+                            (map file-row-key)
+                            set)]
     (when (and (<= compact-output-score-tail-min-files (count selected))
                (not-any? prediction-rank-protected? selected))
       (some (fn [prefix-size]
               (let [prefix (subvec selected 0 prefix-size)
+                    prefix-keys (set (map file-row-key prefix))
                     next-row (nth selected prefix-size nil)
                     score-floor (apply min (map row-rank-score prefix))
                     next-score (row-rank-score next-row)]
@@ -2810,6 +3067,7 @@
                            (<= next-score
                                (* compact-output-score-tail-score-ratio
                                   score-floor))
+                           (set/subset? protected-keys prefix-keys)
                            (covers-source-kinds?
                             source-kinds
                             kind-by-path
@@ -2916,10 +3174,20 @@
                         (:keys selected)))
              selected (add-compact-output-row
                        selected
+                       (compact-output-retrieved-label-doc-row
+                        files
+                        (:keys selected)))
+             selected (add-compact-output-row
+                       selected
                        (compact-output-query-evidence-source-row
                         files
                         (:keys selected)
                         (:rows selected)))
+             selected (add-compact-output-row
+                       selected
+                       (compact-output-retrieved-label-source-row
+                        files
+                        (:keys selected)))
              selected (add-compact-output-row
                        selected
                        (compact-output-co-located-candidate-row
@@ -3126,13 +3394,15 @@
          doc-rows (keep-indexed #(doc-prediction root roots query-tokens %1 %2) (:docs packet))
          entity-rows (keep-indexed #(entity-prediction root roots query-tokens %1 %2) (:entities packet))
          retrieved-identities (retrieved-doc-identities (:docs packet))
-         candidate-file-rows (keep-indexed #(candidate-file-prediction root
-                                                                       roots
-                                                                       query-tokens
-                                                                       retrieved-identities
-                                                                       %1
-                                                                       %2)
-                                           (:candidateFiles packet))
+         candidate-file-rows (->> (:candidateFiles packet)
+                                  (map-indexed #(candidate-file-predictions
+                                                 root
+                                                 roots
+                                                 query-tokens
+                                                 retrieved-identities
+                                                 %1
+                                                 %2))
+                                  (mapcat identity))
          decision-candidate-rows (decision-candidate-file-predictions root
                                                                       roots
                                                                       query-tokens
