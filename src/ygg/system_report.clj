@@ -19,6 +19,20 @@
                             :evidence-ids :evidence-counts :salience-reasons])
          :source (system-summary (get system-by-id (:source-id edge)))
          :target (system-summary (get system-by-id (:target-id edge)))))
+(defn- edge-endpoint-id-set
+  [edges]
+  (reduce (fn [ids edge]
+            (conj ids (:source-id edge) (:target-id edge)))
+          #{}
+          edges))
+(defn- edge-degree-map
+  [edges]
+  (reduce (fn [degree edge]
+            (-> degree
+                (update (:source-id edge) (fnil inc 0))
+                (update (:target-id edge) (fnil inc 0))))
+          {}
+          edges))
 (defn- stable-row-signature
   [rows keys]
   (->> rows
@@ -635,7 +649,7 @@
        (into (sorted-map))))
 (defn- top-hubs
   [system-by-id semantic-edges]
-  (let [degree (frequencies (mapcat (juxt :source-id :target-id) semantic-edges))]
+  (let [degree (edge-degree-map semantic-edges)]
     (->> degree
          (map (fn [[id n]]
                 (assoc (system-summary (get system-by-id id))
@@ -781,7 +795,7 @@
         edges (:edges overlay-result)
         evidence (:evidence overlay-result)
         system-ids (set (map :xt/id systems))
-        incident-ids (set (mapcat (juxt :source-id :target-id) edges))
+        incident-ids (edge-endpoint-id-set edges)
         orphaned (->> systems
                       (remove #(contains? incident-ids (:xt/id %)))
                       (sort-by (juxt :repo-id :label))
