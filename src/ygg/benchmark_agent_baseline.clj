@@ -32,6 +32,8 @@
 
 (def default-agent-baseline-suspect-limit
   20)
+(def default-agent-baseline-compact-result-limit
+  7)
 
 (def default-index-timeout-ms
   600000)
@@ -158,7 +160,7 @@
                                :decision-candidates (:decisionCandidates prepared)
                                :decision-kind (get-in prepared [:decisionGroundTruth :kind])
                                :compact-result? true
-                               :compact-result-limit 12
+                               :compact-result-limit default-agent-baseline-compact-result-limit
                                :limit (agent-baseline-suspect-limit opts)})
                             (fn [result]
                               {:suspectedFiles (count (:suspectedFiles result))

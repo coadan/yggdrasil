@@ -1,5 +1,6 @@
 (ns ygg.benchmark-agent-test
   (:require [ygg.benchmark :as benchmark]
+            [ygg.benchmark-agent-baseline :as benchmark-agent-baseline]
             [ygg.benchmark-agent-run :as benchmark-agent-run]
             [ygg.benchmark-agent-score :as benchmark-agent-score]
             [ygg.benchmark-paths :as benchmark-paths]
@@ -16,6 +17,9 @@
             [clojure.java.shell :as shell]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
+
+(deftest deterministic-baseline-uses-tight-compact-surface
+  (is (= 7 @#'benchmark-agent-baseline/default-agent-baseline-compact-result-limit)))
 
 (defn- object-schema?
   [schema]
