@@ -20,8 +20,14 @@
                   (apply shell "clojure" "-M:run" "-m" "ygg.cli" "sync" args)))}
 
   daemon {:doc "Run or control the local Yggdrasil daemon. Usage: bb daemon start|status|stop"
-          :task (apply shell "clojure" "-M:run" "-m" "ygg.daemon"
-                       *command-line-args*)}
+          :task (let [{:keys [exit]} (apply shell
+                                            {:continue true}
+                                            "clojure"
+                                            "-M:run"
+                                            "-m"
+                                            "ygg.daemon"
+                                            *command-line-args*)]
+                  (System/exit exit))}
 
   query {:doc "Query the current graph. Usage: bb query \"text\" [--project ID]"
          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "query"

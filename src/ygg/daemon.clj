@@ -198,11 +198,11 @@
         {:ok false
          :exit unavailable-exit
          :out ""
-         :err ""}))
+         :err "daemon not running\n"}))
     {:ok false
      :exit unavailable-exit
      :out ""
-     :err ""}))
+     :err "daemon not running\n"}))
 
 (defn- print-response!
   [{:keys [exit out err]}]
@@ -211,6 +211,9 @@
   (when (seq err)
     (binding [*out* *err*]
       (print err)))
+  (flush)
+  (binding [*out* *err*]
+    (flush))
   (shutdown-agents)
   (System/exit (int (or exit 1))))
 
