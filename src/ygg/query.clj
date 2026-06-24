@@ -1311,65 +1311,68 @@
 
 (defn- same-label-expansion
   [docs seed-ids]
-  (let [seed-set (set seed-ids)
-        seed-data (reduce
-                   (fn [state doc]
-                     (if (contains? seed-set (:target-id doc))
-                       (let [label (:label doc)]
-                         (cond-> (update state :seed-keys conj [(:path doc) label])
-                           (not (str/blank? (str label)))
-                           (update :seed-labels conj label)))
-                       state))
-                   {:seed-keys #{}
-                    :seed-labels #{}}
-                   docs)
-        {:keys [seed-keys seed-labels]} seed-data]
-    (if (and (empty? seed-keys)
-             (empty? seed-labels))
-      {:node-ids #{}
-       :doc-scores {}}
-      (let [{:keys [node-ids label-states]} (reduce
-                                             (fn [state doc]
-                                               (let [target-id (:target-id doc)
-                                                     label (:label doc)
-                                                     path (:path doc)]
-                                                 (cond-> state
-                                                   (and (= :node (:target-kind doc))
-                                                        (contains? seed-keys [path label]))
-                                                   (update :node-ids conj target-id)
+  (if (empty? seed-ids)
+    {:node-ids #{}
+     :doc-scores {}}
+    (let [seed-set (set seed-ids)
+          seed-data (reduce
+                     (fn [state doc]
+                       (if (contains? seed-set (:target-id doc))
+                         (let [label (:label doc)]
+                           (cond-> (update state :seed-keys conj [(:path doc) label])
+                             (not (str/blank? (str label)))
+                             (update :seed-labels conj label)))
+                         state))
+                     {:seed-keys #{}
+                      :seed-labels #{}}
+                     docs)
+          {:keys [seed-keys seed-labels]} seed-data]
+      (if (and (empty? seed-keys)
+               (empty? seed-labels))
+        {:node-ids #{}
+         :doc-scores {}}
+        (let [{:keys [node-ids label-states]} (reduce
+                                               (fn [state doc]
+                                                 (let [target-id (:target-id doc)
+                                                       label (:label doc)
+                                                       path (:path doc)]
+                                                   (cond-> state
+                                                     (and (= :node (:target-kind doc))
+                                                          (contains? seed-keys [path label]))
+                                                     (update :node-ids conj target-id)
 
-                                                   (contains? seed-labels label)
-                                                   (update-in
-                                                    [:label-states label]
-                                                    (fn [{:keys [count paths target-ids]
-                                                          :or {count 0
-                                                               paths #{}
-                                                               target-ids []}}]
-                                                      (let [count (inc count)]
-                                                        (if (> count
-                                                               default-same-label-doc-label-fanout-limit)
-                                                          {:count count
-                                                           :paths paths
-                                                           :target-ids target-ids}
-                                                          (cond-> {:count count
-                                                                   :paths (cond-> paths
-                                                                            path (conj path))
-                                                                   :target-ids target-ids}
-                                                            (not (contains? seed-set target-id))
-                                                            (update :target-ids conj target-id)))))))))
-                                             {:node-ids #{}
-                                              :label-states {}}
-                                             docs)
-            doc-scores (->> label-states
-                            vals
-                            (filter #(<= (:count %)
-                                         default-same-label-doc-label-fanout-limit))
-                            (filter #(< 1 (count (:paths %))))
-                            (mapcat :target-ids)
-                            (map (fn [target-id] [target-id 1.0]))
-                            (into {}))]
-        {:node-ids node-ids
-         :doc-scores doc-scores}))))
+                                                     (contains? seed-labels label)
+                                                     (update-in
+                                                      [:label-states label]
+                                                      (fn [{:keys [count paths target-ids]
+                                                            :or {count 0
+                                                                 paths #{}
+                                                                 target-ids []}}]
+                                                        (let [count (inc count)]
+                                                          (if (> count
+                                                                 default-same-label-doc-label-fanout-limit)
+                                                            {:count count
+                                                             :paths paths
+                                                             :target-ids target-ids}
+                                                            (cond-> {:count count
+                                                                     :paths (cond-> paths
+                                                                              path (conj path))
+                                                                     :target-ids target-ids}
+                                                              (not (contains? seed-set target-id))
+                                                              (update :target-ids conj target-id)))))))))
+                                               {:node-ids #{}
+                                                :label-states {}}
+                                               docs)
+              doc-scores (->> label-states
+                              vals
+                              (filter #(<= (:count %)
+                                           default-same-label-doc-label-fanout-limit))
+                              (filter #(< 1 (count (:paths %))))
+                              (mapcat :target-ids)
+                              (map (fn [target-id] [target-id 1.0]))
+                              (into {}))]
+          {:node-ids node-ids
+           :doc-scores doc-scores})))))
 
 (defn- exact-match-boost
   [query query-token-set query-path-shaped? path-token-match-counts doc]
