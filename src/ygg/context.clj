@@ -1603,26 +1603,47 @@
    (long (or (:source-line row) Long/MAX_VALUE))
    (or (:label row) "")])
 
+(defn- source-graph-declaration-path-head-keys
+  [rows]
+  (loop [remaining (seq rows)
+         seen #{}
+         path-keys []]
+    (if-let [row (first remaining)]
+      (let [path-key (source-graph-declaration-path-key row)]
+        (if (or (contains? seen path-key)
+                (<= source-graph-declaration-path-diversity-limit
+                    (count path-keys)))
+          (recur (next remaining) seen path-keys)
+          (recur (next remaining) (conj seen path-key) (conj path-keys path-key))))
+      path-keys)))
+
+(defn- add-source-graph-path-local-row
+  [path-key-set rows-by-path row]
+  (let [path-key (source-graph-declaration-path-key row)]
+    (if (contains? path-key-set path-key)
+      (update rows-by-path
+              path-key
+              (fn [path-rows]
+                (let [path-rows (or path-rows [])]
+                  (if (< (count path-rows)
+                         source-graph-declaration-path-local-limit)
+                    (conj path-rows row)
+                    path-rows))))
+      rows-by-path)))
+
+(defn- source-graph-declaration-path-local-rows
+  [path-keys rows]
+  (let [path-key-set (set path-keys)
+        rows-by-path (reduce (partial add-source-graph-path-local-row
+                                      path-key-set)
+                             {}
+                             rows)]
+    (mapcat #(get rows-by-path % []) path-keys)))
+
 (defn- diversify-source-graph-declarations
   [rows]
-  (let [path-heads (->> rows
-                        (reduce (fn [{:keys [seen selected] :as state} row]
-                                  (let [path-key (source-graph-declaration-path-key row)]
-                                    (if (or (contains? seen path-key)
-                                            (<= source-graph-declaration-path-diversity-limit
-                                                (count selected)))
-                                      state
-                                      {:seen (conj seen path-key)
-                                       :selected (conj selected row)})))
-                                {:seen #{}
-                                 :selected []})
-                        :selected)
-        rows-by-path (group-by source-graph-declaration-path-key rows)
-        path-local (mapcat (fn [row]
-                             (take source-graph-declaration-path-local-limit
-                                   (get rows-by-path
-                                        (source-graph-declaration-path-key row))))
-                           path-heads)
+  (let [path-keys (source-graph-declaration-path-head-keys rows)
+        path-local (source-graph-declaration-path-local-rows path-keys rows)
         selected-keys (set (map source-graph-declaration-key path-local))]
     (concat path-local
             (remove #(contains? selected-keys
