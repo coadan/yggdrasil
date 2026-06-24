@@ -34,28 +34,22 @@
                    (get row label-key)]))
        vec))
 
-(defn- supported-files
-  [rows]
-  (filter :supported? rows))
-
 (defn- skipped-files
   [rows]
   (remove :supported? rows))
 
 (defn- totals
-  [rows]
-  (let [supported (count (supported-files rows))
-        skipped (count (skipped-files rows))]
-    {:files (count rows)
-     :supported supported
-     :skipped skipped
-     :coverage (if (pos? (count rows))
-                 (/ (double supported) (double (count rows)))
-                 0.0)}))
+  [file-count supported-count skipped-count]
+  {:files file-count
+   :supported supported-count
+   :skipped skipped-count
+   :coverage (if (pos? file-count)
+               (/ (double supported-count) (double file-count))
+               0.0)})
 
 (defn- extractor-rows
   [rows]
-  (->> (supported-files rows)
+  (->> rows
        (group-by :kind)
        (map (fn [[kind files]]
               {:kind (display-value kind)
@@ -64,9 +58,9 @@
        (sort-by (juxt :kind :extractor-version))
        vec))
 
-(defn- skipped-samples
-  [rows]
-  (->> (skipped-files rows)
+(defn- skipped-sample-rows
+  [skipped]
+  (->> skipped
        (sort-by :path)
        (take 20)
        (mapv #(select-keys % [:path :ext :skip-reason]))))
@@ -100,22 +94,23 @@
   [{:keys [id root role]}]
   (let [{:keys [files]} (fs/scan-file-coverage root)
         files (vec files)
+        supported (filterv :supported? files)
         skipped (vec (skipped-files files))
         sample-fn #(skipped-row-sample id %)]
     (with-meta
       {:repo-id id
        :role role
        :root root
-       :totals (totals files)
-       :files-by-kind (count-rows :kind :kind (supported-files files))
+       :totals (totals (count files) (count supported) (count skipped))
+       :files-by-kind (count-rows :kind :kind supported)
        :files-by-extension (count-rows :ext :ext files)
        :skipped-by-extension (count-rows-with-samples :ext :ext sample-fn skipped)
        :skipped-by-reason (count-rows-with-samples :reason
                                                    :skip-reason
                                                    sample-fn
                                                    skipped)
-       :extractors (extractor-rows files)
-       :skipped-samples (skipped-samples files)}
+       :extractors (extractor-rows supported)
+       :skipped-samples (skipped-sample-rows skipped)}
       {:coverage-files files})))
 
 (defn- merge-counts
