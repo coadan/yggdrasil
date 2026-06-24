@@ -161,6 +161,50 @@
           (is (= "src/sample/util.clj" (:path first-result)))
           (is (= 2.0 (get-in first-result [:score-components :exact]))))))))
 
+(deftest auto-query-with-exact-path-skips-embedding-client
+  (store/with-node (temp-dir "ygg-query-auto-path-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:hit"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :target-id "node:hit"
+                       :target-kind :node
+                       :file-id "file:hit"
+                       :path "src/hit.clj"
+                       :kind :namespace
+                       :label "demo.hit"
+                       :text "demo.hit"
+                       :tokens ["demo" "hit"]
+                       :input-sha "hit"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})])
+      (let [calls (atom 0)
+            report (query/search-report
+                    xtdb
+                    "Open src/hit.clj before reading anything else"
+                    {:retriever :auto
+                     :embedding-client {:provider :fake
+                                        :model "fake"
+                                        :embed-batch (fn [_inputs]
+                                                       (swap! calls inc)
+                                                       [[1.0 0.0]])}
+                     :project-id "fixture"
+                     :repo-id "app"
+                     :limit 5})
+            instrumentation (:instrumentation report)]
+        (is (zero? @calls))
+        (is (= :lexical (:retriever-effective report)))
+        (is (= :exact-path-candidates
+               (:auto-lexical-short-circuit-reason instrumentation)))
+        (is (true? (:auto-lexical-short-circuit? instrumentation)))
+        (is (zero? (:query-embedding-ms instrumentation)))
+        (is (zero? (:load-embeddings-ms instrumentation)))
+        (is (= "src/hit.clj" (:path (first (:results report)))))))))
+
 (deftest exact-path-mentions-enter-query-candidates
   (store/with-node (temp-dir "ygg-query-path-candidate-xtdb")
     (fn [xtdb]
@@ -247,6 +291,46 @@
           (is (= ["consumer/consumer.go"] (mapv :path results)))
           (is (= 0.05 (get-in first-result [:score-components :exact]))))))))
 
+(deftest lexical-query-promotes-grep-matched-files-without-search-docs
+  (let [repo-root (temp-dir "ygg-query-grep-file-repo")]
+    (spit-file! repo-root "src/reset.clj" "(defn ResetTokenHandler [] :ok)\n")
+    (store/with-node (temp-dir "ygg-query-grep-file-xtdb")
+      (fn [xtdb]
+        (store/execute-tx!
+         xtdb
+         [(store/put-op (store/table-ref :repos)
+                        {:xt/id "repo:fixture:app"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :root repo-root
+                         :active? true})
+          (store/put-op (store/table-ref :files)
+                        {:xt/id "file:fixture:app:src/reset.clj"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :repo-root repo-root
+                         :path "src/reset.clj"
+                         :ext "clj"
+                         :kind :clojure
+                         :content-sha "sha"
+                         :mtime-ms 1
+                         :size-bytes 32
+                         :active? true
+                         :run-id "run"})])
+        (let [report (query/search-report xtdb
+                                          "reset token handler"
+                                          {:retriever :lexical
+                                           :project-id "fixture"
+                                           :repo-id "app"
+                                           :limit 5})
+              result (first (:results report))
+              instrumentation (:instrumentation report)]
+          (is (= ["src/reset.clj"] (mapv :path (:results report))))
+          (is (= :file (:result-kind result)))
+          (is (= 1.0 (get-in result [:score-components :grep])))
+          (is (= 1 (:transient-file-candidates instrumentation)))
+          (is (= 1 (:grep-candidates instrumentation))))))))
+
 (deftest lexical-query-includes-internal-grep-candidates-from-repo-metadata
   (let [repo-root (temp-dir "ygg-query-grep-repo")]
     (spit-file! repo-root "src/reset.clj" "(defn ResetTokenHandler [] :ok)\n")
@@ -296,6 +380,58 @@
             (is (= 3 (:grep-raw-matches instrumentation)))
             (is (= 1 (:grep-indexed-paths instrumentation)))
             (is (= 1 (:grep-candidates instrumentation)))))))))
+
+(deftest explicit-hybrid-query-still-calls-embedding-client
+  (store/with-node (temp-dir "ygg-query-explicit-hybrid-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:hit"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :target-id "node:hit"
+                       :target-kind :node
+                       :file-id "file:hit"
+                       :path "src/hit.clj"
+                       :kind :namespace
+                       :label "demo.hit"
+                       :text "hello"
+                       :tokens ["hello"]
+                       :input-sha "hit"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :embeddings)
+                      {:xt/id "embedding:hit"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :target-id "node:hit"
+                       :provider :fake
+                       :model "fake"
+                       :dims 2
+                       :input-sha "hit"
+                       :vector [1.0 0.0]
+                       :created-at-ms 1
+                       :active? true})])
+      (let [calls (atom 0)
+            report (query/search-report
+                    xtdb
+                    "hello"
+                    {:retriever :hybrid
+                     :embedding-client {:provider :fake
+                                        :model "fake"
+                                        :embed-batch (fn [_inputs]
+                                                       (swap! calls inc)
+                                                       [[1.0 0.0]])}
+                     :project-id "fixture"
+                     :repo-id "app"
+                     :limit 5})]
+        (is (= 1 @calls))
+        (is (= :hybrid (:retriever-effective report)))
+        (is (false? (get-in report [:instrumentation
+                                    :auto-lexical-short-circuit?])))
+        (is (pos? (get-in report [:instrumentation :semantic-positive])))))))
 
 (deftest ranked-candidates-reuse-path-token-matches-for-exact-boost
   (let [tokenize-calls (atom [])

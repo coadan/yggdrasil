@@ -2854,7 +2854,7 @@
                                   :system-evidence-count (count system-evidence)
                                   :search-doc-count (get-in search-report
                                                             [:instrumentation
-                                                             :search-docs])}
+                                                             :durable-search-docs])}
                                  {:entity-count (count entities)
                                   :doc-count (count docs)
                                   :activity-count (count activity)

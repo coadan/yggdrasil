@@ -19,12 +19,13 @@
 (def default-grep-patterns 4)
 (def default-grep-timeout-ms 1500)
 (def default-grep-max-stdout-bytes 200000)
+(def default-transient-file-candidates 80)
 (def lexical-graph-weight 0.25)
 (def hybrid-graph-weight 0.20)
 (def lexical-same-label-weight 0.25)
 (def hybrid-same-label-weight 0.20)
-(def lexical-grep-weight 0.0)
-(def hybrid-grep-weight 0.0)
+(def lexical-grep-weight 0.35)
+(def hybrid-grep-weight 0.10)
 
 (def search-report-schema "ygg.search.report/v1")
 
@@ -104,7 +105,7 @@
           (recur (next remaining) (conj seen k) (conj out row))))
       out)))
 
-(declare all-nodes all-edges all-system-nodes)
+(declare all-nodes all-edges all-system-nodes concrete-path? path-shaped-query? exact-path-mentioned?)
 
 (def ^:private node-row-query-fields
   [:xt/id
@@ -173,6 +174,21 @@
    :normalized-value
    :source-line
    :confidence
+   :active?
+   :run-id])
+
+(def ^:private file-row-query-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :repo-root
+   :repo-role
+   :path
+   :ext
+   :kind
+   :content-sha
+   :mtime-ms
+   :size-bytes
    :active?
    :run-id])
 
@@ -413,6 +429,27 @@
   ([xtdb] (all-files xtdb {}))
   ([xtdb opts]
    (scoped-rows xtdb (:files store/tables) opts {:active? true})))
+
+(defn- files-by-paths
+  [xtdb paths opts]
+  (rows-by-field-values xtdb
+                        (:files store/tables)
+                        :path
+                        paths
+                        (assoc opts :active? true)
+                        file-row-query-fields))
+
+(defn- files-matching-path-tokens
+  [xtdb tokens opts]
+  (let [rows (store/rows-matching-any-token
+              xtdb
+              (:files store/tables)
+              [:path]
+              tokens
+              (assoc (scope-constraints opts) :active? true)
+              (read-context opts)
+              file-row-query-fields)]
+    (filter-scope rows opts)))
 
 (defn all-repos
   ([xtdb] (all-repos xtdb {}))
@@ -1023,6 +1060,161 @@
       :indexed-paths #{}}
      docs)))
 
+(defn- rescore-grep-data
+  [grep-data docs]
+  (if (get-in grep-data [:instrumentation :grep-enabled?])
+    (let [score-data (grep-score-data-for-docs docs
+                                               (:repo-ids grep-data)
+                                               (:match-counts grep-data))
+          scores (normalize-scores (:scores score-data))]
+      (-> grep-data
+          (assoc :scores scores)
+          (assoc-in [:instrumentation :grep-indexed-paths]
+                    (count (:indexed-paths score-data)))
+          (assoc-in [:instrumentation :grep-candidates]
+                    (count scores))))
+    grep-data))
+
+(defn- trim-path-mention
+  [value]
+  (some-> value
+          str
+          str/trim
+          (str/replace #"^[^A-Za-z0-9._/~+\-]+" "")
+          (str/replace #"[^A-Za-z0-9._/~+\-]+$" "")))
+
+(defn- path-mention?
+  [value]
+  (and (<= 3 (count (str value)))
+       (boolean (re-find #"[A-Za-z0-9]" (str value)))
+       (concrete-path? value)))
+
+(defn- path-mentions
+  [query-text]
+  (->> (str/split (str query-text) #"\s+")
+       (map trim-path-mention)
+       (filter path-mention?)
+       distinct
+       vec))
+
+(defn- match-count-path-rows
+  [match-counts]
+  (->> match-counts
+       (map (fn [[[repo-id path] n]]
+              {:repo-id repo-id
+               :path path
+               :count (long n)}))
+       (remove #(str/blank? (str (:path %))))
+       (sort-by (fn [{:keys [count repo-id path]}]
+                  [(- count) (str repo-id) path]))))
+
+(defn- indexed-doc-path-keys
+  [docs repo-ids]
+  (let [single-repo-id (when (= 1 (count repo-ids)) (first repo-ids))]
+    (reduce
+     (fn [keys {:keys [repo-id path]}]
+       (if (str/blank? (str path))
+         keys
+         (cond-> (conj keys [(some-> repo-id str) path])
+           (and (nil? repo-id) single-repo-id)
+           (conj [single-repo-id path]))))
+     #{}
+     docs)))
+
+(defn- indexed-doc-path?
+  [indexed-paths single-repo-id {:keys [repo-id path]}]
+  (or (contains? indexed-paths [(some-> repo-id str) path])
+      (contains? indexed-paths [nil path])
+      (and single-repo-id
+           (nil? repo-id)
+           (contains? indexed-paths [single-repo-id path]))))
+
+(defn- file-row->search-doc
+  [file]
+  (let [path (:path file)
+        input-text (str/join "\n"
+                             (remove str/blank?
+                                     [(str path)
+                                      (some-> (:kind file) name)
+                                      (:ext file)]))]
+    {:xt/id (str "search-doc:transient-file:"
+                 (hash/short-hash [(:xt/id file) path]))
+     :project-id (:project-id file)
+     :repo-id (:repo-id file)
+     :target-id (:xt/id file)
+     :target-kind :file
+     :file-id (:xt/id file)
+     :path path
+     :kind (:kind file)
+     :label path
+     :text input-text
+     :tokens (text/tokenize-all input-text)
+     :input-sha (hash/sha256-hex input-text)
+     :source-line 1
+     :active? true
+     :run-id (:run-id file)
+     :transient? true}))
+
+(defn- file-candidate-sort-key
+  [query match-counts single-repo-id mentions file]
+  (let [path (:path file)
+        grep-count (grep-count-for-doc match-counts single-repo-id file)
+        exact? (and (path-shaped-query? query)
+                    (exact-path-mentioned? query path))
+        mention-match? (boolean
+                        (some #(str/includes? (str/lower-case (str path))
+                                              (str/lower-case (str %)))
+                              mentions))]
+    [(if exact? 0 1)
+     (if mention-match? 0 1)
+     (- grep-count)
+     (count (str path))
+     (str (:repo-id file))
+     path]))
+
+(defn- transient-file-candidate-data
+  [xtdb query-text docs grep-data scope]
+  (let [query (str/lower-case (str/trim query-text))
+        mentions (path-mentions query-text)
+        match-counts (:match-counts grep-data)
+        repo-ids (:repo-ids grep-data)
+        single-repo-id (when (= 1 (count repo-ids)) (first repo-ids))
+        grep-paths (->> (match-count-path-rows match-counts)
+                        (take default-transient-file-candidates)
+                        (mapv :path))
+        path-values (->> (concat mentions grep-paths)
+                         (remove str/blank?)
+                         distinct
+                         vec)
+        exact-rows (when (seq path-values)
+                     (files-by-paths xtdb path-values scope))
+        mention-rows (when (seq mentions)
+                       (files-matching-path-tokens xtdb mentions scope))
+        indexed-paths (indexed-doc-path-keys docs repo-ids)
+        rows (->> (concat exact-rows mention-rows)
+                  (filter :active?)
+                  (filter #(or (pos? (grep-count-for-doc match-counts
+                                                         single-repo-id
+                                                         %))
+                               (some (fn [mention]
+                                       (str/includes?
+                                        (str/lower-case (str (:path %)))
+                                        (str/lower-case (str mention))))
+                                     mentions)))
+                  (remove #(indexed-doc-path? indexed-paths single-repo-id %))
+                  (distinct-by :xt/id)
+                  (sort-by (partial file-candidate-sort-key
+                                    query
+                                    match-counts
+                                    single-repo-id
+                                    mentions))
+                  (take default-transient-file-candidates)
+                  vec)
+        docs (mapv file-row->search-doc rows)]
+    {:docs docs
+     :instrumentation {:path-mentions (count mentions)
+                       :transient-file-candidates (count docs)}}))
+
 (defn- diagnostic-kind-counts
   [diagnostics]
   (->> diagnostics
@@ -1033,6 +1225,8 @@
 (defn- grep-skip-data
   [reason diagnostics]
   {:scores {}
+   :match-counts {}
+   :repo-ids []
    :instrumentation {:grep-enabled? false
                      :grep-status :skipped
                      :grep-skip-reason reason
@@ -1069,6 +1263,8 @@
                   scores (normalize-scores (:scores score-data))
                   matched-indexed-paths (count (:indexed-paths score-data))]
               {:scores scores
+               :match-counts match-counts
+               :repo-ids repo-ids
                :instrumentation {:grep-enabled? true
                                  :grep-status (if (seq all-diagnostics) :partial :ok)
                                  :grep-repos (count repo-ids)
@@ -1468,6 +1664,9 @@
                              semantic-score (double (get semantic (:target-id doc) 0.0))
                              lexical-score (double (get lexical (:target-id doc) 0.0))
                              grep-score (double (get grep (:target-id doc) 0.0))
+                             rankable-grep-score (if (= :file (:target-kind doc))
+                                                   grep-score
+                                                   0.0)
                              graph-score (double (get neighbor-scores (:target-id doc) 0.0))
                              same-label-score (double (get same-label-scores (:target-id doc) 0.0))
                              exact-score (exact-match-boost query
@@ -1478,12 +1677,12 @@
                              total (+ (case retriever
                                         :semantic semantic-score
                                         :lexical (+ lexical-score
-                                                    (* lexical-grep-weight grep-score)
+                                                    (* lexical-grep-weight rankable-grep-score)
                                                     (* lexical-graph-weight graph-score)
                                                     (* lexical-same-label-weight same-label-score))
                                         (+ (* 0.70 semantic-score)
                                            (* 0.20 lexical-score)
-                                           (* hybrid-grep-weight grep-score)
+                                           (* hybrid-grep-weight rankable-grep-score)
                                            (* hybrid-graph-weight graph-score)
                                            (* hybrid-same-label-weight same-label-score)))
                                       exact-score)]
@@ -1528,6 +1727,21 @@
                   (sort-by ranked-result-sort-key)
                   vec)}))
 
+(defn- auto-lexical-short-circuit-reason
+  [ranked-data transient-file-data]
+  (cond
+    (pos? (count (:exact-path-candidates ranked-data)))
+    :exact-path-candidates
+
+    (pos? (get-in transient-file-data [:instrumentation :transient-file-candidates] 0))
+    :transient-file-candidates
+
+    (pos? (count (:grep-candidates ranked-data)))
+    :grep-candidates
+
+    (pos? (count (:path-token-candidates ranked-data)))
+    :path-token-candidates))
+
 (defn- query-vector
   [embedding-client query-text]
   (first ((:embed-batch embedding-client) [query-text])))
@@ -1553,20 +1767,52 @@
         scope {:project-id project-id
                :repo-id repo-id
                :read-context (read-context opts)}
-        [docs timings] (timed {} :load-search-docs-ms #(vec (all-search-docs xtdb scope)))
+        [base-docs timings] (timed {} :load-search-docs-ms #(vec (all-search-docs xtdb scope)))
         [query-tokens timings] (timed timings :tokenize-ms #(text/tokenize query-text))
+        [initial-grep-data timings] (timed timings
+                                           :grep-search-ms
+                                           #(literal-grep-data xtdb
+                                                               query-tokens
+                                                               base-docs
+                                                               scope
+                                                               opts
+                                                               initial-retriever))
+        [transient-file-data timings] (timed timings
+                                             :transient-file-candidates-ms
+                                             #(transient-file-candidate-data
+                                               xtdb
+                                               query-text
+                                               base-docs
+                                               initial-grep-data
+                                               scope))
+        docs (into base-docs (:docs transient-file-data))
         [lexical timings] (timed timings :lexical-score-ms #(lexical-scores query-tokens docs))
-        [grep-data timings] (timed timings
-                                   :grep-search-ms
-                                   #(literal-grep-data xtdb
-                                                       query-tokens
-                                                       docs
-                                                       scope
-                                                       opts
-                                                       initial-retriever))
+        grep-data (rescore-grep-data initial-grep-data docs)
         grep (:scores grep-data)
-        [embeddings timings] (if (and embedding-client
-                                      (#{:hybrid :semantic} initial-retriever))
+        [auto-cheap-rank-data timings] (if (and (= :auto requested-retriever)
+                                                embedding-client)
+                                         (timed timings
+                                                :auto-cheap-rank-ms
+                                                #(ranked-candidates
+                                                  {:query-text query-text
+                                                   :query-tokens query-tokens
+                                                   :docs docs
+                                                   :lexical lexical
+                                                   :semantic {}
+                                                   :grep grep
+                                                   :neighbor-scores {}
+                                                   :same-label-scores {}
+                                                   :retriever :lexical
+                                                   :limit limit}))
+                                         [{} (assoc timings :auto-cheap-rank-ms 0)])
+        auto-short-circuit-reason (when (= :auto requested-retriever)
+                                    (auto-lexical-short-circuit-reason
+                                     auto-cheap-rank-data
+                                     transient-file-data))
+        auto-short-circuit? (boolean auto-short-circuit-reason)
+        semantic-retriever? (and (#{:hybrid :semantic} initial-retriever)
+                                 (not auto-short-circuit?))
+        [embeddings timings] (if (and embedding-client semantic-retriever?)
                                (timed timings
                                       :load-embeddings-ms
                                       #(vec (embedding/current-embeddings-for-docs
@@ -1576,11 +1822,12 @@
                                                     :provider (:provider embedding-client)
                                                     :model (:model embedding-client)))))
                                [[] (assoc timings :load-embeddings-ms 0)])
-        retriever (if (and (= :auto requested-retriever)
-                           embedding-client
-                           (empty? embeddings))
-                    :lexical
-                    initial-retriever)
+        retriever (cond
+                    auto-short-circuit? :lexical
+                    (and (= :auto requested-retriever)
+                         embedding-client
+                         (empty? embeddings)) :lexical
+                    :else initial-retriever)
         [semantic timings] (if (#{:hybrid :semantic} retriever)
                              (if embedding-client
                                (let [[query-vector timings] (timed timings
@@ -1644,13 +1891,18 @@
         instrumentation (merge
                          timings
                          (:instrumentation grep-data)
+                         (:instrumentation transient-file-data)
                          (adjacency-query-plan xtdb
                                                (:seed-ids seed-data)
                                                edges
                                                (:load-edges-ms timings))
                          {:search-total-ms (elapsed-ms started)
                           :search-docs (count docs)
+                          :durable-search-docs (count base-docs)
                           :search-docs-by-kind (rows-by-kind docs)
+                          :auto-lexical-short-circuit? auto-short-circuit?
+                          :auto-lexical-short-circuit-reason (or auto-short-circuit-reason
+                                                                 :none)
                           :query-tokens (count query-tokens)
                           :lexical-positive (count lexical)
                           :grep-positive (count grep)
