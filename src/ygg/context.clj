@@ -544,15 +544,19 @@
                         (not= :markdown (:kind chunk)))
                    (assoc :exactPathSource true)))))))
 
+(defn- distinct-doc-key
+  [doc]
+  [(get-in doc [:source :repo])
+   (get-in doc [:source :path])
+   (get-in doc [:source :lines])])
+
 (defn- distinct-docs
   [docs]
   (loop [remaining (seq docs)
          seen #{}
          out []]
     (if-let [doc (first remaining)]
-      (let [k [(get-in doc [:source :repo])
-               (get-in doc [:source :path])
-               (get-in doc [:source :lines])]]
+      (let [k (distinct-doc-key doc)]
         (if (contains? seen k)
           (recur (next remaining) seen out)
           (recur (next remaining) (conj seen k) (conj out doc))))
@@ -810,8 +814,33 @@
   (let [candidate-limit (doc-diversify-candidate-limit doc-limit
                                                        (count result-paths))
         representatives (docs-by-path docs)]
-    (distinct-docs (concat (take candidate-limit docs)
-                           (keep representatives result-paths)))))
+    (loop [remaining (seq docs)
+           taken 0
+           result-paths (seq result-paths)
+           seen #{}
+           out []]
+      (let [doc (cond
+                  (and (< taken candidate-limit) remaining)
+                  (first remaining)
+
+                  result-paths
+                  (get representatives (first result-paths)))]
+        (cond
+          (and (< taken candidate-limit) remaining)
+          (let [k (distinct-doc-key doc)]
+            (if (contains? seen k)
+              (recur (next remaining) (inc taken) result-paths seen out)
+              (recur (next remaining) (inc taken) result-paths (conj seen k) (conj out doc))))
+
+          result-paths
+          (if doc
+            (let [k (distinct-doc-key doc)]
+              (if (contains? seen k)
+                (recur remaining taken (next result-paths) seen out)
+                (recur remaining taken (next result-paths) (conj seen k) (conj out doc))))
+            (recur remaining taken (next result-paths) seen out))
+
+          :else out)))))
 
 (defn- select-docs
   ([docs results doc-limit]
