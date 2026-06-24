@@ -360,12 +360,15 @@
                 (trim-step packet)))
             packet
             trim-steps)))
+(declare fit-doc-snippets)
+
 (defn- finalize-budget
   [packet budget truncated?]
   (let [packet (assoc packet
                       :budget (assoc (:budget packet)
                                      :truncated truncated?))
         packet (trim-optional-context-metadata packet budget)
+        packet (fit-doc-snippets packet budget)
         with-estimate (assoc-in packet [:budget :estimated] (estimate-tokens packet))]
     (if (<= (estimate-tokens with-estimate) budget)
       with-estimate
@@ -460,6 +463,60 @@
        (group-by snippet-file-key)
        (sort-by (fn [[[repo path] _]] [(or repo "") path]))
        (mapv snippet-file-row)))
+
+(defn- with-doc-snippet-limit
+  [packet limit]
+  (let [packet (update packet
+                       :docs
+                       (fn [docs]
+                         (mapv (fn [doc]
+                                 (if-let [snippet (:snippet doc)]
+                                   (assoc doc
+                                          :snippet
+                                          (compact-string snippet limit))
+                                   doc))
+                               docs)))]
+    (if (contains? packet :snippets)
+      (let [snippets (packet-snippets (:docs packet))]
+        (if (seq snippets)
+          (assoc packet :snippets snippets)
+          (dissoc packet :snippets)))
+      packet)))
+
+(defn- omit-doc-snippets
+  [packet]
+  (-> packet
+      (update :docs
+              (fn [docs]
+                (mapv (fn [doc]
+                        (if (:snippet doc)
+                          (-> doc
+                              (dissoc :snippet)
+                              (assoc :snippetOmitted true))
+                          doc))
+                      docs)))
+      (dissoc :snippets)))
+
+(defn- fit-doc-snippets
+  [packet budget]
+  (if (<= (estimate-tokens packet) budget)
+    packet
+    (let [max-snippet-chars (reduce max
+                                    0
+                                    (keep (comp count :snippet) (:docs packet)))]
+      (if (zero? max-snippet-chars)
+        packet
+        (loop [lo 0
+               hi max-snippet-chars
+               best nil]
+          (if (> lo hi)
+            (or best (omit-doc-snippets packet))
+            (let [mid (quot (+ lo hi) 2)
+                  trimmed (with-doc-snippet-limit packet mid)]
+              (if (<= (estimate-tokens trimmed) budget)
+                (recur (inc mid) hi trimmed)
+                (recur lo (dec mid) best)))))))))
+
 (defn- compact-candidate-file
   [candidate]
   (select-keys candidate

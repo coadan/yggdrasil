@@ -277,14 +277,14 @@ h3 {
   color: #ffffff;
 }
 
-.ask-form {
+.query-form {
   display: grid;
   gap: 10px;
   grid-template-columns: minmax(0, 1fr) auto;
   margin-top: 14px;
 }
 
-.ask-form input {
+.query-form input {
   background: #ffffff;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
@@ -294,7 +294,7 @@ h3 {
   padding: 9px 10px;
 }
 
-.ask-form button,
+.query-form button,
 .quick-prompts button {
   background: #ffffff;
   border: 1px solid #cbd5e1;
@@ -316,19 +316,19 @@ h3 {
   font-size: 12px;
 }
 
-.ask-answer {
+.query-answer {
   display: grid;
   gap: 8px;
 }
 
-.ask-answer p {
+.query-answer p {
   color: #334155;
   font-size: 14px;
   line-height: 1.45;
   margin: 0;
 }
 
-.ask-scope {
+.query-scope {
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
@@ -338,11 +338,11 @@ h3 {
   padding: 10px;
 }
 
-.ask-scope strong {
+.query-scope strong {
   font-size: 14px;
 }
 
-.ask-scope span {
+.query-scope span {
   color: #64748b;
   font-size: 12px;
   overflow-wrap: anywhere;
@@ -672,7 +672,7 @@ td.numeric-cell {
   opacity: 0.78;
 }
 
-.slice-ask-button {
+.slice-query-button {
   background: #ffffff;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
@@ -846,7 +846,7 @@ td.numeric-cell {
 
   .graph-workspace,
   .graph-toolbar,
-  .ask-form {
+  .query-form {
     grid-template-columns: 1fr;
   }
 

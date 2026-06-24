@@ -87,7 +87,6 @@
   [payload]
   (case (:schema payload)
     "ygg.context/v1" "context"
-    "ygg.cursor.packet/v1" "cursor"
     "ygg.frontier.decision/v1" "maintenance-decision"
     "ygg.maintenance.decision-packet/v1" "maintenance-decision"
     "ygg.maintenance.classification/v1" "maintenance-classification"

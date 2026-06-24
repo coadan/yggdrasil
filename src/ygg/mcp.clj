@@ -2,7 +2,6 @@
   "Minimal MCP stdio server for Yggdrasil packets."
   (:require [ygg.activity :as activity]
             [ygg.context :as context]
-            [ygg.cursor :as cursor]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
             [ygg.map-store :as map-store]
@@ -27,7 +26,7 @@
   "0.1.0")
 
 (def server-instructions
-  (str "Use ygg_explore first for structural coding questions when a project "
+  (str "Use ygg_query first for structural coding questions when a project "
        "graph exists. Check freshness, evidence.families, evidence.planes, "
        "and nextActions before trusting missing evidence. Treat returned "
        "systems as the work-area orientation, architecture as auditable "
@@ -93,9 +92,9 @@
    :required required})
 
 (def tool-definitions
-  [{:name "ygg_explore"
+  [{:name "ygg_query"
     :groups #{:default}
-    :description "Return the primary one-shot Yggdrasil orientation packet for an agent question."
+    :description "Return the primary one-shot Yggdrasil context packet for an agent question."
     :inputSchema (json-schema
                   {:query {:type "string"}
                    :projectId {:type "string"}
@@ -119,73 +118,6 @@
                    :sourceLines {:type "integer"
                                  :minimum 1}}
                   ["target"])}
-   {:name "ygg_ask"
-    :groups #{:ask}
-    :description "Return an Yggdrasil context packet for one graph-grounded question."
-    :inputSchema (json-schema
-                  {:query {:type "string"}
-                   :projectId {:type "string"}
-                   :configPath {:type "string"}
-                   :mapPath {:type "string"}
-                   :retriever {:type "string"
-                               :enum ["lexical" "auto" "hybrid" "semantic"]}
-                   :budget {:type "integer"
-                            :minimum 1000}}
-                  ["query"])}
-   {:name "ygg_explore_create"
-    :groups #{:cursor}
-    :description "Create a persistent graph exploration cursor packet."
-    :inputSchema (json-schema
-                  {:query {:type "string"}
-                   :projectId {:type "string"}
-                   :configPath {:type "string"}
-                   :mapPath {:type "string"}
-                   :budget {:type "integer"
-                            :minimum 1000}}
-                  [])}
-   {:name "ygg_explore_open"
-    :groups #{:cursor}
-    :description "Open one target in an existing graph exploration cursor."
-    :inputSchema (json-schema
-                  {:cursorId {:type "string"}
-                   :target {:type "string"}
-                   :budget {:type "integer"
-                            :minimum 1000}}
-                  ["cursorId" "target"])}
-   {:name "ygg_explore_expand"
-    :groups #{:cursor}
-    :description "Expand an existing graph exploration cursor around one target."
-    :inputSchema (json-schema
-                  {:cursorId {:type "string"}
-                   :target {:type "string"}
-                   :relation {:type "string"}
-                   :limit {:type "integer"
-                           :minimum 1}
-                   :budget {:type "integer"
-                            :minimum 1000}}
-                  ["cursorId" "target"])}
-   {:name "ygg_explore_docs"
-    :groups #{:cursor}
-    :description "Open documentation and source snippets for one cursor target."
-    :inputSchema (json-schema
-                  {:cursorId {:type "string"}
-                   :target {:type "string"}
-                   :budget {:type "integer"
-                            :minimum 1000}}
-                  ["cursorId" "target"])}
-   {:name "ygg_explore_search"
-    :groups #{:cursor}
-    :description "Search within an existing graph exploration cursor basis."
-    :inputSchema (json-schema
-                  {:cursorId {:type "string"}
-                   :query {:type "string"}
-                   :retriever {:type "string"
-                               :enum ["lexical" "auto" "hybrid" "semantic"]}
-                   :limit {:type "integer"
-                           :minimum 1}
-                   :budget {:type "integer"
-                            :minimum 1000}}
-                  ["cursorId" "query"])}
    {:name "ygg_systems"
     :groups #{:default}
     :description "Return the canonical ygg.graph/v2 systems graph JSON."
@@ -325,7 +257,7 @@
                        :tool tool-name
                        :enabledGroups (mapv name (sort-by name (:tool-groups ctx)))
                        :requiredGroups (mapv name (sort-by name (:groups tool)))
-                       :hint "Start ygg-mcp with --tools default,cursor,sync,work,ask or YGG_MCP_TOOLS=all."})))
+                       :hint "Start ygg-mcp with --tools default,sync,work or YGG_MCP_TOOLS=all."})))
     tool))
 
 (defn- abs-path
@@ -428,28 +360,9 @@
                                                                       args
                                                                       overlay)})))))
 
-(defn- ask
+(defn- query-context
   [ctx args]
   (context-query-packet ctx args))
-
-(defn- explore
-  [ctx args]
-  (let [project (read-project! ctx args)
-        overlay (map-overlay ctx args)]
-    (with-xtdb
-      ctx
-      (fn [xtdb]
-        (let [freshness (context-packet-freshness xtdb project ctx args overlay)]
-          (context/context-packet xtdb
-                                  (require-string! args
-                                                   :query
-                                                   "ygg_explore requires query.")
-                                  {:project-id (project-id project args)
-                                   :retriever (keyword (or (:retriever args) "lexical"))
-                                   :map-overlay overlay
-                                   :budget (or (:budget args) context/default-budget)
-                                   :plugins (:plugins project)
-                                   :freshness freshness}))))))
 
 (def node-inspect-schema
   "ygg.node.inspect/v1")
@@ -1062,9 +975,9 @@
              :project {:id project-id}
              :status :not-found
              :choices []
-             :nextActions [{:kind :explore
+             :nextActions [{:kind :query
                             :label "Search for a graph context packet"
-                            :mcpTool "ygg_explore"
+                            :mcpTool "ygg_query"
                             :mcpArgs {:query target
                                       :projectId project-id}}]}
 
@@ -1123,57 +1036,6 @@
                                                 overlay
                                                 target
                                                 selected))))))))))
-
-(defn- explore-create
-  [ctx args]
-  (let [project (read-project! ctx args)]
-    (with-xtdb
-      ctx
-      (fn [xtdb]
-        (cursor/create! xtdb
-                        {:project-id (project-id project args)
-                         :query-text (:query args)
-                         :map-path (or (:mapPath args) (:map-path ctx))
-                         :budget (or (:budget args) context/default-budget)
-                         :retriever :lexical})))))
-
-(defn- explore-open
-  [ctx args]
-  (let [cursor-id (require-string! args :cursorId "ygg_explore_open requires cursorId.")
-        target (require-string! args :target "ygg_explore_open requires target.")]
-    (with-xtdb ctx #(cursor/open! % cursor-id target {:budget (:budget args)}))))
-
-(defn- explore-expand
-  [ctx args]
-  (let [cursor-id (require-string! args :cursorId "ygg_explore_expand requires cursorId.")
-        target (require-string! args :target "ygg_explore_expand requires target.")]
-    (with-xtdb
-      ctx
-      #(cursor/expand! %
-                       cursor-id
-                       target
-                       {:budget (:budget args)
-                        :relation (:relation args)
-                        :limit (:limit args)}))))
-
-(defn- explore-docs
-  [ctx args]
-  (let [cursor-id (require-string! args :cursorId "ygg_explore_docs requires cursorId.")
-        target (require-string! args :target "ygg_explore_docs requires target.")]
-    (with-xtdb ctx #(cursor/docs! % cursor-id target {:budget (:budget args)}))))
-
-(defn- explore-search
-  [ctx args]
-  (let [cursor-id (require-string! args :cursorId "ygg_explore_search requires cursorId.")
-        query (require-string! args :query "ygg_explore_search requires query.")]
-    (with-xtdb
-      ctx
-      #(cursor/search! %
-                       cursor-id
-                       query
-                       {:budget (:budget args)
-                        :retriever (some-> (:retriever args) keyword)
-                        :limit (:limit args)}))))
 
 (defn- view-systems
   [ctx args]
@@ -1312,14 +1174,8 @@
   [ctx name args]
   (ensure-tool-enabled! ctx name)
   (case name
-    "ygg_explore" (explore ctx args)
+    "ygg_query" (query-context ctx args)
     "ygg_node" (node-inspect ctx args)
-    "ygg_ask" (ask ctx args)
-    "ygg_explore_create" (explore-create ctx args)
-    "ygg_explore_open" (explore-open ctx args)
-    "ygg_explore_expand" (explore-expand ctx args)
-    "ygg_explore_docs" (explore-docs ctx args)
-    "ygg_explore_search" (explore-search ctx args)
     "ygg_systems" (view-systems ctx args)
     "ygg_sync_inspect" (sync-inspect ctx args)
     "ygg_status" (sync-inspect ctx args)

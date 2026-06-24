@@ -541,24 +541,27 @@
          (:declarations candidate))))
 
 (defn- proof-commands
-  [hints selected-candidates]
-  (let [declaration-command (declaration-rg-command selected-candidates)
-        read-plan-paths (->> selected-candidates
-                             (filter #(or (resource-like-candidate? %)
-                                          (and (seq (:declarations %))
-                                               (not (terraform-declaration-candidate? %)))))
-                             (keep :path)
-                             set)
-        file-only-commands (->> selected-candidates
-                                (filter #(empty? (:declarations %)))
-                                (keep file-start-command))]
-    (->> (concat [declaration-command]
-                 (selected-read-plan-commands hints read-plan-paths)
-                 file-only-commands)
-         (remove nil?)
-         distinct
-         (take 3)
-         vec)))
+  ([hints selected-candidates]
+   (proof-commands hints selected-candidates []))
+  ([hints selected-candidates context-files]
+   (let [declaration-command (declaration-rg-command selected-candidates)
+         read-plan-paths (->> selected-candidates
+                              (filter #(or (resource-like-candidate? %)
+                                           (and (seq (:declarations %))
+                                                (not (terraform-declaration-candidate? %)))))
+                              (keep :path)
+                              (concat (keep :path context-files))
+                              set)
+         file-only-commands (->> selected-candidates
+                                 (filter #(empty? (:declarations %)))
+                                 (keep file-start-command))]
+     (->> (concat [declaration-command]
+                  (selected-read-plan-commands hints read-plan-paths)
+                  file-only-commands)
+          (remove nil?)
+          distinct
+          (take 3)
+          vec))))
 
 (defn- prepared-summary-lines
   [packet]
@@ -578,7 +581,7 @@
                              select-related-summary-files
                              (keep related-file-summary)
                              vec)
-          proof-commands (proof-commands hints selected-candidates)]
+          proof-commands (proof-commands hints selected-candidates context-files)]
       (when (or (seq candidates) (seq context-files) (seq related-files))
         (vec
          (concat

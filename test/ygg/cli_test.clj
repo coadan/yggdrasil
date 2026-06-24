@@ -4,6 +4,8 @@
             [ygg.benchmark :as benchmark]
             [ygg.cli :as cli]
             [ygg.cli-bench :as cli-bench]
+            [ygg.embedding.local :as local-embedding]
+            [ygg.evidence :as evidence]
             [ygg.hook :as hook]
             [ygg.plugin-package :as plugin-package]
             [ygg.project :as project]
@@ -38,7 +40,7 @@
   (let [usage (cli/usage)]
     (is (str/includes? usage "Setup:"))
     (is (str/includes? usage "Sync and maintenance:"))
-    (is (str/includes? usage "Ask and explore:"))
+    (is (str/includes? usage "Query:"))
     (is (str/includes? usage "View and report:"))
     (is (str/includes? usage "Plugins:"))
     (is (str/includes? usage "Agent integration:"))
@@ -48,9 +50,7 @@
     (is (str/includes? usage "audit-scope <project.edn>"))
     (is (str/includes? usage "sync <project.edn>"))
     (is (str/includes? usage "init <repo-root>"))
-    (is (str/includes? usage "ask <text>"))
-    (is (str/includes? usage "explore <text>"))
-    (is (str/includes? usage "explore create"))
+    (is (str/includes? usage "query <text>"))
     (is (str/includes? usage "affected <project.edn>"))
     (is (str/includes? usage "view overview|deps|query|systems"))
     (is (str/includes? usage "report <project.edn>"))
@@ -85,6 +85,7 @@
     (is (str/includes? usage "bench show"))
     (is (str/includes? usage "bench agent-packet"))
     (is (str/includes? usage "bench agent-baseline"))
+    (is (str/includes? usage "--provider local|openrouter|openai"))
     (is (str/includes? usage "--retriever auto|hybrid|lexical|semantic|local-vector|codebase-memory"))
     (is (str/includes? usage "--codebase-memory-command CMD"))
     (is (str/includes? usage "--codebase-memory-bin PATH"))
@@ -98,6 +99,7 @@
     (is (str/includes? usage "bench agent-compare"))
     (is (str/includes? usage "bench claim-pack"))
     (is (str/includes? usage "sync work heartbeat"))
+    (is (str/includes? usage "embed setup [--venv PATH] [--python PYTHON] [--json]"))
     (is (str/includes? usage "--cases ID,ID"))
     (is (str/includes? usage "--min-evidence-citation-rate N"))
     (is (str/includes? usage "--min-path-evidence-citation-rate N"))
@@ -112,6 +114,81 @@
     (is (str/includes? usage "--max-missed-and-absent-from-context-runs N"))
     (is (str/includes? usage "--require-parser-worker none|java|dotnet|javascript|typescript|all"))
     (is (not (str/includes? usage "overlay")))))
+
+(deftest embed-setup-dispatches-to-local-embedding-setup
+  (let [calls (atom [])]
+    (with-redefs [local-embedding/setup-venv!
+                  (fn [opts]
+                    (swap! calls conj opts)
+                    {:provider :local
+                     :venv "custom-venv"
+                     :python "custom-venv/bin/python"
+                     :requirements "/ygg/scripts/local-vector-requirements.txt"
+                     :created? true
+                     :default? false})]
+      (let [parsed (read-json-output
+                    (with-out-str
+                      (cli/dispatch "embed" ["setup"
+                                             "--venv" "custom-venv"
+                                             "--python" "python3.12"
+                                             "--json"])))]
+        (is (= [{:venv-path "custom-venv"
+                 :python "python3.12"}]
+               @calls))
+        (is (= {:provider "local"
+                :venv "custom-venv"
+                :python "custom-venv/bin/python"
+                :requirements "/ygg/scripts/local-vector-requirements.txt"
+                :created? true
+                :default? false}
+               parsed))))))
+
+(deftest sync-inspect-json-exposes-stable-freshness-summary
+  (with-redefs [project/read-project (fn [path]
+                                       (assoc project-fixture :path path))
+                store/with-node (fn [_ f]
+                                  (f :xtdb))
+                evidence/summarize (fn [xtdb project opts]
+                                     (is (= :xtdb xtdb))
+                                     (is (= "fixture" (:id project)))
+                                     (is (= "project.edn" (:config-path opts)))
+                                     {:freshness {:status :stale
+                                                  :counts {:indexed 2
+                                                           :current 1
+                                                           :changed 1
+                                                           :missing 0
+                                                           :unindexed 0}
+                                                  :repos [{:repo-id "app"
+                                                           :status :stale
+                                                           :counts {:indexed 2
+                                                                    :current 1
+                                                                    :changed 1
+                                                                    :missing 0
+                                                                    :unindexed 0}
+                                                           :samples {:changed [{:repo-id "app"
+                                                                                :path "AGENTS.md"}]}}]}
+                                      :families []
+                                      :counts {}
+                                      :nextActions []})]
+    (let [parsed (read-json-output
+                  (with-out-str
+                    (cli/dispatch "sync" ["inspect" "project.edn" "--json"])))]
+      (is (= {:indexed 2
+              :current 1
+              :changed 1
+              :missing 0
+              :unindexed 0}
+             (:freshnessCounts parsed)))
+      (is (= [{:id "app"
+               :status "stale"
+               :counts {:indexed 2
+                        :current 1
+                        :changed 1
+                        :missing 0
+                        :unindexed 0}
+               :samples {:changed [{:repo-id "app"
+                                    :path "AGENTS.md"}]}}]
+             (:repoFreshness parsed))))))
 
 (deftest plugin-install-dispatches-to-package-installer
   (let [calls (atom [])
@@ -1345,8 +1422,8 @@
                                        :project? true})
       (is (= first-content (slurp agents)))
       (is (str/includes? first-content "Keep this line."))
-      (is (str/includes? first-content "ygg sync inspect <project.edn> --map ygg.map.json --json"))
-      (is (str/includes? first-content "ygg audit-scope <project.edn> --map ygg.map.json --json"))
+      (is (str/includes? first-content "ygg sync inspect <project.edn> --json"))
+      (is (str/includes? first-content "ygg audit-scope <project.edn> --json"))
       (is (str/includes? first-content "`audit-scope --json` summarizes core evidence"))
       (is (str/includes? first-content "graph-basis freshness, `evidence.families`"))
       (is (str/includes? first-content "When coverage, sync inspect, or evidence readiness points at skipped or unsupported"))
@@ -1357,21 +1434,21 @@
       (is (str/includes? first-content "Report plugins use the same package model"))
       (is (str/includes? first-content "unbenchmarked or project-local plugin output as useful review evidence"))
       (is (str/includes? first-content "base-scoped, FOSS/non-commercial packages with benchmark artifacts"))
-      (is (str/includes? first-content "ygg explore \"<question>\" --project <project-id> --json"))
-      (is (str/includes? first-content "ygg explore search <cursor-id> \"<follow-up query>\""))
-      (is (str/includes? first-content "ygg sync check <project.edn> --map ygg.map.json --enqueue"))
+      (is (str/includes? first-content "ygg query \"<question>\" --project <project-id> --json"))
+      (is (str/includes? first-content "ygg sync check <project.edn> --enqueue"))
       (is (str/includes? first-content "ygg sync work list --project <project-id> --status ready"))
       (is (str/includes? first-content "ygg sync work show <work-id>"))
       (is (str/includes? first-content "ygg sync work heartbeat <work-id> --agent codex --lease-minutes 30"))
-      (is (str/includes? first-content "ygg-mcp --config project.edn --map ygg.map.json"))
-      (is (str/includes? first-content "`ygg_explore`"))
+      (is (str/includes? first-content "Use `ygg.map.json` only as an explicit portability format"))
+      (is (str/includes? first-content "ygg-mcp --config project.edn"))
+      (is (str/includes? first-content "`ygg_query`"))
       (is (str/includes? first-content "`ygg_node`"))
       (is (str/includes? first-content "`ygg_status`"))
       (is (str/includes? first-content "`ygg_systems`"))
-      (is (str/includes? first-content "--tools default,cursor,sync,work,ask"))
+      (is (str/includes? first-content "--tools default,sync,work"))
       (is (str/includes? first-content "YGG_MCP_TOOLS=all"))
-      (is (str/includes? first-content "Use `ygg_explore` as the primary one-shot orientation packet"))
-      (is (str/includes? first-content "with graph-basis freshness, `evidence.planes`"))
+      (is (str/includes? first-content "Use `ygg_query` as the primary context packet"))
+      (is (str/includes? first-content "graph-basis freshness, `evidence.planes`"))
       (is (str/includes? first-content "relationships, graph facts, architecture evidence, and drilldowns"))
       (is (str/includes? first-content "Treat returned snippets as already-read source context"))
       (is (str/includes? first-content "nearby mechanical edges before broad grep/read loops"))
@@ -1388,11 +1465,11 @@
     (is (= (.getPath hooks-file) (:hooks result)))
     (is (= "Bash" (get-in parsed [:hooks 0 :matcher])))
     (is (str/includes? (get-in parsed [:hooks 0 :hooks 0 :command])
-                       "ygg sync inspect <project.edn> --map ygg.map.json --json"))
+                       "ygg sync inspect <project.edn> --json"))
     (is (str/includes? (get-in parsed [:hooks 0 :hooks 0 :command])
                        "evidence.families"))
     (is (str/includes? (get-in parsed [:hooks 0 :hooks 0 :command])
-                       "ygg explore"))))
+                       "ygg query"))))
 
 (deftest agent-install-does-not-overwrite-different-hook-without-force
   (let [root (temp-dir "ygg-agent-install-hook-conflict")

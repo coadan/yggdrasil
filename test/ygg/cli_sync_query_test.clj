@@ -6,7 +6,6 @@
             [ygg.cli-start :as cli-start]
             [ygg.context :as context]
             [ygg.coverage :as coverage]
-            [ygg.cursor :as cursor]
             [ygg.dependency-review :as dependency-review]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
@@ -201,8 +200,8 @@
         (is (= ["source-graph"] (get-in parsed [:evidence :available])))
         (is (= {:status "ready"
                 :basis "start-run"
-                :summary "Ready for ask/explore with the graph produced by this start run."
-                :readyFor ["ask" "explore" "systems" "report"]
+                :summary "Ready for query with the graph produced by this start run."
+                :readyFor ["query" "systems" "report"]
                 :checks {:graph-sync true
                          :system-inference true
                          :report-written true
@@ -235,11 +234,11 @@
                 :result-schema-mismatch-events 0}
                (get-in parsed [:counts :activity])))
         (is (map-store/file-exists? map-path))
-        (is (some #(str/includes? % "ygg ask")
+        (is (some #(str/includes? % "ygg query")
                   (:next parsed)))
-        (is (some #(= {:kind "ask"
-                       :label "Ask a graph-grounded implementation question"
-                       :command "ygg ask \"where is this handled?\" --project fixture --json"}
+        (is (some #(= {:kind "query"
+                       :label "Query graph-grounded implementation context"
+                       :command "ygg query \"where is this handled?\" --project fixture --json"}
                       %)
                   (:nextActions parsed)))
         (is (= (set (:next parsed))
@@ -343,7 +342,7 @@
                  "Report Output")
         commands (set (map :command actions))]
     (is (contains? commands
-                   "ygg ask \"where is this handled?\" --project 'fixture project' --json"))
+                   "ygg query \"where is this handled?\" --project 'fixture project' --json"))
     (is (contains? commands
                    "ygg report 'Project Files/project.edn' --map 'Maps/ygg map.json' --out 'Report Output'"))
     (is (contains? commands
@@ -641,9 +640,9 @@
                                                                :path "src/broken.clj"
                                                                :stage "parse"
                                                                :message "reader error"}]}
-                                      :nextActions [{:kind :ask
-                                                     :command "ygg ask \"where is this handled?\" --project fixture --json"}]
-                                      :next ["ygg ask \"where is this handled?\" --project fixture --json"]})]
+                                      :nextActions [{:kind :query
+                                                     :command "ygg query \"where is this handled?\" --project fixture --json"}]
+                                      :next ["ygg query \"where is this handled?\" --project fixture --json"]})]
     (let [out (with-out-str
                 (cli/dispatch "sync" ["inspect" "project.edn" "--json"]))
           plain-out (with-out-str
@@ -689,8 +688,8 @@
                        :unindexed 1}
               :repos []}
              (:freshness parsed)))
-      (is (= [{:kind "ask"
-               :command "ygg ask \"where is this handled?\" --project fixture --json"}]
+      (is (= [{:kind "query"
+               :command "ygg query \"where is this handled?\" --project fixture --json"}]
              (:nextActions parsed)))
       (is (= {:files 2
               :nodes 3
@@ -1475,7 +1474,7 @@
     (is (= "infra-review:test" (get-in parsed [:payload-summary :id])))
     (is (= "container-image:api" (get-in parsed [:payload-summary :artifact])))
     (is (= infra-review/packet-schema (get-in parsed [:item :payload :schema])))))
-(deftest ask-json-returns-context-packet
+(deftest query-json-returns-context-packet
   (let [summaries (atom [])]
     (with-redefs [store/with-node (fn [_ f] (f :xtdb))
                   project/read-project (fn [path]
@@ -1489,10 +1488,12 @@
                                             :xtdb xtdb
                                             :query query-text
                                             :project-id (:project-id opts)
+                                            :output (:output opts)
+                                            :proofCommands (:proof-commands? opts)
                                             :pluginPackages (get-in opts [:plugins :packages])
                                             :freshness (:freshness opts)})]
       (let [out (with-out-str
-                  (cli/dispatch "ask"
+                  (cli/dispatch "query"
                                 ["where" "auth"
                                  "--project" "fixture"
                                  "--config" "project.edn"
@@ -1501,6 +1502,8 @@
         (is (= context/schema (:schema parsed)))
         (is (= "where auth" (:query parsed)))
         (is (= "fixture" (:project-id parsed)))
+        (is (= "compact" (:output parsed)))
+        (is (false? (:proofCommands parsed)))
         (is (= {:status "current"
                 :counts {:indexed 3}}
                (:freshness parsed)))
@@ -1512,41 +1515,42 @@
                   :config-path "project.edn"
                   :map-path nil}]]
                @summaries))))))
-(deftest explore-json-returns-one-shot-context-packet
+
+(deftest query-json-passes-output-and-proof-command-options
   (with-redefs [store/with-node (fn [_ f] (f :xtdb))
-                project/read-project (fn [path]
-                                       (assoc project-with-plugin-package :path path))
-                evidence/summarize (fn [_ _ _]
-                                     {:freshness {:status :stale
-                                                  :counts {:changed 1}}})
-                context/context-packet (fn [xtdb query-text opts]
-                                         {:schema context/schema
-                                          :xtdb xtdb
-                                          :query query-text
-                                          :project-id (:project-id opts)
-                                          :retriever (:retriever opts)
-                                          :freshness (:freshness opts)
-                                          :pluginPackages (get-in opts [:plugins :packages])
-                                          :evidence {:status :usable}})]
+                context/context-packet (fn [_ _ opts]
+                                         {:schema context/compact-schema
+                                          :output (:output opts)
+                                          :proofCommands (:proof-commands? opts)
+                                          :queryInput (:query-input opts)})]
     (let [out (with-out-str
-                (cli/dispatch "explore"
+                (cli/dispatch "query"
                               ["where" "auth"
                                "--project" "fixture"
-                               "--config" "project.edn"
-                               "--retriever" "lexical"
-                               "--json"]))
+                               "--json"
+                               "--output" "full"
+                               "--proof-commands"
+                               "--task" "impact"
+                               "--anchor" "src/a.clj:12"
+                               "--symbol" "Auth"
+                               "--literal" "AUTH_URL"
+                               "--lanes" "grep,graph"
+                               "--since" "HEAD~1"
+                               "--changed-only"]))
           parsed (read-json-output out)]
-      (is (= context/schema (:schema parsed)))
-      (is (= "where auth" (:query parsed)))
-      (is (= "fixture" (:project-id parsed)))
-      (is (= "lexical" (:retriever parsed)))
-      (is (= {:status "stale"
-              :counts {:changed 1}}
-             (:freshness parsed)))
-      (is (= (json-roundtrip [plugin-package-fixture])
-             (:pluginPackages parsed)))
-      (is (= {:status "usable"} (:evidence parsed))))))
-(deftest ask-plain-empty-result-prints-evidence-warning
+      (is (= context/compact-schema (:schema parsed)))
+      (is (= "full" (:output parsed)))
+      (is (true? (:proofCommands parsed)))
+      (is (= {:task "impact"
+              :anchors ["src/a.clj:12"]
+              :symbols ["Auth"]
+              :literals ["AUTH_URL"]
+              :changed-only? true
+              :lanes ["grep" "graph"]
+              :since "HEAD~1"}
+             (:queryInput parsed))))))
+
+(deftest query-plain-empty-result-prints-evidence-warning
   (let [err (java.io.StringWriter.)
         calls (atom [])]
     (with-redefs [store/with-node (fn [_ f] (f :xtdb))
@@ -1567,7 +1571,7 @@
                                                             :command "ygg sync <project.edn> --query-index"}]}})]
       (let [out (with-out-str
                   (binding [*err* err]
-                    (cli/dispatch "ask"
+                    (cli/dispatch "query"
                                   ["prior" "work"
                                    "--project" "fixture"
                                    "--retriever" "lexical"])))]
@@ -1578,8 +1582,9 @@
         (is (str/includes? (str err) "Unsupported evidence: remote-work"))
         (is (str/includes? (str err) "Run ygg sync <project.edn> --query-index"))
         (is (= [:query :context] (mapv first @calls)))
-        (is (= "prior work" (nth (second @calls) 2)))))))
-(deftest ask-plain-empty-result-shows-actionable-next-steps
+        (is (= "prior work" (nth (second @calls) 2)))
+        (is (= :full (:output (nth (second @calls) 3))))))))
+(deftest query-plain-empty-result-shows-actionable-next-steps
   (let [err (java.io.StringWriter.)]
     (with-redefs [store/with-node (fn [_ f] (f :xtdb))
                   query/semantic-query (fn [& _] [])
@@ -1606,12 +1611,12 @@
                                                             :command "ygg sync coverage <project.edn> --json"}]}})]
       (with-out-str
         (binding [*err* err]
-          (cli/dispatch "ask" ["deps" "--project" "fixture" "--retriever" "lexical"])))
+          (cli/dispatch "query" ["deps" "--project" "fixture" "--retriever" "lexical"])))
       (is (str/includes? (str err) "Weak evidence: dependencies"))
       (is (str/includes? (str err) "Run ygg sync <project.edn> --check --enqueue"))
       (is (str/includes? (str err) "1 more warnings in --json output."))
       (is (str/includes? (str err) "1 more commands in --json output.")))))
-(deftest ask-plain-success-does-not-build-context-packet
+(deftest query-plain-success-does-not-build-context-packet
   (with-redefs [store/with-node (fn [_ f] (f :xtdb))
                 query/semantic-query (fn [_ _ _]
                                        [{:score 1.0
@@ -1625,49 +1630,13 @@
     (let [err (java.io.StringWriter.)
           out (with-out-str
                 (binding [*err* err]
-                  (cli/dispatch "ask"
+                  (cli/dispatch "query"
                                 ["auth"
                                  "--project" "fixture"
                                  "--retriever" "lexical"])))]
       (is (str/includes? out "Auth"))
       (is (str/includes? out "lexical match"))
       (is (= "" (str err))))))
-(deftest query-json-returns-search-report
-  (with-redefs [store/with-node (fn [_ f] (f :xtdb))
-                query/search-report (fn [xtdb query-text opts]
-                                      {:schema query/search-report-schema
-                                       :xtdb xtdb
-                                       :query-text query-text
-                                       :retriever-requested (:retriever opts)
-                                       :retriever-effective :lexical
-                                       :project-id (:project-id opts)
-                                       :instrumentation {:search-docs 2
-                                                         :returned-count 1}
-                                       :results [{:label "Auth"}]})]
-    (let [out (with-out-str
-                (cli/dispatch "query" ["auth"
-                                       "--project" "fixture"
-                                       "--retriever" "lexical"
-                                       "--json"]))
-          parsed (read-json-output out)]
-      (is (= query/search-report-schema (:schema parsed)))
-      (is (= "auth" (:query-text parsed)))
-      (is (= "fixture" (:project-id parsed)))
-      (is (= 2 (get-in parsed [:instrumentation :search-docs])))
-      (is (= [{:label "Auth"}] (:results parsed))))))
-(deftest explore-routes-to-cursor-implementation
-  (with-redefs [store/with-node (fn [_ f] (f :xtdb))
-                cursor/create! (fn [xtdb opts]
-                                 {:schema cursor/packet-schema
-                                  :xtdb xtdb
-                                  :basis {:project-id (:project-id opts)}
-                                  :cursor {:id "cursor:test"}})]
-    (let [out (with-out-str
-                (cli/dispatch "explore" ["create" "api" "--project" "fixture"]))
-          parsed (read-json-output out)]
-      (is (= cursor/packet-schema (:schema parsed)))
-      (is (= "fixture" (get-in parsed [:basis :project-id])))
-      (is (= "cursor:test" (get-in parsed [:cursor :id]))))))
 (deftest view-json-writes-canonical-export
   (let [written (atom nil)]
     (with-redefs [store/with-node (fn [_ f] (f :xtdb))

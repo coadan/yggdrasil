@@ -95,7 +95,6 @@
    :metadata-defs :ygg/metadata-defs
    :metadata :ygg/metadata
    :graph-views :ygg/graph-views
-   :graph-cursors :ygg/graph-cursors
    :evidence :ygg/evidence
    :system-evidence :ygg/system-evidence
    :system-nodes :ygg/system-nodes
@@ -1250,10 +1249,6 @@
   [row]
   (schema/assert! schema/graph-view-row row "Invalid graph view row."))
 
-(defn- validate-graph-cursor-row
-  [row]
-  (schema/assert! schema/graph-cursor-row row "Invalid graph cursor row."))
-
 (defn put-op
   "Return an XTDB put op, optionally at `:valid-from`."
   ([table row] (put-op table row {}))
@@ -1563,33 +1558,6 @@
   ([xtdb id ctx]
    (or (row-by-id xtdb (:graph-views tables) id ctx)
        (graph-view-by-label xtdb id ctx))))
-
-(defn commit-graph-cursor!
-  "Persist one graph cursor revision."
-  [xtdb row]
-  (let [row (validate-graph-cursor-row row)]
-    (execute-tx! xtdb [(put-op (:graph-cursors tables) row)])
-    row))
-
-(defn graph-cursor
-  "Return graph cursor revision by id."
-  [xtdb id]
-  (some-> (row-by-id xtdb (:graph-cursors tables) id)
-          validate-graph-cursor-row))
-
-(defn graph-cursors
-  "Return graph cursor revisions, optionally scoped to project."
-  ([xtdb] (graph-cursors xtdb {}))
-  ([xtdb {:keys [project-id]}]
-   (->> (constrained-rows xtdb
-                          (:graph-cursors tables)
-                          (cond-> {}
-                            project-id (assoc :project-id project-id)))
-        (filter #(or (nil? project-id) (= project-id (:project-id %))))
-        (filter #(not= false (:active? %)))
-        (map validate-graph-cursor-row)
-        (sort-by (juxt :project-id :created-at-ms :revision))
-        vec)))
 
 (defn- latest-source-snapshot-row
   [xtdb project-id]

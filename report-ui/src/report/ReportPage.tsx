@@ -27,7 +27,7 @@ import {
 } from "./ReportPageActions";
 import {
   answerReportQuestion,
-  askAnswerPacket,
+  queryAnswerPacket,
   externalApiReview,
   fanoutRows,
   freshnessEvidencePacket,
@@ -47,7 +47,7 @@ import {
   countValue,
   numericCell
 } from "./ReportPageShared";
-import { tabs, type AskScope, type ReportTab } from "./ReportPageTypes";
+import { tabs, type QueryScope, type ReportTab } from "./ReportPageTypes";
 import { graphSlices, type GraphSlice } from "./graphSlices";
 import { reviewQueueRows } from "./reviewQueue";
 import { displayValue } from "./valueFormat";
@@ -108,11 +108,11 @@ function ExternalApiReview({ report }: { report: YggReport }) {
 
 function ProjectAuditScopes({
   report,
-  onAsk,
+  onQuery,
   onOpenTab
 }: {
   report: YggReport;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   onOpenTab: (tab: ReportTab) => void;
 }) {
   const families = asRows(report.evidence.families);
@@ -175,7 +175,7 @@ function ProjectAuditScopes({
     },
     { state: "diagnostics", count: countValue(diagnostics, "total"), source: "evidence.state.diagnostics" }
   ];
-  const askRows = [
+  const queryRows = [
     ...familyRows.map((row) => ({ axis: "family", ...row })),
     ...scopeRows.map((row) => ({ axis: "audit-scope", ...row })),
     ...kindRows.map((row) => ({ axis: "kind", ...row })),
@@ -193,15 +193,15 @@ function ProjectAuditScopes({
           <button
             type="button"
             onClick={() =>
-              onAsk({
+              onQuery({
                 label: "Audit Scopes",
                 source: "report.evidence",
                 question: "What audit evidence does this report contain?",
-                evidenceRows: askRows
+                evidenceRows: queryRows
               })
             }
           >
-            Ask
+            Query
           </button>
           <button type="button" onClick={() => onOpenTab("evidence")}>
             Open evidence
@@ -273,7 +273,7 @@ function ProjectAuditScopes({
 function AtlasTab({
   report,
   graph,
-  onAsk,
+  onQuery,
   onCopyCommand,
   onOpenGraphSlice,
   onOpenTab,
@@ -281,7 +281,7 @@ function AtlasTab({
 }: {
   report: YggReport;
   graph: YggGraph;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
@@ -317,11 +317,11 @@ function AtlasTab({
         />
       </section>
 
-      <ProjectAuditScopes report={report} onAsk={onAsk} onOpenTab={onOpenTab} />
+      <ProjectAuditScopes report={report} onQuery={onQuery} onOpenTab={onOpenTab} />
       <ReportActions
         report={report}
         copiedKey={copiedActionKey}
-        onAsk={onAsk}
+        onQuery={onQuery}
         onCopyCommand={onCopyCommand}
         onOpenTab={onOpenTab}
       />
@@ -376,7 +376,7 @@ function AtlasTab({
 
       <OperatorNextActions
         rows={nextActions}
-        onAsk={onAsk}
+        onQuery={onQuery}
         onCopyCommand={onCopyCommand}
         onOpenGraphSlice={onOpenGraphSlice}
         onOpenTab={onOpenTab}
@@ -388,7 +388,7 @@ function AtlasTab({
         projectId={report.project.id}
         mapPath={projectMapPath(report)}
         copiedKey={copiedActionKey}
-        onAsk={onAsk}
+        onQuery={onQuery}
         onCopyCommand={onCopyCommand}
         onOpenGraphSlice={onOpenGraphSlice}
         onOpenTab={onOpenTab}
@@ -401,7 +401,7 @@ function AtlasTab({
 function SystemsTab({
   report,
   graph,
-  onAsk,
+  onQuery,
   onCopyCommand,
   onOpenGraphSlice,
   onOpenTab,
@@ -411,7 +411,7 @@ function SystemsTab({
 }: {
   report: YggReport;
   graph: YggGraph;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
@@ -438,11 +438,11 @@ function SystemsTab({
         selectedSlice={selectedSlice}
         slices={slices}
         selectedSliceId={activeSliceId}
-        onAsk={onAsk}
+        onQuery={onQuery}
         onSelect={onSelectSlice}
       />
       <div className="span-2">
-        <GraphPanel graph={activeGraph} onAsk={onAsk} />
+        <GraphPanel graph={activeGraph} onQuery={onQuery} />
       </div>
       <ExternalApiReview report={report} />
       <DataTable
@@ -468,7 +468,7 @@ function SystemsTab({
       <PluginPanelList
         report={report}
         slot="systems"
-        actions={pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab })}
+        actions={pluginPanelActions({ copiedKey: copiedActionKey, onQuery, onCopyCommand, onOpenGraphSlice, onOpenTab })}
       />
     </div>
   );
@@ -476,14 +476,14 @@ function SystemsTab({
 
 function FocusedGraphSlices({
   graph,
-  onAsk,
+  onQuery,
   selectedSlice,
   slices,
   selectedSliceId,
   onSelect
 }: {
   graph: YggGraph;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   selectedSlice: GraphSlice | null;
   slices: GraphSlice[];
   selectedSliceId: string;
@@ -522,10 +522,10 @@ function FocusedGraphSlices({
         </button>
       </div>
       <button
-        className="slice-ask-button"
+        className="slice-query-button"
         type="button"
         onClick={() =>
-          onAsk({
+          onQuery({
             label: selectedSlice?.label || "Full Graph",
             source: selectedSlice ? `systems.${selectedSlice.id}` : "systems.full-graph",
             question: `What should I inspect in ${selectedSlice?.label || "the full graph"}?`,
@@ -539,7 +539,7 @@ function FocusedGraphSlices({
           })
         }
       >
-        Ask about this slice
+        Query about this slice
       </button>
       {slices.length === 0 ? <p className="muted">No focused slices can be derived from this graph.</p> : null}
     </section>
@@ -568,14 +568,14 @@ function dependencyCommands(report: YggReport): string[] {
 function DependenciesTab({
   report,
   copiedActionKey,
-  onAsk,
+  onQuery,
   onCopyCommand,
   onOpenGraphSlice,
   onOpenTab
 }: {
   report: YggReport;
   copiedActionKey: string | null;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
@@ -638,7 +638,7 @@ function DependenciesTab({
       <PluginPanelList
         report={report}
         slot="dependencies"
-        actions={pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab })}
+        actions={pluginPanelActions({ copiedKey: copiedActionKey, onQuery, onCopyCommand, onOpenGraphSlice, onOpenTab })}
       />
     </div>
   );
@@ -646,12 +646,12 @@ function DependenciesTab({
 
 function EvidenceFreshnessPanel({
   report,
-  onAsk,
+  onQuery,
   copiedKey,
   onCopyCommand
 }: {
   report: YggReport;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   copiedKey: string | null;
   onCopyCommand: (key: string, command: string) => void;
 }) {
@@ -674,7 +674,7 @@ function EvidenceFreshnessPanel({
           <button
             type="button"
             onClick={() =>
-              onAsk({
+              onQuery({
                 label: "Evidence Freshness",
                 source: "evidence.freshness",
                 question: "What should I do about evidence freshness?",
@@ -682,7 +682,7 @@ function EvidenceFreshnessPanel({
               })
             }
           >
-            Ask about freshness
+            Query about freshness
           </button>
           <button type="button" onClick={() => onCopyCommand("freshness:evidence-json", freshnessEvidencePacket(report))}>
             {copiedKey === "freshness:evidence-json" ? "Copied" : "Copy freshness JSON"}
@@ -738,14 +738,14 @@ function EvidenceFreshnessPanel({
 function EvidenceTab({
   report,
   copiedActionKey,
-  onAsk,
+  onQuery,
   onCopyCommand,
   onOpenGraphSlice,
   onOpenTab
 }: {
   report: YggReport;
   copiedActionKey: string | null;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
@@ -766,7 +766,7 @@ function EvidenceTab({
           ]}
         />
       </section>
-      <EvidenceFreshnessPanel report={report} copiedKey={copiedActionKey} onAsk={onAsk} onCopyCommand={onCopyCommand} />
+      <EvidenceFreshnessPanel report={report} copiedKey={copiedActionKey} onQuery={onQuery} onCopyCommand={onCopyCommand} />
       <CountTable title="File Kinds" rows={fileKindRows(report)} />
       <CountTable title="Node Kinds" rows={nodeKindRows(report)} />
       <CountTable title="Edge Relations" rows={edgeRelationRows(report)} />
@@ -798,7 +798,7 @@ function EvidenceTab({
       <PluginPanelList
         report={report}
         slot="evidence"
-        actions={pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab })}
+        actions={pluginPanelActions({ copiedKey: copiedActionKey, onQuery, onCopyCommand, onOpenGraphSlice, onOpenTab })}
       />
     </div>
   );
@@ -807,12 +807,12 @@ function EvidenceTab({
 function CorrectionWorkflow({
   report,
   copiedKey,
-  onAsk,
+  onQuery,
   onCopyCommand
 }: {
   report: YggReport;
   copiedKey: string | null;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   onCopyCommand: (key: string, command: string) => void;
 }) {
   const mapPath = projectMapPath(report);
@@ -835,7 +835,7 @@ function CorrectionWorkflow({
           <button
             type="button"
             onClick={() =>
-              onAsk({
+              onQuery({
                 label: "Correction Workflow",
                 source: "report.commands",
                 question: "What correction workflow should I use from this report?",
@@ -843,7 +843,7 @@ function CorrectionWorkflow({
               })
             }
           >
-            Ask
+            Query
           </button>
           {mapPath ? (
             <button type="button" onClick={() => onCopyCommand("correction:map-path", mapPath)}>
@@ -898,14 +898,14 @@ function CorrectionWorkflow({
 function MaintenanceTab({
   report,
   copiedActionKey,
-  onAsk,
+  onQuery,
   onCopyCommand,
   onOpenGraphSlice,
   onOpenTab
 }: {
   report: YggReport;
   copiedActionKey: string | null;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
@@ -919,13 +919,13 @@ function MaintenanceTab({
         projectId={report.project.id}
         mapPath={projectMapPath(report)}
         copiedKey={copiedActionKey}
-        onAsk={onAsk}
+        onQuery={onQuery}
         onCopyCommand={onCopyCommand}
         onOpenGraphSlice={onOpenGraphSlice}
         onOpenTab={onOpenTab}
       />
       <CommandList commands={report.commands} copiedKey={copiedActionKey} onCopyCommand={onCopyCommand} />
-      <CorrectionWorkflow report={report} copiedKey={copiedActionKey} onAsk={onAsk} onCopyCommand={onCopyCommand} />
+      <CorrectionWorkflow report={report} copiedKey={copiedActionKey} onQuery={onQuery} onCopyCommand={onCopyCommand} />
       <DataTable
         title="Maintenance Decisions"
         rows={asRows(maintenance["decision-queue"] || maintenance.decisionQueue)}
@@ -957,7 +957,7 @@ function MaintenanceTab({
       <PluginPanelList
         report={report}
         slot="maintenance"
-        actions={pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab })}
+        actions={pluginPanelActions({ copiedKey: copiedActionKey, onQuery, onCopyCommand, onOpenGraphSlice, onOpenTab })}
       />
     </div>
   );
@@ -966,7 +966,7 @@ function MaintenanceTab({
 function DashboardTab({
   report,
   graph,
-  onAsk,
+  onQuery,
   onCopyCommand,
   onOpenGraphSlice,
   onOpenTab,
@@ -974,7 +974,7 @@ function DashboardTab({
 }: {
   report: YggReport;
   graph: YggGraph;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
@@ -984,13 +984,13 @@ function DashboardTab({
   const reviewRows = reviewQueueRows(report);
   const atlas = reportAtlas(report, graph);
   const nextActions = operatorNextActionRows(report, asRows(atlas["next-actions"] || atlas.nextActions));
-  const actions = pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab });
+  const actions = pluginPanelActions({ copiedKey: copiedActionKey, onQuery, onCopyCommand, onOpenGraphSlice, onOpenTab });
   if (panels.length === 0) {
     return (
       <AtlasTab
         report={report}
         graph={graph}
-        onAsk={onAsk}
+        onQuery={onQuery}
         onCopyCommand={onCopyCommand}
         onOpenGraphSlice={onOpenGraphSlice}
         onOpenTab={onOpenTab}
@@ -1005,17 +1005,17 @@ function DashboardTab({
         <p className="eyebrow">Report Dashboard</p>
         <h2>{report.project.name || report.project.id}</h2>
       </section>
-            <ProjectAuditScopes report={report} onAsk={onAsk} onOpenTab={onOpenTab} />
+            <ProjectAuditScopes report={report} onQuery={onQuery} onOpenTab={onOpenTab} />
       <ReportActions
         report={report}
         copiedKey={copiedActionKey}
-        onAsk={onAsk}
+        onQuery={onQuery}
         onCopyCommand={onCopyCommand}
         onOpenTab={onOpenTab}
       />
       <OperatorNextActions
         rows={nextActions}
-        onAsk={onAsk}
+        onQuery={onQuery}
         onCopyCommand={onCopyCommand}
         onOpenGraphSlice={onOpenGraphSlice}
         onOpenTab={onOpenTab}
@@ -1026,7 +1026,7 @@ function DashboardTab({
         projectId={report.project.id}
         mapPath={projectMapPath(report)}
         copiedKey={copiedActionKey}
-        onAsk={onAsk}
+        onQuery={onQuery}
         onCopyCommand={onCopyCommand}
         onOpenGraphSlice={onOpenGraphSlice}
         onOpenTab={onOpenTab}
@@ -1063,7 +1063,7 @@ function PluginArtifacts({
           <p className="muted">Files, URLs, and other review artifacts emitted by report plugins.</p>
         </div>
         {refs.length > 0 ? (
-          <button className="slice-ask-button" type="button" onClick={() => onCopyCommand("plugin-artifacts:refs", refs.join("\n"))}>
+          <button className="slice-query-button" type="button" onClick={() => onCopyCommand("plugin-artifacts:refs", refs.join("\n"))}>
             {copiedKey === "plugin-artifacts:refs" ? "Copied" : "Copy artifact refs"}
           </button>
         ) : null}
@@ -1180,14 +1180,14 @@ function PluginPackageCaveats({ report }: { report: YggReport }) {
 function PluginsTab({
   report,
   copiedActionKey,
-  onAsk,
+  onQuery,
   onCopyCommand,
   onOpenGraphSlice,
   onOpenTab
 }: {
   report: YggReport;
   copiedActionKey: string | null;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
@@ -1195,7 +1195,7 @@ function PluginsTab({
   const panels = externalPanels(report);
   const diagnostics = report.plugins?.diagnostics || [];
   const artifacts = report.plugins?.artifacts || [];
-  const actions = pluginPanelActions({ copiedKey: copiedActionKey, onAsk, onCopyCommand, onOpenGraphSlice, onOpenTab });
+  const actions = pluginPanelActions({ copiedKey: copiedActionKey, onQuery, onCopyCommand, onOpenGraphSlice, onOpenTab });
 
   return (
     <div className="report-grid">
@@ -1214,7 +1214,7 @@ function PluginsTab({
   );
 }
 
-function AskTab({
+function QueryTab({
   report,
   graph,
   scope,
@@ -1223,7 +1223,7 @@ function AskTab({
 }: {
   report: YggReport;
   graph: YggGraph;
-  scope: AskScope | null;
+  scope: QueryScope | null;
   copiedKey: string | null;
   onCopyCommand: (key: string, command: string) => void;
 }) {
@@ -1237,55 +1237,55 @@ function AskTab({
     "What is the system graph shape?"
   ];
   const [question, setQuestion] = useState(defaultQuestion);
-  const [asked, setAsked] = useState(defaultQuestion);
+  const [queried, setQueried] = useState(defaultQuestion);
 
   useEffect(() => {
     if (!scope) return;
     setQuestion(scope.question);
-    setAsked(scope.question);
+    setQueried(scope.question);
   }, [scope]);
 
-  const answer = useMemo(() => answerReportQuestion(report, graph, asked), [asked, graph, report]);
+  const answer = useMemo(() => answerReportQuestion(report, graph, queried), [queried, graph, report]);
 
   function submitQuestion(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const trimmed = question.trim();
-    setAsked(trimmed || defaultQuestion);
+    setQueried(trimmed || defaultQuestion);
   }
 
-  function askPrompt(prompt: string) {
+  function queryPrompt(prompt: string) {
     setQuestion(prompt);
-    setAsked(prompt);
+    setQueried(prompt);
   }
 
   return (
     <div className="report-grid">
       <section className="panel span-2">
-        <p className="eyebrow">Report-local Ask</p>
-        <h2>Ask this report</h2>
+        <p className="eyebrow">Report-local Query</p>
+        <h2>Query this report</h2>
         <p className="muted">
           Answers use only the loaded report and graph artifacts. They are deterministic summaries with evidence rows,
-          not live `bb ask` retrieval.
+          not live `bb query` retrieval.
         </p>
         {scope ? (
-          <div className="ask-scope">
+          <div className="query-scope">
             <p className="eyebrow">Scoped To</p>
             <strong>{scope.label}</strong>
             <span>{scope.source}</span>
           </div>
         ) : null}
-        <form className="ask-form" onSubmit={submitQuestion}>
+        <form className="query-form" onSubmit={submitQuestion}>
           <input
             type="search"
             value={question}
             onChange={(event) => setQuestion(event.target.value)}
-            aria-label="Ask question"
+            aria-label="Query question"
           />
-          <button type="submit">Ask</button>
+          <button type="submit">Query</button>
         </form>
         <div className="quick-prompts" aria-label="Quick prompts">
           {quickPrompts.map((prompt) => (
-            <button key={prompt} type="button" onClick={() => askPrompt(prompt)}>
+            <button key={prompt} type="button" onClick={() => queryPrompt(prompt)}>
               {prompt}
             </button>
           ))}
@@ -1303,20 +1303,20 @@ function AskTab({
         <div className="panel-header">
           <div>
             <p className="eyebrow">Question</p>
-            <h2>{asked}</h2>
+            <h2>{queried}</h2>
           </div>
           <div className="action-row-buttons">
-            <button type="button" onClick={() => onCopyCommand("ask:answer-json", askAnswerPacket(asked, answer))}>
-              {copiedKey === "ask:answer-json" ? "Copied" : "Copy answer JSON"}
+            <button type="button" onClick={() => onCopyCommand("query:answer-json", queryAnswerPacket(queried, answer))}>
+              {copiedKey === "query:answer-json" ? "Copied" : "Copy answer JSON"}
             </button>
             {answer.related.length > 0 ? (
-              <button type="button" onClick={() => onCopyCommand("ask:related-json", JSON.stringify(answer.related, null, 2))}>
-                {copiedKey === "ask:related-json" ? "Copied" : "Copy related JSON"}
+              <button type="button" onClick={() => onCopyCommand("query:related-json", JSON.stringify(answer.related, null, 2))}>
+                {copiedKey === "query:related-json" ? "Copied" : "Copy related JSON"}
               </button>
             ) : null}
           </div>
         </div>
-        <div className="ask-answer">
+        <div className="query-answer">
           <h3>{answer.title}</h3>
           {answer.summary.map((line) => (
             <p key={line}>{line}</p>
@@ -1359,12 +1359,12 @@ function AskTab({
 
 export function ReportPage({ report, graph }: { report: YggReport; graph: YggGraph }) {
   const [activeTab, setActiveTab] = useState<ReportTab>("dashboard");
-  const [askScope, setAskScope] = useState<AskScope | null>(null);
+  const [queryScope, setQueryScope] = useState<QueryScope | null>(null);
   const [systemSliceId, setSystemSliceId] = useState<string>("");
   const [copiedActionKey, setCopiedActionKey] = useState<string | null>(null);
-  const askFromScope = useCallback((scope: AskScope) => {
-    setAskScope(scope);
-    setActiveTab("ask");
+  const queryFromScope = useCallback((scope: QueryScope) => {
+    setQueryScope(scope);
+    setActiveTab("query");
   }, []);
   const openGraphSlice = useCallback((sliceId: string) => {
     setSystemSliceId(sliceId);
@@ -1382,21 +1382,21 @@ export function ReportPage({ report, graph }: { report: YggReport; graph: YggGra
           <DashboardTab
             report={report}
             graph={graph}
-            onAsk={askFromScope}
+            onQuery={queryFromScope}
             onCopyCommand={copyCommand}
             onOpenGraphSlice={openGraphSlice}
             onOpenTab={setActiveTab}
             copiedActionKey={copiedActionKey}
           />
         );
-      case "ask":
-        return <AskTab report={report} graph={graph} scope={askScope} copiedKey={copiedActionKey} onCopyCommand={copyCommand} />;
+      case "query":
+        return <QueryTab report={report} graph={graph} scope={queryScope} copiedKey={copiedActionKey} onCopyCommand={copyCommand} />;
       case "systems":
         return (
           <SystemsTab
             report={report}
             graph={graph}
-            onAsk={askFromScope}
+            onQuery={queryFromScope}
             onCopyCommand={copyCommand}
             onOpenGraphSlice={openGraphSlice}
             onOpenTab={setActiveTab}
@@ -1410,7 +1410,7 @@ export function ReportPage({ report, graph }: { report: YggReport; graph: YggGra
           <DependenciesTab
             report={report}
             copiedActionKey={copiedActionKey}
-            onAsk={askFromScope}
+            onQuery={queryFromScope}
             onCopyCommand={copyCommand}
             onOpenGraphSlice={openGraphSlice}
             onOpenTab={setActiveTab}
@@ -1421,7 +1421,7 @@ export function ReportPage({ report, graph }: { report: YggReport; graph: YggGra
           <EvidenceTab
             report={report}
             copiedActionKey={copiedActionKey}
-            onAsk={askFromScope}
+            onQuery={queryFromScope}
             onCopyCommand={copyCommand}
             onOpenGraphSlice={openGraphSlice}
             onOpenTab={setActiveTab}
@@ -1432,7 +1432,7 @@ export function ReportPage({ report, graph }: { report: YggReport; graph: YggGra
           <MaintenanceTab
             report={report}
             copiedActionKey={copiedActionKey}
-            onAsk={askFromScope}
+            onQuery={queryFromScope}
             onCopyCommand={copyCommand}
             onOpenGraphSlice={openGraphSlice}
             onOpenTab={setActiveTab}
@@ -1443,7 +1443,7 @@ export function ReportPage({ report, graph }: { report: YggReport; graph: YggGra
           <PluginsTab
             report={report}
             copiedActionKey={copiedActionKey}
-            onAsk={askFromScope}
+            onQuery={queryFromScope}
             onCopyCommand={copyCommand}
             onOpenGraphSlice={openGraphSlice}
             onOpenTab={setActiveTab}
@@ -1454,7 +1454,7 @@ export function ReportPage({ report, graph }: { report: YggReport; graph: YggGra
           <DashboardTab
             report={report}
             graph={graph}
-            onAsk={askFromScope}
+            onQuery={queryFromScope}
             onCopyCommand={copyCommand}
             onOpenGraphSlice={openGraphSlice}
             onOpenTab={setActiveTab}
@@ -1462,7 +1462,7 @@ export function ReportPage({ report, graph }: { report: YggReport; graph: YggGra
           />
         );
     }
-  }, [activeTab, askFromScope, askScope, copiedActionKey, copyCommand, graph, openGraphSlice, report, systemSliceId]);
+  }, [activeTab, queryFromScope, queryScope, copiedActionKey, copyCommand, graph, openGraphSlice, report, systemSliceId]);
 
   return (
     <div className="report-page">

@@ -1,11 +1,11 @@
 # Context Packets
 
-`ygg ask --json` is the preferred query path when a coding agent needs graph
+`ygg query --json` is the preferred query path when a coding agent needs graph
 evidence in its prompt. It returns a compact JSON packet instead of dumping the
 full graph.
 
 ```sh
-ygg ask "where does the API gateway send requests" --project sample --json --budget 4000
+ygg query "where does the API gateway send requests" --project sample --json --budget 4000
 ```
 
 The packet schema is `ygg.context/v1`:
@@ -91,6 +91,57 @@ too small. Under tight budgets, `evidence` is compacted but keeps mechanical
 readiness status, evidence planes, counts, retrieval, structured next actions,
 unsupported planes, and a bounded warning list.
 
+## Query Input And Lanes
+
+The no-flags query path is intentionally small:
+
+```sh
+ygg query "where is auth handled" --project sample
+```
+
+Default behavior:
+
+- task profile: `auto`
+- lanes: `auto`
+- JSON output: compact
+- proof commands: off
+- scope: project-wide unless `--repo` is passed
+- anchors, symbols, literals, change scope: omitted unless supplied
+
+Use explicit inputs when the agent already has them:
+
+```sh
+ygg query "where is auth handled" \
+  --project sample \
+  --task locate \
+  --anchor src/auth.clj:42 \
+  --symbol login-handler \
+  --literal "/api/login" \
+  --lanes grep,semantic,graph \
+  --output compact \
+  --json
+```
+
+Lane roles:
+
+- `grep`: bounded internal ripgrep evidence for exact literals in active indexed
+  files
+- `semantic`: embedding-backed intent search when configured
+- `lexical`: indexed keyword fallback when semantic search is unavailable or not
+  useful
+- `graph`: mechanical neighbors, declarations, imports, routes, docs, metadata,
+  and accepted corrections around selected candidates
+
+Internal ripgrep evidence is transient retrieval evidence. It does not become a
+system node, ownership claim, or architecture boundary unless a human or agent
+accepts a correction through the normal map/metadata flow.
+
+`--output compact|snippets|evidence|full` controls packet size. Compatibility
+flags map onto that selector: `--snippets` to `snippets`, `--evidence` to
+`evidence`, and `--full` to `full`. `--proof-commands` is opt-in; when enabled,
+the packet may include compact `:kind :grep` command suggestions for rerunnable
+audit over exact candidate files. Default packets do not include action rows.
+
 ## Evidence Readiness
 
 Every context packet reports `evidence`: a mechanical summary of which evidence
@@ -105,7 +156,7 @@ a glance.
 Its `families` field is a bounded readiness table for source files, file facts,
 source graph rows, dependencies, docs, embeddings, system evidence, system graph
 rows, local activity, validation history, and accepted map overlay evidence.
-Use `ygg explore --json` when the agent has a concrete question and needs the
+Use `ygg query --json` when the agent has a concrete question and needs the
 smaller query-scoped `evidence` packet plus matching entities, edges, docs, and
 activity.
 Both surfaces use `dependencies` for the evidence plane backed by package
@@ -174,11 +225,10 @@ When indexed diagnostics are present, `evidence.warnings` points agents to
 `sourceCoverage` and `ygg sync coverage`; this is a source-support signal, not
 a semantic classification.
 
-Plain `ygg explore` prints a concise evidence warning only when no query
-results are found. Use `ygg explore --json` for the full structured packet.
-`ygg ask --json` returns the same one-shot packet for compatibility.
+Plain `ygg query` prints a concise evidence warning only when no query results
+are found. Use `ygg query --json` for the full structured packet.
 Packet `drilldowns` favor agent-facing follow-ups: repeat the primary
-`ygg explore ... --json` packet, inspect `ygg view systems`, check
+`ygg query ... --json` packet, inspect `ygg view systems`, check
 `ygg sync inspect <project.edn> --json`, and run `ygg sync docs audit`
 when a map is present.
 
@@ -363,7 +413,7 @@ Use roles to tell agents how to treat the snippet:
 
 ## Agent Workflow
 
-Start with `ygg ask --json` for the task question. Follow `drilldowns` only when
+Start with `ygg query --json` for the task question. Follow `drilldowns` only when
 the packet is insufficient. During build or maintenance work, promote useful
 candidate docs into accepted map attachments and run `ygg sync docs audit`
 before handoff.
@@ -390,16 +440,16 @@ ygg-mcp --config project.edn --map ygg.map.json
 ```
 
 The MCP server returns the same packet schemas as the CLI. By default,
-`tools/list` exposes only `ygg_explore`, `ygg_node`, `ygg_status`, and
-`ygg_systems`. Use `--tools default,cursor,sync,work,ask` or
-`YGG_MCP_TOOLS=all` to enable and list advanced cursor, sync, and queue
-handoff tools; hidden advanced tools are rejected by default.
-Use `ygg_explore` as the primary one-shot MCP packet for structural
+`tools/list` exposes only `ygg_query`, `ygg_node`, `ygg_status`, and
+`ygg_systems`. Use `--tools default,sync,work` or
+`YGG_MCP_TOOLS=all` to enable and list advanced sync and queue handoff tools;
+hidden advanced tools are rejected by default.
+Use `ygg_query` as the primary one-shot MCP packet for structural
 questions; it returns graph-basis freshness, evidence readiness, candidate files,
 docs, graph facts, plugin package caveats, and drilldowns without creating a
-cursor. MCP agents should inspect `freshness`, `evidence.families`,
-`evidence.planes`, `pluginPackages`, and `nextActions` before treating
-missing facts as absent.
+stored session. MCP agents should inspect `freshness`, `evidence.families`,
+`evidence.planes`, `pluginPackages`, and `nextActions` before treating missing
+facts as absent.
 Use `ygg_node` for a single file, evidence row, package, node, or accepted
 system; when map docs are attached, the node packet includes bounded
 line-numbered doc source windows when the file is available.
@@ -424,7 +474,6 @@ ids from payloads.
 
 ```sh
 ygg sync check project.edn --map ygg.map.json --enqueue
-ygg explore create "projection boundary" --project sample --enqueue
 ygg sync work pull --project sample --agent codex
 ygg sync work heartbeat queue:abc123 --agent codex --lease-minutes 30
 ygg sync work complete queue:abc123 --result result.json
@@ -437,7 +486,7 @@ The queue is only the transport. The embedded payload remains unchanged, and the
 consumer result should be an explicit JSON artifact such as a map patch,
 classification, or finding. `sync work complete` stores the artifact for audit.
 `sync activity` imports queue item lifecycle and validation-shaped result facts
-into XTDB so future `ask --json` packets can include `activity` matches.
+into XTDB so future `query --json` packets can include `activity` matches.
 Activity matches include `payloadSchema`, `expectedResultSchema`,
 `resultSchema`, and `resultSchemaStatus` when available, preserving both the
 requested and actual result contracts. `resultSchemaStatus` is mechanical:
@@ -454,27 +503,3 @@ schema, actual schema, status, summary, and timestamps for direct audit.
 `sync work validate` checks supported result schemas without mutating the map.
 `sync work apply` revalidates before writing accepted changes to
 `ygg.map.json`.
-
-## Explore Packets
-
-`ygg explore` is the progressive-disclosure query path for longer agent work.
-It stores a stable graph basis and returns small JSON packets that can be opened,
-expanded, searched, and revisited without dumping the full graph.
-
-```sh
-ygg explore create "api gateway connections" --project sample --map ygg.map.json
-ygg explore open cursor:abc123 "API Gateway"
-ygg explore expand cursor:def456 "API Gateway"
-ygg explore docs cursor:def456 "API Gateway"
-ygg explore search cursor:def456 "gateway route"
-```
-
-Explore uses the `ygg.cursor.packet/v1` packet schema. Packets include
-`nextActions` rows with typed `kind`, `label`, `target`, and executable
-`command` fields for expanding the graph, inspecting docs, or searching within
-the fixed cursor basis. The legacy `next` field is derived from those rows for
-human-readable compatibility; agents should prefer `nextActions`.
-Each mutating explore command creates a new immutable revision with a parent
-cursor id. If `--map` is used, Yggdrasil stores the parsed map correction layer
-inside the cursor row, so later edits to `ygg.map.json` do not change older
-cursor revisions.

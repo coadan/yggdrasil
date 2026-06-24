@@ -9,13 +9,9 @@
         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "sync"
                      *command-line-args*)}
 
-  ask {:doc "Ask the current graph one question. Usage: bb ask \"text\" [--project ID]"
-       :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "ask"
-                    *command-line-args*)}
-
-  explore {:doc "Progressively explore the graph. Usage: bb explore create|show|open|expand|docs|search ..."
-           :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "explore"
-                        *command-line-args*)}
+  query {:doc "Query the current graph. Usage: bb query \"text\" [--project ID]"
+         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "query"
+                      *command-line-args*)}
 
   view {:doc "Render or export graph slices. Usage: bb view overview|deps|query|systems ..."
         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "view"
@@ -108,10 +104,6 @@
          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "queue"
                       *command-line-args*)}
 
-  query {:doc "Compatibility: search indexed graph. Prefer bb ask."
-         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "query"
-                      *command-line-args*)}
-
   embed {:doc "Embed search docs. Usage: bb embed [--model MODEL] [--limit N]"
          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "embed"
                       *command-line-args*)}
@@ -120,11 +112,7 @@
          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "graph"
                       *command-line-args*)}
 
-  cursor {:doc "Compatibility: cursor packets. Prefer bb explore."
-          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "cursor"
-                       *command-line-args*)}
-
-  deps {:doc "Compatibility: show graph dependencies. Prefer bb view deps or bb ask."
+  deps {:doc "Compatibility: show graph dependencies. Prefer bb view deps or bb query."
         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "deps"
                      *command-line-args*)}
 

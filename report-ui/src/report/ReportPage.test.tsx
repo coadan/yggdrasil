@@ -6,18 +6,18 @@ import { ReportPage } from "./ReportPage";
 vi.mock("../graph/GraphPanel", () => ({
   GraphPanel: ({
     graph,
-    onAsk
+    onQuery
   }: {
     graph: { title?: string; nodes: unknown[]; edges: unknown[] };
-    onAsk?: (scope: { label: string; source: string; question: string; evidenceRows?: Array<Record<string, unknown>> }) => void;
+    onQuery?: (scope: { label: string; source: string; question: string; evidenceRows?: Array<Record<string, unknown>> }) => void;
   }) => (
     <div data-testid="graph-panel">
       {graph.title || "Graph"}: {graph.nodes.length}/{graph.edges.length}
-      {onAsk ? (
+      {onQuery ? (
         <button
           type="button"
           onClick={() =>
-            onAsk({
+            onQuery({
               label: graph.title || "Graph",
               source: "graph.mock",
               question: `Why is ${graph.title || "Graph"} in this graph?`,
@@ -25,7 +25,7 @@ vi.mock("../graph/GraphPanel", () => ({
             })
           }
         >
-          Ask graph row
+          Query graph row
         </button>
       ) : null}
     </div>
@@ -67,8 +67,8 @@ describe("ReportPage", () => {
     expect(enqueueRow).toBeTruthy();
     fireEvent.click(within(enqueueRow as HTMLElement).getByRole("button", { name: "Copy command" }));
     expect(within(enqueueRow as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
-    fireEvent.click(within(regenerateRow as HTMLElement).getByRole("button", { name: "Ask" }));
-    expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Ask" })).toHaveAttribute(
+    fireEvent.click(within(regenerateRow as HTMLElement).getByRole("button", { name: "Query" }));
+    expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Query" })).toHaveAttribute(
       "aria-current",
       "page"
     );
@@ -77,8 +77,8 @@ describe("ReportPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dashboard" }));
     const auditScopes = screen.getByText("Audit Scopes").closest("section");
     expect(auditScopes).toBeTruthy();
-    fireEvent.click(within(auditScopes as HTMLElement).getByRole("button", { name: "Ask" }));
-    expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Ask" })).toHaveAttribute(
+    fireEvent.click(within(auditScopes as HTMLElement).getByRole("button", { name: "Query" }));
+    expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Query" })).toHaveAttribute(
       "aria-current",
       "page"
     );
@@ -109,8 +109,8 @@ describe("ReportPage", () => {
 
     const pluginAction = screen.getByText("Inspect checkout plugin crawl").closest("article");
     expect(pluginAction).toBeTruthy();
-    fireEvent.click(within(pluginAction as HTMLElement).getByRole("button", { name: "Ask" }));
-    expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Ask" })).toHaveAttribute(
+    fireEvent.click(within(pluginAction as HTMLElement).getByRole("button", { name: "Query" }));
+    expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Query" })).toHaveAttribute(
       "aria-current",
       "page"
     );
@@ -131,7 +131,7 @@ describe("ReportPage", () => {
     expect(within(pluginArtifacts as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
 
     const pluginCommand = screen
-      .getAllByText("ygg ask \"what owns checkout?\" --project fixture --json")
+      .getAllByText("ygg query \"what owns checkout?\" --project fixture --json")
       .map((element) => element.closest("li"))
       .find(Boolean);
     expect(pluginCommand).toBeTruthy();
@@ -152,7 +152,7 @@ describe("ReportPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Maintenance" }));
 
-    expect(screen.getAllByText(/ygg ask/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/ygg query/).length).toBeGreaterThan(0);
     const correctionWorkflow = screen.getByText("Correction Workflow").closest("section");
     expect(correctionWorkflow).toBeTruthy();
     expect(within(correctionWorkflow as HTMLElement).getByText("ygg.map.json")).toBeInTheDocument();
@@ -165,8 +165,8 @@ describe("ReportPage", () => {
     expect(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
     fireEvent.click(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copy result JSON" }));
     expect(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
-    fireEvent.click(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Ask" }));
-    expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Ask" })).toHaveAttribute(
+    fireEvent.click(within(correctionWorkflow as HTMLElement).getByRole("button", { name: "Query" }));
+    expect(within(screen.getByRole("navigation", { name: "Report sections" })).getByRole("button", { name: "Query" })).toHaveAttribute(
       "aria-current",
       "page"
     );
@@ -175,7 +175,7 @@ describe("ReportPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Maintenance" }));
 
     const commandItem = screen
-      .getAllByText(/ygg ask/)
+      .getAllByText(/ygg query/)
       .map((element) => element.closest("li"))
       .find(Boolean);
     expect(commandItem).toBeTruthy();
@@ -223,13 +223,13 @@ describe("ReportPage", () => {
     expect(screen.getByTestId("graph-panel")).toHaveTextContent("Package Evidence");
   });
 
-  it("asks from graph row scope in the systems tab", () => {
+  it("queries from graph row scope in the systems tab", () => {
     render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Systems" }));
-    fireEvent.click(screen.getByRole("button", { name: "Ask graph row" }));
+    fireEvent.click(screen.getByRole("button", { name: "Query graph row" }));
 
-    expect(screen.getAllByRole("button", { name: "Ask" }).some((button) => button.getAttribute("aria-current") === "page")).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Query" }).some((button) => button.getAttribute("aria-current") === "page")).toBe(true);
     expect(screen.getByText(/Why is System Neighborhood/)).toBeInTheDocument();
     expect(screen.getByText("graph.mock")).toBeInTheDocument();
     expect(screen.getByText("Scope Evidence")).toBeInTheDocument();
@@ -292,14 +292,14 @@ describe("ReportPage", () => {
     expect(screen.getByRole("button", { name: "Maintenance" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("asks from a review row with scoped evidence", () => {
+  it("queries from a review row with scoped evidence", () => {
     render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
 
     const row = screen.getByText("Resolve import-to-package gaps").closest("article");
     expect(row).toBeTruthy();
-    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Ask" }));
+    fireEvent.click(within(row as HTMLElement).getByRole("button", { name: "Query" }));
 
-    expect(screen.getAllByRole("button", { name: "Ask" }).some((button) => button.getAttribute("aria-current") === "page")).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Query" }).some((button) => button.getAttribute("aria-current") === "page")).toBe(true);
     expect(screen.getByText("Scoped To")).toBeInTheDocument();
     expect(screen.getByText("Resolve import-to-package gaps")).toBeInTheDocument();
     expect(screen.getByText("packages.unresolved-imports")).toBeInTheDocument();
@@ -307,12 +307,12 @@ describe("ReportPage", () => {
     expect(screen.getAllByText("src/app/core.clj").length).toBeGreaterThan(0);
   });
 
-  it("asks from the selected graph slice", () => {
+  it("queries from the selected graph slice", () => {
     render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Systems" }));
     fireEvent.click(screen.getByRole("button", { name: /Package Evidence/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Ask about this slice" }));
+    fireEvent.click(screen.getByRole("button", { name: "Query about this slice" }));
 
     expect(screen.getByText("Scoped To")).toBeInTheDocument();
     expect(screen.getAllByText("Package Evidence").length).toBeGreaterThan(0);
@@ -323,12 +323,12 @@ describe("ReportPage", () => {
   it("answers report-local questions from loaded artifacts", () => {
     render(<ReportPage report={fixtureReport} graph={auditScopeGraph} />);
 
-    const askTab = screen.getAllByRole("button", { name: "Ask" }).find((button) => button.closest("nav"));
-    expect(askTab).toBeTruthy();
-    fireEvent.click(askTab as HTMLElement);
+    const queryTab = screen.getAllByRole("button", { name: "Query" }).find((button) => button.closest("nav"));
+    expect(queryTab).toBeTruthy();
+    fireEvent.click(queryTab as HTMLElement);
 
-    expect(screen.getByText("Ask this report")).toBeInTheDocument();
-    expect(screen.getByText("Report-local Ask")).toBeInTheDocument();
+    expect(screen.getByText("Query this report")).toBeInTheDocument();
+    expect(screen.getByText("Report-local Query")).toBeInTheDocument();
     expect(screen.getByText("Maintenance work")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "What is this project made of?" }));
@@ -349,7 +349,7 @@ describe("ReportPage", () => {
     expect(screen.getByText("Unresolved imports")).toBeInTheDocument();
   });
 
-  it("shows evidence freshness drilldown and asks from it", () => {
+  it("shows evidence freshness drilldown and queries from it", () => {
     render(<ReportPage report={fixtureReport} graph={fixtureGraph} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Evidence" }));
@@ -367,7 +367,7 @@ describe("ReportPage", () => {
     fireEvent.click(within(freshness as HTMLElement).getByRole("button", { name: "Copy source refs" }));
     expect(within(freshness as HTMLElement).getByRole("button", { name: "Copied" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Ask about freshness" }));
+    fireEvent.click(screen.getByRole("button", { name: "Query about freshness" }));
 
     expect(screen.getByText("Scoped To")).toBeInTheDocument();
     expect(screen.getByText("Evidence Freshness")).toBeInTheDocument();

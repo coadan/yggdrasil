@@ -13,8 +13,8 @@ vi.mock("@react-sigma/core", () => ({
 
 describe("GraphPanel", () => {
   it("renders graph controls and filters visible counts", () => {
-    const onAsk = vi.fn();
-    render(<GraphPanel graph={fixtureGraph} onAsk={onAsk} />);
+    const onQuery = vi.fn();
+    render(<GraphPanel graph={fixtureGraph} onQuery={onQuery} />);
 
     expect(screen.getByText("Fixture Graph")).toBeInTheDocument();
     expect(screen.getByText("3 of 3 nodes, 2 of 2 edges")).toBeInTheDocument();
@@ -26,8 +26,8 @@ describe("GraphPanel", () => {
     expect(screen.getByRole("heading", { name: "Node" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy row JSON" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Ask about row" }));
-    expect(onAsk).toHaveBeenCalledWith(
+    fireEvent.click(screen.getByRole("button", { name: "Query about row" }));
+    expect(onQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         label: "app.core",
         source: expect.stringContaining("graph.Fixture Graph.node."),

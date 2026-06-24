@@ -144,6 +144,8 @@
   2)
 (def ^:private rank-score-retrieved-source-count-cap
   2)
+(def ^:private rank-score-retrieved-source-count-weight
+  0.25)
 (def ^:private file-identity-part-min-length
   5)
 (def ^:private retrieved-source-rank-bonus-window
@@ -314,11 +316,6 @@
 (defn- ordered-token-pairs
   [tokens]
   (set (map vector tokens (rest tokens))))
-(defn- compact-token-pair-matches
-  [query-tokens text]
-  (let [query-pairs (ordered-token-pairs query-tokens)
-        evidence-pairs (ordered-token-pairs (text/tokenize text))]
-    (set/intersection query-pairs evidence-pairs)))
 (defn- token-and-pair-matches
   [query-tokens text]
   (let [query-token-set (set query-tokens)
@@ -1088,16 +1085,6 @@
                                        (:importName row)
                                        (:normalizedValue row)))))
 
-(defn- architecture-query-supported?
-  [query-tokens section row]
-  (if (dependency-package-import-row? section row)
-    (<= dependency-package-identity-query-token-min
-        (dependency-package-identity-token-count query-tokens row))
-    (let [evidence-text (architecture-evidence-text row)]
-      (or (<= 2 (count (token-matches query-tokens evidence-text)))
-          (seq (compact-token-pair-matches query-tokens evidence-text))
-          (seq (compact-compound-token-pair-matches query-tokens evidence-text))))))
-
 (defn- runtime-evidence-low-signal?
   [row]
   (= "env-var" (field-name (:kind row))))
@@ -1115,34 +1102,6 @@
            (runtime-evidence-low-signal? row))
     1.0
     (double (get architecture-evidence-score-caps section 1.6))))
-
-(defn- architecture-evidence-score
-  [query-tokens section row]
-  (let [raw-score (double (or (parse-double-safe (:score row)) 0.0))
-        weight (architecture-score-weight section row)
-        cap (architecture-score-cap section row)
-        package-identity-token-count (if (dependency-package-import-row? section row)
-                                       (dependency-package-identity-token-count
-                                        query-tokens
-                                        row)
-                                       0)
-        package-identity-boost (if (<= dependency-package-identity-query-token-min
-                                       package-identity-token-count)
-                                 0.35
-                                 0.0)]
-    (min cap (+ (* weight raw-score)
-                package-identity-boost))))
-
-(defn- architecture-support-score
-  [query-tokens section row]
-  (let [raw-score (double (or (parse-double-safe (:score row)) 0.0))]
-    (if (and (= "runtimeEvidence" section)
-             (= "env-var" (field-name (:kind row)))
-             (architecture-query-supported? query-tokens section row))
-      (min (double (get architecture-evidence-score-caps section 1.6))
-           (* (double (get architecture-evidence-score-weights section 0.7))
-              raw-score))
-      (architecture-evidence-score query-tokens section row))))
 
 (defn- architecture-row-features
   [query-tokens section row evidence-text]
@@ -1529,8 +1488,9 @@
                                            candidate-support-label-score
                                            (* 0.08 (min rank-score-support-count-cap
                                                         support-count))
-                                           (* 0.08 (min rank-score-retrieved-source-count-cap
-                                                        retrieved-source-count))
+                                           (* rank-score-retrieved-source-count-weight
+                                              (min rank-score-retrieved-source-count-cap
+                                                   retrieved-source-count))
                                            (* 0.12 exact-path-source-count)
                                            (* 0.04 candidate-count)
                                            (* 0.03 entity-count)
@@ -2408,7 +2368,8 @@
   (when limit
     (let [limit (long limit)
           file-count (count files)]
-      (if (and (not (inspection-files-scope? result-scope))
+      (if (and (<= limit 5)
+               (not (inspection-files-scope? result-scope))
                (< compact-thin-candidate-output-limit file-count)
                (< file-count
                   (* compact-thin-candidate-output-ratio limit)))

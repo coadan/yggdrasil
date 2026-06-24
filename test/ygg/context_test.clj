@@ -588,10 +588,10 @@
               actions))))
 
 (deftest context-drilldowns-use-primary-agent-commands
-  (is (= [{:kind :explore
-           :label "Continue primary graph exploration"
-           :command "ygg explore 'billing flow' --project 'fixture project' --json"
-           :mcpTool "ygg_explore"
+  (is (= [{:kind :query
+           :label "Continue graph query"
+           :command "ygg query 'billing flow' --project 'fixture project' --json"
+           :mcpTool "ygg_query"
            :mcpArgs {:query "billing flow"
                      :projectId "fixture project"
                      :mapPath "maps/ygg map.json"}}
@@ -2222,6 +2222,67 @@
     (is (> (get scores-by-id "evidence:matched-env-database-url")
            (get scores-by-id "evidence:other-env-host")))))
 
+(deftest runtime-evidence-preserves-rare-query-matched-facts
+  (let [results [{:repo-id "app"
+                  :path "tests/unit/axiosHeaders.test.js"
+                  :score 2.0}
+                 {:repo-id "app"
+                  :path "docs/site.webmanifest"
+                  :score 1.9}
+                 {:repo-id "app"
+                  :path "package.json"
+                  :score 1.8}]
+        runtime-evidence (#'context/select-system-evidence
+                          ["axios" "native" "proxy" "environment" "variable"]
+                          ["system:repo"]
+                          results
+                          [{:xt/id "evidence:axios-issue"
+                            :system-id "system:repo"
+                            :repo-id "app"
+                            :path "tests/unit/axiosHeaders.test.js"
+                            :file-kind :javascript
+                            :kind :url
+                            :label "https://github.com/axios/axios/issues/10849"
+                            :normalized-value "https-github-com-axios-axios-issues-10849"
+                            :source-line 220
+                            :confidence 0.7}
+                           {:xt/id "evidence:axios-package"
+                            :system-id "system:repo"
+                            :repo-id "app"
+                            :path "package.json"
+                            :file-kind :json
+                            :kind :url
+                            :label "https://github.com/axios/axios.git"
+                            :normalized-value "https-github-com-axios-axios-git"
+                            :source-line 64
+                            :confidence 0.7}
+                           {:xt/id "evidence:axios-manifest"
+                            :system-id "system:repo"
+                            :repo-id "app"
+                            :path "docs/site.webmanifest"
+                            :file-kind :json
+                            :kind :route
+                            :label "/android-chrome-192x192.png"
+                            :normalized-value "android-chrome-192x192-png"
+                            :source-line 6
+                            :confidence 0.7}
+                           {:xt/id "evidence:proxy-port"
+                            :system-id "system:repo"
+                            :repo-id "app"
+                            :path "tests/unit/adapters/http.test.js"
+                            :file-kind :javascript
+                            :kind :env-var
+                            :label "PROXY_PORT"
+                            :normalized-value "proxy-port"
+                            :source-line 37
+                            :confidence 0.7}]
+                          3)
+        scores-by-id (into {} (map (juxt :id :score) runtime-evidence))]
+    (is (contains? (set (map :id runtime-evidence))
+                   "evidence:proxy-port"))
+    (is (> (get scores-by-id "evidence:proxy-port")
+           (get scores-by-id "evidence:axios-manifest")))))
+
 (deftest dependency-evidence-includes-query-matched-package-import-sources
   (let [dependency-report (assoc (empty-dependency-report)
                                  :packages
@@ -2523,6 +2584,106 @@
                :scoreComponents {:lexical 0.2
                                  :graph 0.6}}]
              (:candidateFiles packet))))))
+
+(deftest context-packet-compact-output-uses-path-dictionary
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :retriever-requested :auto
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 1
+                                                         :returned-count 1
+                                                         :grep-status :ok
+                                                         :grep-candidates 1}
+                                       :results [{:path "src/caller.clj"
+                                                  :score 0.8
+                                                  :target-kind :node
+                                                  :target-id "node:caller"
+                                                  :label "demo/caller"
+                                                  :source-line 7
+                                                  :reason "literal grep match"
+                                                  :score-components {:grep 1.0
+                                                                     :graph 0.25}}]})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/query-evidence (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "caller"
+                                         {:project-id "fixture"
+                                          :retriever :lexical
+                                          :output :compact
+                                          :query-input {:task :locate
+                                                        :anchors ["src/caller.clj:7"]
+                                                        :changed-only? false}})]
+      (is (= context/compact-schema (:schema packet)))
+      (is (= {:task :locate
+              :anchors ["src/caller.clj:7"]}
+             (:input packet)))
+      (is (= {"p1" "src/caller.clj"} (:paths packet)))
+      (is (= [{:path "p1"
+               :rank 1
+               :line 7
+               :score 0.8
+               :kind "node"
+               :label "demo/caller"
+               :why [:grep :graph]
+               :reason "literal grep match"}]
+             (:results packet)))
+      (is (= {:requested :auto
+              :mode :lexical
+              :used [:grep :graph]}
+             (:lanes packet)))
+      (is (not (contains? packet :actions)))
+      (is (not (contains? packet :candidateFiles)))
+      (is (not (contains? packet :docs))))))
+
+(deftest context-packet-proof-commands-are-opt-in-grep-actions
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :retriever-requested :auto
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 1
+                                                         :returned-count 1}
+                                       :results [{:path "src/caller.clj"
+                                                  :score 0.8
+                                                  :target-kind :node
+                                                  :target-id "node:caller"
+                                                  :label "demo/caller"
+                                                  :source-line 7
+                                                  :score-components {:grep 1.0}}]})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/query-evidence (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "caller"
+                                         {:project-id "fixture"
+                                          :retriever :lexical
+                                          :output :compact
+                                          :proof-commands? true})]
+      (is (= [{:kind :grep
+               :cmd "rg -n --fixed-strings -e demo/caller -e caller -- src/caller.clj"}]
+             (:actions packet))))))
 
 (deftest source-graph-candidates-surface-query-matched-source-rows
   (with-redefs [store/xtdb-handle? (constantly true)
@@ -3163,19 +3324,34 @@
            (mapv #(get-in % [:source :path]) docs)))))
 
 (deftest candidate-input-ranking-preserves-root-diversity
-  (let [ranked (#'context/ranked-candidate-inputs
-                [{:path "tests/first.js" :score 9.0}
-                 {:path "tests/second.js" :score 8.0}]
-                [{:path "lib/adapter.js" :score 3.0}
-                 {:path "docs/guide.md" :score 2.0}])]
-    (is (= ["tests/first.js"
-            "lib/adapter.js"
-            "docs/guide.md"
-            "tests/second.js"]
-           (mapv :path ranked)))))
+  (with-redefs [context/candidate-input-retrieval-prefix-limit 1]
+    (let [ranked (#'context/ranked-candidate-inputs
+                  [{:path "tests/first.js" :score 9.0}
+                   {:path "tests/second.js" :score 8.0}]
+                  [{:path "lib/adapter.js" :score 3.0}
+                   {:path "docs/guide.md" :score 2.0}])]
+      (is (= ["tests/first.js"
+              "lib/adapter.js"
+              "docs/guide.md"
+              "tests/second.js"]
+             (mapv :path ranked))))))
+
+(deftest candidate-input-ranking-preserves-retrieval-path-prefix
+  (with-redefs [context/candidate-input-retrieval-prefix-limit 2]
+    (let [ranked (#'context/ranked-candidate-inputs
+                  [{:path "tests/first.js" :score 0.9}
+                   {:path "tests/second.js" :score 0.8}
+                   {:path "tests/third.js" :score 0.7}]
+                  [{:path "src/source-graph.js" :score 9.0}])]
+      (is (= ["tests/first.js"
+              "tests/second.js"
+              "src/source-graph.js"
+              "tests/third.js"]
+             (mapv :path ranked))))))
 
 (deftest context-packet-ranks-source-graph-candidates-before-low-score-results
-  (with-redefs [store/xtdb-handle? (constantly true)
+  (with-redefs [context/candidate-input-retrieval-prefix-limit 0
+                store/xtdb-handle? (constantly true)
                 query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema
                                        :query-run-id "query:test"

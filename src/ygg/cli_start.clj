@@ -156,15 +156,11 @@
             :command (str "ygg packages --project "
                           (command/shell-token project-id)
                           " --json")}
-           {:kind :ask
-            :label "Ask a graph-grounded implementation question"
-            :command (str "ygg ask \"where is this handled?\" --project "
+           {:kind :query
+            :label "Query graph-grounded implementation context"
+            :command (str "ygg query \"where is this handled?\" --project "
                           (command/shell-token project-id)
                           " --json")}
-           {:kind :explore
-            :label "Create a persistent exploration cursor"
-            :command (str "ygg explore create \"runtime boundary\" --project "
-                          (command/shell-token project-id))}
            {:kind :systems
             :label "Inspect system graph"
             :command (str "ygg view systems --project "
@@ -230,22 +226,19 @@
         systems-completed? (completed-status? (get-in sync-result [:system-summary :status]))
         report-written? (boolean (:out report-result))
         evidence-available? (boolean (seq (get-in report-result [:evidence :available])))
-        ask-action (action-by-kind actions :ask)
-        explore-action (action-by-kind actions :explore)
+        query-action (action-by-kind actions :query)
         agent-action (action-by-kind actions :agent-install)
         ready? (and sync-completed?
                     systems-completed?
                     report-written?
-                    ask-action
-                    explore-action)]
+                    query-action)]
     {:status (if ready? :ready :limited)
      :basis :start-run
      :summary (if ready?
-                "Ready for ask/explore with the graph produced by this start run."
-                "Start produced a partial setup; inspect checks and nextActions before using ask/explore.")
+                "Ready for query with the graph produced by this start run."
+                "Start produced a partial setup; inspect checks and nextActions before using query.")
      :readyFor (cond-> []
-                 ask-action (conj :ask)
-                 explore-action (conj :explore)
+                 query-action (conj :query)
                  systems-completed? (conj :systems)
                  report-written? (conj :report))
      :checks {:graph-sync sync-completed?

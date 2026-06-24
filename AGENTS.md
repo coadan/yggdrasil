@@ -65,15 +65,14 @@ Core commands:
 
 - `bb start <repo-root> --project <project-id>`
 - `bb sync <project.edn>`
-- `bb sync <project.edn> --check --map ygg.map.json`
+- `bb sync <project.edn> --check`
 - `bb sync work pull --project <project-id> --agent <agent-id>`
-- `bb ask "text" --project <project-id>`
-- `bb explore create "text" --project <project-id>`
+- `bb query "text" --project <project-id>`
 - `bb view systems --project <project-id>`
 - `bb packages --project <project-id> --json`
 - `bb efficiency <shell-agent-report.json> <ygg-agent-report.json> --json`
-- `bb report <project.edn> --map ygg.map.json --out ygg-out`
-- `ygg-mcp --config project.edn --map ygg.map.json`
+- `bb report <project.edn> --out ygg-out`
+- `ygg-mcp --config project.edn`
 - `bb test`
 - `bb lint`
 - `bb format:check`
@@ -87,30 +86,27 @@ flow.
 When a task depends on project structure, ownership, dependencies, or system
 boundaries, use Yggdrasil inspection only when a relevant project config already
 exists or the user asks to create one. Do not create a root `project.edn` or
-`ygg.map.json` just to satisfy agent guidance. If a project config exists, prefer:
+portable map export just to satisfy agent guidance. If a project config exists, prefer:
 
 ```sh
 bb sync inspect project.edn
-bb sync project.edn --check --map ygg.map.json
+bb sync project.edn --check
 ```
 
-Use `bb ask` for one-shot graph questions and `bb explore` for multi-step
-investigations with a stable graph basis. Do not dump the whole graph into
-context unless the task explicitly needs broad inventory. Use `bb view` only
-when a rendered or exported graph slice helps.
+Use `bb query` for graph questions. Do not dump the whole graph into context
+unless the task explicitly needs broad inventory. Use `bb view` only when a
+rendered or exported graph slice helps.
 
 If sync reports maintenance work, claim one bounded item at a time and inspect
-the evidence. For manual corrections, use `ygg map` before completion so
-`ygg.map.json` stays behind the validated correction API. For structured
-work results, complete the item first, then run `bb sync work apply` so Yggdrasil
-validates the result before editing `ygg.map.json`:
+the evidence. For structured work results, complete the item first, then
+validate or apply it through supported Yggdrasil commands so results stay
+auditable. Treat `ygg.map.json` as a portability format, not the normal working
+state agents should pass around:
 
 ```sh
 bb sync work pull --project <project-id> --agent <agent-id>
-ygg map explain <target> --map ygg.map.json
-ygg map reject external-api <host> --map ygg.map.json --reason "<reason>"
 bb sync work complete <work-id> --result result.json
-bb sync work apply <work-id> --map ygg.map.json
+bb sync work validate <work-id>
 ```
 
 Prefer small, pure extractors and one store boundary that writes a complete

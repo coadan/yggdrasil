@@ -242,6 +242,7 @@
                    "ygg-bench-hints-progressive-read-plan"
                    (make-array java.nio.file.attribute.FileAttribute 0)))
         main-file (io/file root "src/main.clj")
+        second-file (io/file root "src/second.clj")
         a-file (io/file root "src/a.clj")
         b-file (io/file root "src/b.clj")
         write-lines! (fn [file markers]
@@ -254,6 +255,7 @@
                                           (str ";; filler " line-no)))
                                    (range 1 101)))))]
     (write-lines! main-file {50 "(defn main-entry [] :main)"})
+    (write-lines! second-file {60 "(defn second-entry [] :second)"})
     (write-lines! a-file {20 "(defn earlier [] :a)"
                           80 "(defn later [] :a)"})
     (write-lines! b-file {40 "(defn other [] :b)"})
@@ -261,7 +263,10 @@
                    {:schema "ygg.benchmark.agent-hints/v1"
                     :topFiles [{:rank 1
                                 :path "src/main.clj"
-                                :sourceLine 50}]
+                                :sourceLine 50}
+                               {:rank 2
+                                :path "src/second.clj"
+                                :sourceLine 60}]
                     :topDeclarations [{:rank 1
                                        :path "src/a.clj"
                                        :label "later"
@@ -283,10 +288,15 @@
                              :snippet-after-lines 1
                              :snippet-max-chars 1000}})
           snippets (get-in compact [:readPlan :snippets])]
-      (is (= ["src/main.clj" "src/a.clj" "src/b.clj"]
+      (is (= ["src/main.clj" "src/second.clj" "src/a.clj"]
              (mapv :path snippets)))
-      (is (= {:start 19
-              :end 21}
+      (is (= {:start 59
+              :end 61}
              (get-in snippets [1 :lines])))
       (is (str/includes? (get-in snippets [1 :snippet])
+                         "60: (defn second-entry [] :second)"))
+      (is (= {:start 19
+              :end 21}
+             (get-in snippets [2 :lines])))
+      (is (str/includes? (get-in snippets [2 :snippet])
                          "20: (defn earlier [] :a)")))))

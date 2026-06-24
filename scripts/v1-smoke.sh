@@ -201,7 +201,7 @@ require(freshness.get("missingQueryIndex") is False, "query index is missing")
 require(freshness.get("counts", {}).get("unindexed") == 0, "freshness has unindexed files")
 
 next_kinds = {action.get("kind") for action in inspect.get("nextActions", [])}
-for kind in ("dependencies", "audit-scope", "ask", "activity", "validation-history"):
+for kind in ("dependencies", "audit-scope", "query", "activity", "validation-history"):
     require(kind in next_kinds, f"inspect nextActions missing {kind}")
 
 available = set(inspect.get("evidence", {}).get("available", []))

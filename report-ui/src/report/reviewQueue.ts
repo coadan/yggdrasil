@@ -11,7 +11,7 @@ export type ReviewQueueRow = {
   source: string;
   command?: string;
   graphSliceId?: string;
-  targetTab: "ask" | "systems" | "dependencies" | "evidence" | "maintenance" | "plugins";
+  targetTab: "query" | "systems" | "dependencies" | "evidence" | "maintenance" | "plugins";
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -221,7 +221,7 @@ function externalRows(report: YggReport): ReviewQueueRow[] {
       evidence: `${fanoutCount || fanouts.length} source fanout(s). ${first ? `Largest visible sample: ${displayValue(peer.label || peer.id || peer["xt/id"] || first.id)}.` : ""}`,
       evidenceRows: firstRows(fanouts),
       source: "maintenance.external-api-review",
-      command: firstCommand(report, [/ignore external-api/, /audit-scope/, /ask/]),
+      command: firstCommand(report, [/ignore external-api/, /audit-scope/, /query/]),
       graphSliceId: "external-surface",
       targetTab: "systems"
     }

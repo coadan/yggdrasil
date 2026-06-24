@@ -523,7 +523,7 @@
        (str "ygg sync inspect " (command/shell-token config-path)
             (when map-path (str " --map " (command/shell-token map-path)))
             " --json")
-       (str "ygg ask \"where is this handled?\" --project "
+       (str "ygg query \"where is this handled?\" --project "
             (command/shell-token project-id)
             " --json")
        (str "ygg view systems --project " (command/shell-token project-id)

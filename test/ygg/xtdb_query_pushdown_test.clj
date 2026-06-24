@@ -13,23 +13,6 @@
             [clojure.test :refer [deftest is]]
             [xtdb.api :as xt]))
 
-(defn- cursor-row
-  [id project-id revision active?]
-  {:xt/id id
-   :schema "ygg.graph-cursor/v1"
-   :project-id project-id
-   :mode :explore
-   :root-ids []
-   :focus-ids []
-   :visited-ids []
-   :frontier-ids []
-   :basis {}
-   :limits {}
-   :revision revision
-   :operation {}
-   :active? active?
-   :created-at-ms revision})
-
 (defn- graph-view-row
   [id label project-id active?]
   (cond-> {:xt/id id
@@ -55,19 +38,6 @@
              {:path "src/app.clj"
               :project-id "project-a"
               :repo-id "app"}]]
-           @calls))))
-
-(deftest graph-cursors-use-constrained-project-read
-  (let [calls (atom [])]
-    (with-redefs [store/constrained-rows
-                  (fn [_ table constraints & [_ctx]]
-                    (swap! calls conj [table constraints])
-                    [(cursor-row "cursor:inactive" "project-a" 1 false)
-                     (cursor-row "cursor:active" "project-a" 2 true)])]
-      (is (= ["cursor:active"]
-             (mapv :xt/id (store/graph-cursors :xtdb
-                                               {:project-id "project-a"})))))
-    (is (= [[(:graph-cursors store/tables) {:project-id "project-a"}]]
            @calls))))
 
 (deftest graph-view-label-lookup-uses-bounded-label-read

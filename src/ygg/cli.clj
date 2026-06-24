@@ -6,6 +6,7 @@
             [ygg.cli-options :refer [dry-run?
                                      json-output?
                                      option-value
+                                     option-values
                                      parse-depth
                                      parse-double-option
                                      parse-limit
@@ -18,10 +19,10 @@
             [ygg.cli-start :as cli-start]
             [ygg.cli-sync :as cli-sync]
             [ygg.context :as context]
-            [ygg.cursor :as cursor]
             [ygg.dependency :as dependency]
             [ygg.dependency-review :as dependency-review]
             [ygg.embedding :as embedding]
+            [ygg.embedding.local :as local-embedding]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
             [ygg.hook :as hook]
@@ -120,6 +121,27 @@
                                        :map-path map-path})]
       (evidence/packet-freshness summary))))
 
+(defn- comma-keywords
+  [value]
+  (->> (str/split (str value) #",")
+       (map str/trim)
+       (remove str/blank?)
+       (map keyword)
+       vec))
+
+(defn- query-input-options
+  [args]
+  (cond-> {:task (keyword (or (option-value args "--task") "auto"))
+           :anchors (option-values args "--anchor")
+           :symbols (option-values args "--symbol")
+           :literals (option-values args "--literal")
+           :changed-only? (boolean (some #{"--changed-only"} args))}
+    (option-value args "--lanes")
+    (assoc :lanes (comma-keywords (option-value args "--lanes")))
+
+    (option-value args "--since")
+    (assoc :since (option-value args "--since"))))
+
 (defn- context-packet-options
   [xtdb args {:keys [project-id repo-id retriever embedding-client read-context]}]
   (let [map-path (default-map-path args)
@@ -132,6 +154,9 @@
              :embedding-client embedding-client
              :map-path map-path
              :read-context read-context
+             :output (keyword (or (option-value args "--output") "compact"))
+             :proof-commands? (boolean (some #{"--proof-commands"} args))
+             :query-input (query-input-options args)
              :budget (parse-long-option args
                                         "--budget"
                                         context/default-budget)
@@ -314,13 +339,6 @@
                        :priority (queue-priority args)})))
     (print-json payload)))
 
-(defn- emit-cursor-packet
-  [args payload]
-  (emit-json-or-enqueue args
-                        "cursor"
-                        (get-in payload [:basis :project-id])
-                        payload))
-
 (defn- target-kind
   [target-id]
   (cond
@@ -497,8 +515,15 @@
    :context-packet-options context-packet-options
    :dispatch dispatch})
 
-(defn- print-query-result [result] (cli-query/print-query-result result))
 (defn- print-embed-summary [result] (cli-query/print-embed-summary result))
+(defn- print-local-embedding-setup-summary
+  [{:keys [venv python requirements created? default?]}]
+  (println "# Local Embeddings")
+  (println "- venv" venv)
+  (println "- python" python)
+  (println "- requirements" requirements)
+  (println "- created" (boolean created?))
+  (println "- default" (boolean default?)))
 (defn- candidate-system? [system] (cli-query/candidate-system? system))
 (defn- print-candidate-systems [systems limit] (cli-query/print-candidate-systems systems limit))
 (defn- provider-option [args] (cli-query/provider-option args))
@@ -522,10 +547,9 @@
 (defn- graph-data-for-mode [xtdb mode graph-args limit depth]
   (binding [cli-query/*deps* (query-deps)]
     (cli-query/graph-data-for-mode xtdb mode graph-args limit depth)))
-(defn- ask! [args]
+(defn- query! [args]
   (binding [cli-query/*deps* (query-deps)]
-    (cli-query/ask! args)))
-(defn- cursor-action? [args] (cli-query/cursor-action? args))
+    (cli-query/query! args)))
 (defn- view! [args]
   (binding [cli-query/*deps* (query-deps)]
     (cli-query/view! args)))
@@ -634,11 +658,8 @@
     "  map package import <import-prefix> <ecosystem>:<package> [--repo ID] --reason TEXT [--map ygg.map.json]"
     "  map work apply <work-id> --map ygg.map.json [--queue-dir DIR]"
     ""
-    "Ask and explore:"
-    "  ask <text> [--project ID] [--repo ID] [--config project.edn] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
-    "  explore <text> [--project ID] [--repo ID] [--config project.edn] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
-    "  explore create [query text] --project ID [--budget N] [--limit N] [--retriever auto|hybrid|lexical|semantic] [--provider openrouter|openai] [--model MODEL] [--map PATH] [--no-map] [--view ID] [--valid-at INSTANT] [--enqueue] [--queue-dir DIR]"
-    "  explore show|open|expand|docs|search ..."
+    "Query:"
+    "  query <text> [--project ID] [--repo ID] [--config project.edn] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider local|openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
     "  affected <project.edn> [--files PATH,PATH | --since REV] [--repo ID] [--tests] [--json]"
     ""
     "View and report:"
@@ -675,7 +696,7 @@
     "  hook status <project.edn>"
     ""
     "Server integration:"
-    "  mcp [--root DIR] [--config project.edn] [--map ygg.map.json] [--queue-dir DIR] [--tools default,cursor,sync,work,ask|all]"
+    "  mcp [--root DIR] [--config project.edn] [--map ygg.map.json] [--queue-dir DIR] [--tools default,sync,work|all]"
     ""
     "Benchmarks:"
     "  bench prepare|run|report <benchmark.edn> [--case ID] [--cases ID,ID] [--parser-worker none|java|dotnet|javascript|typescript|all] [--index-timeout-ms N] [--out DIR] [--json]"
@@ -690,9 +711,10 @@
     "  bench agent-check <benchmark.edn> [--case ID] [--cases ID,ID] [--mode ygg|shell-only] [--agent ID] [--min-cases N] [--min-runs N] [--min-file-recall-at-5 N] [--min-file-recall-at-10 N] [--min-file-recall-at-20 N] [--min-case-file-recall-at-5 N] [--min-case-file-recall-at-10 N] [--min-case-file-recall-at-20 N] [--min-mrr N] [--min-case-mrr N] [--min-evidence-citation-rate N] [--min-path-evidence-citation-rate N] [--min-decision-f1 N] [--min-decision-evidence-citation-rate N] [--min-case-evidence-citation-rate N] [--min-case-path-evidence-citation-rate N] [--min-case-decision-f1 N] [--max-total-tokens N] [--max-input-tokens N] [--max-output-tokens N] [--max-cost-usd N] [--max-case-total-tokens N] [--max-case-input-tokens N] [--max-case-output-tokens N] [--max-case-cost-usd N] [--max-noise-at-20 N] [--max-case-noise-at-20 N] [--max-input-hinted-cases N] [--max-unsupported-ground-truth-files N] [--max-empty-result-runs N] [--max-missing-predicted-file-runs N] [--max-missing-decision-runs N] [--max-commandless-runs N] [--max-warning-runs N] [--max-hint-diagnostic-runs N] [--max-identity-mismatch-runs N] [--max-unverified-score-runs N] [--max-graph-expectation-failures N] [--max-maintenance-preflight-blockers N] [--max-missing-declared-source-kind-runs N] [--max-missed-runs N] [--max-context-rank-missing-runs N] [--max-missed-but-present-in-context-runs N] [--max-missed-and-absent-from-context-runs N] [--max-ranked-outside-top-5-runs N] [--max-ranked-outside-top-10-runs N] [--max-ranked-outside-top-20-runs N] [--max-improvement-target-runs N] [--max-improvement-target-kind-runs KIND=N] [--max-active-stage-ms N] [--max-parser-worker-profiles N] [--min-measured-problem-classes N] [--min-measured-architecture-classes N] [--require-parser-worker none|java|dotnet|javascript|typescript|all] [--allow-missing] [--allow-duplicate-runs] [--allow-unverified-scores] [--out DIR] [--json]"
     "  bench agent-compare <benchmark.edn> --baseline-report before.json --candidate-report after.json [--regression-tolerance N] [--out DIR] [--json]"
     "  bench claim-pack <benchmark.edn> --shell-report shell/agent-report.json --ygg-report ygg/agent-report.json [--min-shared-cases N] [--out DIR] [--json]"
-    "  embed [--provider openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"
+    "  embed setup [--venv PATH] [--python PYTHON] [--json]"
+    "  embed [--provider local|openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"
     ""
-    "Compatibility commands remain during migration: index, project, systems, classify, queue, map, docs, meta, views, context, cursor, query, graph, deps, path."]))
+    "Compatibility commands remain during migration: index, project, systems, classify, queue, map, docs, meta, views, context, graph, deps, path."]))
 
 (defn dispatch
   [command args]
@@ -731,13 +753,8 @@
     "affected"
     (affected! args)
 
-    "ask"
-    (ask! args)
-
-    "explore"
-    (if (cursor-action? args)
-      (dispatch "cursor" args)
-      (ask! args))
+    "query"
+    (query! args)
 
     "view"
     (view! args)
@@ -1282,7 +1299,7 @@
           temporal (temporal-options args)]
       (when (and (= :auto retriever) (nil? embedding-client))
         (binding [*out* *err*]
-          (println "No embedding provider API key found; using lexical retrieval.")))
+          (println (str (missing-key-message provider) " Using lexical retrieval."))))
       (store/with-node (store/storage-path)
         (fn [xtdb]
           (emit-json-or-enqueue
@@ -1299,162 +1316,31 @@
                                                             :embedding-client embedding-client
                                                             :read-context temporal}))))))
 
-    "cursor"
-    (let [action (keyword (first args))
-          cursor-args (vec (rest args))
-          positional (positional-args cursor-args)
-          retriever (keyword (or (option-value cursor-args "--retriever") "auto"))
-          provider (provider-option cursor-args)
-          model (or (option-value cursor-args "--model") (default-model provider))
-          embedding-client (query-embedding-client retriever provider model)
-          budget (parse-optional-long cursor-args "--budget")]
-      (when (and (= :auto retriever) (nil? embedding-client))
-        (binding [*out* *err*]
-          (println "No embedding provider API key found; using lexical retrieval.")))
-      (store/with-node (store/storage-path)
-        (fn [xtdb]
-          (case action
-            :create
-            (let [query-text (or (option-value cursor-args "--query")
-                                 (not-empty (str/trim (str/join " " positional))))
-                  {:keys [project-id]} (project-scope cursor-args)]
-              (emit-cursor-packet
-               cursor-args
-               (cursor/create! xtdb
-                               {:project-id project-id
-                                :query-text query-text
-                                :retriever retriever
-                                :embedding-client embedding-client
-                                :map-path (default-map-path cursor-args)
-                                :view-id (option-value cursor-args "--view")
-                                :read-context (temporal-options cursor-args)
-                                :budget (or budget context/default-budget)
-                                :node-limit (or (parse-limit cursor-args)
-                                                (parse-optional-long cursor-args
-                                                                     "--entity-limit")
-                                                context/default-entity-limit)
-                                :edge-limit (parse-long-option cursor-args
-                                                               "--edge-limit"
-                                                               context/default-edge-limit)
-                                :doc-limit (parse-long-option cursor-args
-                                                              "--doc-limit"
-                                                              context/default-doc-limit)
-                                :snippet-chars (parse-long-option cursor-args
-                                                                  "--snippet-chars"
-                                                                  context/default-snippet-chars)
-                                :min-confidence (parse-double-option cursor-args
-                                                                     "--min-confidence"
-                                                                     0.55)})))
-
-            :show
-            (let [cursor-id (first positional)]
-              (when-not cursor-id
-                (throw (ex-info "Missing cursor id." {:usage (usage)})))
-              (emit-cursor-packet cursor-args
-                                  (cursor/show xtdb cursor-id {:budget budget})))
-
-            :open
-            (let [[cursor-id target] positional]
-              (when-not (and cursor-id target)
-                (throw (ex-info "Missing cursor id or target."
-                                {:usage (usage)})))
-              (emit-cursor-packet cursor-args
-                                  (cursor/open! xtdb cursor-id target {:budget budget})))
-
-            :expand
-            (let [[cursor-id target] positional]
-              (when-not (and cursor-id target)
-                (throw (ex-info "Missing cursor id or target."
-                                {:usage (usage)})))
-              (emit-cursor-packet cursor-args
-                                  (cursor/expand! xtdb
-                                                  cursor-id
-                                                  target
-                                                  {:budget budget
-                                                   :relation (option-value cursor-args
-                                                                           "--relation")
-                                                   :limit (parse-limit cursor-args)})))
-
-            :docs
-            (let [[cursor-id target] positional]
-              (when-not (and cursor-id target)
-                (throw (ex-info "Missing cursor id or target."
-                                {:usage (usage)})))
-              (emit-cursor-packet cursor-args
-                                  (cursor/docs! xtdb cursor-id target {:budget budget})))
-
-            :search
-            (let [[cursor-id & query-parts] positional
-                  query-text (or (option-value cursor-args "--query")
-                                 (str/join " " query-parts))]
-              (when-not cursor-id
-                (throw (ex-info "Missing cursor id." {:usage (usage)})))
-              (emit-cursor-packet cursor-args
-                                  (cursor/search! xtdb
-                                                  cursor-id
-                                                  query-text
-                                                  {:budget budget
-                                                   :retriever retriever
-                                                   :embedding-client embedding-client
-                                                   :limit (parse-limit cursor-args)})))
-
-            (throw (ex-info "Unknown cursor command." {:command action
-                                                       :usage (usage)}))))))
-
     "embed"
-    (let [provider (provider-option args)
-          model (or (option-value args "--model") (default-model provider))
-          batch-size (parse-long-option args "--batch-size" embedding/default-batch-size)
-          limit (parse-limit args)
-          {:keys [project-id repo-id]} (project-scope args)]
-      (when-not (provider-api-key provider)
-        (throw (ex-info (missing-key-message provider)
-                        {:provider provider})))
-      (store/with-node (store/storage-path)
-        (fn [xtdb]
-          (print-embed-summary
-           (embedding/embed-search-docs! xtdb
-                                         (provider-client provider model)
-                                         {:batch-size batch-size
-                                          :limit limit
-                                          :project-id project-id
-                                          :repo-id repo-id})))))
-
-    "query"
-    (let [query-text (str/join " " (positional-args args))
-          retriever (keyword (or (option-value args "--retriever") "auto"))
-          provider (provider-option args)
-          model (or (option-value args "--model") (default-model provider))
-          limit (or (parse-limit args) 10)
-          embedding-client (query-embedding-client retriever provider model)
-          {:keys [project-id repo-id]} (project-scope args)
-          temporal (temporal-options args)]
-      (when (and (= :auto retriever) (nil? embedding-client))
-        (binding [*out* *err*]
-          (println "No embedding provider API key found; using lexical retrieval.")))
-      (when (str/blank? query-text)
-        (throw (ex-info "Missing query text." {:usage (usage)})))
-      (store/with-node (store/storage-path)
-        (fn [xtdb]
-          (if (json-output? args)
-            (print-json
-             (query/search-report xtdb
-                                  query-text
-                                  {:limit limit
-                                   :retriever retriever
-                                   :embedding-client embedding-client
-                                   :project-id project-id
-                                   :repo-id repo-id
-                                   :read-context temporal}))
-            (doseq [result (query/semantic-query xtdb
-                                                 query-text
-                                                 {:limit limit
-                                                  :retriever retriever
-                                                  :embedding-client embedding-client
-                                                  :project-id project-id
-                                                  :repo-id repo-id
-                                                  :read-context temporal})]
-              (print-query-result result))))))
+    (if (= "setup" (first (positional-args args)))
+      (let [result (local-embedding/setup-venv! {:venv-path (option-value args "--venv")
+                                                 :python (option-value args "--python")})]
+        (if (json-output? args)
+          (print-json result)
+          (print-local-embedding-setup-summary result)))
+      (let [provider (provider-option args)
+            model (or (option-value args "--model") (default-model provider))
+            batch-size (parse-long-option args "--batch-size" embedding/default-batch-size)
+            limit (parse-limit args)
+            {:keys [project-id repo-id]} (project-scope args)]
+        (when (and (not= :local provider)
+                   (not (provider-api-key provider)))
+          (throw (ex-info (missing-key-message provider)
+                          {:provider provider})))
+        (store/with-node (store/storage-path)
+          (fn [xtdb]
+            (print-embed-summary
+             (embedding/embed-search-docs! xtdb
+                                           (provider-client provider model)
+                                           {:batch-size batch-size
+                                            :limit limit
+                                            :project-id project-id
+                                            :repo-id repo-id}))))))
 
     "project"
     (let [action (keyword (first args))
@@ -1625,11 +1511,8 @@
     (catch Exception e
       (binding [*out* *err*]
         (let [data (ex-data e)]
-          (if (= cursor/error-schema (:schema data))
-            (print-json data)
-            (do
-              (println (ex-message e))
-              (when data
-                (pprint/pprint data))))))
+          (println (ex-message e))
+          (when data
+            (pprint/pprint data))))
       (shutdown-agents)
       (System/exit 1))))

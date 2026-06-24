@@ -29,21 +29,67 @@ should come from repeatable benchmarks.
 ygg start . --project my-project
 ```
 
-`start` writes or reuses `project.edn`, creates `ygg.map.json`, syncs the
-repo, imports local queue activity, and writes an `ygg-out/` report bundle.
-Open `ygg-out/index.html` for the generated report and graph viewer.
+`start` writes or reuses `project.edn`, syncs the repo into local XTDB state,
+imports local queue activity, and writes an `ygg-out/` report bundle. Open
+`ygg-out/index.html` for the generated report and graph viewer. `ygg.map.json`
+is a portability format for explicit import/export, not a required handle for
+normal local use.
 
 For lower-level setup, use the explicit commands behind that flow:
 
 ```sh
 ygg init . --project my-project --out project.edn
-ygg sync project.edn --check --map ygg.map.json
-ygg ask "where is auth handled" --project my-project
-ygg explore create "where is auth handled" --project my-project --map ygg.map.json
+ygg sync project.edn --check
+ygg query "where is auth handled" --project my-project
 ```
 
 Default local data lives under `.dev/`. Use `YGG_XTDB_PATH` when you need a
 different XTDB directory.
+
+`ygg query` returns compact graph-grounded evidence by default. Exact literals
+can use bounded internal ripgrep evidence, configured embeddings can support
+semantic intent, and graph expansion adds related structure after a candidate is
+found. Shell proof commands are not emitted unless explicitly requested for
+audit/debug output.
+
+Use task profiles when the caller already knows the question shape:
+
+```sh
+ygg query "where is login handled" --project my-project --task locate --literal "/api/login"
+ygg query "explain how auth requests reach the API" --project my-project --task explain --anchor src/auth.clj
+ygg query "what changes if the auth route moves" --project my-project --task impact --anchor src/auth.clj:42
+```
+
+## Embeddings
+
+Local embeddings are the default. They use a bundled JSONL worker backed by
+`sentence-transformers`, and embedding rows are stored in XTDB by provider,
+model, target, and input hash.
+
+```sh
+ygg embed setup
+ygg embed --project my-project
+ygg query "where is auth handled" --project my-project
+```
+
+`ygg embed setup` creates `.dev/ygg/local-embedding-venv` and installs the
+bundled Python requirements used by the local worker. If you need a custom
+interpreter or venv path, pass it during setup:
+
+```sh
+ygg embed setup --python python3.12 --venv .dev/ygg/local-embedding-venv
+```
+
+Remote providers are optional add-on embedding lanes. Set an API key, index that
+provider, and pass the same provider when querying that lane:
+
+```sh
+YGG_OPENAI_API_KEY=... ygg embed --project my-project --provider openai
+ygg query "where is auth handled" --project my-project --provider openai
+
+YGG_OPENROUTER_API_KEY=... ygg embed --project my-project --provider openrouter
+ygg query "where is auth handled" --project my-project --provider openrouter
+```
 
 ## Core Ideas
 
@@ -66,8 +112,7 @@ different XTDB directory.
 
 - Sync: keep the graph aligned with the repo, inspect freshness, check for
   drift, and maintain accepted corrections.
-- Ask and explore: answer focused questions or run longer investigations from a
-  stable graph basis.
+- Query: answer focused graph-grounded questions.
 - Report and view: generate local HTML and JSON graph exports for operators and
   downstream tools.
 - Extend: add extractor plugins for project-specific or experimental file

@@ -158,7 +158,7 @@
                                :decision-candidates (:decisionCandidates prepared)
                                :decision-kind (get-in prepared [:decisionGroundTruth :kind])
                                :compact-result? true
-                               :compact-result-limit 5
+                               :compact-result-limit 12
                                :limit (agent-baseline-suspect-limit opts)})
                             (fn [result]
                               {:suspectedFiles (count (:suspectedFiles result))

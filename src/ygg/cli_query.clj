@@ -1,6 +1,7 @@
 (ns ygg.cli-query
   (:require [ygg.cli-options :refer [json-output? option-value parse-double-option parse-limit positional-args project-scope remove-option]]
             [ygg.context :as context]
+            [ygg.embedding.local :as local]
             [ygg.embedding.openai :as openai]
             [ygg.embedding.openrouter :as openrouter]
             [ygg.graph :as graph]
@@ -34,13 +35,14 @@
                    (name (:result-kind result))
                    (or (:label result) (:path result))))
   (println "      " (:path result) (when-let [line (:source-line result)] (str "L" line)))
-  (when-let [{:keys [semantic lexical graph exact]} (:score-components result)]
+  (when-let [{:keys [semantic lexical grep graph exact]} (:score-components result)]
     (println "       "
-             (format "semantic %.2f lexical %.2f graph %.2f exact %.2f"
-                     (double semantic)
-                     (double lexical)
-                     (double graph)
-                     (double exact))))
+             (format "semantic %.2f lexical %.2f grep %.2f graph %.2f exact %.2f"
+                     (double (or semantic 0.0))
+                     (double (or lexical 0.0))
+                     (double (or grep 0.0))
+                     (double (or graph 0.0))
+                     (double (or exact 0.0)))))
   (when-let [reason (:reason result)]
     (println "       " reason)))
 (defn- next-action-command
@@ -48,7 +50,7 @@
   (when-let [command (some-> (:command action) str/trim not-empty)]
     (str "Run " command)))
 
-(defn- print-ask-evidence-warning
+(defn- print-query-evidence-warning
   [packet]
   (let [evidence (:evidence packet)
         missing (map name (:missing evidence))
@@ -78,22 +80,23 @@
         (println "Next:" (str/join " | " next-steps))
         (when (pos? extra-next)
           (println "Next:" extra-next "more commands in --json output."))))))
-(defn- print-ask-no-results
+(defn- print-query-no-results
   [xtdb query-text {:keys [project-id repo-id retriever embedding-client temporal args]}]
   (if (str/blank? (str project-id))
     (binding [*out* *err*]
       (println "No query results.")
       (println "Use --project to include evidence details."))
-    (print-ask-evidence-warning
+    (print-query-evidence-warning
      (context/context-packet xtdb
                              query-text
-                             (context-packet-options xtdb
-                                                     args
-                                                     {:project-id project-id
-                                                      :repo-id repo-id
-                                                      :retriever retriever
-                                                      :embedding-client embedding-client
-                                                      :read-context temporal})))))
+                             (assoc (context-packet-options xtdb
+                                                            args
+                                                            {:project-id project-id
+                                                             :repo-id repo-id
+                                                             :retriever retriever
+                                                             :embedding-client embedding-client
+                                                             :read-context temporal})
+                                    :output :full)))))
 (defn print-embed-summary
   [{:keys [provider model search-docs pending embedded skipped]}]
   (println "# Embeddings")
@@ -122,9 +125,7 @@
                     (str " path " path))))))
 (defn default-provider
   []
-  (if (openrouter/api-key)
-    :openrouter
-    :openai))
+  :local)
 (defn provider-option
   [args]
   (keyword (or (option-value args "--provider")
@@ -132,28 +133,34 @@
 (defn default-model
   [provider]
   (case provider
+    :local (local/configured-model)
     :openrouter openrouter/default-model
     :openai openai/default-model
     (throw (ex-info "Unsupported embedding provider."
                     {:provider provider
-                     :supported [:openrouter :openai]}))))
+                     :supported [:local :openrouter :openai]}))))
 (defn provider-api-key
   [provider]
   (case provider
+    :local true
     :openrouter (openrouter/api-key)
     :openai (openai/api-key)
     nil))
 (defn provider-client
   [provider model]
   (case provider
+    :local (local/client {:model model})
     :openrouter (openrouter/client {:model model})
     :openai (openai/client {:model model})
     (throw (ex-info "Unsupported embedding provider."
                     {:provider provider
-                     :supported [:openrouter :openai]}))))
+                     :supported [:local :openrouter :openai]}))))
 (defn missing-key-message
   [provider]
   (case provider
+    :local (str "Local embeddings require sentence-transformers. "
+                "Run `ygg embed setup`, or set YGG_LOCAL_EMBEDDING_COMMAND "
+                "to a custom worker command.")
     :openrouter "Missing OpenRouter API key. Set YGG_OPENROUTER_API_KEY or OPENROUTER_API_KEY."
     :openai "Missing OpenAI API key. Set YGG_OPENAI_API_KEY or OPENAI_API_KEY."
     "Missing embedding provider API key."))
@@ -440,19 +447,19 @@
         embedding-client (query-embedding-client retriever provider model)]
     (when (and (= :auto retriever) (nil? embedding-client))
       (binding [*out* *err*]
-        (println "No embedding provider API key found; using lexical retrieval.")))
+        (println (str (missing-key-message provider) " Using lexical retrieval."))))
     {:retriever retriever
      :provider provider
      :model model
      :embedding-client embedding-client}))
-(defn ask!
+(defn query!
   [args]
   (let [query-text (str/join " " (positional-args args))
         {:keys [retriever embedding-client]} (retrieval-options args)
         {:keys [project-id repo-id]} (project-scope args)
         temporal (temporal-options args)]
     (when (str/blank? query-text)
-      (throw (ex-info "Missing ask text." {:usage (usage)})))
+      (throw (ex-info "Missing query text." {:usage (usage)})))
     (store/with-node (store/storage-path)
       (fn [xtdb]
         (if (json-output? args)
@@ -477,19 +484,14 @@
             (if (seq results)
               (doseq [result results]
                 (print-query-result result))
-              (print-ask-no-results xtdb
-                                    query-text
-                                    {:project-id project-id
-                                     :repo-id repo-id
-                                     :retriever retriever
-                                     :embedding-client embedding-client
-                                     :temporal temporal
-                                     :args args}))))))))
-(def ^:private cursor-actions
-  #{"create" "show" "open" "expand" "docs" "search"})
-(defn cursor-action?
-  [args]
-  (contains? cursor-actions (first args)))
+              (print-query-no-results xtdb
+                                      query-text
+                                      {:project-id project-id
+                                       :repo-id repo-id
+                                       :retriever retriever
+                                       :embedding-client embedding-client
+                                       :temporal temporal
+                                       :args args}))))))))
 (defn view!
   [args]
   (let [format (keyword (or (option-value args "--format") "html"))

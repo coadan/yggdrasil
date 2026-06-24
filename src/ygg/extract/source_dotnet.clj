@@ -155,8 +155,7 @@
 
 (defn- dotnet-definition-text
   [content line-starts line-count idx line form]
-  (let [source-line (or (:source-line form) (inc idx))
-        start (+ (get line-starts idx 0)
+  (let [start (+ (get line-starts idx 0)
                  (or (some->> [(:name form)]
                               first
                               (str/index-of line))

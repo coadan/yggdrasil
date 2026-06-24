@@ -20,7 +20,7 @@
    :audit-scopes 3
    :evidence-per-row 1
    :reason-chars 220
-   :read-plan-files 3
+   :read-plan-files 5
    :snippet-before-lines 20
    :snippet-after-lines 12
    :snippet-max-chars 2400})
@@ -346,16 +346,14 @@
 
 (defn- compact-read-plan
   [hints opts limits]
-  (let [primary-top-files (take 1 (:topFiles hints))
-        primary-paths (set (keep :path primary-top-files))
+  (let [top-files (:topFiles hints)
+        top-paths (set (keep :path top-files))
         declaration-rows (->> (:topDeclarations hints)
-                              (remove #(contains? primary-paths (:path %)))
+                              (remove #(contains? top-paths (:path %)))
                               path-diverse-declaration-rows)
-        remaining-top-files (drop 1 (:topFiles hints))
-        read-plan-rows (->> (concat primary-top-files
+        read-plan-rows (->> (concat top-files
                                     declaration-rows
-                                    (:relatedFiles hints)
-                                    remaining-top-files)
+                                    (:relatedFiles hints))
                             (remove (fn [row]
                                       (str/blank? (str (:path row)))))
                             (reduce (fn [[rows seen] row]
@@ -421,6 +419,7 @@
                            :project-id
                            :query
                            :selection
+                           :search
                            :warnings
                            :diagnostics])
        true

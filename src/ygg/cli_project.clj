@@ -30,13 +30,21 @@
                                              {:map-overlay overlay
                                               :config-path (or config-path
                                                                (:path project))
-                                              :map-path map-path})]
+                                              :map-path map-path})
+        freshness (:freshness evidence-summary)]
     {:schema "ygg.project.inspect/v1"
      :project {:id (:id project)
                :name (:name project)
                :config-path (or config-path (:path project))}
      :repos (mapv #(select-keys % [:id :root :role]) (:repos project))
-     :freshness (:freshness evidence-summary)
+     :freshness freshness
+     :freshnessCounts (:counts freshness)
+     :repoFreshness (mapv (fn [repo]
+                            (cond-> {:id (:repo-id repo)
+                                     :status (:status repo)
+                                     :counts (:counts repo)}
+                              (:samples repo) (assoc :samples (:samples repo))))
+                          (:repos freshness))
      :coverage (evidence/status-coverage evidence-summary)
      :nextActions (:nextActions evidence-summary)
      :evidence evidence-summary}))

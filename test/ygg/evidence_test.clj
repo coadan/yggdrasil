@@ -37,8 +37,8 @@
                           :command "ygg view systems --project fixture"}
                          {:kind :coverage
                           :command "ygg sync coverage project.edn --json"}
-                         {:kind :ask
-                          :command "ygg ask \"where is this handled?\" --project fixture --json"}]}))))
+                         {:kind :query
+                          :command "ygg query \"where is this handled?\" --project fixture --json"}]}))))
 
 (deftest status-coverage-includes-compact-indexed-connectivity
   (is (= {:counts {:files 4

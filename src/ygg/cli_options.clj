@@ -68,12 +68,13 @@
     "--files" "--since"
     "--id" "--plugin" "--file-kind" "--path-glob" "--scan-glob" "--fixture"
     "--ecosystem" "--package" "--prompt-profile" "--report-out" "--command"
+    "--python" "--venv"
     "--vector-command" "--vector-model" "--codebase-memory-command"
     "--codebase-memory-bin" "--codebase-memory-cache-dir" "--parser-worker"
     "--ref" "--subdir" "--cache-dir" "--shell-report" "--ygg-report"
     "--timeout-ms" "--index-timeout-ms" "--min-cases" "--min-runs"
     "--min-shared-cases"
-    "--retrieval-limit"
+    "--retrieval-limit" "--output" "--anchor" "--symbol" "--literal" "--lanes"
     "--min-file-recall-at-5" "--min-file-recall-at-10"
     "--min-file-recall-at-20" "--min-mrr" "--max-noise-at-20"
     "--min-evidence-citation-rate"
@@ -118,7 +119,8 @@
     "--check" "--query-index" "--force" "--hooks" "--sync" "--allow-missing"
     "--allow-duplicate-runs" "--allow-unverified-scores"
     "--skip-existing" "--with-conflicts" "--without-import-evidence"
-    "--no-progress" "--extractor" "--report" "--tests"})
+    "--no-progress" "--extractor" "--report" "--tests" "--proof-commands"
+    "--changed-only"})
 
 (defn positional-args
   [args]

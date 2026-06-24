@@ -3,7 +3,7 @@ import type { PluginPanelActions } from "./ReportPluginPanels";
 import type { ReviewQueueRow } from "./reviewQueue";
 import { displayValue } from "./valueFormat";
 import { numericCell } from "./ReportPageShared";
-import { isReportTab, type ActionTarget, type AskScope, type ReportTab, type TableColumn } from "./ReportPageTypes";
+import { isReportTab, type ActionTarget, type QueryScope, type ReportTab, type TableColumn } from "./ReportPageTypes";
 
 export type ReportActionCommand = {
   id: string;
@@ -95,11 +95,11 @@ export function reportActionCommands(report: YggReport): ReportActionCommand[] {
       targetTab: "maintenance" as const
     },
     {
-      id: "ask-cli",
-      label: "Ask with CLI",
-      description: "Run the equivalent graph question through the CLI when report-local Ask is too narrow.",
-      command: firstCommandMatching(allCommands, /\bask\s+/),
-      targetTab: "ask" as const
+      id: "query-cli",
+      label: "Query with CLI",
+      description: "Run the equivalent graph question through the CLI when report-local Query is too narrow.",
+      command: firstCommandMatching(allCommands, /\bquery\s+/),
+      targetTab: "query" as const
     }
   ];
 
@@ -114,13 +114,13 @@ export function reportActionCommands(report: YggReport): ReportActionCommand[] {
 export function ReportActions({
   report,
   copiedKey,
-  onAsk,
+  onQuery,
   onCopyCommand,
   onOpenTab
 }: {
   report: YggReport;
   copiedKey: string | null;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenTab: (tab: ReportTab) => void;
 }) {
@@ -145,7 +145,7 @@ export function ReportActions({
               <button
                 type="button"
                 onClick={() =>
-                  onAsk({
+                  onQuery({
                     label: row.label,
                     source: `report.commands.${row.id}`,
                     question: `What should I know before I run ${row.label}?`,
@@ -153,7 +153,7 @@ export function ReportActions({
                   })
                 }
               >
-                Ask
+                Query
               </button>
               {row.targetTab ? (
                 <button type="button" onClick={() => onOpenTab(row.targetTab as ReportTab)}>
@@ -217,8 +217,8 @@ export function nextActionTarget(action: Record<string, unknown>): ActionTarget 
     case "validation-history":
     case "map-overlay":
       return { tab: "evidence" };
-    case "ask":
-      return { tab: "ask" };
+    case "query":
+      return { tab: "query" };
     default:
       return null;
   }
@@ -230,20 +230,20 @@ export function commandKey(action: Record<string, unknown>, index: number): stri
 
 export function pluginPanelActions({
   copiedKey,
-  onAsk,
+  onQuery,
   onCopyCommand,
   onOpenGraphSlice,
   onOpenTab
 }: {
   copiedKey: string | null;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
 }): PluginPanelActions {
   return {
     copiedKey,
-    onAsk,
+    onQuery,
     onCopyCommand,
     onOpenGraphSlice,
     onOpenTab: (tab) => {
@@ -254,14 +254,14 @@ export function pluginPanelActions({
 
 export function OperatorNextActions({
   rows,
-  onAsk,
+  onQuery,
   onCopyCommand,
   onOpenGraphSlice,
   onOpenTab,
   copiedKey
 }: {
   rows: Array<Record<string, unknown>>;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
@@ -294,7 +294,7 @@ export function OperatorNextActions({
                   <button
                     type="button"
                     onClick={() =>
-                      onAsk({
+                      onQuery({
                         label,
                         source: `operator.next-actions.${displayValue(row.kind) || index}`,
                         question: `What should I do for ${label}?`,
@@ -302,7 +302,7 @@ export function OperatorNextActions({
                       })
                     }
                   >
-                    Ask
+                    Query
                   </button>
                   {target ? (
                     <button type="button" onClick={() => onOpenTab(target.tab)}>
@@ -461,7 +461,7 @@ export function ReviewQueue({
   projectId,
   mapPath,
   copiedKey,
-  onAsk,
+  onQuery,
   onCopyCommand,
   onOpenGraphSlice,
   onOpenTab,
@@ -472,7 +472,7 @@ export function ReviewQueue({
   projectId: string;
   mapPath: string;
   copiedKey: string | null;
-  onAsk: (scope: AskScope) => void;
+  onQuery: (scope: QueryScope) => void;
   onCopyCommand: (key: string, command: string) => void;
   onOpenGraphSlice: (sliceId: string) => void;
   onOpenTab: (tab: ReportTab) => void;
@@ -510,7 +510,7 @@ export function ReviewQueue({
                 <button
                   type="button"
                   onClick={() =>
-                    onAsk({
+                    onQuery({
                       label: row.label,
                       source: row.source,
                       question: `What should I do about ${row.label}?`,
@@ -518,7 +518,7 @@ export function ReviewQueue({
                     })
                   }
                 >
-                  Ask
+                  Query
                 </button>
                 <button type="button" onClick={() => onOpenTab(row.targetTab)}>
                   Open {row.targetTab}

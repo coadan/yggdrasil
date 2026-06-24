@@ -276,26 +276,6 @@
    [:active? {:optional true} boolean?]
    [:run-id {:optional true} string?]])
 
-(def graph-cursor-row
-  [:map
-   [:xt/id string?]
-   [:schema string?]
-   [:project-id string?]
-   [:mode keyword?]
-   [:query-text {:optional true} [:maybe string?]]
-   [:root-ids [:vector string?]]
-   [:focus-ids [:vector string?]]
-   [:visited-ids [:vector string?]]
-   [:frontier-ids [:vector string?]]
-   [:basis map?]
-   [:map-overlay {:optional true} [:maybe map?]]
-   [:limits map?]
-   [:parent-id {:optional true} [:maybe string?]]
-   [:revision int?]
-   [:operation map?]
-   [:active? boolean?]
-   [:created-at-ms int?]])
-
 (def activity-item-row
   [:map
    [:xt/id string?]

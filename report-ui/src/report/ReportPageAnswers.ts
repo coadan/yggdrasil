@@ -1,6 +1,6 @@
 import type { YggGraph, YggReport } from "../data/types";
 import { numericCount } from "../data/reportAdapter";
-import type { AskAnswer } from "./ReportPageTypes";
+import type { QueryAnswer } from "./ReportPageTypes";
 import { asRecord, asRows, countValue } from "./ReportPageShared";
 import { displayValue } from "./valueFormat";
 
@@ -78,10 +78,10 @@ export function freshnessEvidencePacket(report: YggReport): string {
   );
 }
 
-export function askAnswerPacket(question: string, answer: AskAnswer): string {
+export function queryAnswerPacket(question: string, answer: QueryAnswer): string {
   return JSON.stringify(
     {
-      schema: "ygg.report.ask-answer/v1",
+      schema: "ygg.report.query-answer/v1",
       question,
       title: answer.title,
       summary: answer.summary,
@@ -180,7 +180,7 @@ function operatorNextRows(report: YggReport, fallbackRows: Array<Record<string, 
   return rows.length > 0 ? rows : fallbackRows;
 }
 
-export function overviewAnswer(report: YggReport, graph: YggGraph): AskAnswer {
+export function overviewAnswer(report: YggReport, graph: YggGraph): QueryAnswer {
   const atlas = reportAtlas(report, graph);
   const evidence = asRecord(atlas.evidence);
   const systems = asRecord(atlas.systems);
@@ -263,7 +263,7 @@ export function auditScopeRelatedRows(report: YggReport, graph: YggGraph): Array
   return [...graphRows, ...freshnessSampleRows(report).slice(0, 8)];
 }
 
-export function auditScopeAnswer(report: YggReport, graph: YggGraph): AskAnswer {
+export function auditScopeAnswer(report: YggReport, graph: YggGraph): QueryAnswer {
   const packages = asRecord(report.packages);
   const packageCounts = asRecord(packages.counts);
   const freshness = asRecord(report.evidence.freshness);
@@ -298,7 +298,7 @@ export function auditScopeAnswer(report: YggReport, graph: YggGraph): AskAnswer 
   };
 }
 
-export function dependencyAnswer(report: YggReport): AskAnswer {
+export function dependencyAnswer(report: YggReport): QueryAnswer {
   const packages = asRecord(report.packages);
   const counts = asRecord(packages.counts);
   const unresolved = packageRows(report, "unresolved-imports");
@@ -326,7 +326,7 @@ export function dependencyAnswer(report: YggReport): AskAnswer {
   };
 }
 
-export function externalApiAnswer(report: YggReport, graph: YggGraph): AskAnswer {
+export function externalApiAnswer(report: YggReport, graph: YggGraph): QueryAnswer {
   const review = externalApiReview(report);
   const counts = asRecord(review?.counts);
   const fanouts = fanoutRows(review);
@@ -349,7 +349,7 @@ export function externalApiAnswer(report: YggReport, graph: YggGraph): AskAnswer
   };
 }
 
-export function systemsAnswer(report: YggReport, graph: YggGraph): AskAnswer {
+export function systemsAnswer(report: YggReport, graph: YggGraph): QueryAnswer {
   const atlas = reportAtlas(report, graph);
   const systems = asRecord(atlas.systems);
   const hubs = maintenanceRows(report, "top-hubs");
@@ -372,7 +372,7 @@ export function systemsAnswer(report: YggReport, graph: YggGraph): AskAnswer {
   };
 }
 
-export function maintenanceAnswer(report: YggReport): AskAnswer {
+export function maintenanceAnswer(report: YggReport): QueryAnswer {
   const maintenance = asRecord(report.maintenance);
   const queue = asRecord(maintenance.queue);
   const decisions = maintenanceRows(report, "decision-queue");
@@ -396,7 +396,7 @@ export function maintenanceAnswer(report: YggReport): AskAnswer {
   };
 }
 
-export function coverageAnswer(report: YggReport): AskAnswer {
+export function coverageAnswer(report: YggReport): QueryAnswer {
   const coverage = asRecord(report.coverage);
   const diagnostics = asRecord(coverage.diagnostics);
   const extractors = asRows(coverage.extractors);
@@ -419,7 +419,7 @@ export function coverageAnswer(report: YggReport): AskAnswer {
   };
 }
 
-export function answerReportQuestion(report: YggReport, graph: YggGraph, question: string): AskAnswer {
+export function answerReportQuestion(report: YggReport, graph: YggGraph, question: string): QueryAnswer {
   const normalized = question.trim().toLowerCase();
   if (/\b(made of|inventory|contain|contains|routes?|auth|config|generated|manifest|freshness|stale|missing)\b/.test(normalized)) {
     return auditScopeAnswer(report, graph);

@@ -95,8 +95,8 @@
                                  :command "ygg sync project.edn --query-index"}
                                 {:kind :coverage
                                  :command "ygg sync coverage project.edn --json"}
-                                {:kind :ask
-                                 :command "ygg ask \"where is this handled?\" --project fixture --json"}]
+                                {:kind :query
+                                 :command "ygg query \"where is this handled?\" --project fixture --json"}]
                   :repos [{:repo-id "app"
                            :root "/repo"
                            :status :stale

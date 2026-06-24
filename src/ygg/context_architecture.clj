@@ -1,5 +1,6 @@
 (ns ygg.context-architecture
-  (:require [clojure.string :as str]))
+  (:require [clojure.set :as set]
+            [clojure.string :as str]))
 
 (defn- s
   [value]
@@ -36,9 +37,53 @@
   [query-tokens text]
   (min 4 (token-score query-tokens text)))
 
+(def ^:private system-evidence-rare-fact-token-weight
+  2.25)
+
+(def ^:private system-evidence-rare-fact-token-cap
+  3.0)
+
 (defn- distinct-query-tokens
   [query-tokens]
   (vec (distinct query-tokens)))
+
+(defn- matched-query-tokens
+  [query-tokens text]
+  (let [text (str/lower-case (str text))]
+    (filterv #(str/includes? text %) query-tokens)))
+
+(defn- system-evidence-fact-text
+  [row]
+  (compact (:kind row)
+           (:label row)
+           (:normalized-value row)))
+
+(defn- system-evidence-token-path-counts
+  [query-tokens evidence]
+  (->> evidence
+       (reduce (fn [counts row]
+                 (reduce (fn [counts token]
+                           (update counts token (fnil conj #{}) (:path row)))
+                         counts
+                         (matched-query-tokens query-tokens
+                                               (system-evidence-fact-text row))))
+               {})
+       (map (fn [[token paths]]
+              [token (count paths)]))
+       (into {})))
+
+(defn- rare-system-evidence-fact-token-score
+  [token-path-counts matched-tokens]
+  (let [score (reduce
+               (fn [score token]
+                 (let [path-count (long (or (get token-path-counts token) 0))]
+                   (if (pos? path-count)
+                     (+ score (/ 1.0 (Math/sqrt (double path-count))))
+                     score)))
+               0.0
+               (distinct matched-tokens))]
+    (min system-evidence-rare-fact-token-cap
+         (* system-evidence-rare-fact-token-weight score))))
 
 (defn- ranked-result-path-order
   [results n]
@@ -530,7 +575,7 @@
          (not (contains? file-kinds (:file-kind row))))))
 
 (defn- system-evidence-score
-  [query-tokens selected-system-ids selected-paths selected-value-file-kinds row]
+  [query-tokens selected-system-ids selected-paths selected-value-file-kinds token-path-counts row]
   (let [path-score (if (contains? selected-paths (:path row)) 1.0 0.0)
         token-score (capped-token-score query-tokens
                                         (compact (:kind row)
@@ -538,10 +583,12 @@
                                                  (:label row)
                                                  (:normalized-value row)
                                                  (:path row)))
-        fact-token-score (capped-token-score query-tokens
-                                             (compact (:kind row)
-                                                      (:label row)
-                                                      (:normalized-value row)))
+        matched-fact-tokens (matched-query-tokens query-tokens
+                                                  (system-evidence-fact-text row))
+        fact-token-score (min 4 (count matched-fact-tokens))
+        rare-fact-token-score (rare-system-evidence-fact-token-score
+                               token-path-counts
+                               matched-fact-tokens)
         shared-value-score (if (shared-selected-evidence-value?
                                 selected-value-file-kinds
                                 selected-paths
@@ -558,10 +605,11 @@
          shared-value-score
          system-score
          (* 0.5 token-score)
-         (* 0.8 fact-token-score))
+         (* 0.8 fact-token-score)
+         rare-fact-token-score)
       0.0)))
 (defn- system-evidence-row
-  [score row]
+  [score matched-fact-tokens rare-fact-token-score row]
   (cond-> {:id (:xt/id row)
            :systemId (:system-id row)
            :repo (:repo-id row)
@@ -572,6 +620,10 @@
            :sourceLine (:source-line row)
            :confidence (:confidence row)
            :score score}
+    (seq matched-fact-tokens) (assoc ::matched-fact-tokens
+                                     (set matched-fact-tokens))
+    (pos? (double rare-fact-token-score)) (assoc ::rare-fact-token-score
+                                                 rare-fact-token-score)
     (:file-kind row) (assoc :fileKind (display-name (:file-kind row)))
     (:url-context row) (assoc :urlContext (display-name (:url-context row)))
     (:auth-context row) (assoc :authContext (display-name (:auth-context row)))))
@@ -596,6 +648,17 @@
 (defn- runtime-evidence-file-kind-counts
   [rows]
   (frequencies (keep runtime-evidence-file-kind-key rows)))
+
+(defn- runtime-evidence-matched-token-counts
+  [rows]
+  (frequencies (mapcat ::matched-fact-tokens rows)))
+
+(defn- unique-runtime-evidence-query-fact?
+  [matched-token-counts row]
+  (boolean
+   (some (fn [token]
+           (= 1 (long (or (get matched-token-counts token) 0))))
+         (::matched-fact-tokens row))))
 
 (defn- selected-runtime-evidence-ids
   [rows]
@@ -631,9 +694,16 @@
        first))
 
 (defn- replaceable-runtime-evidence-path-row?
-  [file-kind-counts protected-paths candidate row]
+  [file-kind-counts matched-token-counts protected-paths candidate row]
   (let [file-kind (runtime-evidence-file-kind-key row)
         protected? (contains? protected-paths (:path row))
+        unique-query-fact? (unique-runtime-evidence-query-fact?
+                            matched-token-counts
+                            row)
+        candidate-covers-query-fact? (boolean
+                                      (seq (set/intersection
+                                            (or (::matched-fact-tokens row) #{})
+                                            (or (::matched-fact-tokens candidate) #{}))))
         same-lane? (= (runtime-evidence-lane-key candidate)
                       (runtime-evidence-lane-key row))
         stronger-lane-candidate? (and same-lane?
@@ -642,18 +712,23 @@
     (or (and protected?
              stronger-lane-candidate?)
         (and (not protected?)
+             (or (not unique-query-fact?)
+                 candidate-covers-query-fact?
+                 stronger-lane-candidate?)
              (or (= (runtime-evidence-file-kind-key candidate) file-kind)
                  (< 1 (long (or (get file-kind-counts file-kind) 0))))))))
 
 (defn- runtime-evidence-path-replacement-index
   [selected protected-paths candidate]
-  (let [file-kind-counts (runtime-evidence-file-kind-counts selected)]
+  (let [file-kind-counts (runtime-evidence-file-kind-counts selected)
+        matched-token-counts (runtime-evidence-matched-token-counts selected)]
     (->> selected
          (map-indexed vector)
          reverse
          (some (fn [[idx row]]
                  (when (replaceable-runtime-evidence-path-row?
                         file-kind-counts
+                        matched-token-counts
                         protected-paths
                         candidate
                         row)
@@ -741,6 +816,17 @@
               state))
           state
           rows))
+
+(defn- runtime-evidence-sort-key
+  [row]
+  [(- (double (or (:score row) 0.0)))
+   (- (double (or (:confidence row) 0.0)))
+   (:repo row)
+   (:path row)
+   (:sourceLine row)
+   (:kind row)
+   (:label row)])
+
 (defn- take-diverse-system-evidence
   [rows limit selected-path-order]
   (let [initial-state {:seen-ids #{}
@@ -764,25 +850,32 @@
                                                       runtime-evidence-result-path-limit)
         selected-paths (set selected-path-order)
         selected-value-file-kinds (selected-evidence-value-file-kinds selected-paths
-                                                                      evidence)]
+                                                                      evidence)
+        token-path-counts (system-evidence-token-path-counts query-tokens
+                                                             evidence)]
     (->> evidence
          (map (fn [row]
-                (let [score (system-evidence-score query-tokens
+                (let [matched-fact-tokens (matched-query-tokens
+                                           query-tokens
+                                           (system-evidence-fact-text row))
+                      rare-fact-token-score (rare-system-evidence-fact-token-score
+                                             token-path-counts
+                                             matched-fact-tokens)
+                      score (system-evidence-score query-tokens
                                                    selected-system-ids
                                                    selected-paths
                                                    selected-value-file-kinds
+                                                   token-path-counts
                                                    row)]
                   (when (pos? score)
-                    (system-evidence-row score row)))))
+                    (system-evidence-row score
+                                         matched-fact-tokens
+                                         rare-fact-token-score
+                                         row)))))
          (keep identity)
-         (sort-by (juxt (comp - :score)
-                        (comp - #(double (or (:confidence %) 0.0)))
-                        :repo
-                        :path
-                        :sourceLine
-                        :kind
-                        :label))
+         (sort-by runtime-evidence-sort-key)
          (#(take-diverse-system-evidence % limit selected-path-order))
+         (map #(dissoc % ::matched-fact-tokens ::rare-fact-token-score))
          vec)))
 (def dependency-relations
   #{"imports-package" "requires" "version-of" "resolves"})

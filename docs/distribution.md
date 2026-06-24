@@ -40,11 +40,11 @@ ygg-mcp --config project.edn --map ygg.map.json
 ```
 
 `ygg-mcp` is the stdio MCP server for editor and agent integrations. It
-lists the primary `ygg_explore`, `ygg_node`, `ygg_status`, and
-`ygg_systems` tools by default. Use `--tools default,cursor,sync,work,ask` or
-`YGG_MCP_TOOLS=all` to list bounded advanced packet tools for cursor
-drilldowns, sync inspection/checks, and filesystem queue handoff. Use the CLI
-for explicit map mutation and applying validated work results.
+lists the primary `ygg_query`, `ygg_node`, `ygg_status`, and
+`ygg_systems` tools by default. Use `--tools default,sync,work` or
+`YGG_MCP_TOOLS=all` to list bounded advanced packet tools for sync
+inspection/checks and filesystem queue handoff. Use the CLI for explicit map
+mutation and applying validated work results.
 
 ## Docker
 

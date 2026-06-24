@@ -364,7 +364,7 @@
           (is (str/includes? report-md "# Yggdrasil Report"))
           (is (str/includes? report-md "<EvidenceSurface"))
           (is (str/includes? report-md "## File Coverage"))
-          (is (str/includes? report-md "ygg ask"))
+          (is (str/includes? report-md "ygg query"))
           (is (str/includes? report-md "generated-at-ms: 12345"))
           (is (not (str/includes? report-md ":xt/id")))
           (is (not (str/includes? report-md "\"nodes\"")))

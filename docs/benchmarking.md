@@ -43,6 +43,31 @@ If a checkout exists only under the legacy `.dev/oss-test-cases/repos/` cache,
 the preflight reports that path so it can be moved or symlinked into the common
 cache without committing generated files.
 
+## Discovery Changes
+
+File-discovery changes are setup/indexing work. Benchmark them with
+`bb bench:gate` and compare the canonical file rows that survive Yggdrasil
+filters, not raw path lists from a discovery backend.
+
+`scan-files` records discovery instrumentation in result metadata, and
+`scan-file-coverage` includes the same bounded `discovery` summary:
+
+- `backend`: `ripgrep`, `git`, or `filesystem`
+- `elapsed-ms`: backend elapsed time
+- `path-count`: candidate paths after Yggdrasil ignored-path filtering
+- `diagnostics`: bounded backend diagnostics
+- `fallbacks`: unavailable earlier backends
+
+Use these fields to report scan timing and backend selection. Do not count
+`rg --files` setup gains as warm-agent command, token, or task-duration wins.
+Warm-agent reports may mention discovery backend and elapsed time only as
+amortized setup context.
+
+Fallbacks should be benchmarked and tested as lazy. If `ripgrep` succeeds,
+`git ls-files` should not run just to populate comparison telemetry. Compare
+canonical `scan-files` rows against a forced fallback only in focused checks or
+benchmark harnesses, not in the normal sync path.
+
 ## Headline Suite
 
 Use the tracked headline suite to compare shell-only and Yggdrasil-assisted agents
@@ -937,12 +962,31 @@ ground truth remains a single-repo shorthand.
   Search counts cover command forms such as `rg`, `grep`, `git grep`, `fd`,
   and `find`; file-read counts cover common local read commands such as `cat`,
   `sed`, `head`, `tail`, `nl`, `awk`, and pagers. These are mechanical cited
-  command counts, not provider-side tool logs. `agent-compare` treats increases
-  in search, file-read, and generic shell command counts as lower-is-better
-  regressions when reports are comparable; Yggdrasil command counts are reported
-  for interpretation but are not a regression gate. If Yggdrasil command counts
-  are the only available shared metric, the comparison status is
-  `observed-only`, not an improvement or regression claim.
+  command counts, not provider-side tool logs.
+  Search telemetry is scope-aware:
+  `searchCommandCount` is the raw observed search total;
+  `broadSearchCommandCount` and `broadSearchSegmentCount` count rediscovery
+  searches such as `rg term .`, `find .`, or unbounded path scopes;
+  `scopedSearchCommandCount` and `scopedSearchSegmentCount` count bounded
+  pathspec searches; and `exactFileSearchCommandCount` /
+  `exactFileSearchSegmentCount` count proof searches over exact candidate files.
+  `agent-compare` treats broad search, file-read, and generic shell command
+  increases as lower-is-better regressions when reports are comparable. Raw
+  `searchCommandCount`, scoped proof counts, exact-file proof counts, and
+  Yggdrasil command counts are reported for interpretation rather than as broad
+  search regressions by themselves. If Yggdrasil command counts are the only
+  available shared metric, the comparison status is `observed-only`, not an
+  improvement or regression claim.
+  Yggdrasil-mode reports may also include
+  `internalRipgrepSearchCount`, `internalRipgrepElapsedMs`, and
+  `internalRipgrepMatchCount` from internal query lanes. These describe
+  Yggdrasil retrieval work and are not shell-command counts.
+  `yggArtifactProjectionCommandCount` and
+  `yggArtifactProjectionSegmentCount` count `jq`, `cat`, `sed`, `rg`, or similar
+  commands that inspect Ygg hint/context artifacts such as
+  `*.ygg-hints.json`, `*.ygg-context.json`, `YGG_BENCH_YGG_HINTS`, or
+  `YGG_BENCH_YGG_CONTEXT`. Treat those as projection cost, not repository
+  rediscovery.
 - `agentDiagnostics.missingPredictedFileRuns`: scored agent artifacts whose
   ranked result included repo-relative paths that do not exist in the base
   checkout. Gate this with `--max-missing-predicted-file-runs` to catch

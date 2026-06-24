@@ -63,10 +63,13 @@
                                    :task "task-1"})
           raw (edn/read-string (slurp out))]
       (is (= "workbench" (:mode result)))
-      (is (= 2 (:repos result)))
+      (is (= 3 (:repos result)))
       (is (= {:id "bench"
               :name "bench"
               :workbench-root canonical-root
+              :repos [{:id "workbench"
+                       :root canonical-root
+                       :role :tooling}]
               :workbench-task "task-1"}
              raw)))))
 
@@ -108,6 +111,6 @@
     (is (some #(= (str "ygg sync '" out "' --check --map 'Maps/ygg map.json'")
                   (:command %))
               (:nextActions result)))
-    (is (some #(= "ygg ask \"where is this handled?\" --project 'demo project' --json"
+    (is (some #(= "ygg query \"where is this handled?\" --project 'demo project' --json"
                   (:command %))
               (:nextActions result)))))

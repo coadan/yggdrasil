@@ -18,6 +18,12 @@ subsystem matters for a use case, put the answer in `ygg.map.json`. Humans or
 LLM-backed tools can make those judgments from evidence without turning Yggdrasil
 into a pile of path-name rules or text matching.
 
+File discovery is part of that mechanical boundary. Backends such as
+`rg --files`, `git ls-files`, or filesystem walking enumerate candidate paths
+only. Yggdrasil still owns ignored-path filtering, file kind detection, content
+hashes, extractor selection, and canonical file rows; the discovery backend must
+not classify system meaning or file semantics.
+
 `ygg.map.json` is the durable correction layer. It is compact, versionable
 JSON owned by the `ygg map` CLI API. Read it for audit and review, but write
 accepted corrections through `ygg map` so validation, required reasons, and
@@ -137,7 +143,7 @@ incident edges.
 research. It can also override computed connection visibility/importance for a
 matching `source`/`target`/`relation`.
 
-`docs[]` attaches reviewed Markdown snippets to graph targets. `ygg ask --json`
+`docs[]` attaches reviewed Markdown snippets to graph targets. `ygg query --json`
 prioritizes accepted attachments, resolves them back to indexed heading chunks,
 and omits or truncates snippets to stay inside the requested token budget.
 
@@ -157,8 +163,8 @@ decision packets. A
 check/enqueue sync uses the graph-maintenance index profile by default, which
 updates files, graph rows, diagnostics, and bounded file facts without writing
 code/doc search chunks. Add `--query-index` when the same run should also
-refresh searchable chunks for `ygg ask`, `ygg explore`, embeddings, and
-context packets. Use those signals to make small corrections as work reveals
+refresh searchable chunks for `ygg query`, embeddings, and context packets.
+Use those signals to make small corrections as work reveals
 them, rather than trying to classify the whole project. Use `--map
 ygg.map.json` when reviewing after corrections so rejected systems and
 incident edges stay out of the maintenance queue.

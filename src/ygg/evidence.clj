@@ -482,9 +482,9 @@
   [project-id]
   (str "ygg view systems --project " (command/shell-token (or project-id "<project-id>"))))
 
-(defn- ask-command
+(defn- query-command
   [project-id]
-  (str "ygg ask \"where is this handled?\" --project "
+  (str "ygg query \"where is this handled?\" --project "
        (command/shell-token (or project-id "<project-id>"))
        " --json"))
 
@@ -718,9 +718,9 @@
                   :command (audit-scope-command config-path map-path)})
 
            true
-           (conj {:kind :ask
-                  :label "Ask a graph-grounded implementation question"
-                  :command (ask-command project-id)}))
+           (conj {:kind :query
+                  :label "Query graph-grounded implementation context"
+                  :command (query-command project-id)}))
          (distinct-by action-distinct-key)
          (take 12)
          vec)))

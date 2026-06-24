@@ -638,6 +638,7 @@
              :candidateSystems (mapv hint-system (range) (take 10 (:entities packet)))
              :commands (hint-commands packet)
              :selection (:selection agent-result)
+             :search (:search packet)
              :evidence (:evidence packet)
              :sourceCoverage (:sourceCoverage packet)
              :warnings (:warnings packet)}

@@ -507,6 +507,22 @@
     (is (= ["sed -n '40,70p' 'src/connector.clj'"]
            (#'benchmark-agent-run/proof-commands hints candidates)))))
 
+(deftest ygg-agent-proof-commands-include-context-ranked-read-plan
+  (let [hints {:readPlan
+               {:snippets [{:path "src/connector.clj"
+                            :command "sed -n '40,70p' 'src/connector.clj'"}
+                           {:path "src/context.clj"
+                            :command "sed -n '10,30p' 'src/context.clj'"}]}}
+        candidates [{:rank 1
+                     :path "src/connector.clj"
+                     :declarations [{:label "connector/contract"
+                                     :kind "clj-var"}]}]
+        context-files [{:rank 1
+                        :path "src/context.clj"}]]
+    (is (= ["sed -n '40,70p' 'src/connector.clj'"
+            "sed -n '10,30p' 'src/context.clj'"]
+           (#'benchmark-agent-run/proof-commands hints candidates context-files)))))
+
 (deftest ygg-agent-run-builds-context-artifacts-after-indexing
   (let [out (temp-dir "ygg-bench-agent-run-context-order")
         worktree (temp-dir "ygg-bench-agent-run-context-worktree")
@@ -1567,7 +1583,17 @@
     (is (= ["src/a.clj" "src/b.clj" "src/c.clj"]
            (mapv :path (:suspectedFiles result))))
     (is (= 3 (get-in result [:selection :compactResultLimit])))
-    (is (= 3 (get-in result [:selection :compactResultFiles])))))
+    (is (= 3 (get-in result [:selection :compactResultFiles])))
+    (let [wider (benchmark/context-packet->agent-result
+                 packet
+                 {:root root
+                  :limit 20
+                  :compact-result? true
+                  :compact-result-limit 12})]
+      (is (= ["src/a.clj" "src/b.clj" "src/c.clj" "src/d.clj"]
+             (mapv :path (:suspectedFiles wider))))
+      (is (= 12 (get-in wider [:selection :compactResultLimit])))
+      (is (= 4 (get-in wider [:selection :compactResultFiles]))))))
 
 (deftest context-packet-agent-result-emits-structural-decision-choices
   (let [root (temp-dir "ygg-bench-context-decision")

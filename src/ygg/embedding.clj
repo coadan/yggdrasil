@@ -136,42 +136,46 @@
 
 (defn embed-search-docs!
   "Embed pending search docs with client map and persist rows."
-  [xtdb {:keys [provider model embed-batch] :as client} {:keys [batch-size limit project-id repo-id]
-                                                         :or {batch-size default-batch-size}}]
+  [xtdb {:keys [provider model embed-batch close] :as client} {:keys [batch-size limit project-id repo-id]
+                                                               :or {batch-size default-batch-size}}]
   (when-not (and provider model embed-batch)
     (throw (ex-info "Invalid embedding client." {:client (select-keys client [:provider :model])})))
-  (let [scope {:project-id project-id :repo-id repo-id}
-        pending (vec (pending-search-docs xtdb (assoc scope
-                                                      :provider provider
-                                                      :model model
-                                                      :limit limit)))
-        total-search-docs (search-doc-count xtdb scope)]
-    (reduce
-     (fn [summary batch]
-       (let [vectors (embed-batch (mapv :text batch))]
-         (when-not (= (count batch) (count vectors))
-           (throw (ex-info "Embedding provider returned wrong vector count."
-                           {:expected (count batch)
-                            :actual (count vectors)})))
-         (let [rows (mapv (fn [doc vector]
-                            (embedding-row {:target-id (:target-id doc)
-                                            :project-id (:project-id doc)
-                                            :repo-id (:repo-id doc)
-                                            :provider provider
-                                            :model model
-                                            :input-sha (:input-sha doc)
-                                            :vector vector}))
-                          batch
-                          vectors)
-               result (store/commit-embeddings! xtdb rows)]
-           (update summary :embedded + (:embeddings result)))))
-     {:provider provider
-      :model model
-      :search-docs total-search-docs
-      :pending (count pending)
-      :embedded 0
-      :skipped (- total-search-docs (count pending))}
-     (partition-all batch-size pending))))
+  (try
+    (let [scope {:project-id project-id :repo-id repo-id}
+          pending (vec (pending-search-docs xtdb (assoc scope
+                                                        :provider provider
+                                                        :model model
+                                                        :limit limit)))
+          total-search-docs (search-doc-count xtdb scope)]
+      (reduce
+       (fn [summary batch]
+         (let [vectors (embed-batch (mapv :text batch))]
+           (when-not (= (count batch) (count vectors))
+             (throw (ex-info "Embedding provider returned wrong vector count."
+                             {:expected (count batch)
+                              :actual (count vectors)})))
+           (let [rows (mapv (fn [doc vector]
+                              (embedding-row {:target-id (:target-id doc)
+                                              :project-id (:project-id doc)
+                                              :repo-id (:repo-id doc)
+                                              :provider provider
+                                              :model model
+                                              :input-sha (:input-sha doc)
+                                              :vector vector}))
+                            batch
+                            vectors)
+                 result (store/commit-embeddings! xtdb rows)]
+             (update summary :embedded + (:embeddings result)))))
+       {:provider provider
+        :model model
+        :search-docs total-search-docs
+        :pending (count pending)
+        :embedded 0
+        :skipped (- total-search-docs (count pending))}
+       (partition-all batch-size pending)))
+    (finally
+      (when close
+        (close)))))
 
 (defn- add-vectors
   [a b]

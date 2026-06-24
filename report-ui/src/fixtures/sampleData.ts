@@ -373,12 +373,12 @@ export const fixtureReport: YggReport = {
               source: "fixture-report-plugin.graph-crawl",
               tab: "systems",
               graphSliceId: "system-neighborhood",
-              command: "ygg ask \"what owns checkout?\" --project fixture --json",
+              command: "ygg query \"what owns checkout?\" --project fixture --json",
               question: "What should I inspect in the checkout plugin crawl?",
               evidenceRows: [{ source: "systems.json", nodes: 3, edges: 2, path: "src/app/core.clj" }]
             }
           ],
-          commands: ["ygg ask \"what owns checkout?\" --project fixture --json"],
+          commands: ["ygg query \"what owns checkout?\" --project fixture --json"],
           rows: {
             columns: [
               { key: "source", label: "Source" },
@@ -432,7 +432,7 @@ export const fixtureReport: YggReport = {
     "ygg sync inspect project.edn --map ygg.map.json --json",
     "ygg report project.edn --map ygg.map.json --out ygg-out",
     "ygg packages --project fixture --json",
-    "ygg ask \"where is this handled?\" --project fixture --json",
+    "ygg query \"where is this handled?\" --project fixture --json",
     "ygg sync work list --project fixture",
     "ygg sync work complete <work-id> --result result.json",
     "ygg sync work apply <work-id> --map ygg.map.json"

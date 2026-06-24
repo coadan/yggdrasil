@@ -7,7 +7,7 @@ type TableColumn = {
   label: string;
 };
 
-export type PluginAskScope = {
+export type PluginQueryScope = {
   label: string;
   source: string;
   question: string;
@@ -16,7 +16,7 @@ export type PluginAskScope = {
 
 export type PluginPanelActions = {
   copiedKey?: string | null;
-  onAsk?: (scope: PluginAskScope) => void;
+  onQuery?: (scope: PluginQueryScope) => void;
   onCopyCommand?: (key: string, command: string) => void;
   onOpenGraphSlice?: (sliceId: string) => void;
   onOpenTab?: (tab: string) => void;
@@ -246,11 +246,11 @@ function InlineActionList({ value, actions, panel }: { value: unknown; actions?:
               {command ? <code>{command}</code> : null}
             </div>
             <div className="action-row-buttons">
-              {actions?.onAsk ? (
+              {actions?.onQuery ? (
                 <button
                   type="button"
                   onClick={() =>
-                    actions.onAsk?.({
+                    actions.onQuery?.({
                       label,
                       source,
                       question,
@@ -258,7 +258,7 @@ function InlineActionList({ value, actions, panel }: { value: unknown; actions?:
                     })
                   }
                 >
-                  Ask
+                  Query
                 </button>
               ) : null}
               {tab && actions?.onOpenTab ? (
@@ -577,13 +577,13 @@ export function PluginPanel({ panel, actions }: { panel: ReportPluginPanel; acti
             ))}
           </div>
         ) : null}
-        {actions?.onAsk || actions?.onCopyCommand ? (
+        {actions?.onQuery || actions?.onCopyCommand ? (
           <div className="plugin-panel-actions">
-            {actions?.onAsk ? (
+            {actions?.onQuery ? (
               <button
                 type="button"
                 onClick={() =>
-                  actions.onAsk?.({
+                  actions.onQuery?.({
                     label: panel.label,
                     source: `plugins.${pluginId}.${panel.id}`,
                     question: `What should I inspect in ${panel.label}?`,
@@ -599,7 +599,7 @@ export function PluginPanel({ panel, actions }: { panel: ReportPluginPanel; acti
                   })
                 }
               >
-                Ask about panel
+                Query about panel
               </button>
             ) : null}
             {actions?.onCopyCommand ? (
@@ -646,13 +646,13 @@ export function PluginDiagnostics({ diagnostics, actions }: { diagnostics: Repor
           <h2>Plugin Diagnostics</h2>
           <p className="muted">Plugin emitted diagnostic rows from report rendering or graph crawl preparation.</p>
         </div>
-        {actions?.onAsk || actions?.onCopyCommand ? (
+        {actions?.onQuery || actions?.onCopyCommand ? (
           <div className="action-row-buttons">
-            {actions?.onAsk ? (
+            {actions?.onQuery ? (
               <button
                 type="button"
                 onClick={() =>
-                  actions.onAsk?.({
+                  actions.onQuery?.({
                     label: "Plugin Diagnostics",
                     source: "plugins.diagnostics",
                     question: "What should I inspect in report plugin diagnostics?",
@@ -660,7 +660,7 @@ export function PluginDiagnostics({ diagnostics, actions }: { diagnostics: Repor
                   })
                 }
               >
-                Ask
+                Query
               </button>
             ) : null}
             {actions?.onCopyCommand ? (

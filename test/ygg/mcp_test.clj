@@ -1,7 +1,6 @@
 (ns ygg.mcp-test
   (:require [ygg.activity :as activity]
             [ygg.context :as context]
-            [ygg.cursor :as cursor]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
             [ygg.mcp :as mcp]
@@ -92,7 +91,7 @@
     (is (= {:name "ygg-mcp"
             :version "0.1.0"}
            (get-in init [:result :serverInfo])))
-    (is (str/includes? instructions "Use ygg_explore first"))
+    (is (str/includes? instructions "Use ygg_query first"))
     (is (str/includes? instructions "evidence.families"))
     (is (str/includes? instructions "evidence.planes"))
     (is (str/includes? instructions "nextActions before trusting missing evidence"))
@@ -111,7 +110,7 @@
     (is (str/includes? instructions "unbenchmarked or project-local plugin output is non-authoritative"))
     (is (str/includes? instructions "Use ygg_systems"))
     (is (str/includes? instructions "do not infer architecture from names"))
-    (is (= ["ygg_explore"
+    (is (= ["ygg_query"
             "ygg_node"
             "ygg_systems"
             "ygg_status"]
@@ -121,14 +120,8 @@
   (let [listed (mcp/handle-message (mcp/server-context ["--tools" "all"])
                                    (request 1 "tools/list" {}))
         tool-names (mapv :name (get-in listed [:result :tools]))]
-    (is (= ["ygg_explore"
+    (is (= ["ygg_query"
             "ygg_node"
-            "ygg_ask"
-            "ygg_explore_create"
-            "ygg_explore_open"
-            "ygg_explore_expand"
-            "ygg_explore_docs"
-            "ygg_explore_search"
             "ygg_systems"
             "ygg_sync_inspect"
             "ygg_status"
@@ -147,7 +140,7 @@
   (let [listed (mcp/handle-message (mcp/server-context ["--tools" "default,sync"])
                                    (request 1 "tools/list" {}))
         tool-names (mapv :name (get-in listed [:result :tools]))]
-    (is (= ["ygg_explore"
+    (is (= ["ygg_query"
             "ygg_node"
             "ygg_systems"
             "ygg_sync_inspect"
@@ -175,15 +168,8 @@
   (let [listed (mcp/handle-message (mcp/server-context ["--tools" "all"])
                                    (request 1 "tools/list" {}))
         schemas (into {} (map (juxt :name :inputSchema)) (get-in listed [:result :tools]))]
-    (is (= ["query"] (get-in schemas ["ygg_explore" :required])))
+    (is (= ["query"] (get-in schemas ["ygg_query" :required])))
     (is (= ["target"] (get-in schemas ["ygg_node" :required])))
-    (is (= ["query"] (get-in schemas ["ygg_ask" :required])))
-    (is (= ["cursorId" "target"]
-           (get-in schemas ["ygg_explore_open" :required])))
-    (is (= ["cursorId" "target"]
-           (get-in schemas ["ygg_explore_docs" :required])))
-    (is (= ["cursorId" "query"]
-           (get-in schemas ["ygg_explore_search" :required])))
     (is (contains? (set (keys (get-in schemas ["ygg_sync_inspect" :properties])))
                    :mapPath))
     (is (contains? (set (keys (get-in schemas ["ygg_status" :properties])))
@@ -202,7 +188,7 @@
            (get-in schemas ["ygg_work_reject" :required])))
     (is (every? #(= false (:additionalProperties %)) (vals schemas)))))
 
-(deftest ask-tool-returns-context-packet
+(deftest query-tool-returns-context-packet
   (let [summaries (atom [])]
     (with-redefs [project/read-project (constantly project-with-plugin-package)
                   store/with-node (fn [_ f] (f :xtdb))
@@ -221,9 +207,9 @@
                                             :freshness (:freshness opts)})]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--config" "project.edn"
-                                           "--tools" "default,ask"])
+                                           "--tools" "default"])
                       (tool-call 7
-                                 "ygg_ask"
+                                 "ygg_query"
                                  {:query "where auth"
                                   :retriever "lexical"}))
             packet (get-in response [:result :structuredContent])]
@@ -245,7 +231,7 @@
                (:schema (json/read-json (get-in response [:result :content 0 :text])
                                         :key-fn keyword))))))))
 
-(deftest explore-tool-returns-primary-context-packet
+(deftest query-tool-returns-primary-context-packet
   (with-redefs [project/read-project (constantly project-with-plugin-package)
                 store/with-node (fn [_ f] (f :xtdb))
                 context/context-packet (fn [xtdb query-text opts]
@@ -275,12 +261,12 @@
                                                      :label "Refresh indexed graph basis"
                                                      :count 1
                                                      :command "ygg sync project.edn --check --map ygg.map.json"}
-                                                    {:kind :ask
-                                                     :command "ygg ask \"where is this handled?\" --project fixture --json"}]})]
+                                                    {:kind :query
+                                                     :command "ygg query \"where is this handled?\" --project fixture --json"}]})]
     (let [response (mcp/handle-message
                     (mcp/server-context ["--config" "project.edn"])
                     (tool-call 8
-                               "ygg_explore"
+                               "ygg_query"
                                {:query "where auth"
                                 :retriever "lexical"}))
           packet (get-in response [:result :structuredContent])]
@@ -1030,53 +1016,6 @@
       (is (= "fixture" (:project-id packet)))
       (is (= "expanded" (get-in packet [:basis :detail]))))))
 
-(deftest explore-docs-tool-calls-cursor-docs
-  (with-redefs [store/with-node (fn [_ f] (f :xtdb))
-                cursor/docs! (fn [xtdb cursor-id target opts]
-                               {:schema cursor/packet-schema
-                                :xtdb xtdb
-                                :cursor {:id cursor-id}
-                                :operation :docs
-                                :target target
-                                :budget (:budget opts)})]
-    (let [response (mcp/handle-message
-                    (mcp/server-context ["--tools" "cursor"])
-                    (tool-call 9
-                               "ygg_explore_docs"
-                               {:cursorId "cursor:abc"
-                                :target "API Service"
-                                :budget 2000}))
-          packet (get-in response [:result :structuredContent])]
-      (is (= cursor/packet-schema (:schema packet)))
-      (is (= "cursor:abc" (get-in packet [:cursor :id])))
-      (is (= "API Service" (:target packet)))
-      (is (= 2000 (:budget packet))))))
-
-(deftest explore-search-tool-calls-cursor-search
-  (with-redefs [store/with-node (fn [_ f] (f :xtdb))
-                cursor/search! (fn [xtdb cursor-id query opts]
-                                 {:schema cursor/packet-schema
-                                  :xtdb xtdb
-                                  :cursor {:id cursor-id}
-                                  :operation :search
-                                  :query query
-                                  :retriever (:retriever opts)
-                                  :limit (:limit opts)})]
-    (let [response (mcp/handle-message
-                    (mcp/server-context ["--tools" "cursor"])
-                    (tool-call 10
-                               "ygg_explore_search"
-                               {:cursorId "cursor:abc"
-                                :query "gateway routes"
-                                :retriever "lexical"
-                                :limit 7}))
-          packet (get-in response [:result :structuredContent])]
-      (is (= cursor/packet-schema (:schema packet)))
-      (is (= "cursor:abc" (get-in packet [:cursor :id])))
-      (is (= "gateway routes" (:query packet)))
-      (is (= :lexical (:retriever packet)))
-      (is (= 7 (:limit packet))))))
-
 (deftest sync-inspect-tool-returns-project-evidence-surface
   (with-redefs [project/read-project (constantly project-with-plugin-package)
                 store/with-node (fn [_ f] (f :xtdb))
@@ -1219,8 +1158,8 @@
                                                               :count 1}]
                                       :skipped-by-reason [{:reason "binary"
                                                            :count 1}]
-                                      :nextActions [{:kind :ask
-                                                     :command "ygg ask \"where is this handled?\" --project fixture --json"}]})]
+                                      :nextActions [{:kind :query
+                                                     :command "ygg query \"where is this handled?\" --project fixture --json"}]})]
     (let [response (mcp/handle-message
                     (mcp/server-context ["--config" "project.edn"])
                     (tool-call 12
@@ -1267,8 +1206,8 @@
               :mapExists true
               :counts {:changed 0}}
              (:freshness packet)))
-      (is (= [{:kind :ask
-               :command "ygg ask \"where is this handled?\" --project fixture --json"}]
+      (is (= [{:kind :query
+               :command "ygg query \"where is this handled?\" --project fixture --json"}]
              (:nextActions packet))))))
 
 (deftest missing-project-returns-structured-error

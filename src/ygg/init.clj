@@ -62,9 +62,9 @@
        (when (seq args)
          (str " " (str/join " " (map command/shell-token args))))))
 
-(defn- ask-command
+(defn- query-command
   [project-id]
-  (str "ygg ask \"where is this handled?\" --project "
+  (str "ygg query \"where is this handled?\" --project "
        (command/shell-token project-id)
        " --json"))
 
@@ -79,9 +79,9 @@
             :command (str (sync-command config-path "--check")
                           (when map-path
                             (str " --map " (command/shell-token map-path))))}
-           {:kind :ask
-            :label "Ask a graph-grounded implementation question"
-            :command (ask-command project-id)}
+           {:kind :query
+            :label "Query graph-grounded implementation context"
+            :command (query-command project-id)}
            {:kind :systems
             :label "Inspect system graph"
             :command (view-systems-command project-id)}
@@ -112,7 +112,10 @@
         project-id (or (:project-id opts) (default-project-id root))]
     (cond-> {:id project-id
              :name (or (:name opts) project-id)
-             :workbench-root root}
+             :workbench-root root
+             :repos [{:id "workbench"
+                      :root root
+                      :role :tooling}]}
       (:task opts) (assoc :workbench-task (:task opts)))))
 
 (defn init!
@@ -124,7 +127,8 @@
         config-path (write-edn! (or out "project.edn") config force?)
         project-id (:id config)
         repo-count (if workbench?
-                     (or (repos-json-count (:workbench-root config)) 0)
+                     (+ (count (:repos config))
+                        (or (repos-json-count (:workbench-root config)) 0))
                      (count (:repos config)))
         actions (next-actions project-id config-path map-path)]
     {:schema schema

@@ -103,6 +103,24 @@
      :root (resolve-root base (:root repo))
      :role (keyword (or (:role repo) :repository))}))
 
+(defn- duplicate-values
+  [f rows]
+  (->> rows
+       (map f)
+       frequencies
+       (filter (fn [[_ n]] (< 1 n)))
+       (mapv first)))
+
+(defn- validate-unique-repos!
+  [repos]
+  (when-let [ids (seq (duplicate-values :id repos))]
+    (throw (ex-info "Project config resolves duplicate repo ids."
+                    {:repo-ids ids})))
+  (when-let [roots (seq (duplicate-values :root repos))]
+    (throw (ex-info "Project config resolves duplicate repo roots."
+                    {:repo-roots roots})))
+  repos)
+
 (defn- existing-dir
   [& paths]
   (some (fn [path]
@@ -135,15 +153,17 @@
 
 (defn- normalize-repos
   [base data]
-  (cond
-    (seq (:repos data))
-    (mapv #(normalize-repo base %) (:repos data))
+  (validate-unique-repos!
+   (cond
+     (:workbench-root data)
+     (vec (concat (mapv #(normalize-repo base %) (:repos data))
+                  (workbench-repos base data)))
 
-    (:workbench-root data)
-    (workbench-repos base data)
+     (seq (:repos data))
+     (mapv #(normalize-repo base %) (:repos data))
 
-    :else
-    (throw (ex-info "Project config is missing :repos or :workbench-root." {}))))
+     :else
+     (throw (ex-info "Project config is missing :repos or :workbench-root." {})))))
 
 (defn- resolve-plugin-entry
   [base entry]
@@ -209,8 +229,8 @@
   "Add a repo entry to project config and return the normalized project.
 
   `repo-root` is written as a canonical path. If `repo-id` is omitted, the id is
-  derived from the repo directory name. Workbench configs remain driven by
-  `repos.json` and are not edited by this helper."
+  derived from the repo directory name. For workbench configs, explicit repos
+  supplement the source repos discovered from `repos.json`."
   [config-path repo-root {:keys [repo-id role]}]
   (let [file (io/file config-path)
         data (read-config-data file)
@@ -218,10 +238,6 @@
         repo-id (str (or repo-id (repo-id-from-root canonical-root)))
         role (keyword (or role (infer-role repo-id)))
         existing-repos (vec (:repos data))]
-    (when (and (:workbench-root data) (empty? existing-repos))
-      (throw (ex-info "Workbench project repos are discovered from repos.json."
-                      {:project config-path
-                       :workbench-root (:workbench-root data)})))
     (when (some #(= repo-id (str (:id %))) existing-repos)
       (throw (ex-info "Project already has a repo with this id."
                       {:project config-path

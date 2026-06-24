@@ -21,6 +21,9 @@
 (def schema
   "ygg.context/v1")
 
+(def compact-schema
+  "ygg.query/v2")
+
 (def default-budget
   4000)
 
@@ -38,6 +41,21 @@
 
 (def default-retrieval-limit
   40)
+
+(def default-output
+  :full)
+
+(def compact-result-limit
+  10)
+
+(def compact-evidence-limit
+  10)
+
+(def proof-command-path-limit
+  8)
+
+(def proof-command-pattern-limit
+  4)
 
 (def ^:private source-graph-candidate-limit
   40)
@@ -78,6 +96,9 @@
 
 (def ^:private candidate-input-root-diversity-limit
   8)
+
+(def ^:private candidate-input-retrieval-prefix-limit
+  64)
 
 (def ^:private source-graph-candidate-min-score
   1.0)
@@ -573,12 +594,6 @@
          (:heading source)
          (:target doc)
          :other)]))
-
-(defn- doc-definition-kind-key
-  [doc]
-  (let [source (:source doc)]
-    [(or (:repo source) :unknown-repo)
-     (get-in doc [:source :definitionKind])]))
 
 (defn- definition-kind-query-score
   [query-tokens definition-kind]
@@ -1335,46 +1350,80 @@
   [row]
   (double (or (:score row) 0.0)))
 
+(defn- candidate-input-path-key
+  [row]
+  [(or (:repo-id row) (:repo row)) (:path row)])
+
 (defn- candidate-input-root
   [row]
   (let [path (str (:path row))]
     (or (first (str/split path #"/"))
         path)))
 
+(defn- retrieval-prefix-candidate-inputs
+  [results]
+  (loop [remaining (seq results)
+         seen #{}
+         selected []]
+    (if (or (nil? remaining)
+            (<= candidate-input-retrieval-prefix-limit (count selected)))
+      selected
+      (let [row (first remaining)
+            path (not-empty (str (:path row)))
+            k (candidate-input-path-key row)]
+        (if (and path (not (contains? seen k)))
+          (recur (next remaining) (conj seen k) (conj selected row))
+          (recur (next remaining) seen selected))))))
+
 (defn- preserve-candidate-input-root-diversity
-  [rows]
-  (let [selected (->> rows
-                      (reduce (fn [{:keys [seen selected] :as state} row]
-                                (let [root (candidate-input-root row)]
-                                  (if (or (contains? seen root)
-                                          (<= candidate-input-root-diversity-limit
-                                              (count selected)))
-                                    state
-                                    {:seen (conj seen root)
-                                     :selected (conj selected row)})))
-                              {:seen #{}
-                               :selected []})
-                      :selected)
-        selected-indexes (set (map ::candidate-input-index selected))]
-    (concat selected
-            (remove #(contains? selected-indexes
-                                (::candidate-input-index %))
-                    rows))))
+  ([rows]
+   (preserve-candidate-input-root-diversity rows #{}))
+  ([rows initial-seen]
+   (let [selected (->> rows
+                       (reduce (fn [{:keys [seen selected] :as state} row]
+                                 (let [root (candidate-input-root row)]
+                                   (if (or (contains? seen root)
+                                           (<= candidate-input-root-diversity-limit
+                                               (count selected)))
+                                     state
+                                     {:seen (conj seen root)
+                                      :selected (conj selected row)})))
+                               {:seen (set initial-seen)
+                                :selected []})
+                       :selected)
+         selected-indexes (set (map ::candidate-input-index selected))]
+     (concat selected
+             (remove #(contains? selected-indexes
+                                 (::candidate-input-index %))
+                     rows)))))
 
 (defn- ranked-candidate-inputs
   [results source-candidates]
   (if-not (seq source-candidates)
     results
-    (->> (concat results source-candidates)
-         (map-indexed (fn [idx row]
-                        (assoc row ::candidate-input-index idx)))
-         (sort-by (juxt (comp - candidate-input-score)
-                        #(or (:repo-id %) (:repo %) "")
-                        #(or (:path %) "")
-                        #(or (:label %) "")
-                        ::candidate-input-index))
-         preserve-candidate-input-root-diversity
-         (map #(dissoc % ::candidate-input-index)))))
+    (let [indexed-results (map-indexed (fn [idx row]
+                                         (assoc row ::candidate-input-index idx))
+                                       results)
+          indexed-source-candidates (map-indexed
+                                     (fn [idx row]
+                                       (assoc row
+                                              ::candidate-input-index
+                                              (+ (count results) idx)))
+                                     source-candidates)
+          prefix (retrieval-prefix-candidate-inputs indexed-results)
+          prefix-indexes (set (map ::candidate-input-index prefix))]
+      (->> (concat indexed-results indexed-source-candidates)
+           (remove #(contains? prefix-indexes (::candidate-input-index %)))
+           (sort-by (juxt (comp - candidate-input-score)
+                          #(or (:repo-id %) (:repo %) "")
+                          #(or (:path %) "")
+                          #(or (:label %) "")
+                          ::candidate-input-index))
+           (#(preserve-candidate-input-root-diversity
+              %
+              (set (map candidate-input-root prefix))))
+           (concat prefix)
+           (map #(dissoc % ::candidate-input-index))))))
 
 (defn- source-graph-declaration-row?
   [row]
@@ -1612,6 +1661,191 @@
 (defn- fit-budget
   [packet docs budget]
   (context-budget/fit-budget packet docs budget))
+
+(defn- non-empty-value?
+  [value]
+  (cond
+    (nil? value) false
+    (and (coll? value) (empty? value)) false
+    :else true))
+
+(defn- compact-map
+  [m]
+  (->> m
+       (filter (comp non-empty-value? val))
+       (into {})))
+
+(defn- compact-query-input
+  [query-input]
+  (let [query-input (or query-input {})]
+    (compact-map
+     (cond-> query-input
+       (= :auto (:task query-input)) (dissoc :task)
+       (false? (:changed-only? query-input)) (dissoc :changed-only?)))))
+
+(declare distinct-by)
+
+(defn- score-lanes
+  [score-components]
+  (->> [[:grep :grep]
+        [:semantic :semantic]
+        [:lexical :lexical]
+        [:graph :graph]
+        [:sourceGraph :source-graph]
+        [:exact :exact]]
+       (keep (fn [[field lane]]
+               (when (pos? (double (or (get score-components field) 0.0)))
+                 lane)))
+       vec))
+
+(defn- candidate-path-rows
+  [packet]
+  (->> (:candidateFiles packet)
+       (keep (fn [{:keys [repo path]}]
+               (when-not (str/blank? (str path))
+                 {:repo repo
+                  :path path})))
+       (distinct-by (juxt :repo :path))
+       vec))
+
+(defn- path-index
+  [packet]
+  (let [rows (candidate-path-rows packet)
+        id-rows (map-indexed (fn [idx row]
+                               [(str "p" (inc idx)) row])
+                             rows)]
+    {:paths (into {}
+                  (map (fn [[id {:keys [path]}]]
+                         [id path]))
+                  id-rows)
+     :path-ids (into {}
+                     (map (fn [[id row]]
+                            [[(:repo row) (:path row)] id]))
+                     id-rows)}))
+
+(defn- compact-result-row
+  [path-ids row]
+  (let [path-id (get path-ids [(:repo row) (:path row)])
+        lanes (score-lanes (:scoreComponents row))]
+    (compact-map
+     {:path path-id
+      :repo (:repo row)
+      :rank (:rank row)
+      :line (:sourceLine row)
+      :endLine (:endLine row)
+      :score (:score row)
+      :kind (or (:resultKind row) (:targetKind row) (:kind row))
+      :label (:label row)
+      :why lanes
+      :reason (:reason row)})))
+
+(defn- compact-evidence-row
+  [path-ids row]
+  (compact-map
+   {:kind :candidate
+    :path (get path-ids [(:repo row) (:path row)])
+    :repo (:repo row)
+    :line (:sourceLine row)
+    :endLine (:endLine row)
+    :label (:label row)
+    :why (score-lanes (:scoreComponents row))}))
+
+(defn- compact-lanes
+  [packet results]
+  (let [search (:search packet)
+        used (->> results (mapcat :why) distinct vec)]
+    (compact-map
+     {:requested (:retriever-requested search)
+      :mode (:retriever-effective search)
+      :used used})))
+
+(defn- compact-search
+  [packet]
+  (let [instrumentation (get-in packet [:search :instrumentation])]
+    (compact-map
+     {:queryRunId (get-in packet [:search :query-run-id])
+      :instrumentation (select-keys instrumentation
+                                    [:search-docs
+                                     :candidate-count
+                                     :ranked-count
+                                     :returned-count
+                                     :grep-status
+                                     :grep-search-ms
+                                     :grep-raw-matches
+                                     :grep-indexed-paths
+                                     :grep-candidates
+                                     :grep-diagnostic-kinds
+                                     :graph-adjacency-query-count
+                                     :context-chunks])})))
+
+(defn- compact-basis
+  [packet]
+  (compact-map
+   {:status (get-in packet [:evidence :status])
+    :freshness (get-in packet [:freshness :status])
+    :graph (get-in packet [:graph :basis])}))
+
+(defn- proof-patterns
+  [query-text results]
+  (->> (concat (map :label results)
+               (text/tokenize query-text))
+       (remove str/blank?)
+       distinct
+       (take proof-command-pattern-limit)
+       vec))
+
+(defn- proof-grep-action
+  [query-text packet]
+  (let [paths (->> (:candidateFiles packet)
+                   (map :path)
+                   (remove str/blank?)
+                   distinct
+                   (take proof-command-path-limit)
+                   vec)
+        patterns (proof-patterns query-text (:candidateFiles packet))]
+    (when (and (seq paths) (seq patterns))
+      {:kind :grep
+       :cmd (apply command/command
+                   (concat ["rg" "-n" "--fixed-strings"]
+                           (mapcat (fn [pattern] ["-e" pattern]) patterns)
+                           ["--"]
+                           paths))})))
+
+(defn- compact-packet
+  [packet query-text proof-commands?]
+  (let [{:keys [paths path-ids]} (path-index packet)
+        results (->> (:candidateFiles packet)
+                     (take compact-result-limit)
+                     (mapv #(compact-result-row path-ids %)))
+        evidence (->> (:candidateFiles packet)
+                      (take compact-evidence-limit)
+                      (mapv #(compact-evidence-row path-ids %)))
+        action (when proof-commands? (proof-grep-action query-text packet))]
+    (compact-map
+     {:schema compact-schema
+      :query (:query packet)
+      :input (compact-query-input (:input packet))
+      :basis (compact-basis packet)
+      :paths paths
+      :lanes (compact-lanes packet results)
+      :results results
+      :evidence evidence
+      :warnings (:warnings packet)
+      :search (compact-search packet)
+      :actions (when action [action])})))
+
+(defn- packet-output
+  [packet query-text output proof-commands?]
+  (case (keyword (or output default-output))
+    :compact (compact-packet packet query-text proof-commands?)
+    :snippets (assoc (compact-packet packet query-text proof-commands?)
+                     :docs (:docs packet))
+    :evidence (assoc (compact-packet packet query-text proof-commands?)
+                     :evidenceDetails (:evidence packet))
+    :full packet
+    (throw (ex-info "Unsupported query output mode."
+                    {:output output
+                     :supported [:compact :snippets :evidence :full]}))))
 
 (defn- resolve-map-overlay
   [path overlay project-id]
@@ -2054,9 +2288,9 @@
        (when (seq args)
          (str " " (str/join " " (map command/shell-token args))))))
 
-(defn- explore-command
+(defn- query-command
   [query-text project-id]
-  (str "ygg explore "
+  (str "ygg query "
        (command/shell-token query-text)
        " --project "
        (command/shell-token (or project-id "<project-id>"))
@@ -2087,10 +2321,10 @@
 
 (defn- context-drilldowns
   [query-text project-id map-path]
-  (cond-> [(drilldown :explore
-                      "Continue primary graph exploration"
-                      (explore-command query-text project-id)
-                      "ygg_explore"
+  (cond-> [(drilldown :query
+                      "Continue graph query"
+                      (query-command query-text project-id)
+                      "ygg_query"
                       (cond-> {:query query-text}
                         project-id (assoc :projectId project-id)
                         map-path (assoc :mapPath map-path)))
@@ -2192,10 +2426,12 @@
                  :label "Build query index"
                  :command (sync-command "--query-index")})
 
-          (and (= :auto (:requested retrieval)) (:fallback? retrieval))
+          (or (and (= :auto (:requested retrieval)) (:fallback? retrieval))
+              (and (pos? (:search-docs counts 0))
+                   (zero? (:embeddings counts 0))))
           (conj {:kind :embeddings
                  :label "Index local graph embeddings"
-                 :command "ygg embed --provider openrouter"})
+                 :command "ygg embed"})
 
           (or (zero? (+ (:external-packages counts 0)
                         (:package-import-edges counts 0)
@@ -2306,7 +2542,8 @@
   [xtdb query-text {:keys [budget entity-limit edge-limit doc-limit snippet-chars
                            retrieval-limit
                            retriever embedding-client project-id repo-id map-path
-                           map-overlay min-confidence read-context freshness plugins]
+                           map-overlay min-confidence read-context freshness plugins
+                           output proof-commands? query-input]
                     :or {budget default-budget
                          entity-limit default-entity-limit
                          edge-limit default-edge-limit
@@ -2314,6 +2551,7 @@
                          snippet-chars default-snippet-chars
                          retrieval-limit default-retrieval-limit
                          retriever :auto
+                         output default-output
                          min-confidence 0.55}}]
   (when (str/blank? (str query-text))
     (throw (ex-info "Missing context query text." {})))
@@ -2455,28 +2693,34 @@
                        :docs (:docs architecture)})
         plugin-packages (get plugins :packages)
         blast-radius (blast-radius entities edges)]
-    (fit-budget (base-packet query-text
-                             budget
-                             graph-data
-                             entities
-                             edges
-                             activity
-                             warnings
-                             drilldowns
-                             evidence
-                             search-context
-                             freshness
-                             source-coverage
-                             architecture
-                             systems
-                             audit-scopes
-                             (relationship-groups edges)
-                             blast-radius
-                             candidate-file-rows
-                             source-declarations
-                             plugin-packages)
-                docs
-                budget)))
+    (packet-output
+     (fit-budget (cond-> (base-packet query-text
+                                      budget
+                                      graph-data
+                                      entities
+                                      edges
+                                      activity
+                                      warnings
+                                      drilldowns
+                                      evidence
+                                      search-context
+                                      freshness
+                                      source-coverage
+                                      architecture
+                                      systems
+                                      audit-scopes
+                                      (relationship-groups edges)
+                                      blast-radius
+                                      candidate-file-rows
+                                      source-declarations
+                                      plugin-packages)
+                   (seq (compact-query-input query-input))
+                   (assoc :input query-input))
+                 docs
+                 budget)
+     query-text
+     output
+     proof-commands?)))
 
 (defn doc-candidates
   "Return compact doc candidates for a graph target."

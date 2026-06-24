@@ -6,7 +6,7 @@ import type { YggEdge, YggGraph, YggNode } from "../data/types";
 import { displayValue } from "../report/valueFormat";
 import { filterGraph, graphFilterOptions, type GraphFilters } from "./graphFilters";
 
-export type GraphAskScope = {
+export type GraphQueryScope = {
   label: string;
   source: string;
   question: string;
@@ -20,7 +20,7 @@ type Selection = {
 
 type GraphPanelProps = {
   graph: YggGraph;
-  onAsk?: (scope: GraphAskScope) => void;
+  onQuery?: (scope: GraphQueryScope) => void;
 };
 
 function GraphRuntime({
@@ -208,12 +208,12 @@ function GraphRowActions({
   graph,
   row,
   selection,
-  onAsk
+  onQuery
 }: {
   graph: YggGraph;
   row: YggNode | YggEdge | null;
   selection: Selection | null;
-  onAsk?: (scope: GraphAskScope) => void;
+  onQuery?: (scope: GraphQueryScope) => void;
 }) {
   const [copied, setCopied] = useState(false);
   useEffect(() => {
@@ -241,11 +241,11 @@ function GraphRowActions({
       >
         {copied ? "Copied" : "Copy row JSON"}
       </button>
-      {onAsk ? (
+      {onQuery ? (
         <button
           type="button"
           onClick={() =>
-            onAsk({
+            onQuery({
               label,
               source,
               question: `Why is ${label} in this graph?`,
@@ -253,7 +253,7 @@ function GraphRowActions({
             })
           }
         >
-          Ask about row
+          Query about row
         </button>
       ) : null}
     </div>
@@ -289,7 +289,7 @@ function untouchedFilters(filters: GraphFilters): boolean {
   );
 }
 
-export function GraphPanel({ graph, onAsk }: GraphPanelProps) {
+export function GraphPanel({ graph, onQuery }: GraphPanelProps) {
   const [filters, setFilters] = useState<GraphFilters>(() => emptyFiltersForGraph(graph));
   const [layout, setLayout] = useState<GraphLayout>("circle");
   const [selection, setSelection] = useState<Selection | null>(null);
@@ -431,7 +431,7 @@ export function GraphPanel({ graph, onAsk }: GraphPanelProps) {
           </div>
           <aside className="graph-inspector">
             <h3>{selection ? (selection.type === "node" ? "Node" : "Edge") : "Selection"}</h3>
-            <GraphRowActions graph={filtered.graph} row={row} selection={selection} onAsk={onAsk} />
+            <GraphRowActions graph={filtered.graph} row={row} selection={selection} onQuery={onQuery} />
             <DetailRows row={row} />
             <GraphRowsPreview graph={filtered.graph} onSelect={setSelection} />
           </aside>

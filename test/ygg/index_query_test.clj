@@ -18,6 +18,13 @@
                                                       (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
+(defn- spit-file!
+  [root path content]
+  (let [file (io/file root path)]
+    (.mkdirs (.getParentFile file))
+    (spit file content)
+    file))
+
 (deftest query-scoped-reads-use-constrained-store-queries
   (let [calls (atom [])
         chunk-calls (atom [])]
@@ -89,7 +96,8 @@
 (deftest lexical-frequency-builders-count-only-query-tokens
   (let [query-token-set #{"auth" "proxy"}
         token-frequencies @#'query/token-frequencies
-        document-frequencies @#'query/document-frequencies
+        document-frequencies-from-stats @#'query/document-frequencies-from-stats
+        lexical-doc-stat @#'query/lexical-doc-stat
         docs [{:tokens ["auth" "auth" "noise" "noise"]}
               {:tokens ["proxy" "proxy" "auth" "other"]}
               {:tokens ["noise" "other"]}]]
@@ -98,7 +106,8 @@
            (token-frequencies query-token-set ["auth" "auth" "proxy" "noise"])))
     (is (= {"auth" 2
             "proxy" 1}
-           (document-frequencies query-token-set docs)))))
+           (document-frequencies-from-stats
+            (mapv #(lexical-doc-stat query-token-set %) docs))))))
 
 (deftest indexes-and-queries-sample-repo
   (let [xtdb-path (temp-dir "ygg-xtdb")
@@ -237,6 +246,56 @@
               first-result (first results)]
           (is (= ["consumer/consumer.go"] (mapv :path results)))
           (is (= 0.05 (get-in first-result [:score-components :exact]))))))))
+
+(deftest lexical-query-includes-internal-grep-candidates-from-repo-metadata
+  (let [repo-root (temp-dir "ygg-query-grep-repo")]
+    (spit-file! repo-root "src/reset.clj" "(defn ResetTokenHandler [] :ok)\n")
+    (store/with-node (temp-dir "ygg-query-grep-xtdb")
+      (fn [xtdb]
+        (store/execute-tx!
+         xtdb
+         [(store/put-op (store/table-ref :repos)
+                        {:xt/id "repo:fixture:app"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :root repo-root
+                         :active? true})
+          (store/put-op (store/table-ref :search-docs)
+                        {:xt/id "search-doc:reset"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :target-id "node:reset"
+                         :target-kind :node
+                         :file-id "file:reset"
+                         :path "src/reset.clj"
+                         :kind :var
+                         :label "demo/reset"
+                         :text "demo/reset"
+                         :tokens []
+                         :input-sha "reset"
+                         :source-line 1
+                         :active? true
+                         :run-id "run"})])
+        (with-redefs [query/default-kind-candidates 0
+                      query/default-path-token-candidates 0]
+          (let [report (query/search-report xtdb
+                                            "reset token handler"
+                                            {:retriever :lexical
+                                             :project-id "fixture"
+                                             :repo-id "app"
+                                             :limit 5})
+                result (first (:results report))
+                instrumentation (:instrumentation report)]
+            (is (= ["src/reset.clj"] (mapv :path (:results report))))
+            (is (= 1.0 (get-in result [:score-components :grep])))
+            (is (= "literal grep match" (:reason result)))
+            (is (= :ok (:grep-status instrumentation)))
+            (is (= 1 (:grep-repos instrumentation)))
+            (is (= 3 (:grep-patterns instrumentation)))
+            (is (= 1 (:grep-searches instrumentation)))
+            (is (= 3 (:grep-raw-matches instrumentation)))
+            (is (= 1 (:grep-indexed-paths instrumentation)))
+            (is (= 1 (:grep-candidates instrumentation)))))))))
 
 (deftest ranked-candidates-reuse-path-token-matches-for-exact-boost
   (let [tokenize-calls (atom [])
@@ -593,6 +652,68 @@
           (is (some #(and (= "src/neighbor.clj" (:path %))
                           (= 1.0 (get-in % [:score-components :graph])))
                     results)))))))
+
+(deftest lexical-query-includes-bounded-same-label-doc-candidates
+  (store/with-node (temp-dir "ygg-query-same-label-doc-candidates-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:seed"
+                       :target-id "chunk:seed"
+                       :target-kind :chunk
+                       :file-id "file:seed"
+                       :path "src/widget.Partial.cs"
+                       :kind :code-definition
+                       :label "demo/Widget"
+                       :text "alpha beta"
+                       :tokens ["alpha" "beta"]
+                       :input-sha "seed"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:same-label"
+                       :target-id "chunk:same-label"
+                       :target-kind :chunk
+                       :file-id "file:same-label"
+                       :path "src/widget.cs"
+                       :kind :code-definition
+                       :label "demo/Widget"
+                       :text "demo/Widget"
+                       :tokens []
+                       :input-sha "same-label"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:noise"
+                       :target-id "chunk:noise"
+                       :target-kind :chunk
+                       :file-id "file:noise"
+                       :path "src/noise.cs"
+                       :kind :code-definition
+                       :label "demo/Other"
+                       :text "demo/Other"
+                       :tokens []
+                       :input-sha "noise"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})])
+      (with-redefs [query/default-lexical-candidates 1
+                    query/default-kind-candidates 0
+                    query/default-seed-count 1]
+        (let [report (query/search-report xtdb
+                                          "alpha"
+                                          {:retriever :lexical
+                                           :limit 5})
+              results (:results report)]
+          (is (= 1 (get-in report [:instrumentation :same-label-doc-candidates])))
+          (is (some #(and (= "src/widget.cs" (:path %))
+                          (= 1.0 (get-in % [:score-components :sameLabel]))
+                          (= "same-label candidate" (:reason %)))
+                    results))
+          (is (not-any? #(= "src/noise.cs" (:path %)) results)))))))
 
 (deftest lexical-query-loads-only-seed-adjacent-edges
   (store/with-node (temp-dir "ygg-query-seed-edge-xtdb")

@@ -4,7 +4,7 @@
 This script is a benchmark worker that uses the DeepSeek Anthropic-compatible
 Messages API with deepseek-v4-pro and max thinking to localize files for
 benchmark cases. It implements a tool-use agent loop: the model can read
-files, list directories, and run bounded shell commands (rg, bb ask, etc.)
+files, list directories, and run bounded shell commands (rg, bb query, etc.)
 before writing the standard agent-result JSON to YGG_BENCH_RESULT.
 
 Usage:
@@ -76,9 +76,8 @@ READ_ONLY_GIT_SUBCOMMANDS = {
     "status",
 }
 READ_ONLY_BB_SUBCOMMANDS = {
-    "ask",
-    "explore",
     "packages",
+    "query",
     "view",
 }
 DENIED_BB_FLAGS = {
@@ -189,8 +188,7 @@ def build_system_prompt(user_prompt: str) -> str:
     parts.extend([
         "",
         "## Available Yggdrasil commands (run via run_command tool):",
-        "- bb ask \"<query>\" --project <project-id> --json",
-        "- bb explore create \"<query>\" --project <project-id>",
+        "- bb query \"<query>\" --project <project-id> --json",
         "- bb view systems --project <project-id>",
         "- bb packages --project <project-id> --json",
         "- rg <pattern>  (search the worktree)",
@@ -242,8 +240,8 @@ TOOL_DEFINITIONS = [
     {
         "name": "run_command",
         "description": (
-            "Run a shell command in the worktree directory. Use for rg, bb ask, "
-            "bb explore, bb view, bb packages, or other read-only inspection. "
+            "Run a shell command in the worktree directory. Use for rg, bb query, "
+            "bb view, bb packages, or other read-only inspection. "
             f"Command timeout is {TOOL_TIMEOUT_SEC}s. Output truncated to "
             f"{MAX_TOOL_OUTPUT_CHARS} chars."
         ),

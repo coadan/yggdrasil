@@ -5,6 +5,15 @@
   #{"rg" "grep" "fd" "find"})
 (def ^:private file-read-command-names
   #{"awk" "bat" "cat" "head" "less" "more" "nl" "sed" "tail"})
+(def ^:private ygg-artifact-command-names
+  #{"awk" "cat" "grep" "head" "jq" "less" "more" "nl" "rg" "sed" "tail"})
+(def ^:private ygg-artifact-markers
+  #{"YGG_BENCH_YGG_HINTS"
+    "$YGG_BENCH_YGG_HINTS"
+    "${YGG_BENCH_YGG_HINTS}"
+    "YGG_BENCH_YGG_CONTEXT"
+    "$YGG_BENCH_YGG_CONTEXT"
+    "${YGG_BENCH_YGG_CONTEXT}"})
 (defn- command-segments
   [command]
   (->> (str/split (str command) #"\s*(?:&&|\|\||;|\|)\s*")
@@ -100,6 +109,13 @@
   (let [name (last (str/split (str token) #"/"))]
     (boolean (and (not (str/blank? name))
                   (str/includes? name ".")))))
+
+(defn- ygg-artifact-token?
+  [token]
+  (let [token (str token)]
+    (or (contains? ygg-artifact-markers token)
+        (str/ends-with? token ".ygg-hints.json")
+        (str/ends-with? token ".ygg-context.json"))))
 
 (defn- consume-search-options
   [tokens]
@@ -205,6 +221,18 @@
       (contains? search-command-names cmd) :search
       (contains? file-read-command-names cmd) :file-read
       :else :shell)))
+
+(defn- ygg-artifact-projection-segment?
+  [segment]
+  (let [[cmd & args] (leading-command-tokens segment)]
+    (boolean
+     (and (contains? ygg-artifact-command-names cmd)
+          (some ygg-artifact-token? args)))))
+
+(defn- command-ygg-artifact-projection?
+  [command]
+  (boolean (some ygg-artifact-projection-segment?
+                 (command-segments command))))
 (defn- command-kind
   [command]
   (let [kinds (keep segment-command-kind (command-segments command))]
@@ -260,7 +288,12 @@
          search-scope-counts (frequencies search-scopes)
          segment-search-scopes (mapcat #(command-search-scopes candidate-paths %)
                                        commands)
-         segment-search-scope-counts (frequencies segment-search-scopes)]
+         segment-search-scope-counts (frequencies segment-search-scopes)
+         ygg-artifact-projection-command-count (count (filter command-ygg-artifact-projection?
+                                                              commands))
+         ygg-artifact-projection-segment-count (count (filter ygg-artifact-projection-segment?
+                                                              (mapcat command-segments
+                                                                      commands)))]
      (cond-> {:commandCount command-count
               :yggCommandCount (long (get counts :ygg 0))
               :searchCommandCount (long (get counts :search 0))
@@ -271,6 +304,14 @@
               :fileReadCommandCount (long (get counts :file-read 0))
               :shellCommandCount (long (get counts :shell 0))
               :commandless (zero? command-count)}
+       (pos? ygg-artifact-projection-command-count)
+       (assoc :yggArtifactProjectionCommandCount
+              (long ygg-artifact-projection-command-count))
+
+       (pos? ygg-artifact-projection-segment-count)
+       (assoc :yggArtifactProjectionSegmentCount
+              (long ygg-artifact-projection-segment-count))
+
        (segment-telemetry-diff? command-count counts segment-count segment-counts)
        (assoc :segmentCount (long segment-count)
               :yggSegmentCount (long (get segment-counts :ygg 0))
@@ -327,19 +368,45 @@
   [telemetry k]
   (reduce + 0 (map #(long (or (get % k) 0)) telemetry)))
 
+(defn- assoc-sum-when-present
+  [summary telemetry k]
+  (if (some #(contains? % k) telemetry)
+    (assoc summary k (sum-telemetry-key telemetry k))
+    summary))
+
 (defn aggregate-command-telemetry
   [diagnostics]
   (let [telemetry (map :commandTelemetry diagnostics)]
-    (aggregate-optional-segment-telemetry
-     {:commandCount (sum-telemetry-key telemetry :commandCount)
-      :yggCommandCount (sum-telemetry-key telemetry :yggCommandCount)
-      :searchCommandCount (sum-telemetry-key telemetry :searchCommandCount)
-      :broadSearchCommandCount (sum-telemetry-key telemetry :broadSearchCommandCount)
-      :scopedSearchCommandCount (sum-telemetry-key telemetry :scopedSearchCommandCount)
-      :exactFileSearchCommandCount (sum-telemetry-key telemetry :exactFileSearchCommandCount)
-      :fileReadCommandCount (sum-telemetry-key telemetry :fileReadCommandCount)
-      :shellCommandCount (sum-telemetry-key telemetry :shellCommandCount)}
-     telemetry)))
+    (-> (aggregate-optional-segment-telemetry
+         {:commandCount (sum-telemetry-key telemetry :commandCount)
+          :yggCommandCount (sum-telemetry-key telemetry :yggCommandCount)
+          :searchCommandCount (sum-telemetry-key telemetry :searchCommandCount)
+          :broadSearchCommandCount (sum-telemetry-key telemetry :broadSearchCommandCount)
+          :scopedSearchCommandCount (sum-telemetry-key telemetry :scopedSearchCommandCount)
+          :exactFileSearchCommandCount (sum-telemetry-key telemetry :exactFileSearchCommandCount)
+          :fileReadCommandCount (sum-telemetry-key telemetry :fileReadCommandCount)
+          :shellCommandCount (sum-telemetry-key telemetry :shellCommandCount)}
+         telemetry)
+        (assoc-sum-when-present telemetry :internalRipgrepSearchCount)
+        (assoc-sum-when-present telemetry :internalRipgrepElapsedMs)
+        (assoc-sum-when-present telemetry :internalRipgrepMatchCount)
+        (assoc-sum-when-present telemetry :yggArtifactProjectionCommandCount)
+        (assoc-sum-when-present telemetry :yggArtifactProjectionSegmentCount)
+        (assoc-sum-when-present telemetry :firstProjectionOutputLineCount)
+        (assoc-sum-when-present telemetry :firstProjectionOutputBytes))))
+
+(defn internal-ripgrep-telemetry
+  [hints]
+  (let [instrumentation (get-in hints [:search :instrumentation])
+        search-count (long (or (:grep-searches instrumentation) 0))
+        elapsed-ms (long (or (:grep-search-ms instrumentation) 0))
+        match-count (long (or (:grep-raw-matches instrumentation) 0))]
+    (when (or (pos? search-count)
+              (pos? elapsed-ms)
+              (pos? match-count))
+      {:internalRipgrepSearchCount search-count
+       :internalRipgrepElapsedMs elapsed-ms
+       :internalRipgrepMatchCount match-count})))
 
 (defn- long-or-zero
   [value]

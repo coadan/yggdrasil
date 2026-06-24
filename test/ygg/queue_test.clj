@@ -43,7 +43,8 @@
 
 (deftest claimed-items-can-be-released-or-expired
   (let [root (temp-dir "ygg-queue-release")
-        payload {:schema "ygg.cursor.packet/v1"
+        payload {:schema "ygg.context/v1"
+                 :query "projection boundary"
                  :basis {:project-id "fixture"}}
         id (get-in (queue/enqueue! payload {:root root}) [:item :id])]
     (queue/claim-next! root {:agent-id "codex" :lease-ms 60000})

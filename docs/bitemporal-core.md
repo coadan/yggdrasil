@@ -39,8 +39,8 @@ CLI reads support:
 ```sh
 ygg view deps sample.core --valid-at 2026-01-01T00:00:00Z
 ygg view deps sample.core --format json --valid-at 2026-01-01T00:00:00Z
-ygg ask "greeting flow" --valid-at 2026-01-01T00:00:00Z
-ygg ask "api gateway" --project sample --json --valid-at 2026-01-01T00:00:00Z
+ygg query "greeting flow" --valid-at 2026-01-01T00:00:00Z
+ygg query "api gateway" --project sample --json --valid-at 2026-01-01T00:00:00Z
 ```
 
 ## Snapshot Semantics

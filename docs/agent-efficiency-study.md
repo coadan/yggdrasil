@@ -237,14 +237,19 @@ Use existing benchmark report fields first:
   missing decision runs, and decision-quality gap runs when reports contain
   configured decision cases
 - result health: warning runs, empty result runs, commandless runs
-- command telemetry: `agentDiagnostics.commandTelemetry` command, search,
-  file-read, Yggdrasil, and shell counts derived from cited benchmark commands
-  (`yggCommandCount` is reported for interpretation, not treated as a
-  lower-is-better regression gate; if only observed metrics are available,
+- command telemetry: `agentDiagnostics.commandTelemetry` command, file-read,
+  Yggdrasil, shell, and search-scope counts derived from cited benchmark
+  commands. `broadSearchCommandCount` is lower-is-better because it measures
+  broad rediscovery. Raw `searchCommandCount`, scoped proof search, exact-file
+  proof search, internal ripgrep counters, and `yggCommandCount` are reported
+  for interpretation, not treated as broad-search regressions by themselves.
+  `yggArtifactProjectionCommandCount` is lower-is-better because it measures
+  agent work spent projecting Ygg hint/context artifacts instead of using a
+  compact packet directly. If only observed metrics are available,
   `bb efficiency` reports `observed-only` instead of a win or loss, and broad
-  claim readiness remains blocked until directional metrics are available).
+  claim readiness remains blocked until directional metrics are available.
   When reports include compound-command segment counters, `bb efficiency`
-  compares segment, search-segment, and file-read-segment counts as
+  compares broad search, file-read, and projection segment counts as
   lower-is-better command telemetry too.
 - token cost: `agentDiagnostics.tokenTelemetry` input, output, total token, and
   cost totals when agent results include `tokenUsage`. `bb efficiency` compares

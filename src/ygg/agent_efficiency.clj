@@ -176,6 +176,38 @@
     :path [:timings :runningCases]
     :direction :lower}])
 
+(def ^:private optional-command-metric-specs
+  [{:key :internalRipgrepSearchCount
+    :label "internalRipgrepSearchCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :internalRipgrepSearchCount]
+    :direction :observe}
+   {:key :internalRipgrepElapsedMs
+    :label "internalRipgrepElapsedMs"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :internalRipgrepElapsedMs]
+    :direction :observe}
+   {:key :internalRipgrepMatchCount
+    :label "internalRipgrepMatchCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :internalRipgrepMatchCount]
+    :direction :observe}
+   {:key :yggArtifactProjectionCommandCount
+    :label "yggArtifactProjectionCommandCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :yggArtifactProjectionCommandCount]
+    :direction :lower}
+   {:key :firstProjectionOutputLineCount
+    :label "firstProjectionOutputLineCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :firstProjectionOutputLineCount]
+    :direction :lower}
+   {:key :firstProjectionOutputBytes
+    :label "firstProjectionOutputBytes"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :firstProjectionOutputBytes]
+    :direction :lower}])
+
 (def ^:private decision-metric-specs
   [{:key :decisionRecall
     :label "decisionRecall"
@@ -235,6 +267,7 @@
    :commandCount
    :searchCommandCount
    :broadSearchCommandCount
+   :yggArtifactProjectionCommandCount
    :fileReadCommandCount
    :segmentCount
    :searchSegmentCount
@@ -255,6 +288,7 @@
    [:commandCount :toolCallDelta]
    [:searchCommandCount :searchCommandDelta]
    [:broadSearchCommandCount :broadSearchCommandDelta]
+   [:yggArtifactProjectionCommandCount :yggArtifactProjectionCommandDelta]
    [:fileReadCommandCount :fileReadDelta]
    [:decisionF1 :decisionF1Delta]
    [:decisionEvidenceCitationRate :decisionEvidenceCitationRateDelta]
@@ -271,6 +305,7 @@
    [:toolCallDelta "tool call delta"]
    [:searchCommandDelta "search command delta"]
    [:broadSearchCommandDelta "broad search command delta"]
+   [:yggArtifactProjectionCommandDelta "Ygg artifact projection command delta"]
    [:fileReadDelta "file read delta"]
    [:decisionF1Delta "decisionF1 delta"]
    [:decisionEvidenceCitationRateDelta "decision evidence citation delta"]
@@ -471,6 +506,11 @@
     :category :command-telemetry
     :path [:agentDiagnostics :commandTelemetry :exactFileSearchSegmentCount]
     :direction :observe}
+   {:key :yggArtifactProjectionSegmentCount
+    :label "yggArtifactProjectionSegmentCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :yggArtifactProjectionSegmentCount]
+    :direction :lower}
    {:key :fileReadSegmentCount
     :label "fileReadSegmentCount"
     :category :command-telemetry
@@ -482,10 +522,28 @@
     :path [:agentDiagnostics :commandTelemetry :shellSegmentCount]
     :direction :lower}])
 
+(defn- metric-present?
+  [report spec]
+  (some? (metric-value report (:path spec) (:default spec))))
+
+(defn- optional-command-metric-specs-for
+  [shell-report ygg-report]
+  (->> optional-command-metric-specs
+       (filterv #(or (metric-present? shell-report %)
+                     (metric-present? ygg-report %)))))
+
 (defn- segment-metric-specs-for
   [shell-report ygg-report]
   (if (or (some? (get-in shell-report [:agentDiagnostics :commandTelemetry :segmentCount]))
-          (some? (get-in ygg-report [:agentDiagnostics :commandTelemetry :segmentCount])))
+          (some? (get-in ygg-report [:agentDiagnostics :commandTelemetry :segmentCount]))
+          (some? (get-in shell-report
+                         [:agentDiagnostics
+                          :commandTelemetry
+                          :yggArtifactProjectionSegmentCount]))
+          (some? (get-in ygg-report
+                         [:agentDiagnostics
+                          :commandTelemetry
+                          :yggArtifactProjectionSegmentCount])))
     segment-metric-specs
     []))
 
@@ -1546,6 +1604,9 @@
                                      %)
                       (into metric-specs
                             (concat
+                             (optional-command-metric-specs-for
+                              shell-efficiency-report
+                              ygg-efficiency-report)
                              (segment-metric-specs-for
                               shell-efficiency-report
                               ygg-efficiency-report)

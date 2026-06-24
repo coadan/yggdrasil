@@ -126,25 +126,15 @@
                                          "bb"
                                          "sync"
                                          project-path)
-              :askCommand (env-command xtdb-path
-                                       clj-config-dir
-                                       parser-env
-                                       "bb"
-                                       "ask"
-                                       (get-in prepared [:input :queryText])
-                                       "--project"
-                                       (:project-id prepared)
-                                       "--json")
-              :exploreCommand (env-command xtdb-path
-                                           clj-config-dir
-                                           parser-env
-                                           "bb"
-                                           "explore"
-                                           "create"
-                                           (get-in prepared [:input :queryText])
-                                           "--project"
-                                           (:project-id prepared)
-                                           "--json")}))))
+              :queryCommand (env-command xtdb-path
+                                         clj-config-dir
+                                         parser-env
+                                         "bb"
+                                         "query"
+                                         (get-in prepared [:input :queryText])
+                                         "--project"
+                                         (:project-id prepared)
+                                         "--json")}))))
 (defn- task-objective
   [result-scope]
   (case result-scope

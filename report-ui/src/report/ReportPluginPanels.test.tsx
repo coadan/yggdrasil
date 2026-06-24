@@ -35,8 +35,8 @@ describe("PluginPanel", () => {
     expect(screen.queryByText("ygg-core-report.core-actions")).not.toBeInTheDocument();
   });
 
-  it("asks about and copies a whole plugin panel", () => {
-    const onAsk = vi.fn();
+  it("queries about and copies a whole plugin panel", () => {
+    const onQuery = vi.fn();
     const onCopyCommand = vi.fn();
     const panel = {
       id: "operator-topology",
@@ -54,10 +54,10 @@ describe("PluginPanel", () => {
       }
     };
 
-    render(<PluginPanel panel={panel} actions={{ onAsk, onCopyCommand }} />);
+    render(<PluginPanel panel={panel} actions={{ onQuery, onCopyCommand }} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Ask about panel" }));
-    expect(onAsk).toHaveBeenCalledWith(
+    fireEvent.click(screen.getByRole("button", { name: "Query about panel" }));
+    expect(onQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         label: "Operator Topology",
         source: "plugins.breyta-operator-topology.operator-topology",
@@ -122,18 +122,18 @@ describe("PluginPanel", () => {
     );
   });
 
-  it("asks about and copies plugin diagnostics", () => {
-    const onAsk = vi.fn();
+  it("queries about and copies plugin diagnostics", () => {
+    const onQuery = vi.fn();
     const onCopyCommand = vi.fn();
     render(
       <PluginDiagnostics
         diagnostics={[{ plugin: { id: "fixture-report-plugin" }, stage: "render", message: "Missing crawl data" }]}
-        actions={{ onAsk, onCopyCommand }}
+        actions={{ onQuery, onCopyCommand }}
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
-    expect(onAsk).toHaveBeenCalledWith(
+    fireEvent.click(screen.getByRole("button", { name: "Query" }));
+    expect(onQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         label: "Plugin Diagnostics",
         source: "plugins.diagnostics",

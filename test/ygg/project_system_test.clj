@@ -1056,6 +1056,28 @@
                :role :tooling}]
              (:repos project))))))
 
+(deftest reads-workbench-project-config-with-supplemental-repos
+  (let [root (io/file (temp-dir "ygg-workbench-supplemental"))
+        repos-json (io/file root "repos.json")
+        cache-root (io/file root ".workbench" "repos" "demo-cli")
+        project-edn (io/file root "project.edn")]
+    (.mkdirs cache-root)
+    (spit repos-json "{\"repos\":{\"demo-cli\":{\"url\":\"https://example.invalid/demo-cli.git\"}}}")
+    (spit project-edn
+          (pr-str {:id "workbench"
+                   :workbench-root "."
+                   :repos [{:id "workbench"
+                            :root "."
+                            :role :tooling}]}))
+    (let [project (project/read-project (.getPath project-edn))]
+      (is (= [{:id "workbench"
+               :root (.getCanonicalPath root)
+               :role :tooling}
+              {:id "demo-cli"
+               :root (.getCanonicalPath cache-root)
+               :role :tooling}]
+             (:repos project))))))
+
 (deftest reads-project-config-with-absolute-repo-root
   (let [root (io/file (temp-dir "ygg-absolute-root"))
         repo-root (io/file root "repo")

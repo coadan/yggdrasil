@@ -1,6 +1,7 @@
 (ns ygg.fs
   "Repository file discovery and file metadata."
   (:require [ygg.hash :as hash]
+            [ygg.ripgrep :as ripgrep]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str])
@@ -891,36 +892,122 @@
         (and (some #(str/starts-with? % ".") parts)
              (not (allowed-hidden-supported-path? rel-path))))))
 
-(defn- git-candidate-paths
-  [root]
-  (let [{:keys [exit out]} (shell/sh "git"
-                                     "-C"
-                                     (.getPath root)
-                                     "ls-files"
-                                     "--cached"
-                                     "--others"
-                                     "--exclude-standard")]
-    (when (zero? exit)
-      (->> (str/split-lines out)
-           (remove str/blank?)
-           (remove ignored-path?)
-           (filter #(.isFile (io/file root %)))
-           vec))))
+(defn- now-ns
+  []
+  (System/nanoTime))
 
-(defn- filesystem-candidate-paths
-  [root]
-  (->> (file-seq root)
-       (filter #(.isFile %))
-       (keep (fn [file]
-               (let [rel (relative-path root file)]
-                 (when-not (ignored-path? rel)
-                   rel))))
+(defn- elapsed-ms
+  [started-ns]
+  (long (/ (- (now-ns) started-ns) 1000000)))
+
+(defn- discovery-summary
+  [report]
+  (select-keys report [:backend :elapsed-ms :path-count :diagnostics :fallbacks]))
+
+(defn- normalize-candidate-path
+  [path]
+  (-> (str path)
+      (str/replace "\\" "/")
+      (str/replace #"^\./" "")))
+
+(defn- candidate-file-paths
+  [root paths]
+  (->> paths
+       (map normalize-candidate-path)
+       (remove str/blank?)
+       (remove ignored-path?)
+       (filter #(.isFile (io/file root %)))
+       distinct
        vec))
+
+(def ^:private ripgrep-ignore-globs
+  (vec (mapcat (fn [dir]
+                 [(str dir "/**")
+                  (str "**/" dir "/**")])
+               ignored-dirs)))
+
+(defn- severe-ripgrep-diagnostic?
+  [diagnostic]
+  (contains? #{:timeout :unavailable :ripgrep-error :stdout-truncated}
+             (:kind diagnostic)))
+
+(defn- usable-ripgrep-discovery?
+  [result]
+  (and (#{0 1} (:exit result))
+       (not (:truncated? result))
+       (not-any? severe-ripgrep-diagnostic? (:diagnostics result))))
+
+(defn- ripgrep-candidate-path-report
+  [root]
+  (let [result (ripgrep/files root {:ignore-globs ripgrep-ignore-globs})]
+    (when (usable-ripgrep-discovery? result)
+      {:backend :ripgrep
+       :elapsed-ms (:elapsed-ms result)
+       :paths (candidate-file-paths root (:paths result))
+       :path-count (count (:paths result))
+       :diagnostics (:diagnostics result)})))
+
+(defn- git-candidate-path-report
+  [root]
+  (let [started (now-ns)
+        {:keys [exit out err]} (shell/sh "git"
+                                         "-C"
+                                         (.getPath root)
+                                         "ls-files"
+                                         "--cached"
+                                         "--others"
+                                         "--exclude-standard")]
+    (when (zero? exit)
+      (let [paths (candidate-file-paths root (str/split-lines out))]
+        {:backend :git
+         :elapsed-ms (elapsed-ms started)
+         :paths paths
+         :path-count (count paths)
+         :diagnostics (cond-> []
+                        (seq (str/trim (str err)))
+                        (conj {:kind :stderr
+                               :message (str/trim err)}))}))))
+
+(defn- filesystem-candidate-path-report
+  [root]
+  (let [started (now-ns)
+        paths (->> (file-seq root)
+                   (filter #(.isFile %))
+                   (map #(relative-path root %))
+                   (candidate-file-paths root))]
+    {:backend :filesystem
+     :elapsed-ms (elapsed-ms started)
+     :paths paths
+     :path-count (count paths)
+     :diagnostics []}))
+
+(defn- unavailable-fallback
+  [backend]
+  {:backend backend
+   :status :unavailable})
+
+(defn scan-candidate-paths
+  "Return repo-relative candidate file paths plus discovery instrumentation.
+
+  `rg --files` is preferred when available. Yggdrasil still applies its own
+  ignored-path, file-kind, and file-record rules after discovery."
+  [root]
+  (let [root-file (.getCanonicalFile (io/file root))]
+    (if-let [report (ripgrep-candidate-path-report root-file)]
+      (assoc report
+             :path-count (count (:paths report))
+             :fallbacks [])
+      (if-let [report (git-candidate-path-report root-file)]
+        (assoc report
+               :path-count (count (:paths report))
+               :fallbacks [(unavailable-fallback :ripgrep)])
+        (assoc (filesystem-candidate-path-report root-file)
+               :fallbacks [(unavailable-fallback :ripgrep)
+                           (unavailable-fallback :git)])))))
 
 (defn- candidate-paths
   [root]
-  (or (seq (git-candidate-paths root))
-      (filesystem-candidate-paths root)))
+  (:paths (scan-candidate-paths root)))
 
 (defn- file-coverage-row
   [root rel]
@@ -948,11 +1035,13 @@
   (let [root-file (.getCanonicalFile (io/file root))]
     (when-not (.isDirectory root-file)
       (throw (ex-info "Index root is not a directory." {:root root})))
-    {:root (.getPath root-file)
-     :files (->> (candidate-paths root-file)
-                 (mapv #(file-coverage-row root-file %))
-                 (sort-by :path)
-                 vec)}))
+    (let [discovery (scan-candidate-paths root-file)]
+      {:root (.getPath root-file)
+       :discovery (discovery-summary discovery)
+       :files (->> (:paths discovery)
+                   (mapv #(file-coverage-row root-file %))
+                   (sort-by :path)
+                   vec)})))
 
 (defn scan-files
   "Return supported files under root with content metadata."
@@ -960,11 +1049,14 @@
   (let [root-file (.getCanonicalFile (io/file root))]
     (when-not (.isDirectory root-file)
       (throw (ex-info "Index root is not a directory." {:root root})))
-    (->> (candidate-paths root-file)
-         (filter #(supported-file? (io/file root-file %)))
-         (map #(file-record-for-relative-path root-file %))
-         (sort-by :path)
-         vec)))
+    (let [discovery (scan-candidate-paths root-file)]
+      (with-meta
+        (->> (:paths discovery)
+             (filter #(supported-file? (io/file root-file %)))
+             (map #(file-record-for-relative-path root-file %))
+             (sort-by :path)
+             vec)
+        {:discovery (discovery-summary discovery)}))))
 
 (defn scan-plugin-files
   "Return explicitly plugin-scanned files under root.

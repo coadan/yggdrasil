@@ -1,11 +1,11 @@
-export type ReportTab = "dashboard" | "ask" | "systems" | "dependencies" | "evidence" | "maintenance" | "plugins";
+export type ReportTab = "dashboard" | "query" | "systems" | "dependencies" | "evidence" | "maintenance" | "plugins";
 
 export type TableColumn = {
   key: string;
   label: string;
 };
 
-export type AskAnswer = {
+export type QueryAnswer = {
   title: string;
   summary: string[];
   evidence: Array<Record<string, unknown>>;
@@ -13,7 +13,7 @@ export type AskAnswer = {
   relatedTitle: string;
 };
 
-export type AskScope = {
+export type QueryScope = {
   label: string;
   source: string;
   question: string;
@@ -27,7 +27,7 @@ export type ActionTarget = {
 
 export const tabs: Array<{ id: ReportTab; label: string }> = [
   { id: "dashboard", label: "Dashboard" },
-  { id: "ask", label: "Ask" },
+  { id: "query", label: "Query" },
   { id: "systems", label: "Systems" },
   { id: "dependencies", label: "Dependencies" },
   { id: "evidence", label: "Evidence" },

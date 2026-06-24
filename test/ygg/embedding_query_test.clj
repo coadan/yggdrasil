@@ -1,9 +1,13 @@
 (ns ygg.embedding-query-test
   (:require [ygg.embedding :as embedding]
+            [ygg.embedding.local :as local]
+            [ygg.env :as env]
             [ygg.index :as index]
             [ygg.query :as query]
             [ygg.xtdb :as store]
+            [charred.api :as json]
             [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.test :refer [deftest is]]))
 
 (defn- temp-dir
@@ -148,6 +152,108 @@
                 :skipped 2}
                summary))))))
 
+(deftest embed-search-docs-closes-closeable-client
+  (let [closed? (atom false)]
+    (with-redefs [embedding/all-search-docs (fn [& _] [])
+                  store/rows-with-field-tuples (fn [& _] [])
+                  store/count-rows (fn [& _] 0)]
+      (is (= {:provider :closeable
+              :model "test-model"
+              :search-docs 0
+              :pending 0
+              :embedded 0
+              :skipped 0}
+             (embedding/embed-search-docs!
+              :xtdb
+              {:provider :closeable
+               :model "test-model"
+               :embed-batch (fn [_] [])
+               :close (fn [] (reset! closed? true))}
+              {})))
+      (is @closed?))))
+
+(deftest local-embedding-client-speaks-jsonl-worker-protocol
+  (let [root (temp-dir "ygg-local-embedding-worker")
+        worker (io/file root "worker.py")]
+    (spit worker
+          (str "import json, sys\n"
+               "for line in sys.stdin:\n"
+               "    req = json.loads(line)\n"
+               "    vectors = []\n"
+               "    for text in req['inputs']:\n"
+               "        vectors.append([float(len(text)), 1.0])\n"
+               "    print(json.dumps({'vectors': vectors}), flush=True)\n"))
+    (let [client (local/client {:command (str "python3 " (.getPath worker))
+                                :model "fake-local"})]
+      (try
+        (is (= :local (:provider client)))
+        (is (= "fake-local" (:model client)))
+        (is (= [[5.0 1.0] [4.0 1.0]]
+               ((:embed-batch client) ["alpha" "beta"])))
+        (finally
+          ((:close client)))))))
+
+(deftest local-default-command-uses-configured-python-and-bundled-worker
+  (with-redefs [local/default-python (fn [] "/tmp/ygg venv/bin/python")
+                local/default-worker-path (fn [] "/tmp/ygg home/scripts/local-embedding-worker.py")]
+    (is (= "'/tmp/ygg venv/bin/python' '/tmp/ygg home/scripts/local-embedding-worker.py'"
+           (local/default-command)))))
+
+(deftest local-default-python-detects-conventional-project-venv
+  (let [root (temp-dir "ygg-local-embedding-venv")
+        python (io/file root "python")]
+    (spit python "")
+    (with-redefs [env/get-env (fn [_] nil)
+                  local/default-venv-python-path (fn [] (.getPath python))]
+      (is (= (.getPath python) (local/default-python))))))
+
+(deftest local-embedding-setup-uses-bundled-requirements
+  (let [root (temp-dir "ygg-local-embedding-setup")
+        requirements (io/file root "requirements.txt")
+        calls (atom [])]
+    (spit requirements "sentence-transformers\n")
+    (with-redefs [local/default-requirements-path (fn [] (.getPath requirements))
+                  shell/sh (fn [& args]
+                             (swap! calls conj (vec args))
+                             {:exit 0 :out "" :err ""})]
+      (is (= {:provider :local
+              :venv "embedding-venv"
+              :python (local/venv-python-path "embedding-venv")
+              :requirements (.getPath requirements)
+              :created? true
+              :default? false}
+             (local/setup-venv! {:venv-path "embedding-venv"
+                                 :python "python3.12"})))
+      (is (= [["python3.12" "-m" "venv" "embedding-venv"]
+              [(local/venv-python-path "embedding-venv")
+               "-m"
+               "pip"
+               "install"
+               "-r"
+               (.getPath requirements)]]
+             @calls)))))
+
+(deftest bundled-local-embedding-worker-emits-jsonl
+  (let [module-dir (temp-dir "ygg-local-embedding-module")
+        package-dir (io/file module-dir "sentence_transformers")]
+    (.mkdirs package-dir)
+    (spit (io/file package-dir "__init__.py")
+          (str "class SentenceTransformer:\n"
+               "    def __init__(self, name):\n"
+               "        self.name = name\n"
+               "    def encode(self, texts, batch_size=None, normalize_embeddings=True, show_progress_bar=False):\n"
+               "        return [[float(len(text)), 1.0] for text in texts]\n"))
+    (let [{:keys [exit out err]} (shell/sh "env"
+                                           (str "PYTHONPATH=" module-dir)
+                                           "python3"
+                                           "scripts/local-embedding-worker.py"
+                                           "fake-model"
+                                           :in "{\"inputs\":[\"alpha\",\"beta\"]}\n")
+          response (json/read-json out :key-fn keyword)]
+      (is (zero? exit) err)
+      (is (= [[5.0 1.0] [4.0 1.0]]
+             (:vectors response))))))
+
 (deftest hybrid-query-ranks-semantic-matches
   (let [xtdb-path (temp-dir "ygg-hybrid-xtdb")
         repo (.getPath (io/file "test/fixtures/sample-repo"))]
@@ -165,3 +271,25 @@
           (is (contains? labels "sample.util/shout"))
           (is (contains? labels "Greeting Flow"))
           (is (every? :score-components results)))))))
+
+(deftest auto-query-falls-back-before-local-worker-when-no-embeddings-exist
+  (let [xtdb-path (temp-dir "ygg-auto-no-embeddings-xtdb")
+        repo (.getPath (io/file "test/fixtures/sample-repo"))
+        embed-called? (atom false)
+        client {:provider :local
+                :model "fake-local"
+                :embed-batch (fn [_]
+                               (reset! embed-called? true)
+                               (throw (ex-info "worker should not be called" {})))}]
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (index/index-repo! xtdb repo {})
+        (let [report (query/search-report xtdb
+                                          "uppercase greeting"
+                                          {:retriever :auto
+                                           :embedding-client client
+                                           :limit 20})]
+          (is (= :auto (:retriever-requested report)))
+          (is (= :lexical (:retriever-effective report)))
+          (is (seq (:results report)))
+          (is (false? @embed-called?)))))))

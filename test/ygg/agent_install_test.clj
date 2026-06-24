@@ -26,8 +26,9 @@
     (is (str/includes? content "`architecture.summary` first"))
     (is (str/includes? content "bounded next-action samples"))
     (is (str/includes? content "detailed architecture rows are trimmed"))
-    (is (str/includes? content "ygg sync inspect <project.edn> --map ygg.map.json --json"))
-    (is (str/includes? content "ygg audit-scope <project.edn> --map ygg.map.json --json"))
+    (is (str/includes? content "pass anchors, symbols, or literal strings"))
+    (is (str/includes? content "ygg sync inspect <project.edn> --json"))
+    (is (str/includes? content "ygg audit-scope <project.edn> --json"))
     (is (str/includes? content "Use it for architecture-class work"))
     (is (str/includes? content "If `sync inspect` or evidence readiness reports"))
     (is (str/includes? content "`nextActions` before concluding evidence does not exist"))
@@ -53,13 +54,13 @@
     (is (not (.exists agents)))
     (is (not (.exists hooks)))))
 
-(deftest codex-broad-search-hook-prefers-inspect-and-explore
+(deftest codex-broad-search-hook-prefers-inspect-and-query
   (let [root (temp-dir "ygg-agent-hook")
         result (agent-install/install! "codex" {:root root
                                                 :project? true
                                                 :hooks? true})
         hook-json (json/read-json (slurp (:hooks result)) :key-fn keyword)
         command (get-in hook-json [:hooks 0 :hooks 0 :command])]
-    (is (str/includes? command "ygg sync inspect <project.edn> --map ygg.map.json --json"))
+    (is (str/includes? command "ygg sync inspect <project.edn> --json"))
     (is (str/includes? command "evidence.families"))
-    (is (str/includes? command "ygg explore"))))
+    (is (str/includes? command "ygg query"))))
