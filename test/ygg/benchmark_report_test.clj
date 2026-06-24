@@ -49,21 +49,36 @@
                                              :blocking false
                                              :message "Package version conflicts are present in indexed dependency facts."}]}]}))
 
-(deftest prepared-ygg-evidence-only-results-are-not-commandless
+(deftest packet-evidence-only-results-are-not-commandless
   (let [top-files [{:path "src/app.clj"
-                    :evidence ["prepared-declaration:src/app.clj lines 10 label=\"app/start\""]}]
+                    :evidence ["prepared-declaration:src/app.clj lines 10 label=\"app/start\""]}
+                   {:path "src/context.clj"
+                    :evidence ["context-doc:src/context.clj lines 10-20 provenance=retrieved-doc"]}
+                   {:path "src/candidate.clj"
+                    :evidence ["Prepared summary context 2: candidate-file:src/candidate.clj rank=2"]}
+                   {:path "src/neighbor.clj"
+                    :evidence ["source-graph: src/app.clj imports src/neighbor.clj line 7"]}]
+        issue-only-files [{:path "src/app.clj"
+                           :evidence ["src/app.clj is implied by the issue title."]}]
         ygg-diagnostic (benchmark-report/agent-output-diagnostic
                         {:agent {:mode "ygg"
                                  :topFiles top-files
                                  :commands []}
                          :agentPreparation {:status "reused"}})
+        issue-only-diagnostic (benchmark-report/agent-output-diagnostic
+                               {:agent {:mode "ygg"
+                                        :topFiles issue-only-files
+                                        :commands []}
+                                :agentPreparation {:status "reused"}})
         shell-diagnostic (benchmark-report/agent-output-diagnostic
                           {:agent {:mode "shell-only"
                                    :topFiles top-files
                                    :commands []}})]
-    (is (:preparedEvidenceOnly ygg-diagnostic))
+    (is (:packetEvidenceOnly ygg-diagnostic))
     (is (false? (:commandless ygg-diagnostic)))
-    (is (not (:preparedEvidenceOnly shell-diagnostic)))
+    (is (not (:packetEvidenceOnly issue-only-diagnostic)))
+    (is (:commandless issue-only-diagnostic))
+    (is (not (:packetEvidenceOnly shell-diagnostic)))
     (is (:commandless shell-diagnostic))))
 
 (deftest reports-agent-score-artifacts

@@ -238,6 +238,12 @@
                        "- For package-level requested targets, keep the primary package contract file as the suspectedFile; use sibling per-signal files as evidence unless the issue explicitly asks for each sibling file.")
                      (when (ygg-mode? packet)
                        "- When the Prepared Yggdrasil Summary lists related graph files from import-package edges, consider those rows before per-signal sibling files for package-level requested targets.")
+                     (when (ygg-mode? packet)
+                       "- Do not read the same file twice in fast Yggdrasil mode; use one narrow proof window or answer from prepared evidence.")
+                     (when (ygg-mode? packet)
+                       "- For single-file documentation or wording tasks, if the prepared/context summary identifies the target page, return that file without repeated local reads.")
+                     (when (ygg-mode? packet)
+                       "- For zero-command answers, every suspectedFiles evidence string must cite a shown prepared/context/related/candidate evidence row for that path; issue-text inference alone is not enough.")
                      "- Return the best 1-5 suspected files as soon as evidence is sufficient."
                      (str "- " (str/join "\n- " (result-scope-rules result-scope)))
                      (str "- " (str/join "\n- " evidence-citation-rules))
@@ -454,7 +460,7 @@
   [top-files]
   (->> top-files
        (filter #(some-> (:path %) str not-empty))
-       (take 8)))
+       (take 12)))
 
 (defn- terraform-declaration-pattern
   [{:keys [kind label]}]

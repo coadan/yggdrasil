@@ -199,17 +199,24 @@
                    (seq other)
                    (conj "At least one Yggdrasil run has an unrecognized agentPreparation status."))})))
 
-(defn- prepared-evidence-string?
-  [value]
-  (str/starts-with? (str value) "prepared-"))
+(def ^:private packet-evidence-prefixes
+  ["prepared-"
+   "context-doc:"
+   "candidate-file:"
+   "source-graph:"])
 
-(defn- prepared-ygg-evidence-only?
+(defn- packet-evidence-string?
+  [value]
+  (let [text (str value)]
+    (some #(str/includes? text %) packet-evidence-prefixes)))
+
+(defn- packet-evidence-only?
   [result top-files]
   (and (= "ygg" (get-in result [:agent :mode]))
        (= "reused" (get-in result [:agentPreparation :status]))
        (seq top-files)
        (every? (fn [row]
-                 (some prepared-evidence-string? (:evidence row)))
+                 (some packet-evidence-string? (:evidence row)))
                top-files)))
 
 (defn agent-output-diagnostic
@@ -234,7 +241,7 @@
                                  (benchmark-command-telemetry/internal-ripgrep-telemetry
                                   (result-hints result)))
         command-count (:commandCount command-telemetry)
-        prepared-evidence-only? (prepared-ygg-evidence-only? result top-files)
+        packet-evidence-only? (packet-evidence-only? result top-files)
         candidate-count (:candidateFiles selection)
         filtered-count (long (or (:coverageFilteredCandidateFiles selection) 0))
         token-usage (get-in result [:agent :tokenUsage])
@@ -254,10 +261,10 @@
              :hasIdentityMismatch (boolean (seq identity-warnings))
              :emptyResult (zero? ranked-count)
              :commandless (and (:commandless command-telemetry)
-                               (not prepared-evidence-only?))
+                               (not packet-evidence-only?))
              :noRawSuspectedFiles (zero? raw-count)}
-      prepared-evidence-only?
-      (assoc :preparedEvidenceOnly true)
+      packet-evidence-only?
+      (assoc :packetEvidenceOnly true)
 
       selection
       (assoc :selection selection)

@@ -397,6 +397,14 @@
     (is (str/includes? prompt
                        "context-doc:src/context.clj lines 10-20"))
     (is (str/includes? prompt
+                       "Do not read the same file twice in fast Yggdrasil mode"))
+    (is (str/includes? prompt
+                       "single-file documentation or wording tasks"))
+    (is (str/includes? prompt
+                       "zero-command answers"))
+    (is (str/includes? prompt
+                       "issue-text inference alone is not enough"))
+    (is (str/includes? prompt
                        "Related graph files from prepared import edges"))
     (is (str/includes? prompt "src/consumer.clj"))
     (is (str/includes? prompt
