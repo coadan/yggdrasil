@@ -205,6 +205,60 @@
         (is (zero? (:load-embeddings-ms instrumentation)))
         (is (= "src/hit.clj" (:path (first (:results report)))))))))
 
+(deftest auto-query-with-path-token-candidate-still-runs-semantic-search
+  (store/with-node (temp-dir "ygg-query-auto-path-token-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:path-token"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :target-id "node:path-token"
+                       :target-kind :node
+                       :file-id "file:path-token"
+                       :path "src/hello_world.clj"
+                       :kind :namespace
+                       :label "demo.path-token"
+                       :text "demo path token"
+                       :tokens ["demo" "path" "token"]
+                       :input-sha "path-token"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})
+        (store/put-op (store/table-ref :embeddings)
+                      {:xt/id "embedding:path-token"
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :target-id "node:path-token"
+                       :provider :fake
+                       :model "fake"
+                       :dims 2
+                       :input-sha "path-token"
+                       :vector [1.0 0.0]
+                       :created-at-ms 1
+                       :active? true})])
+      (let [calls (atom 0)
+            report (query/search-report
+                    xtdb
+                    "hello"
+                    {:retriever :auto
+                     :embedding-client {:provider :fake
+                                        :model "fake"
+                                        :embed-batch (fn [_inputs]
+                                                       (swap! calls inc)
+                                                       [[1.0 0.0]])}
+                     :project-id "fixture"
+                     :repo-id "app"
+                     :limit 5})
+            instrumentation (:instrumentation report)]
+        (is (= 1 @calls))
+        (is (= :hybrid (:retriever-effective report)))
+        (is (false? (:auto-lexical-short-circuit? instrumentation)))
+        (is (= :none (:auto-lexical-short-circuit-reason instrumentation)))
+        (is (pos? (:path-token-candidates instrumentation)))
+        (is (pos? (:semantic-positive instrumentation)))))))
+
 (deftest exact-path-mentions-enter-query-candidates
   (store/with-node (temp-dir "ygg-query-path-candidate-xtdb")
     (fn [xtdb]

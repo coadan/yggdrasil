@@ -1734,13 +1734,7 @@
     :exact-path-candidates
 
     (pos? (get-in transient-file-data [:instrumentation :transient-file-candidates] 0))
-    :transient-file-candidates
-
-    (pos? (count (:grep-candidates ranked-data)))
-    :grep-candidates
-
-    (pos? (count (:path-token-candidates ranked-data)))
-    :path-token-candidates))
+    :transient-file-candidates))
 
 (defn- query-vector
   [embedding-client query-text]
@@ -1789,8 +1783,10 @@
         [lexical timings] (timed timings :lexical-score-ms #(lexical-scores query-tokens docs))
         grep-data (rescore-grep-data initial-grep-data docs)
         grep (:scores grep-data)
-        [auto-cheap-rank-data timings] (if (and (= :auto requested-retriever)
-                                                embedding-client)
+        auto-semantic-eligible? (and (= :auto requested-retriever)
+                                     embedding-client
+                                     (#{:hybrid :semantic} initial-retriever))
+        [auto-cheap-rank-data timings] (if auto-semantic-eligible?
                                          (timed timings
                                                 :auto-cheap-rank-ms
                                                 #(ranked-candidates
@@ -1805,7 +1801,7 @@
                                                    :retriever :lexical
                                                    :limit limit}))
                                          [{} (assoc timings :auto-cheap-rank-ms 0)])
-        auto-short-circuit-reason (when (= :auto requested-retriever)
+        auto-short-circuit-reason (when auto-semantic-eligible?
                                     (auto-lexical-short-circuit-reason
                                      auto-cheap-rank-data
                                      transient-file-data))

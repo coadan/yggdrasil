@@ -2244,16 +2244,32 @@
      (:result-schema-mismatch-events counts 0)))
 
 (defn- retrieval-summary
-  [{:keys [retriever embedding-client]}]
+  [{:keys [retriever retriever-effective embedding-client
+           auto-lexical-short-circuit? auto-lexical-short-circuit-reason]}]
   (let [requested (keyword (or retriever :auto))
-        effective (case requested
-                    :auto (if embedding-client :hybrid :lexical)
-                    requested)
-        fallback? (and (= :auto requested) (= :lexical effective))]
+        predicted-effective (case requested
+                              :auto (if embedding-client :hybrid :lexical)
+                              requested)
+        effective (keyword (or retriever-effective predicted-effective))
+        auto-lexical? (and (= :auto requested)
+                           (= :lexical effective)
+                           (true? auto-lexical-short-circuit?))
+        fallback? (and (= :auto requested)
+                       (= :lexical effective)
+                       (not auto-lexical?))
+        fallback-reason (cond
+                          (and fallback? (nil? embedding-client))
+                          "No embedding client was available."
+
+                          fallback?
+                          "No current embeddings were available for this query scope.")]
     (cond-> {:requested requested
              :effective effective
              :fallback? fallback?}
-      fallback? (assoc :reason "No embedding client was available."))))
+      fallback-reason (assoc :reason fallback-reason)
+      auto-lexical? (assoc :autoLexicalShortCircuit true
+                           :autoLexicalShortCircuitReason
+                           auto-lexical-short-circuit-reason))))
 
 (defn- available-planes
   [counts]
@@ -2384,7 +2400,8 @@
      (conj (freshness-warning freshness))
 
      (and (= :auto (:requested retrieval)) (:fallback? retrieval))
-     (conj "No embedding client was available; retrieval used lexical fallback.")
+     (conj (str (:reason retrieval "Auto retrieval used lexical fallback.")
+                " Auto retrieval used lexical fallback."))
 
      (zero? (:files counts 0))
      (conj "No source files are indexed for this project.")
@@ -2848,6 +2865,16 @@
                                   :repo-id repo-id
                                   :read-context read-context
                                   :retriever retriever
+                                  :retriever-effective (:retriever-effective
+                                                        search-report)
+                                  :auto-lexical-short-circuit?
+                                  (get-in search-report
+                                          [:instrumentation
+                                           :auto-lexical-short-circuit?])
+                                  :auto-lexical-short-circuit-reason
+                                  (get-in search-report
+                                          [:instrumentation
+                                           :auto-lexical-short-circuit-reason])
                                   :embedding-client embedding-client
                                   :freshness freshness
                                   :dependency-counts (:counts dependency-report)

@@ -643,6 +643,26 @@
                   %)
               actions))))
 
+(deftest retrieval-summary-uses-search-effective-mode
+  (is (= {:requested :auto
+          :effective :lexical
+          :fallback? false
+          :autoLexicalShortCircuit true
+          :autoLexicalShortCircuitReason :exact-path-candidates}
+         (#'context/retrieval-summary
+          {:retriever :auto
+           :retriever-effective :lexical
+           :embedding-client {:provider :fake}
+           :auto-lexical-short-circuit? true
+           :auto-lexical-short-circuit-reason :exact-path-candidates})))
+  (is (= {:requested :auto
+          :effective :lexical
+          :fallback? true
+          :reason "No embedding client was available."}
+         (#'context/retrieval-summary
+          {:retriever :auto
+           :retriever-effective :lexical}))))
+
 (deftest evidence-coverage-actions-include-status-mcp-when-map-path-is-known
   (let [actions (#'context/next-actions
                  {:files 1
