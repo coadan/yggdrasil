@@ -3839,6 +3839,35 @@
     (is (<= (get-in file [:metrics :candidateSourceRankScore]) 0.2))
     (is (nil? (get-in file [:metrics :robustCandidateOnlyBoost])))))
 
+(deftest file-ranking-boosts-query-matched-source-graph-grep-evidence
+  (let [root (temp-dir "ygg-bench-source-graph-grep-evidence")
+        _ (spit-file! root "src/flask/config.py" "class Config: pass\n")
+        _ (spit-file! root "src/flask/sansio/app.py" "class App: pass\n")
+        packet {:query "autoescape selection flask"
+                :candidateFiles [{:path "src/flask/config.py"
+                                  :rank 1
+                                  :score 10.2
+                                  :targetKind "node"
+                                  :label "flask.config/Config.selection"
+                                  :scoreComponents {:sourceGraph 10.2
+                                                    :lexical 0.4
+                                                    :graph 0.6}}
+                                 {:path "src/flask/sansio/app.py"
+                                  :rank 26
+                                  :score 10.0
+                                  :targetKind "node"
+                                  :label "flask.sansio.app/App.select_jinja_autoescape"
+                                  :scoreComponents {:sourceGraph 10.0
+                                                    :lexical 0.35
+                                                    :grep 0.65
+                                                    :graph 0.6}}]}
+        files (:suspectedFiles (benchmark/context-packet->agent-result packet
+                                                                       {:root root}))]
+    (is (= "src/flask/sansio/app.py" (:path (first files))))
+    (is (pos? (get-in files [0 :metrics :candidateGrepComponentBoost])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
 (deftest file-ranking-keeps-doc-supported-source-graph-rank-as-tiebreaker
   (let [root (temp-dir "ygg-bench-doc-source-graph-rank")
         _ (spit-file! root "src/settings.cs" "public static class Settings {}\n")
@@ -4145,6 +4174,80 @@
     (is (some #{"src/Mapper.Settings.cs"} (map :path (:files result))))
     (is (not-any? #{"src/noise-5.cs"} (map :path (:files result))))
     (is (= 5 (:candidateFileOnlySelected result)))))
+
+(deftest limited-agent-result-reserves-query-matched-source-graph-evidence
+  (let [select-limited @#'benchmark-prediction/select-limited-suspected-files
+        candidate-row (fn [path rank source-rank metrics]
+                        {:path path
+                         :rank rank
+                         :metrics (merge {:candidateFileCount 1
+                                          :docCount 0
+                                          :entityCount 0
+                                          :candidateSourceRank source-rank}
+                                         metrics)})
+        rows [(candidate-row "src/noise-1.py"
+                             1
+                             1
+                             {:matchedTokenCount 1
+                              :sourceGraphCandidateEvidenceScore 3.1})
+              (candidate-row "src/noise-2.py"
+                             2
+                             2
+                             {:matchedTokenCount 1
+                              :sourceGraphCandidateEvidenceScore 3.0})
+              (candidate-row "src/noise-3.py"
+                             3
+                             3
+                             {:matchedTokenCount 1
+                              :sourceGraphCandidateEvidenceScore 2.9})
+              (candidate-row "src/noise-4.py"
+                             4
+                             4
+                             {:matchedTokenCount 1
+                              :sourceGraphCandidateEvidenceScore 2.8})
+              (candidate-row "src/noise-5.py"
+                             5
+                             5
+                             {:matchedTokenCount 1
+                              :sourceGraphCandidateEvidenceScore 2.7})
+              (candidate-row "src/flask/sansio/app.py"
+                             23
+                             26
+                             {:matchedTokenCount 2
+                              :sourceGraphCandidateEvidenceScore 6.1
+                              :candidateGrepScore 0.64
+                              :candidateLexicalComponentBoost 0.05})]
+        result (select-limited rows 5)
+        paths (mapv :path (:files result))]
+    (is (some #{"src/flask/sansio/app.py"} paths))
+    (is (not-any? #{"src/noise-5.py"} paths))
+    (is (= 5 (:candidateFileOnlySelected result)))))
+
+(deftest compact-output-reserves-query-matched-source-graph-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files (vec
+               (concat (mapv (fn [idx]
+                               (row (str "src/head-" idx ".py")
+                                    idx
+                                    {:docCount 1
+                                     :matchedTokenCount 2}))
+                             (range 1 13))
+                       [(row "src/flask/sansio/app.py"
+                             14
+                             {:candidateFileCount 1
+                              :docCount 0
+                              :entityCount 0
+                              :candidateSourceRank 26
+                              :matchedTokenCount 2
+                              :sourceGraphCandidateEvidenceScore 6.1
+                              :candidateGrepScore 0.64})]))
+        paths (mapv :path (compact-output files 12 nil))]
+    (is (some #{"src/flask/sansio/app.py"} paths))
+    (is (not-any? #{"src/head-12.py"} paths))))
 
 (deftest compact-output-reserves-doc-supported-and-identity-supported-rows
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files

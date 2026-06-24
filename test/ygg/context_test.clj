@@ -2776,6 +2776,73 @@
                                     :repo])
                    (:file by-kind)))))))
 
+(deftest source-graph-candidates-preserve-rare-query-token-source-rows
+  (let [generic-row (fn [idx]
+                      {:xt/id (str "node:generic:" idx)
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :path (format "src/flask/generic_%02d.py" idx)
+                       :kind :python-module
+                       :label "flask python framework runtime file case behavior"
+                       :name (str "generic_" idx)
+                       :source-line 1})
+        target-path "src/flask/sansio/app.py"
+        target-row {:xt/id "node:select-autoescape"
+                    :project-id "fixture"
+                    :repo-id "app"
+                    :path target-path
+                    :kind :method
+                    :label "flask.sansio.app/App.select_jinja_autoescape"
+                    :name "App.select_jinja_autoescape"
+                    :source-line 533}]
+    (with-redefs [context/source-graph-candidate-limit 3
+                  context/source-graph-neighbor-scan-limit 3
+                  store/xtdb-handle? (constantly true)
+                  store/rows-matching-any-token
+                  (fn [_ table fields tokens constraints ctx]
+                    (is (= {:valid-at "t"} ctx))
+                    (is (= #{"autoescape"
+                             "selection"
+                             "case"
+                             "insensitive"
+                             "flask"
+                             "python"
+                             "framework"
+                             "runtime"
+                             "file"
+                             "behavior"}
+                           (set tokens)))
+                    (case table
+                      :ygg/nodes
+                      (do
+                        (is (= [:path :label :name :kind] fields))
+                        (is (= {:project-id "fixture"
+                                :repo-id "app"}
+                               constraints))
+                        (conj (mapv generic-row (range 40)) target-row))
+
+                      :ygg/files
+                      (do
+                        (is (= [:path :kind] fields))
+                        (is (= {:project-id "fixture"
+                                :repo-id "app"
+                                :active? true}
+                               constraints))
+                        [])))
+                  query/edges-touching-node-ids (fn [& _] [])]
+      (let [rows (#'context/source-graph-candidates
+                  :xtdb
+                  (text/tokenize-all
+                   "autoescape selection case insensitive flask python framework runtime file behavior")
+                  {:project-id "fixture"
+                   :repo-id "app"
+                   :read-context {:valid-at "t"}})
+            target (first (filter #(= target-path (:path %)) rows))]
+        (is target)
+        (is (= "flask.sansio.app/App.select_jinja_autoescape"
+               (:label target)))
+        (is (<= (:rank target) 3))))))
+
 (deftest source-graph-candidates-include-bounded-neighbor-endpoint-files
   (with-redefs [store/xtdb-handle? (constantly true)
                 store/rows-matching-any-token
@@ -3348,6 +3415,20 @@
               "src/source-graph.js"
               "tests/third.js"]
              (mapv :path ranked))))))
+
+(deftest candidate-input-ranking-does-not-bury-source-graph-after-long-prefix
+  (let [results (mapv (fn [idx]
+                        {:path (format "src/noise_%02d.py" idx)
+                         :score (- 0.9 (* idx 0.01))})
+                      (range 30))
+        ranked (#'context/ranked-candidate-inputs
+                results
+                [{:path "src/flask/sansio/app.py"
+                  :score 10.1
+                  :label "flask.sansio.app/App.select_jinja_autoescape"}])
+        paths (mapv :path ranked)]
+    (is (= "src/noise_00.py" (first paths)))
+    (is (< (.indexOf paths "src/flask/sansio/app.py") 15))))
 
 (deftest context-packet-ranks-source-graph-candidates-before-low-score-results
   (with-redefs [context/candidate-input-retrieval-prefix-limit 0

@@ -14,6 +14,12 @@
   5)
 (def ^:private candidate-file-only-identity-reserve-limit
   2)
+(def ^:private candidate-file-only-query-evidence-reserve-limit
+  2)
+(def ^:private candidate-file-only-query-evidence-token-min
+  2)
+(def ^:private candidate-file-only-query-evidence-score-min
+  4.0)
 (def ^:private rank-score-token-cap
   5)
 (def ^:private rank-score-ordered-pair-cap
@@ -136,6 +142,12 @@
   0.15)
 (def ^:private rank-score-candidate-lexical-component-cap
   0.2)
+(def ^:private rank-score-candidate-grep-component-weight
+  2.0)
+(def ^:private rank-score-candidate-grep-component-cap
+  1.4)
+(def ^:private rank-score-candidate-grep-component-token-min
+  2)
 (def ^:private rank-score-graph-support-min
   0.5)
 (def ^:private rank-score-graph-lexical-support-min
@@ -643,6 +655,15 @@
          (* rank-score-candidate-lexical-component-weight
             (double candidate-lexical-score)))
     0.0))
+(defn- candidate-grep-component-boost
+  [candidate-grep-score matched-token-count]
+  (if (and (pos? (double candidate-grep-score))
+           (<= rank-score-candidate-grep-component-token-min
+               (long matched-token-count)))
+    (min rank-score-candidate-grep-component-cap
+         (* rank-score-candidate-grep-component-weight
+            (double candidate-grep-score)))
+    0.0))
 (defn- rare-query-token-score
   [doc-count graph-neighbor-score token-path-counts matched-tokens]
   (if (and (zero? (long doc-count))
@@ -918,6 +939,8 @@
                                     0.0))
             lexical-score (double (or (parse-double-safe (:lexical score-components))
                                       0.0))
+            grep-score (double (or (parse-double-safe (:grep score-components))
+                                   0.0))
             source-graph-score (double (or (parse-double-safe (:sourceGraph score-components))
                                            0.0))
             graph-score-supported? (or (>= (count matched-tokens) 2)
@@ -966,6 +989,9 @@
 
           (pos? lexical-score)
           (assoc :candidate-lexical-score lexical-score)
+
+          (pos? grep-score)
+          (assoc :candidate-grep-score grep-score)
 
           (= "file" target-kind)
           (assoc :direct-file-candidate? true)
@@ -1348,6 +1374,10 @@
                                                             0.0
                                                             (keep :candidate-lexical-score
                                                                   ordered))
+                             candidate-grep-score (apply max
+                                                         0.0
+                                                         (keep :candidate-grep-score
+                                                               ordered))
                              architecture-evidence-score (apply max
                                                                 0.0
                                                                 (keep #(when (:architecture-evidence? %)
@@ -1473,6 +1503,10 @@
                              candidate-lexical-component-boost
                              (candidate-lexical-component-boost
                               candidate-lexical-score)
+                             candidate-grep-component-boost
+                             (candidate-grep-component-boost
+                              candidate-grep-score
+                              (count matched-tokens))
                              direct-file-identity-support-boost
                              (direct-file-identity-support-boost
                               doc-count
@@ -1538,6 +1572,7 @@
                                            doc-supported-candidate-evidence-boost
                                            architecture-rank-boost
                                            candidate-lexical-component-boost
+                                           candidate-grep-component-boost
                                            rare-query-token-score
                                            direct-file-identity-support-boost
                                            candidate-file-identity-support-boost
@@ -1628,6 +1663,9 @@
                                        (pos? doc-supported-candidate-evidence-boost)
                                        (assoc :docSupportedCandidateEvidenceBoost
                                               doc-supported-candidate-evidence-boost)
+                                       (pos? source-graph-candidate-evidence-score)
+                                       (assoc :sourceGraphCandidateEvidenceScore
+                                              source-graph-candidate-evidence-score)
                                        (pos? architecture-rank-boost)
                                        (assoc :architectureSupportBoost
                                               architecture-rank-boost)
@@ -1640,6 +1678,12 @@
                                        (pos? candidate-lexical-component-boost)
                                        (assoc :candidateLexicalComponentBoost
                                               candidate-lexical-component-boost)
+                                       (pos? candidate-grep-score)
+                                       (assoc :candidateGrepScore
+                                              candidate-grep-score)
+                                       (pos? candidate-grep-component-boost)
+                                       (assoc :candidateGrepComponentBoost
+                                              candidate-grep-component-boost)
                                        (pos? rare-query-token-score)
                                        (assoc :rareQueryTokenScore
                                               rare-query-token-score))]
@@ -1687,6 +1731,7 @@
                                     :direct-file-candidate?
                                     :candidate-source-rank
                                     :candidate-lexical-score
+                                    :candidate-grep-score
                                     :candidate-support-label-count)
                             (assoc :rank (inc idx)))))
          vec)))
@@ -1903,6 +1948,20 @@
    (:repo-id row)
    (:path row)])
 
+(defn- ordered-distinct-file-rows
+  [rows]
+  (->> rows
+       (reduce (fn [selected row]
+                 (if (contains? (:keys selected) (file-row-key row))
+                   selected
+                   (-> selected
+                       (update :keys conj (file-row-key row))
+                       (update :rows conj row))))
+               {:keys #{}
+                :rows []})
+       :rows
+       vec))
+
 (defn- dense-file-identity-candidate-row?
   [row]
   (and (candidate-file-only-row? row)
@@ -1931,30 +1990,56 @@
        (take (min candidate-file-only-identity-reserve-limit quota))
        vec))
 
+(defn- query-evidence-source-candidate-row?
+  [row]
+  (and (candidate-file-only-row? row)
+       (<= candidate-file-only-query-evidence-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= candidate-file-only-query-evidence-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (or (pos? (row-metric-double row :candidateGrepScore))
+           (pos? (row-metric-double row :candidateLexicalComponentBoost))
+           (pos? (positive-metric row :matchedIdentityCompoundTokenPairCount)))))
+
+(defn- query-evidence-source-candidate-key
+  [row]
+  [(- (row-metric-double row :candidateGrepScore))
+   (- (positive-metric row :matchedIdentityCompoundTokenPairCount))
+   (- (positive-metric row :matchedCompoundTokenPairCount))
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
+   (- (row-metric-double row :candidateLexicalComponentBoost))
+   (:rank row)
+   (row-candidate-source-rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- query-evidence-source-candidate-rows
+  [candidate-file-only-rows quota]
+  (->> candidate-file-only-rows
+       (filter query-evidence-source-candidate-row?)
+       (sort-by query-evidence-source-candidate-key)
+       (take (min candidate-file-only-query-evidence-reserve-limit quota))
+       vec))
+
 (defn- candidate-file-only-selection
   [candidate-files quota]
   (if (pos? (long quota))
     (let [rows (sort-by row-source-order-key
                         (filter candidate-file-only-row? candidate-files))
           source-head (take quota rows)
-          source-head-keys (set (map file-row-key source-head))
           identity-rows (dense-file-identity-candidate-rows rows quota)
-          reserved-outside-head (->> identity-rows
-                                     (remove #(contains? source-head-keys
-                                                         (file-row-key %)))
-                                     count)
-          preserve-count (max 0 (- quota reserved-outside-head))]
-      (->> (concat (take preserve-count source-head)
-                   identity-rows)
-           (reduce (fn [selected row]
-                     (if (contains? (:keys selected) (file-row-key row))
-                       selected
-                       (-> selected
-                           (update :keys conj (file-row-key row))
-                           (update :rows conj row))))
-                   {:keys #{}
-                    :rows []})
-           :rows
+          query-evidence-rows (query-evidence-source-candidate-rows rows quota)
+          reserve-rows (->> (concat identity-rows query-evidence-rows)
+                            ordered-distinct-file-rows
+                            (take quota)
+                            vec)
+          reserve-keys (set (map file-row-key reserve-rows))]
+      (->> (concat reserve-rows
+                   (remove #(contains? reserve-keys (file-row-key %))
+                           source-head))
+           ordered-distinct-file-rows
+           (take quota)
            vec))
     []))
 
@@ -2465,6 +2550,14 @@
        (sort-by compact-output-identity-supported-key)
        first))
 
+(defn- compact-output-query-evidence-source-row
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (query-evidence-source-candidate-row? %)))
+       (sort-by query-evidence-source-candidate-key)
+       first))
+
 (defn- add-compact-output-row
   [selected row]
   (if (and row (not (contains? (:keys selected) (file-row-key row))))
@@ -2518,6 +2611,11 @@
                          (reduce add-compact-output-row
                                  selected
                                  (take head-count files))))
+            selected (add-compact-output-row
+                      selected
+                      (compact-output-query-evidence-source-row
+                       files
+                       (:keys selected)))
             minimum-count (min limit 2)
             selected (if (< (count (:rows selected)) minimum-count)
                        (reduce add-compact-output-row

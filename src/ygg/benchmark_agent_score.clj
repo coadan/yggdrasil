@@ -84,8 +84,11 @@
                  "graphNeighborScore" {"type" "number"}
                  "graphNeighborBoost" {"type" "number"}
                  "docSupportedCandidateEvidenceBoost" {"type" "number"}
+                 "sourceGraphCandidateEvidenceScore" {"type" "number"}
                  "architectureSupportBoost" {"type" "number"}
                  "candidateLexicalComponentBoost" {"type" "number"}
+                 "candidateGrepScore" {"type" "number"}
+                 "candidateGrepComponentBoost" {"type" "number"}
                  "robustCandidateOnlyBoost" {"type" "number"}
                  "cosine" {"type" "number"
                            "minimum" -1
