@@ -1418,41 +1418,44 @@
                                                    docs
                                                    default-path-token-candidates)
         path-token-match-counts (:match-counts path-token-data)
-        semantic-candidates (when (not= :lexical retriever)
-                              (concat (top-ids semantic default-semantic-candidates)
-                                      (top-ids-by-kind semantic
-                                                       docs
-                                                       default-kind-candidates)))
-        lexical-candidates (when (not= :semantic retriever)
-                             (concat (top-ids lexical default-lexical-candidates)
-                                     (top-ids-by-kind lexical
-                                                      docs
-                                                      default-kind-candidates)))
-        grep-candidates (when (not= :semantic retriever)
-                          (top-ids grep default-lexical-candidates))
+        semantic-candidates (if (not= :lexical retriever)
+                              (into (set (top-ids semantic default-semantic-candidates))
+                                    (top-ids-by-kind semantic
+                                                     docs
+                                                     default-kind-candidates))
+                              #{})
+        lexical-candidates (if (not= :semantic retriever)
+                             (into (set (top-ids lexical default-lexical-candidates))
+                                   (top-ids-by-kind lexical
+                                                    docs
+                                                    default-kind-candidates))
+                             #{})
+        grep-candidates (if (not= :semantic retriever)
+                          (set (top-ids grep default-lexical-candidates))
+                          #{})
         exact-path-candidates (exact-path-candidate-ids query
                                                         query-path-shaped?
                                                         docs)
         path-token-candidates (:candidate-ids path-token-data)
-        same-label-candidates (keys same-label-scores)
+        same-label-candidates (set (keys same-label-scores))
         candidates (case retriever
-                     :semantic (set (concat semantic-candidates
-                                            exact-path-candidates
-                                            path-token-candidates
-                                            same-label-candidates))
-                     :lexical (set (concat lexical-candidates
-                                           grep-candidates
-                                           exact-path-candidates
-                                           path-token-candidates
-                                           (keys neighbor-scores)
-                                           same-label-candidates))
-                     (set (concat semantic-candidates
-                                  lexical-candidates
-                                  grep-candidates
-                                  exact-path-candidates
-                                  path-token-candidates
-                                  (keys neighbor-scores)
-                                  same-label-candidates)))
+                     :semantic (-> semantic-candidates
+                                   (into exact-path-candidates)
+                                   (into path-token-candidates)
+                                   (into same-label-candidates))
+                     :lexical (-> lexical-candidates
+                                  (into grep-candidates)
+                                  (into exact-path-candidates)
+                                  (into path-token-candidates)
+                                  (into (keys neighbor-scores))
+                                  (into same-label-candidates))
+                     (-> semantic-candidates
+                         (into lexical-candidates)
+                         (into grep-candidates)
+                         (into exact-path-candidates)
+                         (into path-token-candidates)
+                         (into (keys neighbor-scores))
+                         (into same-label-candidates)))
         rank-limit (long (or limit Long/MAX_VALUE))
         rank-data (reduce
                    (fn [rank-data doc]
@@ -1511,12 +1514,12 @@
                     :candidate-doc-count 0
                     :candidates-by-kind (sorted-map)}
                    docs)]
-    {:semantic-candidates (set semantic-candidates)
-     :lexical-candidates (set lexical-candidates)
-     :grep-candidates (set grep-candidates)
+    {:semantic-candidates semantic-candidates
+     :lexical-candidates lexical-candidates
+     :grep-candidates grep-candidates
      :exact-path-candidates (set exact-path-candidates)
      :path-token-candidates (set path-token-candidates)
-     :same-label-candidates (set same-label-candidates)
+     :same-label-candidates same-label-candidates
      :candidates candidates
      :candidate-doc-count (:candidate-doc-count rank-data)
      :candidates-by-kind (:candidates-by-kind rank-data)
@@ -1599,26 +1602,26 @@
                                         :semantic-score-ms 0)])
         [seed-data timings] (timed timings
                                    :seed-selection-ms
-                                   #(let [base-seed-ids (set (concat
-                                                              (top-ids semantic
-                                                                       default-seed-count)
+                                   #(let [base-seed-ids (into (set (top-ids semantic
+                                                                            default-seed-count))
                                                               (top-ids lexical
-                                                                       default-seed-count)))
-                                          grep-seed-ids (when (not= :semantic retriever)
-                                                          (top-ids grep default-seed-count))
-                                          retrieval-seed-ids (set (concat base-seed-ids
-                                                                          grep-seed-ids))
+                                                                       default-seed-count))
+                                          grep-seed-ids (if (not= :semantic retriever)
+                                                          (set (top-ids grep default-seed-count))
+                                                          #{})
+                                          retrieval-seed-ids (into base-seed-ids
+                                                                   grep-seed-ids)
                                           same-label-data (same-label-expansion
                                                            docs
                                                            retrieval-seed-ids)
                                           same-label-ids (:node-ids same-label-data)
                                           same-label-scores (:doc-scores same-label-data)]
                                       {:base-seed-ids base-seed-ids
-                                       :grep-seed-ids (set grep-seed-ids)
+                                       :grep-seed-ids grep-seed-ids
                                        :same-label-ids same-label-ids
                                        :same-label-scores same-label-scores
-                                       :seed-ids (set (concat retrieval-seed-ids
-                                                              same-label-ids))}))
+                                       :seed-ids (into retrieval-seed-ids
+                                                       same-label-ids)}))
         [edges timings] (timed timings
                                :load-edges-ms
                                #(edges-touching-ids xtdb (:seed-ids seed-data) scope))
