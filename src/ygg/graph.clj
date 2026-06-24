@@ -92,6 +92,13 @@
   [edge]
   (or (:target-id edge) (:target edge)))
 
+(defn- edge-endpoint-id-set
+  [edges]
+  (reduce (fn [ids edge]
+            (conj ids (edge-source edge) (edge-target edge)))
+          #{}
+          edges))
+
 (defn- increment-degree
   [degree id]
   (update degree id (fnil inc 0)))
@@ -249,20 +256,26 @@
   [scope]
   (select-keys scope [:project-id :repo-id]))
 
+(defn- distinct-active-rows-by-id
+  [rows]
+  (loop [remaining (seq rows)
+         seen #{}
+         out []]
+    (if-let [row (first remaining)]
+      (let [id (:xt/id row)]
+        (if (and (:active? row)
+                 (not (contains? seen id)))
+          (recur (next remaining) (conj seen id) (conj out row))
+          (recur (next remaining) seen out)))
+      out)))
+
 (defn- active-edge-rows-touching-ids
   [xtdb ids scope]
-  (->> (store/edge-rows-touching-ids xtdb
-                                     ids
-                                     (scope-constraints scope)
-                                     (store/read-context (:read-context scope)))
-       (filter :active?)
-       (reduce (fn [[rows seen] row]
-                 (let [id (:xt/id row)]
-                   (if (contains? seen id)
-                     [rows seen]
-                     [(conj rows row) (conj seen id)])))
-               [[] #{}])
-       first))
+  (distinct-active-rows-by-id
+   (store/edge-rows-touching-ids xtdb
+                                 ids
+                                 (scope-constraints scope)
+                                 (store/read-context (:read-context scope)))))
 
 (defn- expand-node-ids-bounded
   [xtdb seed-ids depth scope]
@@ -272,9 +285,7 @@
     (if (or (zero? remaining) (empty? frontier))
       seen
       (let [edges (active-edge-rows-touching-ids xtdb frontier scope)
-            next-ids (->> edges
-                          (mapcat (juxt :source-id :target-id))
-                          set)]
+            next-ids (edge-endpoint-id-set edges)]
         (recur (set/difference next-ids seen)
                (into seen next-ids)
                (dec remaining))))))
@@ -312,29 +323,17 @@
    :active?
    :run-id])
 
-(defn- distinct-rows-by-id
-  [rows]
-  (->> rows
-       (reduce (fn [[out seen] row]
-                 (let [id (:xt/id row)]
-                   (if (contains? seen id)
-                     [out seen]
-                     [(conj out row) (conj seen id)])))
-               [[] #{}])
-       first))
-
 (defn- active-edge-rows-targeting-ids
   [xtdb ids scope]
   (let [ids (into [] (comp (remove nil?) (distinct)) ids)]
-    (->> (store/rows-with-field-values xtdb
-                                       {:table (:edges store/tables)
-                                        :field :target-id
-                                        :values ids
-                                        :constraints (scope-constraints scope)
-                                        :return-fields package-edge-row-query-fields
-                                        :read-context (store/read-context (:read-context scope))})
-         (filter :active?)
-         distinct-rows-by-id)))
+    (distinct-active-rows-by-id
+     (store/rows-with-field-values xtdb
+                                   {:table (:edges store/tables)
+                                    :field :target-id
+                                    :values ids
+                                    :constraints (scope-constraints scope)
+                                    :return-fields package-edge-row-query-fields
+                                    :read-context (store/read-context (:read-context scope))}))))
 
 (defn- package-deps-edges-bounded
   [xtdb package-id scope]
@@ -626,7 +625,7 @@
                  detail
                  (salience/semantic-connections project-id nodes raw-edges)))
         degree (degree-map edges)
-        incident-node-ids (set (mapcat (juxt edge-source edge-target) edges))
+        incident-node-ids (edge-endpoint-id-set edges)
         chosen (let [ranked (->> nodes
                                  (filter #(or (= :raw detail)
                                               (contains? incident-node-ids (:xt/id %))))
