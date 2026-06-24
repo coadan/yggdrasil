@@ -506,7 +506,7 @@
   [args]
   (cli-sync/sync-dispatch! args (sync-deps)))
 
-(defn- query-deps
+(defn query-deps
   []
   {:usage usage
    :print-json print-json
@@ -696,7 +696,7 @@
     "  hook status <project.edn>"
     ""
     "Server integration:"
-    "  daemon start|status|stop"
+    "  daemon start|status|stop|query <text> ..."
     "  mcp [--root DIR] [--config project.edn] [--map ygg.map.json] [--queue-dir DIR] [--tools default,sync,work|all]"
     ""
     "Benchmarks:"

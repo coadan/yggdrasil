@@ -452,46 +452,50 @@
      :provider provider
      :model model
      :embedding-client embedding-client}))
-(defn query!
-  [args]
+(defn query-with-node!
+  [xtdb args]
   (let [query-text (str/join " " (positional-args args))
         {:keys [retriever embedding-client]} (retrieval-options args)
         {:keys [project-id repo-id]} (project-scope args)
         temporal (temporal-options args)]
     (when (str/blank? query-text)
       (throw (ex-info "Missing query text." {:usage (usage)})))
-    (store/with-node (store/storage-path)
-      (fn [xtdb]
-        (if (json-output? args)
-          (print-json
-           (context/context-packet xtdb
-                                   query-text
-                                   (context-packet-options xtdb
-                                                           args
-                                                           {:project-id project-id
-                                                            :repo-id repo-id
-                                                            :retriever retriever
-                                                            :embedding-client embedding-client
-                                                            :read-context temporal})))
-          (let [results (query/semantic-query xtdb
-                                              query-text
-                                              {:limit (or (parse-limit args) 10)
-                                               :retriever retriever
-                                               :embedding-client embedding-client
-                                               :project-id project-id
-                                               :repo-id repo-id
-                                               :read-context temporal})]
-            (if (seq results)
-              (doseq [result results]
-                (print-query-result result))
-              (print-query-no-results xtdb
-                                      query-text
-                                      {:project-id project-id
-                                       :repo-id repo-id
-                                       :retriever retriever
-                                       :embedding-client embedding-client
-                                       :temporal temporal
-                                       :args args}))))))))
+    (if (json-output? args)
+      (print-json
+       (context/context-packet xtdb
+                               query-text
+                               (context-packet-options xtdb
+                                                       args
+                                                       {:project-id project-id
+                                                        :repo-id repo-id
+                                                        :retriever retriever
+                                                        :embedding-client embedding-client
+                                                        :read-context temporal})))
+      (let [results (query/semantic-query xtdb
+                                          query-text
+                                          {:limit (or (parse-limit args) 10)
+                                           :retriever retriever
+                                           :embedding-client embedding-client
+                                           :project-id project-id
+                                           :repo-id repo-id
+                                           :read-context temporal})]
+        (if (seq results)
+          (doseq [result results]
+            (print-query-result result))
+          (print-query-no-results xtdb
+                                  query-text
+                                  {:project-id project-id
+                                   :repo-id repo-id
+                                   :retriever retriever
+                                   :embedding-client embedding-client
+                                   :temporal temporal
+                                   :args args}))))))
+
+(defn query!
+  [args]
+  (store/with-node (store/storage-path)
+    (fn [xtdb]
+      (query-with-node! xtdb args))))
 (defn view!
   [args]
   (let [format (keyword (or (option-value args "--format") "html"))

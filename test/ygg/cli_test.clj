@@ -47,7 +47,7 @@
     (is (str/includes? usage "Server integration:"))
     (is (str/includes? usage "start <repo-root>"))
     (is (str/includes? usage "sync inspect <project.edn> [--map PATH] [--json]"))
-    (is (str/includes? usage "daemon start|status|stop"))
+    (is (str/includes? usage "daemon start|status|stop|query"))
     (is (str/includes? usage "audit-scope <project.edn>"))
     (is (str/includes? usage "sync <project.edn>"))
     (is (str/includes? usage "init <repo-root>"))

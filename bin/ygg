@@ -18,7 +18,7 @@ export YGG_HOME=${YGG_HOME:-$REPO_DIR}
 
 MAIN=ygg.cli
 if [ "${1:-}" = "daemon" ]; then
-  if { [ "${2:-}" = "status" ] || [ "${2:-}" = "stop" ]; } && command -v python3 >/dev/null 2>&1; then
+  if { [ "${2:-}" = "status" ] || [ "${2:-}" = "stop" ] || [ "${2:-}" = "query" ]; } && command -v python3 >/dev/null 2>&1; then
     shift
     python3 "$REPO_DIR/scripts/ygg-daemon-client.py" "$@"
     exit "$?"
@@ -37,6 +37,18 @@ elif [ "${1:-}" = "sync" ] && [ "${2:-}" = "inspect" ]; then
     fi
   fi
   MAIN=ygg.cli-sync-inspect
+elif [ "${1:-}" = "query" ]; then
+  shift
+  if command -v python3 >/dev/null 2>&1; then
+    set +e
+    python3 "$REPO_DIR/scripts/ygg-daemon-client.py" query "$@"
+    STATUS=$?
+    set -e
+    if [ "$STATUS" -ne 75 ]; then
+      exit "$STATUS"
+    fi
+  fi
+  set -- query "$@"
 fi
 
 exec clojure \

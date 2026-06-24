@@ -19,10 +19,10 @@
                       (System/exit exit)))
                   (apply shell "clojure" "-M:run" "-m" "ygg.cli" "sync" args)))}
 
-  daemon {:doc "Run or control the local Yggdrasil daemon. Usage: bb daemon start|status|stop"
+  daemon {:doc "Run or control the local Yggdrasil daemon. Usage: bb daemon start|status|stop|query"
           :task (let [command (first *command-line-args*)
                       args *command-line-args*
-                      {:keys [exit]} (if (#{"status" "stop"} command)
+                      {:keys [exit]} (if (#{"status" "stop" "query"} command)
                                        (apply shell
                                               {:continue true}
                                               "python3"
@@ -38,8 +38,16 @@
                   (System/exit exit))}
 
   query {:doc "Query the current graph. Usage: bb query \"text\" [--project ID]"
-         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "query"
-                      *command-line-args*)}
+         :task (let [args *command-line-args*
+                     {:keys [exit]} (apply shell
+                                           {:continue true}
+                                           "python3"
+                                           "scripts/ygg-daemon-client.py"
+                                           "query"
+                                           args)]
+                 (if (= 75 exit)
+                   (apply shell "clojure" "-M:run" "-m" "ygg.cli" "query" args)
+                   (System/exit exit)))}
 
   view {:doc "Render or export graph slices. Usage: bb view overview|deps|query|systems ..."
         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "view"

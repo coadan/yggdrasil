@@ -1,6 +1,8 @@
 (ns ygg.daemon
   "Local warm daemon for latency-sensitive Yggdrasil commands."
-  (:require [ygg.cli-sync-inspect :as sync-inspect]
+  (:require [ygg.cli :as cli]
+            [ygg.cli-query :as cli-query]
+            [ygg.cli-sync-inspect :as sync-inspect]
             [ygg.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -101,6 +103,24 @@
       (catch Exception e
         (update (error-response e) :err #(str err %))))))
 
+(defn- query-response
+  [xtdb request]
+  (let [out (StringWriter.)
+        err (StringWriter.)]
+    (try
+      (binding [*out* out
+                *err* err
+                cli-query/*deps* (cli/query-deps)]
+        (cli-query/query-with-node! xtdb (:args request))
+        {:ok true
+         :exit 0
+         :out (str out)
+         :err (str err)})
+      (catch Exception e
+        (-> (error-response e)
+            (assoc :out (str out))
+            (update :err #(str err %)))))))
+
 (defn handle-request
   "Handle one decoded daemon protocol request."
   [{:keys [xtdb running server] :as ctx} request]
@@ -118,6 +138,9 @@
 
       "sync-inspect"
       (sync-inspect-response xtdb request)
+
+      "query"
+      (query-response xtdb request)
 
       "stop"
       (do
@@ -219,7 +242,7 @@
 
 (defn- usage
   []
-  "Usage: ygg daemon start|status|stop")
+  "Usage: ygg daemon start|status|stop|query <text> ...")
 
 (defn -main
   [& args]
@@ -235,6 +258,9 @@
 
         "stop"
         (print-response! (request "stop" command-args))
+
+        "query"
+        (print-response! (request "query" command-args))
 
         (do
           (println (usage))
