@@ -8,8 +8,20 @@
   sync {:doc "Sync Yggdrasil with a project. Usage: bb sync <project.edn> [--check] [--enqueue] [--query-index]"
         :task (let [args *command-line-args*]
                 (if (= "inspect" (first args))
-                  (apply shell "clojure" "-M:run" "-m" "ygg.cli-sync-inspect" (rest args))
+                  (let [{:keys [exit]} (apply shell
+                                              {:continue true}
+                                              "python3"
+                                              "scripts/ygg-daemon-client.py"
+                                              "sync-inspect"
+                                              (rest args))]
+                    (if (= 75 exit)
+                      (apply shell "clojure" "-M:run" "-m" "ygg.cli-sync-inspect" (rest args))
+                      (System/exit exit)))
                   (apply shell "clojure" "-M:run" "-m" "ygg.cli" "sync" args)))}
+
+  daemon {:doc "Run or control the local Yggdrasil daemon. Usage: bb daemon start|status|stop"
+          :task (apply shell "clojure" "-M:run" "-m" "ygg.daemon"
+                       *command-line-args*)}
 
   query {:doc "Query the current graph. Usage: bb query \"text\" [--project ID]"
          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "query"

@@ -152,28 +152,58 @@
    :print-json print-json
    :default-map-path default-map-path})
 
+(declare print-project-status-on-node-with-deps!)
+
 (defn print-project-status-with-deps!
   ([config-path args deps]
    (when-not config-path
      (throw (ex-info "Missing project config path." {:usage ((:usage deps))})))
    (print-project-status-with-deps! (project/read-project config-path) config-path args deps))
   ([project config-path args deps]
-   (let [map-path ((:default-map-path deps) args)]
-     (store/with-node (store/storage-path)
-       (fn [xtdb]
-         (let [result (project-inspect-result xtdb
-                                              project
-                                              {:config-path config-path
-                                               :map-path map-path})]
-           (if (json-output? args)
-             ((:print-json deps) result)
-             (print-project-inspect result))))))))
+   (store/with-node (store/storage-path)
+     (fn [xtdb]
+       (print-project-status-on-node-with-deps! xtdb project config-path args deps)))))
+
+(defn print-project-status-result!
+  [result args deps]
+  (if (json-output? args)
+    ((:print-json deps) result)
+    (print-project-inspect result)))
+
+(defn print-project-status-on-node-with-deps!
+  ([xtdb config-path args deps]
+   (when-not config-path
+     (throw (ex-info "Missing project config path." {:usage ((:usage deps))})))
+   (print-project-status-on-node-with-deps!
+    xtdb
+    (project/read-project config-path)
+    config-path
+    args
+    deps))
+  ([xtdb project config-path args deps]
+   (let [map-path ((:default-map-path deps) args)
+         result (project-inspect-result xtdb
+                                        project
+                                        {:config-path config-path
+                                         :map-path map-path})]
+     (print-project-status-result! result args deps))))
 
 (defn print-project-status!
   ([config-path args]
    (print-project-status-with-deps! config-path args (default-deps)))
   ([project config-path args]
    (print-project-status-with-deps! project config-path args (default-deps))))
+
+(defn print-project-status-on-node!
+  [xtdb config-path args]
+  (print-project-status-on-node-with-deps! xtdb config-path args (default-deps)))
+
+(defn project-status-output
+  [xtdb args]
+  (let [args (vec args)
+        config-path (first (positional-args args))]
+    (with-out-str
+      (print-project-status-on-node! xtdb config-path args))))
 
 (defn -main
   [& args]

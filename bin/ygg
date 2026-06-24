@@ -17,9 +17,21 @@ EDN_REPO_DIR=$(printf '%s' "$REPO_DIR" | sed 's/\\/\\\\/g; s/"/\\"/g')
 export YGG_HOME=${YGG_HOME:-$REPO_DIR}
 
 MAIN=ygg.cli
-if [ "${1:-}" = "sync" ] && [ "${2:-}" = "inspect" ]; then
-  MAIN=ygg.cli-sync-inspect
+if [ "${1:-}" = "daemon" ]; then
+  MAIN=ygg.daemon
+  shift
+elif [ "${1:-}" = "sync" ] && [ "${2:-}" = "inspect" ]; then
   shift 2
+  if command -v python3 >/dev/null 2>&1; then
+    set +e
+    python3 "$REPO_DIR/scripts/ygg-daemon-client.py" sync-inspect "$@"
+    STATUS=$?
+    set -e
+    if [ "$STATUS" -ne 75 ]; then
+      exit "$STATUS"
+    fi
+  fi
+  MAIN=ygg.cli-sync-inspect
 fi
 
 exec clojure \
