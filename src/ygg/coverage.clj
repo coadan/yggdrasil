@@ -102,19 +102,21 @@
         files (vec files)
         skipped (vec (skipped-files files))
         sample-fn #(skipped-row-sample id %)]
-    {:repo-id id
-     :role role
-     :root root
-     :totals (totals files)
-     :files-by-kind (count-rows :kind :kind (supported-files files))
-     :files-by-extension (count-rows :ext :ext files)
-     :skipped-by-extension (count-rows-with-samples :ext :ext sample-fn skipped)
-     :skipped-by-reason (count-rows-with-samples :reason
-                                                 :skip-reason
-                                                 sample-fn
-                                                 skipped)
-     :extractors (extractor-rows files)
-     :skipped-samples (skipped-samples files)}))
+    (with-meta
+      {:repo-id id
+       :role role
+       :root root
+       :totals (totals files)
+       :files-by-kind (count-rows :kind :kind (supported-files files))
+       :files-by-extension (count-rows :ext :ext files)
+       :skipped-by-extension (count-rows-with-samples :ext :ext sample-fn skipped)
+       :skipped-by-reason (count-rows-with-samples :reason
+                                                   :skip-reason
+                                                   sample-fn
+                                                   skipped)
+       :extractors (extractor-rows files)
+       :skipped-samples (skipped-samples files)}
+      {:coverage-files files})))
 
 (defn- merge-counts
   [repos k label-key]
@@ -558,6 +560,11 @@
   ([xtdb {:keys [id repos path] :as _project} {:keys [config-path]}]
    (let [indexed-rows (indexed-project-rows xtdb id)
          repos (mapv repo-coverage repos)
+         coverage-files-by-repo (into {}
+                                      (map (fn [repo]
+                                             [(:repo-id repo)
+                                              (:coverage-files (meta repo))]))
+                                      repos)
          report {:schema schema
                  :project-id id
                  :totals (project-totals repos)
@@ -576,5 +583,7 @@
                  :diagnostics (diagnostics-summary indexed-rows)
                  :repos repos}
          actions (coverage-next-actions report (or config-path path))]
-     (cond-> report
-       (seq actions) (assoc :nextActions actions)))))
+     (with-meta
+       (cond-> report
+         (seq actions) (assoc :nextActions actions))
+       {:coverage-files-by-repo coverage-files-by-repo}))))

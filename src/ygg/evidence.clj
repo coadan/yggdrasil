@@ -809,44 +809,55 @@
        :error {:class (.getName (class e))
                :message (ex-message e)}})))
 
+(defn- coverage-current-files
+  [repo-id root coverage-files]
+  {:repo-id repo-id
+   :root root
+   :files (->> coverage-files
+               (filter :supported?)
+               (mapv #(select-keys % [:path])))})
+
 (defn- repo-freshness
-  [indexed-files {:keys [id root] :as repo}]
-  (let [scan (current-files repo)
-        indexed (filter #(= id (:repo-id %)) indexed-files)
-        indexed-by-path (into {} (map (juxt :path identity)) indexed)
-        current-by-path (into {} (map (juxt :path identity)) (:files scan))
-        indexed-paths (set (keys indexed-by-path))
-        current-paths (set (keys current-by-path))
-        missing (sort (remove current-paths indexed-paths))
-        unindexed (sort (remove indexed-paths current-paths))
-        changed (->> (set/intersection indexed-paths current-paths)
-                     (filter (fn [path]
-                               (not= (:content-sha (get indexed-by-path path))
-                                     (:content-sha (get current-by-path path)))))
-                     sort
-                     vec)
-        status (cond
-                 (:error scan) :unknown
-                 (and (zero? (count indexed))
-                      (zero? (count (:files scan)))) :empty
-                 (zero? (count indexed)) :unsynced
-                 (seq (concat missing unindexed changed)) :stale
-                 :else :current)]
-    (cond-> {:repo-id id
-             :root root
-             :status status
-             :counts {:indexed (count indexed)
-                      :current (count (:files scan))
-                      :changed (count changed)
-                      :missing (count missing)
-                      :unindexed (count unindexed)}}
-      (:error scan) (assoc :error (:error scan))
-      (seq changed) (assoc-in [:samples :changed]
-                              (mapv #(path-sample id %) (take freshness-sample-limit changed)))
-      (seq missing) (assoc-in [:samples :missing]
-                              (mapv #(path-sample id %) (take freshness-sample-limit missing)))
-      (seq unindexed) (assoc-in [:samples :unindexed]
-                                (mapv #(path-sample id %) (take freshness-sample-limit unindexed))))))
+  ([indexed-files repo] (repo-freshness indexed-files repo nil))
+  ([indexed-files {:keys [id root] :as repo} coverage-files]
+   (let [indexed (filter #(= id (:repo-id %)) indexed-files)
+         scan (if (and (empty? indexed) (some? coverage-files))
+                (coverage-current-files id root coverage-files)
+                (current-files repo))
+         indexed-by-path (into {} (map (juxt :path identity)) indexed)
+         current-by-path (into {} (map (juxt :path identity)) (:files scan))
+         indexed-paths (set (keys indexed-by-path))
+         current-paths (set (keys current-by-path))
+         missing (sort (remove current-paths indexed-paths))
+         unindexed (sort (remove indexed-paths current-paths))
+         changed (->> (set/intersection indexed-paths current-paths)
+                      (filter (fn [path]
+                                (not= (:content-sha (get indexed-by-path path))
+                                      (:content-sha (get current-by-path path)))))
+                      sort
+                      vec)
+         status (cond
+                  (:error scan) :unknown
+                  (and (zero? (count indexed))
+                       (zero? (count (:files scan)))) :empty
+                  (zero? (count indexed)) :unsynced
+                  (seq (concat missing unindexed changed)) :stale
+                  :else :current)]
+     (cond-> {:repo-id id
+              :root root
+              :status status
+              :counts {:indexed (count indexed)
+                       :current (count (:files scan))
+                       :changed (count changed)
+                       :missing (count missing)
+                       :unindexed (count unindexed)}}
+       (:error scan) (assoc :error (:error scan))
+       (seq changed) (assoc-in [:samples :changed]
+                               (mapv #(path-sample id %) (take freshness-sample-limit changed)))
+       (seq missing) (assoc-in [:samples :missing]
+                               (mapv #(path-sample id %) (take freshness-sample-limit missing)))
+       (seq unindexed) (assoc-in [:samples :unindexed]
+                                 (mapv #(path-sample id %) (take freshness-sample-limit unindexed)))))))
 
 (defn- freshness-status
   [repo-statuses]
@@ -862,20 +873,25 @@
   (merge-with + a b))
 
 (defn- freshness-summary
-  [indexed-files project repo-id]
-  (let [repos (cond->> (:repos project)
-                repo-id (filter #(= repo-id (:id %))))
-        repo-statuses (mapv #(repo-freshness indexed-files %) repos)
-        counts (reduce add-counts
-                       {:indexed 0
-                        :current 0
-                        :changed 0
-                        :missing 0
-                        :unindexed 0}
-                       (map :counts repo-statuses))]
-    {:status (freshness-status repo-statuses)
-     :counts counts
-     :repos repo-statuses}))
+  ([indexed-files project repo-id]
+   (freshness-summary indexed-files project repo-id nil))
+  ([indexed-files project repo-id coverage-files-by-repo]
+   (let [repos (cond->> (:repos project)
+                 repo-id (filter #(= repo-id (:id %))))
+         repo-statuses (mapv #(repo-freshness indexed-files
+                                              %
+                                              (get coverage-files-by-repo (:id %)))
+                             repos)
+         counts (reduce add-counts
+                        {:indexed 0
+                         :current 0
+                         :changed 0
+                         :missing 0
+                         :unindexed 0}
+                        (map :counts repo-statuses))]
+     {:status (freshness-status repo-statuses)
+      :counts counts
+      :repos repo-statuses})))
 
 (defn- query-index-missing?
   [counts]
@@ -916,6 +932,7 @@
         project-scope (scope {:project-id (:id project)
                               :read-context read-context})
         coverage-report (coverage/project-coverage xtdb project opts)
+        coverage-files-by-repo (:coverage-files-by-repo (meta coverage-report))
         package-report (dependency/package-report xtdb
                                                   {:project-id (:id project)
                                                    :repo-id repo-id}
@@ -952,7 +969,7 @@
         system-node-count (active-row-total xtdb (:system-nodes store/tables) project-scope)
         system-edge-count (active-row-total xtdb (:system-edges store/tables) project-scope)
         activity-summary-counts (activity-counts xtdb (:id project) read-context)
-        freshness (freshness-summary files project repo-id)
+        freshness (freshness-summary files project repo-id coverage-files-by-repo)
         counts (merge {:files (count files)
                        :file-facts file-fact-count
                        :nodes node-count
