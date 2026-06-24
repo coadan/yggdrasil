@@ -92,9 +92,18 @@
   [edge]
   (or (:target-id edge) (:target edge)))
 
+(defn- increment-degree
+  [degree id]
+  (update degree id (fnil inc 0)))
+
 (defn- degree-map
   [edges]
-  (frequencies (mapcat (juxt edge-source edge-target) edges)))
+  (reduce (fn [degree edge]
+            (-> degree
+                (increment-degree (edge-source edge))
+                (increment-degree (edge-target edge))))
+          {}
+          edges))
 
 (defn- value-string
   [value]
