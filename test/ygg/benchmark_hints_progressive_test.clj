@@ -74,6 +74,29 @@
                                           :kind "namespace"}
                                          {:path "lib/core/pool.js"
                                           :kind "namespace"}]}]
+               :preparedLocalization
+               {:basis "mechanical prepared localization candidates from parser/source declarations"
+                :candidates [{:rank 1
+                              :path "lib/adapters/http.js"
+                              :confidence 0.9
+                              :reason (apply str (repeat 30 "prepared "))
+                              :metrics {:declarationCount 1}
+                              :evidence ["prepared-declaration:lib/adapters/http.js lines 24-26 kind=function label=\"setProxy\""
+                                         "prepared-top-file:lib/adapters/http.js rank=1"]
+                              :declarations [{:rank 1
+                                              :path "lib/adapters/http.js"
+                                              :label "setProxy"
+                                              :kind "function"
+                                              :sourceLine 24
+                                              :endLine 26
+                                              :matchedTokens ["proxy"]}]}
+                             {:rank 2
+                              :path "tests/unit/adapters/http.test.js"
+                              :confidence 0.4
+                              :reason "test candidate"
+                              :metrics {:declarationCount 0}
+                              :evidence ["prepared-file-candidate:tests/unit/adapters/http.test.js rank=2"]
+                              :declarations []}]}
                :topSymbols [{:rank 1
                              :name "setProxy"
                              :path "lib/adapters/http.js"
@@ -119,6 +142,8 @@
                            :related-files 1
                            :import-packages 1
                            :import-package-files 1
+                           :prepared-localization-candidates 1
+                           :prepared-localization-declarations 1
                            :candidate-systems 1
                            :commands 1
                            :audit-scopes 1
@@ -137,6 +162,7 @@
             :topDocs 1
             :relatedFiles 1
             :importPackages 1
+            :preparedLocalization 2
             :candidateSystems 1
             :commands 2
             :auditScopes 0}
@@ -162,6 +188,21 @@
              :files [{:path "lib/core/connection.js"
                       :kind "namespace"}]}]
            (:importPackages compact)))
+    (is (= [{:rank 1
+             :path "lib/adapters/http.js"
+             :confidence 0.9
+             :reason "prepared prepared prepared [truncated]"
+             :evidence ["prepared-declaration:lib/adapters/http.js lines 24-26 kind=function label=\"setProxy\""]
+             :evidenceCount 2
+             :declarations [{:rank 1
+                             :path "lib/adapters/http.js"
+                             :label "setProxy"
+                             :kind "function"
+                             :sourceLine 24
+                             :endLine 26
+                             :matchedTokens ["proxy"]}]
+             :metrics {:declarationCount 1}}]
+           (get-in compact [:preparedLocalization :candidates])))
     (is (= 2 (get-in compact [:topFiles 0 :evidenceCount])))
     (is (= ["context-doc:lib/adapters/http.js lines 24-26"]
            (get-in compact [:topFiles 0 :evidence])))

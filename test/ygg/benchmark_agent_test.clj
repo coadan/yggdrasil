@@ -345,6 +345,8 @@
     (is (str/includes? prompt
                        "`jq '{selection,topFiles:[((.topFiles//[])[:8])[]|{rank,path}]"))
     (is (str/includes? prompt
+                       "preparedLocalization:{candidates:[((.preparedLocalization.candidates//[])[:12])[]|{rank,path,confidence,declarations:[((.declarations//[])[:4])[]|{label,kind,sourceLine,matchedTokens}],evidence:[((.evidence//[])[:3])[]]}]}"))
+    (is (str/includes? prompt
                        "relatedFiles:[((.relatedFiles//[])[:12])[]|{rank,path,relation}]"))
     (is (str/includes? prompt
                        "importPackages:[((.importPackages//[])[:6])[]|{rank,packagePrefix,target,files:[((.files//[])[:12])[]|{path,kind}]}]"))
@@ -359,9 +361,13 @@
     (is (str/includes? prompt
                        "do not print entire Yggdrasil JSON artifacts, evidence arrays"))
     (is (str/includes? prompt "do not print entire Yggdrasil JSON artifacts"))
+    (is (str/includes? prompt
+                       "`preparedLocalization.candidates` as the first ranked audit surface"))
+    (is (str/includes? prompt
+                       "avoid rediscovering them with `rg`"))
     (is (str/includes? prompt "`readPlan.snippets[].command`"))
     (is (str/includes? prompt
-                       "`topFiles`, `relatedFiles`, `importPackages`, `topDeclarations`, `topSymbols`"))
+                       "`preparedLocalization`, `topFiles`, `relatedFiles`, `importPackages`, `topDeclarations`, `topSymbols`"))
     (is (str/includes? prompt "Avoid broad `rg`"))
     (is (str/includes? prompt
                        "do not pass directories to `rg` when exact files"))
@@ -1262,10 +1268,10 @@
         _ (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
         _ (spit-file! root "src/db.clj" "(ns db)\n")
         packet {:query "broken app"
-                :drilldowns [{:kind :explore
-                              :label "Continue primary graph exploration"
-                              :command "ygg ask 'broken app' --project fixture"
-                              :mcpTool "ygg_explore"
+                :drilldowns [{:kind :query
+                              :label "Continue graph query"
+                              :command "ygg query 'broken app' --project fixture"
+                              :mcpTool "ygg_query"
                               :mcpArgs {:query "broken app"
                                         :projectId "fixture"}}]
                 :warnings ["Context warning."]
@@ -1352,7 +1358,7 @@
              :reason "Yggdrasil context doc \"missing\" references src/missing.clj."
              :evidence ["context-doc:src/missing.clj provenance=retrieved-doc"]}]
            (:suspectedSymbols result)))
-    (is (= ["ygg ask 'broken app' --project fixture"
+    (is (= ["ygg query 'broken app' --project fixture"
             "ygg packages --project fixture --json"
             "ygg sync project.edn --check --enqueue"]
            (:commands result)))

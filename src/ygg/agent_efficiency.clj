@@ -843,7 +843,7 @@
     "preparation evidence unavailable: do not treat warmElapsedMs as a strict prepared-agent measurement."
 
     (true? (:allRunsReadyBeforeAgent summary))
-    "strict warm: graph DB, context packet, and compact hints were reused before the measured agent process; setup cost is not counted in warmElapsedMs."
+    "strict warm: XTDB graph DB, context packet, and compact hints were already prepared for the agent and reused before the measured agent process; setup cost is not counted in warmElapsedMs."
 
     :else
     "not strict warm: at least one Yggdrasil run prepared or lacked preparation evidence during the benchmark lane; setup is separated from warmElapsedMs but not proven pre-agent for every run."))
@@ -858,7 +858,7 @@
        :setupCostPolicy (prepared-agent-setup-policy ygg-preparation)
        :shellOnly shell-preparation
        :ygg ygg-preparation
-       :primaryWarmBasis "Yggdrasil warmElapsedMs is strongest when the Ygg lane reports allRunsReadyBeforeAgent=true; otherwise setup was only amortized or preparation evidence is missing."})))
+       :primaryWarmBasis "Yggdrasil warmElapsedMs is strict warm only when the Ygg lane reports allRunsReadyBeforeAgent=true; otherwise setup was only amortized or preparation evidence is missing."})))
 
 (defn- tag-comparability
   [shell-report ygg-report]
@@ -1840,7 +1840,7 @@
   [comparison]
   (or (get-in comparison [:ygg :timings :stageTiming :basis])
       (get-in comparison [:shellOnly :timings :stageTiming :basis])
-      "warmElapsedMs assumes a prepared-agent run: the Yggdrasil graph DB and agent context are already prepared, so graph setup and agent preparation are reported as amortized setup instead of counted in the primary elapsed metric."))
+      "warmElapsedMs assumes a prepared-agent run: the Yggdrasil XTDB graph DB and agent context are already prepared, so graph setup and agent preparation are reported as amortized setup instead of counted in the primary elapsed metric."))
 
 (defn- preparation-evidence-line
   [label summary]

@@ -42,7 +42,8 @@ Commands:
               Run deterministic Yggdrasil and Codebase Memory baseline reports.
   shell-only  Run the external shell-only lane.
   prepare-ygg Prepare the Yggdrasil graph, context, and hints for the external agent.
-  ygg      Run the external Yggdrasil lane.
+  ygg        Prepare Yggdrasil graph/context/hints, then run the external
+             Yggdrasil lane against the prepared artifacts.
   agents      Run both external lanes.
   reports     Generate shell-only and Yggdrasil lane reports.
   prompt-token-check

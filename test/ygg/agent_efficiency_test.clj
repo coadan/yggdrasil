@@ -782,8 +782,8 @@
                      :strictWarmBenchmark true
                      :primaryElapsedMetric "warmElapsedMs"
                      :excludedFromPrimaryElapsed ["graph-setup" "agent-preparation"]
-                     :setupCostPolicy "strict warm: graph DB, context packet, and compact hints were reused before the measured agent process; setup cost is not counted in warmElapsedMs."
-                     :basis "reused means the graph DB, context packet, and compact hints were prepared before the measured agent process started; prepared means the same agent-run command created them and warmElapsedMs only amortizes that setup cost."
+                     :setupCostPolicy "strict warm: XTDB graph DB, context packet, and compact hints were already prepared for the agent and reused before the measured agent process; setup cost is not counted in warmElapsedMs."
+                     :basis "reused means the XTDB graph DB, context packet, and compact hints were prepared before the measured agent process started; prepared means the same agent-run command created them and warmElapsedMs only amortizes that setup cost."
                      :warnings []}
         comparison (agent-efficiency/compare-reports
                     shell-report
@@ -791,10 +791,10 @@
         markdown (agent-efficiency/markdown-report comparison)]
     (is (= {:status "ready-before-agent"
             :strictWarmBenchmark true
-            :setupCostPolicy "strict warm: graph DB, context packet, and compact hints were reused before the measured agent process; setup cost is not counted in warmElapsedMs."
+            :setupCostPolicy "strict warm: XTDB graph DB, context packet, and compact hints were already prepared for the agent and reused before the measured agent process; setup cost is not counted in warmElapsedMs."
             :shellOnly nil
             :ygg preparation
-            :primaryWarmBasis "Yggdrasil warmElapsedMs is strongest when the Ygg lane reports allRunsReadyBeforeAgent=true; otherwise setup was only amortized or preparation evidence is missing."}
+            :primaryWarmBasis "Yggdrasil warmElapsedMs is strict warm only when the Ygg lane reports allRunsReadyBeforeAgent=true; otherwise setup was only amortized or preparation evidence is missing."}
            (:preparedAgentEvidence comparison)))
     (is (= preparation
            (get-in comparison [:ygg :agentPreparation])))
@@ -802,7 +802,7 @@
     (is (.contains markdown "- Status: ready-before-agent"))
     (is (.contains markdown "- Strict warm benchmark: true"))
     (is (.contains markdown
-                   "- Setup cost policy: strict warm: graph DB, context packet, and compact hints were reused before the measured agent process; setup cost is not counted in warmElapsedMs."))
+                   "- Setup cost policy: strict warm: XTDB graph DB, context packet, and compact hints were already prepared for the agent and reused before the measured agent process; setup cost is not counted in warmElapsedMs."))
     (is (.contains markdown
                    "- Yggdrasil: reused 2/2, prepared during agent-run 0, missing evidence 0, ready before agent true"))))
 
@@ -1704,7 +1704,7 @@
     (is (.contains markdown "## Timing Basis"))
     (is (.contains markdown "- Primary elapsed metric: warmElapsedMs"))
     (is (.contains markdown
-                   "prepared-agent run: the Yggdrasil graph DB and agent context are already prepared"))
+                   "prepared-agent run: the Yggdrasil XTDB graph DB and agent context are already prepared"))
     (is (.contains markdown "## Key Metric Deltas"))
     (is (.contains markdown "- commandCount: improved"))
     (is (.contains markdown "- searchCommandCount: improved"))

@@ -1323,7 +1323,7 @@
                   :project-id "project"
                   :worktreeRoot root}
         packet {:query "broken app"
-                :drilldowns ["ygg ask 'broken app' --project project"]
+                :drilldowns ["ygg query 'broken app' --project project"]
                 :warnings []
                 :evidence {:status :ok
                            :nextActions [{:kind :dependencies
@@ -1500,6 +1500,33 @@
              :supportLabels ["app/root"]
              :evidence ["source-declaration:src/app.clj sourceRank=1 lines 2-4 kind=function label=\"app/broken\" supportLabels=[\"app/root\"] score=2.4"]}]
            (:topDeclarations hints)))
+    (let [candidate (first (get-in hints [:preparedLocalization :candidates]))
+          declaration (first (:declarations candidate))]
+      (is (= "mechanical prepared localization candidates from parser/source declarations, file-level graph candidates, and ranked top-file support; excludes benchmark ground truth"
+             (get-in hints [:preparedLocalization :basis])))
+      (is (= {:rank 1
+              :path "src/app.clj"
+              :repoId "repo"
+              :reason "Mechanical prepared candidate from parser/source declarations matched to query tokens."
+              :metrics {:declarationCount 1
+                        :pathDepth 2
+                        :matchedTokenCount 2
+                        :kindQueryTokenCount 0}}
+             (select-keys candidate [:rank :path :repoId :reason :metrics])))
+      (is (< 0.72 (:confidence candidate) 0.73))
+      (is (= ["prepared-declaration:src/app.clj lines 2-4 kind=function label=\"app/broken\""]
+             (:evidence candidate)))
+      (is (= {:rank 1
+              :path "src/app.clj"
+              :repoId "repo"
+              :repo "repo"
+              :label "app/broken"
+              :kind "function"
+              :sourceLine 2
+              :endLine 4
+              :score 2.4
+              :matchedTokens ["app" "broken"]}
+             declaration)))
     (is (= [{:rank 1
              :path "src/app.clj"
              :heading "app/broken"
@@ -1533,7 +1560,7 @@
                                   :host "api.example.test"}]
              :metrics {:file-count 2}}]
            (:candidateSystems hints)))
-    (is (= ["ygg ask 'broken app' --project project"
+    (is (= ["ygg query 'broken app' --project project"
             "ygg packages --project project --json"
             "ygg sync explain system:repo:path/src --map ygg.map.json"
             "ygg sync project.edn --check --enqueue"]
@@ -2262,7 +2289,7 @@
                                         :reason "Yggdrasil context identified the file."
                                         :evidence ["context-doc:src/app.clj"]}]
                       :suspectedSymbols []
-                      :commands ["bb ask app --project suite-case-1"]
+                      :commands ["bb query app --project suite-case-1"]
                       :warnings []
                       :summary "Found the app file."}
         hint-diagnostic {:kind "source-extraction-diagnostics"
@@ -2389,7 +2416,7 @@
                                         :reason "Graph context selected the changed file."
                                         :evidence ["context-doc:src/app.clj"]}]
                       :suspectedSymbols []
-                      :commands ["bb ask app --project suite-case-1"]
+                      :commands ["bb query app --project suite-case-1"]
                       :warnings []
                       :summary "Found the app file."}
         passing-preflight {:schema "ygg.benchmark.maintenance-preflight/v1"

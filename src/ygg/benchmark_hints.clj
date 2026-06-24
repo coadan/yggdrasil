@@ -10,6 +10,18 @@
 (def default-agent-baseline-suspect-limit
   20)
 
+(def ^:private prepared-localization-limit
+  12)
+
+(def ^:private prepared-localization-declaration-slots
+  8)
+
+(def ^:private prepared-localization-file-slots
+  4)
+
+(def ^:private prepared-localization-declaration-limit
+  4)
+
 (defn- source-line-range
   [source]
   (when-let [lines (seq (:lines source))]
@@ -193,6 +205,309 @@
          (map-indexed #(hint-declaration query-tokens %1 %2))
          (take 20)
          vec)))
+
+(defn- row-repo-key
+  [row]
+  (or (:repoId row) (:repo-id row) (:repo row)))
+
+(defn- row-path-key
+  [row]
+  [(row-repo-key row) (:path row)])
+
+(defn- path-depth
+  [path]
+  (if (str/blank? (str path))
+    Long/MAX_VALUE
+    (count (str/split (str path) #"/"))))
+
+(defn- source-declaration-row?
+  [row]
+  (and (:path row)
+       (or (:sourceLine row) (:source-line row))
+       (let [label (some-> (:label row) str not-empty)]
+         (and label
+              (not= label (str (:path row)))))
+       (not= "file" (field-name (or (:targetKind row)
+                                    (:target-kind row)
+                                    (:resultKind row)
+                                    (:result-kind row))))))
+
+(defn- file-candidate-row?
+  [row]
+  (and (:path row)
+       (= "file" (field-name (or (:targetKind row)
+                                 (:target-kind row)
+                                 (:resultKind row)
+                                 (:result-kind row))))))
+
+(defn- first-by
+  [sort-key rows]
+  (first (sort-by sort-key rows)))
+
+(defn- best-file-candidates-by-path
+  [rows]
+  (->> rows
+       (filter file-candidate-row?)
+       (group-by row-path-key)
+       (map (fn [[path-key path-rows]]
+              [path-key (first-by #(long (or (:rank %) Long/MAX_VALUE))
+                                  path-rows)]))
+       (into {})))
+
+(defn- top-files-by-path
+  [rows]
+  (->> rows
+       (filter :path)
+       (group-by row-path-key)
+       (map (fn [[path-key path-rows]]
+              [path-key (first-by #(long (or (:rank %) Long/MAX_VALUE))
+                                  path-rows)]))
+       (into {})))
+
+(defn- query-kind-token-count
+  [query-token-set row]
+  (count (set/intersection query-token-set
+                           (set (text/tokenize (:kind row))))))
+
+(defn- prepared-localization-declaration
+  [query-tokens row]
+  (let [matched-tokens (matched-query-tokens query-tokens row)]
+    (cond-> (select-keys row [:rank
+                              :path
+                              :repoId
+                              :repo
+                              :label
+                              :kind
+                              :sourceLine
+                              :endLine
+                              :score])
+      true
+      (assoc :matchedTokens matched-tokens)
+      (:source-line row)
+      (assoc :sourceLine (:source-line row))
+      (:end-line row)
+      (assoc :endLine (:end-line row)))))
+
+(defn- prepared-localization-evidence
+  [candidate]
+  (vec
+   (concat
+    (map (fn [declaration]
+           (str "prepared-declaration:"
+                (:path declaration)
+                (source-line-label declaration)
+                (when-let [kind (field-name (:kind declaration))]
+                  (str " kind=" kind))
+                (when-let [label (some-> (:label declaration) str not-empty)]
+                  (str " label=" (pr-str label)))))
+         (take prepared-localization-declaration-limit
+               (:declarations candidate)))
+    (when-let [file-candidate (:fileCandidate candidate)]
+      [(str "prepared-file-candidate:"
+            (:path file-candidate)
+            " rank=" (:rank file-candidate)
+            (when-some [score (:score file-candidate)]
+              (str " score=" score)))])
+    (when-let [top-file (:topFile candidate)]
+      [(str "prepared-top-file:"
+            (:path top-file)
+            " rank=" (:rank top-file))]))))
+
+(defn- prepared-localization-score
+  [query-token-set candidate]
+  (let [declarations (:declarations candidate)
+        declaration-count (count declarations)
+        declaration-matched-token-count (count (set (mapcat :matchedTokens
+                                                            declarations)))
+        matched-token-count (if (pos? declaration-matched-token-count)
+                              declaration-matched-token-count
+                              (long (or (get-in candidate
+                                                [:metrics :matchedTokenCount])
+                                        0)))
+        kind-token-count (reduce + 0
+                                 (map #(query-kind-token-count query-token-set %)
+                                      declarations))
+        best-declaration-score (reduce max 0.0 (map #(double (or (:score %) 0.0))
+                                                    declarations))
+        best-declaration-rank (reduce min Long/MAX_VALUE
+                                      (map #(long (or (:rank %) Long/MAX_VALUE))
+                                           declarations))
+        file-candidate-rank (some-> candidate :fileCandidate :rank long)
+        file-candidate-score (double (or (some-> candidate
+                                                 :fileCandidate
+                                                 :score)
+                                         0.0))
+        top-file-rank (some-> candidate :topFile :rank long)
+        depth (path-depth (:path candidate))]
+    (+ (if (pos? declaration-count) 20.0 0.0)
+       (* 3.0 (min 4 kind-token-count))
+       (* 1.5 matched-token-count)
+       (* 1.2 (min 5 declaration-count))
+       (min 10.0 best-declaration-score)
+       (min 6.0 file-candidate-score)
+       (if file-candidate-rank (/ 6.0 file-candidate-rank) 0.0)
+       (if top-file-rank (/ 3.0 top-file-rank) 0.0)
+       (if (< best-declaration-rank Long/MAX_VALUE)
+         (/ 4.0 best-declaration-rank)
+         0.0)
+       (- (* 1.5 (max 0 (dec depth)))))))
+
+(defn- prepared-localization-candidate
+  [query-tokens query-token-set top-file-by-path file-candidate-by-path path-key rows]
+  (let [declarations (->> rows
+                          (map #(prepared-localization-declaration query-tokens %))
+                          (sort-by (juxt #(long (or (:rank %) Long/MAX_VALUE))
+                                         #(long (or (:sourceLine %) Long/MAX_VALUE))
+                                         :label))
+                          vec)
+        [_ path] path-key
+        top-file (get top-file-by-path path-key)
+        file-candidate (get file-candidate-by-path path-key)
+        candidate (cond-> {:path path
+                           :declarations declarations
+                           :metrics {:declarationCount (count declarations)
+                                     :pathDepth (path-depth path)
+                                     :matchedTokenCount (count (set (mapcat :matchedTokens
+                                                                            declarations)))
+                                     :kindQueryTokenCount (reduce + 0
+                                                                  (map #(query-kind-token-count
+                                                                         query-token-set
+                                                                         %)
+                                                                       rows))}}
+                    (row-repo-key (or top-file file-candidate (first rows)))
+                    (assoc :repoId (row-repo-key (or top-file file-candidate (first rows))))
+                    top-file
+                    (assoc :topFile (select-keys top-file [:rank :path :repoId :repo :confidence]))
+                    file-candidate
+                    (assoc :fileCandidate (select-keys file-candidate
+                                                       [:rank :path :repoId :repo :label :score])))]
+    (assoc candidate
+           :score (prepared-localization-score query-token-set candidate)
+           :evidence (prepared-localization-evidence candidate)
+           :reason (if (seq declarations)
+                     "Mechanical prepared candidate from parser/source declarations matched to query tokens."
+                     "Mechanical prepared candidate from a file-level graph candidate."))))
+
+(defn- file-only-prepared-localization-candidate
+  [query-token-set top-file-by-path path-key file-candidate]
+  (let [[_ path] path-key
+        top-file (get top-file-by-path path-key)
+        candidate (cond-> {:path path
+                           :declarations []
+                           :metrics {:declarationCount 0
+                                     :pathDepth (path-depth path)
+                                     :matchedTokenCount (count (set/intersection
+                                                                query-token-set
+                                                                (set (text/tokenize-all
+                                                                      (str (:path file-candidate)
+                                                                           " "
+                                                                           (:label file-candidate))))))
+                                     :kindQueryTokenCount 0}
+                           :fileCandidate (select-keys file-candidate
+                                                       [:rank :path :repoId :repo :label :score])}
+                    (row-repo-key file-candidate)
+                    (assoc :repoId (row-repo-key file-candidate))
+                    top-file
+                    (assoc :topFile (select-keys top-file [:rank :path :repoId :repo :confidence])))]
+    (assoc candidate
+           :score (prepared-localization-score query-token-set candidate)
+           :evidence (prepared-localization-evidence candidate)
+           :reason "Mechanical prepared candidate from a file-level graph candidate.")))
+
+(defn- prepared-localization-sort-key
+  [candidate]
+  [(- (double (:score candidate)))
+   (path-depth (:path candidate))
+   (:path candidate)])
+
+(defn- file-candidate-sort-key
+  [candidate]
+  [(long (or (get-in candidate [:fileCandidate :rank])
+             Long/MAX_VALUE))
+   (path-depth (:path candidate))
+   (:path candidate)])
+
+(defn- candidate-path-key
+  [candidate]
+  [(row-repo-key candidate) (:path candidate)])
+
+(defn- distinct-candidates
+  [candidates]
+  (:candidates
+   (reduce (fn [{:keys [seen] :as acc} candidate]
+             (let [path-key (candidate-path-key candidate)]
+               (if (contains? seen path-key)
+                 acc
+                 (-> acc
+                     (update :seen conj path-key)
+                     (update :candidates conj candidate)))))
+           {:seen #{}
+            :candidates []}
+           candidates)))
+
+(defn- prepared-localization-candidates
+  [declaration-candidates file-candidates]
+  (let [ranked-declarations (sort-by prepared-localization-sort-key
+                                     declaration-candidates)
+        ranked-files (sort-by file-candidate-sort-key file-candidates)
+        selected (distinct-candidates
+                  (concat (take prepared-localization-declaration-slots
+                                ranked-declarations)
+                          (take prepared-localization-file-slots
+                                ranked-files)))
+        selected-keys (set (map candidate-path-key selected))
+        filler (->> (concat ranked-declarations ranked-files)
+                    (remove #(contains? selected-keys
+                                        (candidate-path-key %))))]
+    (->> (concat selected filler)
+         distinct-candidates
+         (take prepared-localization-limit))))
+
+(defn- prepared-localization
+  [packet agent-result]
+  (let [query-tokens (text/tokenize-all (:query packet))
+        query-token-set (set query-tokens)
+        declaration-rows (->> (or (seq (:sourceDeclarations packet))
+                                  (seq (:candidateFiles packet)))
+                              (filter source-declaration-row?)
+                              vec)
+        declarations-by-path (group-by row-path-key declaration-rows)
+        file-candidate-by-path (best-file-candidates-by-path (:candidateFiles packet))
+        top-file-by-path (top-files-by-path (:suspectedFiles agent-result))
+        declaration-path-keys (set (keys declarations-by-path))
+        declaration-candidates (map (fn [[path-key rows]]
+                                      (prepared-localization-candidate
+                                       query-tokens
+                                       query-token-set
+                                       top-file-by-path
+                                       file-candidate-by-path
+                                       path-key
+                                       rows))
+                                    declarations-by-path)
+        file-candidates (->> file-candidate-by-path
+                             (remove (fn [[path-key _]]
+                                       (contains? declaration-path-keys path-key)))
+                             (map (fn [[path-key row]]
+                                    (file-only-prepared-localization-candidate
+                                     query-token-set
+                                     top-file-by-path
+                                     path-key
+                                     row))))
+        candidates (->> (prepared-localization-candidates declaration-candidates
+                                                          file-candidates)
+                        (remove #(str/blank? (str (:path %))))
+                        (map-indexed (fn [idx row]
+                                       (-> row
+                                           (assoc :rank (inc idx)
+                                                  :confidence (min 1.0
+                                                                   (/ (double (:score row))
+                                                                      40.0)))
+                                           (dissoc :score))))
+                        (take prepared-localization-limit)
+                        vec)]
+    (when (seq candidates)
+      {:basis "mechanical prepared localization candidates from parser/source declarations, file-level graph candidates, and ranked top-file support; excludes benchmark ground truth"
+       :candidates candidates})))
 (defn- audit-scope-issue?
   [scope]
   (or (= "unclassified-extractor" (:kind scope))
@@ -309,7 +624,8 @@
                        :coverage (:coverage prepared)
                        :result-scope (:resultScope prepared)})
         diagnostics (hint-diagnostics prepared packet (:selection agent-result))
-        declarations (hint-declarations packet)]
+        declarations (hint-declarations packet)
+        prepared-localization (prepared-localization packet agent-result)]
     (cond-> {:schema agent-hints-schema
              :suite-id (:suite-id prepared)
              :case-id (:case-id prepared)
@@ -327,6 +643,8 @@
              :warnings (:warnings packet)}
       (seq declarations)
       (assoc :topDeclarations declarations)
+      prepared-localization
+      (assoc :preparedLocalization prepared-localization)
       (:architecture packet)
       (assoc :architecture (hint-architecture (:architecture packet)))
       (seq (:auditScopes packet))

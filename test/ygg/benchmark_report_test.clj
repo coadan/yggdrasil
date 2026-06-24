@@ -92,7 +92,7 @@
                          :warnings ["agent result suspectedFiles row 1 missing evidence"]
                          :commands ["rg broken src"
                                     "sed -n '1,40p' src/app.clj"
-                                    "ygg ask broken --project fixture"
+                                    "ygg query broken --project fixture"
                                     "npm test"]
                          :tokenUsage {:inputTokens 100
                                       :outputTokens 40
@@ -260,8 +260,8 @@
               :strictWarmBenchmark true
               :primaryElapsedMetric "warmElapsedMs"
               :excludedFromPrimaryElapsed ["graph-setup" "agent-preparation"]
-              :setupCostPolicy "strict warm: graph DB, context packet, and compact hints were reused before the measured agent process; setup cost is not counted in warmElapsedMs."
-              :basis "reused means the graph DB, context packet, and compact hints were prepared before the measured agent process started; prepared means the same agent-run command created them and warmElapsedMs only amortizes that setup cost."
+              :setupCostPolicy "strict warm: XTDB graph DB, context packet, and compact hints were already prepared for the agent and reused before the measured agent process; setup cost is not counted in warmElapsedMs."
+              :basis "reused means the XTDB graph DB, context packet, and compact hints were prepared before the measured agent process started; prepared means the same agent-run command created them and warmElapsedMs only amortizes that setup cost."
               :warnings []}
              (:agentPreparation report)))
       (is (= (:agentPreparation report)
@@ -515,7 +515,7 @@
               :caseSetupElapsedMs 0
               :agentPreparationElapsedMs 3000
               :scoringElapsedMs 0
-              :stageTiming {:basis "warmElapsedMs assumes a prepared-agent run: the Yggdrasil graph DB and agent context are already prepared, so graph setup and agent preparation are reported as amortized setup instead of counted in the primary elapsed metric."
+              :stageTiming {:basis "warmElapsedMs assumes a prepared-agent run: the Yggdrasil XTDB graph DB and agent context are already prepared, so graph setup and agent preparation are reported as amortized setup instead of counted in the primary elapsed metric."
                             :primaryElapsedMetric "warmElapsedMs"
                             :agentReadyElapsedMetric "agentReadyElapsedMs"
                             :amortizedStageClasses ["graph-setup" "agent-preparation"]
@@ -874,7 +874,7 @@
                          :mode "ygg"
                          :topFiles []
                          :rawSuspectedFileCount 0
-                         :commands ["ygg ask regression --project fixture"]
+                         :commands ["ygg query regression --project fixture"]
                          :tokenUsage {:inputTokens 0
                                       :outputTokens 0
                                       :totalTokens 0
@@ -1359,7 +1359,7 @@
                                  :topFiles [{:path (str case-id ".clj")
                                              :rank 1
                                              :evidence ["architecture-evidence"]}]
-                                 :commands ["bb ask architecture --project fixture"]}
+                                 :commands ["bb query architecture --project fixture"]}
                          :groundTruth {:changedFiles [(str case-id ".clj")]
                                        :scoreableFiles [(str case-id ".clj")]
                                        :unsupportedGroundTruthFiles []}
@@ -1436,7 +1436,7 @@
                                  :topFiles [{:path (str case-id ".clj")
                                              :rank 1
                                              :evidence ["architecture-evidence"]}]
-                                 :commands ["bb ask architecture --project fixture"]}
+                                 :commands ["bb query architecture --project fixture"]}
                          :groundTruth {:changedFiles [(str case-id ".clj")]
                                        :scoreableFiles [(str case-id ".clj")]
                                        :unsupportedGroundTruthFiles []}
@@ -1531,7 +1531,7 @@
                                  :topFiles [{:path (str case-id ".clj")
                                              :rank 1
                                              :evidence ["architecture-evidence"]}]
-                                 :commands ["bb ask architecture --project fixture"]}
+                                 :commands ["bb query architecture --project fixture"]}
                          :groundTruth {:changedFiles [(str case-id ".clj")]
                                        :scoreableFiles [(str case-id ".clj")]
                                        :unsupportedGroundTruthFiles []}

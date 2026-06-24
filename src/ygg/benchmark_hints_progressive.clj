@@ -12,6 +12,8 @@
    :related-files 12
    :import-packages 6
    :import-package-files 12
+   :prepared-localization-candidates 12
+   :prepared-localization-declarations 4
    :top-declarations 16
    :candidate-systems 6
    :commands 6
@@ -125,6 +127,47 @@
       (update :matchedTokens #(takev 6 %))
       (update :supportLabels #(takev 4 %))
       (compact-row-evidence limits)))
+
+(defn- compact-prepared-localization-declaration
+  [row]
+  (select-keys row [:rank
+                    :path
+                    :repoId
+                    :repo
+                    :label
+                    :kind
+                    :sourceLine
+                    :endLine
+                    :matchedTokens]))
+
+(defn- compact-prepared-localization-candidate
+  [limits row]
+  (-> row
+      (select-keys [:rank
+                    :path
+                    :repoId
+                    :confidence
+                    :reason
+                    :evidence
+                    :declarations
+                    :metrics])
+      (compact-reason limits)
+      (compact-row-evidence limits)
+      (update :declarations #(mapv compact-prepared-localization-declaration
+                                   (take (:prepared-localization-declarations limits)
+                                         %)))))
+
+(defn- compact-prepared-localization
+  [prepared-localization limits]
+  (when (seq (:candidates prepared-localization))
+    (-> prepared-localization
+        (select-keys [:basis :candidates])
+        (update :candidates #(mapv (fn [candidate]
+                                     (compact-prepared-localization-candidate
+                                      limits
+                                      candidate))
+                                   (take (:prepared-localization-candidates limits)
+                                         %))))))
 
 (defn- compact-doc
   [row]
@@ -346,6 +389,7 @@
    :topDocs (count (:topDocs hints))
    :relatedFiles (count (:relatedFiles hints))
    :importPackages (count (:importPackages hints))
+   :preparedLocalization (count (get-in hints [:preparedLocalization :candidates]))
    :candidateSystems (count (:candidateSystems hints))
    :commands (count (:commands hints))
    :auditScopes (count (:auditScopes hints))})
@@ -394,6 +438,10 @@
        (seq (:topDocs hints))
        (assoc :topDocs (mapv compact-doc
                              (take (:top-docs limits) (:topDocs hints))))
+       (seq (get-in hints [:preparedLocalization :candidates]))
+       (assoc :preparedLocalization
+              (compact-prepared-localization (:preparedLocalization hints)
+                                             limits))
        (seq (:relatedFiles hints))
        (assoc :relatedFiles (mapv #(compact-related-file limits %)
                                   (take (:related-files limits)
