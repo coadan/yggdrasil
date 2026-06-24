@@ -308,6 +308,18 @@
   (let [root (temp-dir "ygg-bench-agent-prompt")
         result-path (.getPath (io/file root "result.json"))
         schema-path (.getPath (io/file root "schema.json"))
+        hints-path (spit-json!
+                    root
+                    "hints.json"
+                    {:preparedLocalization
+                     {:candidates
+                      [{:rank 1
+                        :path "src/connector.clj"
+                        :confidence 0.98
+                        :declarations [{:label "connector/contract"
+                                        :kind "clj-var"
+                                        :sourceLine 42}]
+                        :evidence ["prepared-declaration:src/connector.clj lines 42 label=\"connector/contract\""]}]}})
         prompt (#'benchmark/agent-run-prompt
                 {:suite-id "suite"
                  :case-id "case-1"
@@ -323,7 +335,7 @@
                  :artifacts {:packetPath "/tmp/packet.json"
                              :projectConfig "/tmp/project.edn"
                              :xtdbPath "/tmp/xtdb"
-                             :yggHintsPath "/tmp/hints.json"
+                             :yggHintsPath hints-path
                              :yggContextPath "/tmp/context.json"}}
                 result-path
                 schema-path
@@ -342,35 +354,29 @@
     (is (not (str/includes? prompt "Yggdrasil hints JSON: /tmp/hints.json")))
     (is (not (str/includes? prompt "Yggdrasil context JSON: /tmp/context.json")))
     (is (str/includes? prompt "Yggdrasil is prepared and warm"))
+    (is (str/includes? prompt "## Prepared Yggdrasil Summary"))
+    (is (str/includes? prompt "src/connector.clj"))
+    (is (str/includes? prompt "connector/contract clj-var:42"))
+    (is (str/includes? prompt "not an edit list"))
     (is (str/includes? prompt
-                       "`jq '{selection,topFiles:[((.topFiles//[])[:8])[]|{rank,path}]"))
+                       "Do not run a first-step `jq` projection over `YGG_BENCH_YGG_HINTS`"))
     (is (str/includes? prompt
-                       "preparedLocalization:{candidates:[((.preparedLocalization.candidates//[])[:12])[]|{rank,path,confidence,declarations:[((.declarations//[])[:4])[]|{label,kind,sourceLine,matchedTokens}],evidence:[((.evidence//[])[:3])[]]}]}"))
+                       "Do not grep Yggdrasil hint/context artifacts for extra citations"))
+    (is (not (str/includes? prompt
+                            "`jq '{selection,topFiles:[((.topFiles//[])[:8])[]|{rank,path}]")))
+    (is (not (str/includes? prompt
+                            "preparedLocalization:{candidates:[((.preparedLocalization.candidates//[])[:12])[]")))
     (is (str/includes? prompt
-                       "relatedFiles:[((.relatedFiles//[])[:12])[]|{rank,path,relation}]"))
+                       "do not print entire Yggdrasil JSON artifacts"))
     (is (str/includes? prompt
-                       "importPackages:[((.importPackages//[])[:6])[]|{rank,packagePrefix,target,files:[((.files//[])[:12])[]|{path,kind}]}]"))
-    (is (str/includes? prompt
-                       "topDeclarations:[((.topDeclarations//[])[:16])[]|{rank,path,label,kind,sourceLine,endLine,matchedTokens}]"))
-    (is (str/includes? prompt
-                       "topSymbols:[((.topSymbols//[])[:6])[]|{rank,name,path,kind}]"))
-    (is (str/includes? prompt
-                       "candidateSystems:[((.candidateSystems//[])[:6])[]|{rank,path,score}]"))
-    (is (str/includes? prompt
-                       "readPlan:{snippets:[((.readPlan.snippets//[])[:4])[]|{path,lines,command}]}"))
-    (is (str/includes? prompt
-                       "do not print entire Yggdrasil JSON artifacts, evidence arrays"))
-    (is (str/includes? prompt "do not print entire Yggdrasil JSON artifacts"))
-    (is (str/includes? prompt
-                       "`preparedLocalization.candidates` as the first ranked audit surface"))
+                       "as the first ranked audit surface"))
     (is (str/includes? prompt
                        "avoid rediscovering them with `rg`"))
-    (is (str/includes? prompt "`readPlan.snippets[].command`"))
     (is (str/includes? prompt
-                       "`preparedLocalization`, `topFiles`, `relatedFiles`, `importPackages`, `topDeclarations`, `topSymbols`"))
+                       "exact candidate paths"))
     (is (str/includes? prompt "Avoid broad `rg`"))
     (is (str/includes? prompt
-                       "do not pass directories to `rg` when exact files"))
+                       "do not pass directories to `rg`"))
     (is (str/includes? prompt
                        "keep each `sed` window at 90 lines or fewer"))
     (is (str/includes? prompt
@@ -379,14 +385,16 @@
                        "Do not run directory-wide `rg` just to reconfirm prepared top-file"))
     (is (str/includes? prompt "narrow `sed` windows"))
     (is (str/includes? prompt
-                       "Open `YGG_BENCH_YGG_CONTEXT` or full hints only when compact hints"))
+                       "Use full hints or context only when the prepared summary and focused"))
+    (is (str/includes? prompt
+                       "against `YGG_BENCH_YGG_HINTS` or `YGG_BENCH_YGG_CONTEXT` just to add graph citations"))
     (is (str/includes? prompt "file reads can satisfy evidence"))
     (is (str/includes? prompt
                        "`sourceCoverage` and `diagnostics`"))
     (is (str/includes? prompt
-                       "run listed `commands`"))
+                       "run listed commands"))
     (is (str/includes? prompt
-                       "`architecture.validationGaps.nextActions`"))
+                       "validation-gap next actions"))
     (is (str/includes? prompt
                        "use `YGG_BENCH_OUTPUT_SCHEMA` for fields"))
     (is (not (str/includes? prompt "\"tokenUsage\": null")))

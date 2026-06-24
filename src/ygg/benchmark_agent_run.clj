@@ -293,6 +293,192 @@
             (get-in packet [:artifacts :yggContextPath]))
     ["- Yggdrasil artifacts: use `YGG_BENCH_YGG_HINTS` and `YGG_BENCH_YGG_CONTEXT`."]))
 
+(defn- read-json-artifact
+  [path]
+  (when-not (benchmark-util/blankish? path)
+    (try
+      (json/read-json (slurp path) :key-fn keyword)
+      (catch Exception _
+        nil))))
+
+(defn- compact-text
+  [limit value]
+  (when-let [text (some-> value str str/trim not-empty)]
+    (if (<= (count text) limit)
+      text
+      (str (subs text 0 (max 0 (- limit 14))) " [truncated]"))))
+
+(defn- shell-quote
+  [value]
+  (str "'" (str/replace (str value) "'" "'\"'\"'") "'"))
+
+(defn- declaration-summary
+  [declaration]
+  (let [label (compact-text 90 (:label declaration))
+        kind (compact-text 40 (:kind declaration))
+        source-line (:sourceLine declaration)]
+    (when label
+      (str label
+           (when kind
+             (str " " kind))
+           (when source-line
+             (str ":" source-line))))))
+
+(defn- prepared-candidate-summary
+  [candidate]
+  (let [path (compact-text 120 (:path candidate))
+        declarations (->> (:declarations candidate)
+                          (keep declaration-summary)
+                          (take 2)
+                          vec)
+        evidence (compact-text 120 (first (:evidence candidate)))]
+    (when path
+      (str "- " (:rank candidate) ". `" path "`"
+           (when-let [confidence (when (number? (:confidence candidate))
+                                   (:confidence candidate))]
+             (format " confidence %.2f" (double confidence)))
+           (when (seq declarations)
+             (str " declarations: " (str/join "; " declarations)))
+           (when (and (seq declarations) evidence)
+             " |")
+           (when (and (empty? declarations) evidence)
+             " ")
+           (when evidence
+             (str " evidence: " evidence))))))
+
+(defn- path-depth
+  [path]
+  (if-let [path (some-> path str not-empty)]
+    (count (filter #{\/} path))
+    Long/MAX_VALUE))
+
+(defn- candidate-rank
+  [candidate]
+  (long (or (:rank candidate) Long/MAX_VALUE)))
+
+(defn- select-prepared-summary-candidates
+  [candidates]
+  (let [candidates (vec candidates)
+        top-ranked (take 2 candidates)
+        shallow-file-only (->> candidates
+                               (filter #(empty? (:declarations %)))
+                               (sort-by (juxt (comp path-depth :path)
+                                              candidate-rank))
+                               (take 1))
+        fallback-ranked (->> candidates
+                             (drop 2)
+                             (take 1))]
+    (->> (concat top-ranked shallow-file-only fallback-ranked)
+         (reduce (fn [selected candidate]
+                   (if (some #(= (:path %) (:path candidate)) selected)
+                     selected
+                     (conj selected candidate)))
+                 [])
+         (take 3))))
+
+(defn- terraform-declaration-pattern
+  [{:keys [kind label]}]
+  (let [kind (some-> kind str)
+        label (some-> label str)]
+    (cond
+      (and (= "terraform-variable" kind)
+           (str/starts-with? label "var."))
+      (str "variable \"" (subs label 4) "\"")
+
+      (and (= "terraform-output" kind)
+           (str/starts-with? label "output."))
+      (str "output \"" (subs label 7) "\"")
+
+      (and (= "terraform-provider" kind)
+           (str/starts-with? label "provider."))
+      (str "provider \"" (subs label 9) "\"")
+
+      (and (#{"terraform-resource" "terraform-data-source"} kind)
+           label)
+      (let [label (if (and (= "terraform-data-source" kind)
+                           (str/starts-with? label "data."))
+                    (subs label 5)
+                    label)
+            [resource-type resource-name] (str/split label #"\." 2)]
+        (when (and (not-empty resource-type) (not-empty resource-name))
+          (str (if (= "terraform-data-source" kind) "data" "resource")
+               " \""
+               resource-type
+               "\" \""
+               resource-name
+               "\""))))))
+
+(defn- declaration-rg-command
+  [candidate]
+  (let [patterns (->> (:declarations candidate)
+                      (keep terraform-declaration-pattern)
+                      distinct
+                      (take 4)
+                      vec)
+        path (:path candidate)]
+    (when (and (seq patterns) (not-empty path))
+      (str "rg -n --fixed-strings "
+           (str/join " "
+                     (map #(str "-e " (shell-quote %)) patterns))
+           " "
+           (shell-quote path)))))
+
+(defn- file-start-command
+  [candidate]
+  (when-let [path (some-> (:path candidate) not-empty)]
+    (str "sed -n '1,80p' " (shell-quote path))))
+
+(defn- selected-read-plan-commands
+  [hints selected-candidates]
+  (let [selected-paths (set (keep :path selected-candidates))]
+    (->> (get-in hints [:readPlan :snippets])
+         (filter #(contains? selected-paths (:path %)))
+         (keep :command))))
+
+(defn- proof-commands
+  [hints selected-candidates]
+  (let [candidate-commands (mapcat (fn [candidate]
+                                     (cond-> []
+                                       true
+                                       (conj (declaration-rg-command candidate))
+                                       (empty? (:declarations candidate))
+                                       (conj (file-start-command candidate))))
+                                   selected-candidates)]
+    (->> (concat candidate-commands
+                 (selected-read-plan-commands hints selected-candidates))
+         (remove nil?)
+         distinct
+         (take 5)
+         vec)))
+
+(defn- prepared-summary-lines
+  [packet]
+  (when (ygg-mode? packet)
+    (let [hints (read-json-artifact (get-in packet [:artifacts :yggHintsPath]))
+          selected-candidates (->> (get-in hints [:preparedLocalization :candidates])
+                                   select-prepared-summary-candidates
+                                   vec)
+          candidates (->> selected-candidates
+                          (keep prepared-candidate-summary)
+                          vec)
+          proof-commands (proof-commands hints selected-candidates)]
+      (when (seq candidates)
+        (vec
+         (concat
+          ["## Prepared Yggdrasil Summary"
+           "Start from this compact prepared localization summary before opening hint artifacts."
+           "These rows are a starter audit surface, not an edit list; return only files with direct task evidence."
+           "Do not run a first-step `jq` projection over `YGG_BENCH_YGG_HINTS`; the file is available only for evidence gaps."
+           "Do not grep Yggdrasil hint/context artifacts for extra citations; summary evidence strings and local file lines are enough when they answer the task."
+           "Use exact-file `rg -n --fixed-strings <symbol> <path...>` or narrow `sed` windows on these paths when proof is needed."
+           ""]
+          candidates
+          (when (seq proof-commands)
+            (concat
+             ["" "Suggested proof commands; run these before inventing broader searches:"]
+             (map #(str "- `" % "`") proof-commands)))
+          [""]))))))
+
 (defn- result-contract-lines
   [profile packet]
   (if (compact-result-contract? packet profile)
@@ -318,39 +504,32 @@
   [packet]
   ["## Yggdrasil Mode"
    (if (ygg-mode? packet)
-     (str "Yggdrasil is prepared and warm. Read `YGG_BENCH_YGG_HINTS` first "
-          "with a compact bounded projection such as `jq '{selection,topFiles:[((.topFiles//[])[:8])[]|{rank,path}],"
-          "preparedLocalization:{candidates:[((.preparedLocalization.candidates//[])[:12])[]|{rank,path,confidence,declarations:[((.declarations//[])[:4])[]|{label,kind,sourceLine,matchedTokens}],evidence:[((.evidence//[])[:3])[]]}]},"
-          "relatedFiles:[((.relatedFiles//[])[:12])[]|{rank,path,relation}],importPackages:[((.importPackages//[])[:6])[]|{rank,packagePrefix,target,files:[((.files//[])[:12])[]|{path,kind}]}],"
-          "topDeclarations:[((.topDeclarations//[])[:16])[]|{rank,path,label,kind,sourceLine,endLine,matchedTokens}],topSymbols:[((.topSymbols//[])[:6])[]|{rank,name,path,kind}],candidateSystems:[((.candidateSystems//[])[:6])[]|{rank,path,score}],"
-          "readPlan:{snippets:[((.readPlan.snippets//[])[:4])[]|{path,lines,command}]},diagnostics}' \"$YGG_BENCH_YGG_HINTS\"`; "
-          "do not print entire Yggdrasil JSON artifacts, evidence arrays, or "
-          "`readPlan.snippets[].snippet` in the first projection. Use "
-          "`preparedLocalization.candidates` as the first ranked audit surface; "
-          "if those candidates cover the requested files and declarations, cite "
-          "their graph evidence and avoid rediscovering them with `rg`. Use "
-          "`readPlan.snippets[].command` and exact `topFiles`/`relatedFiles` "
-          "paths for focused local file reads only when prepared candidates leave "
-          "a concrete evidence gap. Prefer `preparedLocalization`, `topFiles`, "
-          "`relatedFiles`, `importPackages`, `topDeclarations`, `topSymbols`, "
-          "`candidateSystems`, `readPlan`, `architecture`, and `auditScopes` "
-          "before broad search. Avoid broad `rg`; use exact paths and narrow "
-          "`sed` windows unless compact hints are insufficient. "
-          "In Yggdrasil mode, do not pass directories to `rg` when exact files "
-          "are listed in `topFiles`, `relatedFiles`, `importPackages`, "
-          "`topDeclarations`, `topSymbols`, or `readPlan`; "
-          "search exact files only. "
-          "Prefer exact-file `rg -n` for named declarations and references before "
-          "long `sed` dumps; keep each `sed` window at 90 lines or fewer unless "
-          "a shorter read fails to expose required evidence. "
-          "Do not run directory-wide `rg` just to reconfirm prepared top-file or "
-          "read-plan hits; if related files are needed, cap `rg` output and use "
-          "narrow globs. "
-          "Open `YGG_BENCH_YGG_CONTEXT` or full hints only when compact hints "
-          "do not provide enough evidence; file reads can satisfy evidence without "
-          "a full-context lookup. Treat `sourceCoverage` and "
-          "`diagnostics` as trust boundaries; run listed `commands` or "
-          "`architecture.validationGaps.nextActions` only for weak or missing "
+     (str "Yggdrasil is prepared and warm. Use the Prepared Yggdrasil Summary "
+          "above as the first ranked audit surface. If those candidates cover "
+          "the requested files and declarations, cite their shown evidence and "
+          "avoid rediscovering them with `rg`. Do not run a first-step `jq` "
+          "projection over `YGG_BENCH_YGG_HINTS`, and do not print entire "
+          "Yggdrasil JSON artifacts, evidence arrays, or "
+          "`readPlan.snippets[].snippet`. Use exact candidate paths for focused "
+          "local file reads only when prepared candidates leave a concrete "
+          "evidence gap. Avoid broad `rg`; in Yggdrasil mode, do not pass "
+          "directories to `rg` when exact files are listed by the prepared "
+          "summary or hints. Do not run `rg`, `grep`, `jq`, `cat`, or `sed` "
+          "against `YGG_BENCH_YGG_HINTS` or `YGG_BENCH_YGG_CONTEXT` just to add "
+          "graph citations; cite the prepared summary evidence strings already "
+          "shown in the prompt and the local file lines you inspect. "
+          "Use full hints or context only when the prepared summary and focused "
+          "file reads cannot answer the task. Run suggested proof commands as "
+          "listed before inventing new commands. For file-only candidates "
+          "without declaration labels, use the suggested `sed` window instead "
+          "of `rg` over generic identifiers. Prefer exact-file `rg -n` for "
+          "named declarations and references before long `sed` dumps; keep "
+          "each `sed` window at 90 lines or fewer unless a shorter read fails "
+          "to expose required evidence. Focused file reads can satisfy "
+          "evidence without a full-context lookup. Do not run directory-wide "
+          "`rg` just to reconfirm prepared top-file or read-plan hits. Treat "
+          "`sourceCoverage` and `diagnostics` as trust boundaries; run listed "
+          "commands or validation-gap next actions only for weak or missing "
           "planes.")
      "No Yggdrasil: use local shell inspection only.")
    ""])
@@ -400,6 +579,7 @@
        ""]
       (decision-prompt-lines packet)
       (result-contract-lines profile packet)
+      (prepared-summary-lines packet)
       (ygg-mode-lines packet)
       ["## Run Metadata"
        (str "- Suite: " (:suite-id packet))
