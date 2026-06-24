@@ -2594,24 +2594,6 @@
        (sort-by compact-output-doc-supported-key)
        first))
 
-(defn- compact-output-identity-supported-row
-  [files selected-keys]
-  (->> files
-       (filter #(and (not (contains? selected-keys (file-row-key %)))
-                     (pos? (positive-metric % :directFileCandidateCount))
-                     (<= compact-output-identity-support-min
-                         (positive-metric % :fileIdentitySupportLabelCount))))
-       (sort-by compact-output-identity-supported-key)
-       first))
-
-(defn- compact-output-query-evidence-source-row
-  [files selected-keys]
-  (->> files
-       (filter #(and (not (contains? selected-keys (file-row-key %)))
-                     (query-evidence-source-candidate-row? %)))
-       (sort-by query-evidence-source-candidate-key)
-       first))
-
 (defn- path-directory
   [path]
   (let [path (str path)
@@ -2625,6 +2607,46 @@
   (if (str/blank? dir)
     0
     (count (remove str/blank? (str/split (str dir) #"/")))))
+
+(defn- compact-output-selected-directory-sort-rank
+  [selected-rows row]
+  (let [dir (path-directory (:path row))
+        row-rank (or (:rank row) Long/MAX_VALUE)
+        same-dir-ranks (->> selected-rows
+                            (filter #(= dir (path-directory (:path %))))
+                            (filter #(< (or (:rank %) Long/MAX_VALUE)
+                                        row-rank))
+                            (keep :rank)
+                            seq)]
+    (if same-dir-ranks
+      (+ (double (apply max same-dir-ranks)) 0.5)
+      (double row-rank))))
+
+(defn- compact-output-identity-supported-row
+  [files selected-keys selected-rows]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (pos? (positive-metric % :directFileCandidateCount))
+                     (<= compact-output-identity-support-min
+                         (positive-metric % :fileIdentitySupportLabelCount))))
+       (sort-by compact-output-identity-supported-key)
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  (compact-output-selected-directory-sort-rank selected-rows
+                                                               %))))))
+
+(defn- compact-output-query-evidence-source-row
+  [files selected-keys selected-rows]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (query-evidence-source-candidate-row? %)))
+       (sort-by query-evidence-source-candidate-key)
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  (compact-output-selected-directory-sort-rank selected-rows
+                                                               %))))))
 
 (defn- compact-output-directory-counts
   [rows]
@@ -2725,7 +2747,8 @@
                                        selected
                                        (compact-output-identity-supported-row
                                         files
-                                        (:keys selected)))]
+                                        (:keys selected)
+                                        (:rows selected)))]
                          (reduce add-compact-output-row
                                  selected
                                  (take head-count files))))
@@ -2733,7 +2756,8 @@
                       selected
                       (compact-output-query-evidence-source-row
                        files
-                       (:keys selected)))
+                       (:keys selected)
+                       (:rows selected)))
             selected (add-compact-output-row
                       selected
                       (compact-output-co-located-candidate-row

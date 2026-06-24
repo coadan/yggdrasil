@@ -4277,6 +4277,34 @@
     (is (some #{"src/flask/sansio/app.py"} paths))
     (is (not-any? #{"src/head-12.py"} paths))))
 
+(deftest compact-output-anchors-query-evidence-beside-selected-directory
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        doc-row (fn [path rank tokens]
+                  {:path path
+                   :rank rank
+                   :metrics {:docCount 1
+                             :matchedTokenCount tokens}})
+        source-row (fn [path rank grep-score]
+                     {:path path
+                      :rank rank
+                      :metrics {:candidateFileCount 1
+                                :docCount 0
+                                :entityCount 0
+                                :matchedTokenCount 4
+                                :sourceGraphCandidateEvidenceScore 7.0
+                                :candidateGrepScore grep-score}})
+        files (vec
+               (concat [(doc-row "tests/unit/adapters/http.test.js" 1 7)
+                        (doc-row "tests/setup/server.js" 2 6)]
+                       (mapv #(doc-row (str "tests/noise-" % ".js") % 3)
+                             (range 3 11))
+                       [(source-row "tests/unit/adapters/fetch.test.js" 11 0.21)]))
+        selected (compact-output files 10 nil)]
+    (is (= ["tests/unit/adapters/http.test.js"
+            "tests/unit/adapters/fetch.test.js"
+            "tests/setup/server.js"]
+           (subvec (mapv :path selected) 0 3)))))
+
 (deftest compact-output-reserves-co-located-direct-candidate
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         doc-row (fn [path rank tokens]
