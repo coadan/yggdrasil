@@ -18,6 +18,11 @@ export YGG_HOME=${YGG_HOME:-$REPO_DIR}
 
 MAIN=ygg.cli
 if [ "${1:-}" = "daemon" ]; then
+  if { [ "${2:-}" = "status" ] || [ "${2:-}" = "stop" ]; } && command -v python3 >/dev/null 2>&1; then
+    shift
+    python3 "$REPO_DIR/scripts/ygg-daemon-client.py" "$@"
+    exit "$?"
+  fi
   MAIN=ygg.daemon
   shift
 elif [ "${1:-}" = "sync" ] && [ "${2:-}" = "inspect" ]; then

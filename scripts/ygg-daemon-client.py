@@ -44,12 +44,7 @@ def request(op, args):
         return None
 
 
-def main(argv):
-    if len(argv) < 2:
-        return UNAVAILABLE
-    response = request(argv[1], argv[2:])
-    if response is None:
-        return UNAVAILABLE
+def print_response(response):
     out = response.get("out") or ""
     err = response.get("err") or ""
     if out:
@@ -57,6 +52,28 @@ def main(argv):
     if err:
         sys.stderr.write(err)
     return int(response.get("exit", 1))
+
+
+def control_request(op, args):
+    response = request(op, args)
+    if response is None:
+        sys.stderr.write("daemon not running\n")
+        return UNAVAILABLE
+    return print_response(response)
+
+
+def main(argv):
+    if len(argv) < 2:
+        return UNAVAILABLE
+    command = argv[1]
+    if command == "status":
+        return control_request("ping", argv[2:])
+    if command == "stop":
+        return control_request("stop", argv[2:])
+    response = request(command, argv[2:])
+    if response is None:
+        return UNAVAILABLE
+    return print_response(response)
 
 
 if __name__ == "__main__":
