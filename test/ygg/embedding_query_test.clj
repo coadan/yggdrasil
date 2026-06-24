@@ -4,6 +4,7 @@
             [ygg.env :as env]
             [ygg.index :as index]
             [ygg.query :as query]
+            [ygg.vector-store :as vector-store]
             [ygg.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -30,6 +31,88 @@
   (is (= 1.0 (embedding/cosine [1 0] [1 0])))
   (is (= 0.0 (embedding/cosine [1 0] [0 1])))
   (is (= 1.0 (embedding/cosine01 [1 0] [1 0]))))
+
+(deftest vector-store-xtdb-scan-scores-current-doc-embeddings
+  (let [docs [{:target-id "target:one"
+               :input-sha "sha:one"}
+              {:target-id "target:two"
+               :input-sha "sha:two"}]
+        calls (atom [])]
+    (with-redefs [store/rows-with-field-tuples
+                  (fn [_ request]
+                    (swap! calls conj request)
+                    [{:target-id "target:one"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :provider :fake
+                      :model "fake-model"
+                      :input-sha "sha:one"
+                      :vector [1.0 0.0]}
+                     {:target-id "target:two"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :provider :fake
+                      :model "fake-model"
+                      :input-sha "stale"
+                      :vector [0.0 1.0]}])]
+      (let [result (vector-store/semantic-score-data
+                    :xtdb
+                    docs
+                    {:mode :xtdb-scan
+                     :provider :fake
+                     :model "fake-model"
+                     :project-id "project-a"
+                     :repo-id "app"
+                     :embed-query (fn [] [1.0 0.0])})]
+        (is (= {"target:one" 1.0} (:scores result)))
+        (is (= :xtdb-scan (get-in result [:instrumentation :vector-store])))
+        (is (= :none (get-in result [:instrumentation
+                                     :vector-store-fallback-reason])))
+        (is (= 1 (count @calls)))
+        (is (= {:table (:embeddings store/tables)
+                :tuple-fields [:target-id :input-sha]
+                :tuples [{:target-id "target:one" :input-sha "sha:one"}
+                         {:target-id "target:two" :input-sha "sha:two"}]
+                :constraints {:project-id "project-a"
+                              :repo-id "app"
+                              :provider :fake
+                              :model "fake-model"
+                              :active? true}}
+               (select-keys (first @calls)
+                            [:table :tuple-fields :tuples :constraints])))))))
+
+(deftest vector-store-auto-falls-back-when-sqlite-vec-is-unavailable
+  (let [embed-called? (atom false)]
+    (with-redefs [store/rows-with-field-tuples (fn [& _] [])]
+      (let [result (vector-store/semantic-score-data
+                    :xtdb
+                    [{:target-id "target:one" :input-sha "sha:one"}]
+                    {:mode :auto
+                     :provider :fake
+                     :model "fake-model"
+                     :embed-query (fn []
+                                    (reset! embed-called? true)
+                                    [1.0 0.0])})]
+        (is (= {} (:scores result)))
+        (is (true? (:empty? result)))
+        (is (false? @embed-called?))
+        (is (= :xtdb-scan (get-in result [:instrumentation :vector-store])))
+        (is (= :sqlite-vec-unavailable
+               (get-in result [:instrumentation
+                               :vector-store-fallback-reason])))))))
+
+(deftest vector-store-upsert-is-noop-in-auto-without-sqlite-vec
+  (with-redefs [env/get-env (fn [& _] nil)]
+    (is (= {:vector-store :xtdb-scan
+            :upserted 0
+            :status :skipped
+            :reason :sqlite-vec-unavailable}
+           (vector-store/upsert-embeddings!
+            [{:provider :fake
+              :model "fake-model"
+              :target-id "target:one"
+              :input-sha "sha:one"
+              :vector [1.0 0.0]}])))))
 
 (deftest pending-search-docs-use-current-doc-embedding-tuples
   (let [calls (atom [])

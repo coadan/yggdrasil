@@ -2,6 +2,7 @@
   "Embedding indexing and vector helpers."
   (:require [ygg.hash :as hash]
             [ygg.text :as text]
+            [ygg.vector-store :as vector-store]
             [ygg.xtdb :as store]))
 
 (def default-batch-size 64)
@@ -165,6 +166,7 @@
                             batch
                             vectors)
                  result (store/commit-embeddings! xtdb rows)]
+             (vector-store/upsert-embeddings! rows)
              (update summary :embedded + (:embeddings result)))))
        {:provider provider
         :model model

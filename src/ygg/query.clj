@@ -1,9 +1,9 @@
 (ns ygg.query
   "Graph query helpers."
-  (:require [ygg.embedding :as embedding]
-            [ygg.hash :as hash]
+  (:require [ygg.hash :as hash]
             [ygg.ripgrep :as ripgrep]
             [ygg.text :as text]
+            [ygg.vector-store :as vector-store]
             [ygg.xtdb :as store]
             [clojure.string :as str]))
 
@@ -1299,25 +1299,6 @@
          (into {})
          normalize-scores)))
 
-(defn- semantic-scores
-  [query-vector docs embeddings provider model]
-  (let [current-inputs (into {}
-                             (map (juxt :target-id :input-sha))
-                             docs)]
-    (reduce
-     (fn [scores row]
-       (let [target-id (:target-id row)]
-         (if (and (= provider (:provider row))
-                  (= model (:model row))
-                  (= (:input-sha row) (get current-inputs target-id)))
-           (let [score (embedding/cosine01 query-vector (:vector row))]
-             (if (pos? score)
-               (assoc scores target-id score)
-               scores))
-           scores)))
-     {}
-     embeddings)))
-
 (defn- score-entry-sort-key
   [[_ score]]
   (- score))
@@ -1808,41 +1789,43 @@
         auto-short-circuit? (boolean auto-short-circuit-reason)
         semantic-retriever? (and (#{:hybrid :semantic} initial-retriever)
                                  (not auto-short-circuit?))
-        [embeddings timings] (if (and embedding-client semantic-retriever?)
-                               (timed timings
-                                      :load-embeddings-ms
-                                      #(vec (embedding/current-embeddings-for-docs
-                                             xtdb
-                                             docs
-                                             (assoc scope
-                                                    :provider (:provider embedding-client)
-                                                    :model (:model embedding-client)))))
-                               [[] (assoc timings :load-embeddings-ms 0)])
+        [semantic-data timings] (if semantic-retriever?
+                                  (if embedding-client
+                                    (let [data (vector-store/semantic-score-data
+                                                xtdb
+                                                docs
+                                                (assoc scope
+                                                       :provider (:provider embedding-client)
+                                                       :model (:model embedding-client)
+                                                       :candidate-limit default-semantic-candidates
+                                                       :mode (:vector-store opts)
+                                                       :vector-index-path (:vector-index-path opts)
+                                                       :sqlite-vec-extension (:sqlite-vec-extension opts)
+                                                       :embed-query #(query-vector
+                                                                      embedding-client
+                                                                      query-text)))]
+                                      [data (merge timings (:timings data))])
+                                    (throw (ex-info "Semantic retrieval requires an embedding client."
+                                                    {:retriever initial-retriever})))
+                                  [{:scores {}
+                                    :empty? true
+                                    :instrumentation {:vector-store :none
+                                                      :vector-store-fallback-reason :not-requested
+                                                      :vector-candidates 0}}
+                                   (assoc timings
+                                          :load-embeddings-ms 0
+                                          :query-embedding-ms 0
+                                          :semantic-score-ms 0
+                                          :vector-search-ms 0)])
         retriever (cond
                     auto-short-circuit? :lexical
                     (and (= :auto requested-retriever)
                          embedding-client
-                         (empty? embeddings)) :lexical
+                         (:empty? semantic-data)) :lexical
                     :else initial-retriever)
-        [semantic timings] (if (#{:hybrid :semantic} retriever)
-                             (if embedding-client
-                               (let [[query-vector timings] (timed timings
-                                                                   :query-embedding-ms
-                                                                   #(query-vector
-                                                                     embedding-client
-                                                                     query-text))]
-                                 (timed timings
-                                        :semantic-score-ms
-                                        #(semantic-scores query-vector
-                                                          docs
-                                                          embeddings
-                                                          (:provider embedding-client)
-                                                          (:model embedding-client))))
-                               (throw (ex-info "Semantic retrieval requires an embedding client."
-                                               {:retriever retriever})))
-                             [{} (assoc timings
-                                        :query-embedding-ms 0
-                                        :semantic-score-ms 0)])
+        semantic (if (#{:hybrid :semantic} retriever)
+                   (:scores semantic-data)
+                   {})
         [seed-data timings] (timed timings
                                    :seed-selection-ms
                                    #(let [base-seed-ids (into (set (top-ids semantic
@@ -1888,6 +1871,7 @@
                          timings
                          (:instrumentation grep-data)
                          (:instrumentation transient-file-data)
+                         (:instrumentation semantic-data)
                          (adjacency-query-plan xtdb
                                                (:seed-ids seed-data)
                                                edges
