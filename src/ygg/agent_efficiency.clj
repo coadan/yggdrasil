@@ -108,7 +108,22 @@
     :label "searchCommandCount"
     :category :command-telemetry
     :path [:agentDiagnostics :commandTelemetry :searchCommandCount]
+    :direction :observe}
+   {:key :broadSearchCommandCount
+    :label "broadSearchCommandCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :broadSearchCommandCount]
     :direction :lower}
+   {:key :scopedSearchCommandCount
+    :label "scopedSearchCommandCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :scopedSearchCommandCount]
+    :direction :observe}
+   {:key :exactFileSearchCommandCount
+    :label "exactFileSearchCommandCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :exactFileSearchCommandCount]
+    :direction :observe}
    {:key :fileReadCommandCount
     :label "fileReadCommandCount"
     :category :command-telemetry
@@ -219,9 +234,11 @@
    :pathEvidenceCitationRate
    :commandCount
    :searchCommandCount
+   :broadSearchCommandCount
    :fileReadCommandCount
    :segmentCount
    :searchSegmentCount
+   :broadSearchSegmentCount
    :fileReadSegmentCount
    :decisionF1
    :decisionEvidenceCitationRate
@@ -237,6 +254,7 @@
    [:pathEvidenceCitationRate :pathEvidenceCitationRateDelta]
    [:commandCount :toolCallDelta]
    [:searchCommandCount :searchCommandDelta]
+   [:broadSearchCommandCount :broadSearchCommandDelta]
    [:fileReadCommandCount :fileReadDelta]
    [:decisionF1 :decisionF1Delta]
    [:decisionEvidenceCitationRate :decisionEvidenceCitationRateDelta]
@@ -252,6 +270,7 @@
    [:pathEvidenceCitationRateDelta "pathEvidenceCitationRate delta"]
    [:toolCallDelta "tool call delta"]
    [:searchCommandDelta "search command delta"]
+   [:broadSearchCommandDelta "broad search command delta"]
    [:fileReadDelta "file read delta"]
    [:decisionF1Delta "decisionF1 delta"]
    [:decisionEvidenceCitationRateDelta "decision evidence citation delta"]
@@ -436,7 +455,22 @@
     :label "searchSegmentCount"
     :category :command-telemetry
     :path [:agentDiagnostics :commandTelemetry :searchSegmentCount]
+    :direction :observe}
+   {:key :broadSearchSegmentCount
+    :label "broadSearchSegmentCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :broadSearchSegmentCount]
     :direction :lower}
+   {:key :scopedSearchSegmentCount
+    :label "scopedSearchSegmentCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :scopedSearchSegmentCount]
+    :direction :observe}
+   {:key :exactFileSearchSegmentCount
+    :label "exactFileSearchSegmentCount"
+    :category :command-telemetry
+    :path [:agentDiagnostics :commandTelemetry :exactFileSearchSegmentCount]
+    :direction :observe}
    {:key :fileReadSegmentCount
     :label "fileReadSegmentCount"
     :category :command-telemetry

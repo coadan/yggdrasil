@@ -30,8 +30,12 @@
            missing-decision decision-gaps
            missed outside5 outside10 missing-predicted empty commandless warnings
            command-count search-command-count file-read-command-count
+           broad-search-command-count scoped-search-command-count
+           exact-file-search-command-count
            shell-command-count ygg-command-count
            segment-count search-segment-count file-read-segment-count
+           broad-search-segment-count scoped-search-segment-count
+           exact-file-search-segment-count
            shell-segment-count ygg-segment-count
            elapsed warm-elapsed agent-ready-elapsed amortized-setup-elapsed
            failed running case-ids]}]
@@ -68,12 +72,24 @@
                                                            :searchCommandCount search-command-count
                                                            :fileReadCommandCount file-read-command-count
                                                            :shellCommandCount shell-command-count}
+                                                    (some? broad-search-command-count)
+                                                    (assoc :broadSearchCommandCount broad-search-command-count)
+                                                    (some? scoped-search-command-count)
+                                                    (assoc :scopedSearchCommandCount scoped-search-command-count)
+                                                    (some? exact-file-search-command-count)
+                                                    (assoc :exactFileSearchCommandCount exact-file-search-command-count)
                                                     (some? segment-count)
                                                     (assoc :segmentCount segment-count
                                                            :yggSegmentCount ygg-segment-count
                                                            :searchSegmentCount search-segment-count
                                                            :fileReadSegmentCount file-read-segment-count
-                                                           :shellSegmentCount shell-segment-count))}
+                                                           :shellSegmentCount shell-segment-count)
+                                                    (some? broad-search-segment-count)
+                                                    (assoc :broadSearchSegmentCount broad-search-segment-count)
+                                                    (some? scoped-search-segment-count)
+                                                    (assoc :scopedSearchSegmentCount scoped-search-segment-count)
+                                                    (some? exact-file-search-segment-count)
+                                                    (assoc :exactFileSearchSegmentCount exact-file-search-segment-count))}
              :improvementSummary []
              :timings {:elapsedMs elapsed
                        :warmElapsedMs (or warm-elapsed elapsed)
@@ -220,6 +236,9 @@
            :warnings 1
            :command-count 9
            :search-command-count 4
+           :broad-search-command-count 3
+           :scoped-search-command-count 1
+           :exact-file-search-command-count 0
            :file-read-command-count 2
            :shell-command-count 3
            :ygg-command-count 0
@@ -246,6 +265,9 @@
            :warnings 0
            :command-count 5
            :search-command-count 1
+           :broad-search-command-count 0
+           :scoped-search-command-count 1
+           :exact-file-search-command-count 1
            :file-read-command-count 1
            :shell-command-count 1
            :ygg-command-count 2
@@ -281,6 +303,7 @@
             :pathEvidenceCitationRate
             :commandCount
             :searchCommandCount
+            :broadSearchCommandCount
             :fileReadCommandCount
             :warmElapsedMs
             :elapsedMs
@@ -301,6 +324,7 @@
             :pathEvidenceCitationRateDelta 0.30000000000000004
             :toolCallDelta -4.0
             :searchCommandDelta -3.0
+            :broadSearchCommandDelta -3.0
             :fileReadDelta -1.0
             :warmElapsedMsDelta -100.0
             :elapsedMsDelta -100.0
@@ -310,11 +334,11 @@
            (:headlineSummary comparison)))
     (is (= {:signal "ygg-improved"
             :minSharedCases 2
-            :availableMetrics 24
+            :availableMetrics 27
             :improvedMetrics 20
             :regressedMetrics 0
             :unchangedMetrics 2
-            :observedMetrics 2
+            :observedMetrics 5
             :unavailableMetrics 5}
            (:summary comparison)))
     (is (= {:sameSuite true
@@ -342,9 +366,16 @@
     (is (= {:shellOnly 4.0
             :ygg 1.0
             :delta -3.0
+            :effect 0.0
+            :result "observed"}
+           (select-keys (:searchCommandCount deltas-by-key)
+                        [:shellOnly :ygg :delta :effect :result])))
+    (is (= {:shellOnly 3.0
+            :ygg 0.0
+            :delta -3.0
             :effect 3.0
             :result "improved"}
-           (select-keys (:searchCommandCount deltas-by-key)
+           (select-keys (:broadSearchCommandCount deltas-by-key)
                         [:shellOnly :ygg :delta :effect :result])))
     (is (= {:shellOnly nil
             :ygg nil
@@ -365,11 +396,11 @@
                         [:shellOnly :ygg :delta :effect :result])))
     (is (= {:signal "ygg-improved"
             :minSharedCases 2
-            :availableMetrics 5
+            :availableMetrics 8
             :improvedMetrics 4
             :regressedMetrics 0
             :unchangedMetrics 0
-            :observedMetrics 1
+            :observedMetrics 4
             :unavailableMetrics 0}
            (get-in categories-by-key ["command-telemetry" :summary])))
     (is (= {:signal "ygg-improved"
@@ -535,6 +566,9 @@
                          {:segmentCount 12
                           :yggSegmentCount 0
                           :searchSegmentCount 5
+                          :broadSearchSegmentCount 3
+                          :scopedSearchSegmentCount 2
+                          :exactFileSearchSegmentCount 1
                           :fileReadSegmentCount 3
                           :shellSegmentCount 4})
         ygg (update-in ygg-report
@@ -543,6 +577,9 @@
                        {:segmentCount 7
                         :yggSegmentCount 4
                         :searchSegmentCount 1
+                        :broadSearchSegmentCount 0
+                        :scopedSearchSegmentCount 1
+                        :exactFileSearchSegmentCount 1
                         :fileReadSegmentCount 1
                         :shellSegmentCount 1})
         comparison (agent-efficiency/compare-reports shell ygg)
@@ -553,9 +590,11 @@
             :pathEvidenceCitationRate
             :commandCount
             :searchCommandCount
+            :broadSearchCommandCount
             :fileReadCommandCount
             :segmentCount
             :searchSegmentCount
+            :broadSearchSegmentCount
             :fileReadSegmentCount
             :warmElapsedMs
             :elapsedMs
@@ -572,9 +611,16 @@
     (is (= {:shellOnly 5.0
             :ygg 1.0
             :delta -4.0
-            :effect 4.0
-            :result "improved"}
+            :effect 0.0
+            :result "observed"}
            (select-keys (:searchSegmentCount deltas-by-key)
+                        [:shellOnly :ygg :delta :effect :result])))
+    (is (= {:shellOnly 3.0
+            :ygg 0.0
+            :delta -3.0
+            :effect 3.0
+            :result "improved"}
+           (select-keys (:broadSearchSegmentCount deltas-by-key)
                         [:shellOnly :ygg :delta :effect :result])))
     (is (= {:shellOnly 3.0
             :ygg 1.0
@@ -1566,8 +1612,8 @@
             :improvedMetrics 19
             :regressedMetrics 0
             :unchangedMetrics 2
-            :observedMetrics 1
-            :availableMetrics 22
+            :observedMetrics 4
+            :availableMetrics 25
             :unavailableMetrics 7}
            (:summary comparison)))
     (is (= {:shellOnly nil
@@ -1622,7 +1668,7 @@
             :improvedMetrics 0
             :regressedMetrics 0
             :unchangedMetrics 0
-            :unavailableMetrics 29}
+            :unavailableMetrics 32}
            (:summary comparison)))
     (is (every? #(= "unavailable" (:result %))
                 (:deltas comparison)))))
@@ -1651,7 +1697,7 @@
             :improvedMetrics 0
             :regressedMetrics 0
             :unchangedMetrics 0
-            :unavailableMetrics 28
+            :unavailableMetrics 31
             :observedMetrics 1}
            (:summary comparison)))
     (is (= {:shellOnly 0.0
@@ -1707,7 +1753,8 @@
                    "prepared-agent run: the Yggdrasil XTDB graph DB and agent context are already prepared"))
     (is (.contains markdown "## Key Metric Deltas"))
     (is (.contains markdown "- commandCount: improved"))
-    (is (.contains markdown "- searchCommandCount: improved"))
+    (is (.contains markdown "- searchCommandCount: observed"))
+    (is (.contains markdown "- broadSearchCommandCount: improved"))
     (is (.contains markdown "- warmElapsedMs: improved"))
     (is (.contains markdown "- totalTokens: unavailable"))
     (is (.contains markdown "## Claim Readiness Requirements"))
@@ -1758,11 +1805,11 @@
     (is (.contains out "Verdict: helped"))
     (is (.contains out "Compared lanes are claim-ready for the measured architecture slice."))
     (is (.contains out "Category signals:"))
-    (is (.contains out "observed metrics: 1"))
+    (is (.contains out "observed metrics: 4"))
     (is (.contains out
                    "Class signal summary: problem 1/1 measured, architecture 1/1 measured"))
     (is (.contains out
-                   "- command-telemetry: ygg-improved (observed metrics: 1)"))
+                   "- command-telemetry: ygg-improved (observed metrics: 4)"))
     (is (.contains out "Problem-class signals:"))
     (is (.contains out
                    "- problem-architecture: ygg-improved (shell cases: 2, ygg cases: 2)"))

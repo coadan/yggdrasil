@@ -102,8 +102,10 @@
      :inputHintedCaseIds hinted-cases}))
 
 (defn- command-telemetry
-  [commands]
-  (benchmark-command-telemetry/command-telemetry commands))
+  ([commands]
+   (benchmark-command-telemetry/command-telemetry commands))
+  ([commands opts]
+   (benchmark-command-telemetry/command-telemetry commands opts)))
 
 (defn- valid-token-usage?
   [usage]
@@ -211,7 +213,9 @@
         raw-count (long (or (get-in result [:agent :rawSuspectedFileCount])
                             (count top-files)))
         ranked-count (long (count top-files))
-        command-telemetry (command-telemetry commands)
+        command-telemetry (command-telemetry
+                           commands
+                           {:candidate-paths (keep :path top-files)})
         command-count (:commandCount command-telemetry)
         candidate-count (:candidateFiles selection)
         filtered-count (long (or (:coverageFilteredCandidateFiles selection) 0))

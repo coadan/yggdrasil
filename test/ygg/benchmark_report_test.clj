@@ -292,6 +292,9 @@
               :commandTelemetry {:commandCount 4
                                  :yggCommandCount 1
                                  :searchCommandCount 1
+                                 :broadSearchCommandCount 1
+                                 :scopedSearchCommandCount 0
+                                 :exactFileSearchCommandCount 0
                                  :fileReadCommandCount 1
                                  :shellCommandCount 1}
               :tokenUsageRuns 1
@@ -630,6 +633,9 @@
               :commandTelemetry {:commandCount 4
                                  :yggCommandCount 1
                                  :searchCommandCount 1
+                                 :broadSearchCommandCount 1
+                                 :scopedSearchCommandCount 0
+                                 :exactFileSearchCommandCount 0
                                  :fileReadCommandCount 1
                                  :shellCommandCount 1
                                  :commandless false}
@@ -1097,12 +1103,15 @@
                     {:agent {:commands ["rg broken src"
                                         "git grep broken -- src"
                                         "env FOO=bar sed -n '1,20p' src/app.clj"
-                                        "bb explore create 'broken app' --project fixture"
+                                        "bb query 'broken app' --project fixture"
                                         "npm test"]
                              :topFiles [{:path "src/app.clj"}]}})]
     (is (= {:commandCount 5
             :yggCommandCount 1
             :searchCommandCount 2
+            :broadSearchCommandCount 1
+            :scopedSearchCommandCount 1
+            :exactFileSearchCommandCount 0
             :fileReadCommandCount 1
             :shellCommandCount 1
             :commandless false}
@@ -1116,12 +1125,18 @@
     (is (= {:commandCount 2
             :yggCommandCount 0
             :searchCommandCount 1
+            :broadSearchCommandCount 1
+            :scopedSearchCommandCount 0
+            :exactFileSearchCommandCount 0
             :fileReadCommandCount 1
             :shellCommandCount 0
             :commandless false
             :segmentCount 4
             :yggSegmentCount 0
             :searchSegmentCount 1
+            :broadSearchSegmentCount 1
+            :scopedSearchSegmentCount 0
+            :exactFileSearchSegmentCount 0
             :fileReadSegmentCount 2
             :shellSegmentCount 1}
            (:commandTelemetry diagnostic)))))
@@ -1131,26 +1146,41 @@
                  [{:commandTelemetry {:commandCount 1
                                       :yggCommandCount 1
                                       :searchCommandCount 0
+                                      :broadSearchCommandCount 0
+                                      :scopedSearchCommandCount 0
+                                      :exactFileSearchCommandCount 0
                                       :fileReadCommandCount 0
                                       :shellCommandCount 0}}
                   {:commandTelemetry {:commandCount 1
                                       :yggCommandCount 0
                                       :searchCommandCount 1
+                                      :broadSearchCommandCount 1
+                                      :scopedSearchCommandCount 0
+                                      :exactFileSearchCommandCount 0
                                       :fileReadCommandCount 0
                                       :shellCommandCount 0
                                       :segmentCount 2
                                       :yggSegmentCount 0
                                       :searchSegmentCount 1
+                                      :broadSearchSegmentCount 1
+                                      :scopedSearchSegmentCount 0
+                                      :exactFileSearchSegmentCount 0
                                       :fileReadSegmentCount 1
                                       :shellSegmentCount 0}}])]
     (is (= {:commandCount 2
             :yggCommandCount 1
             :searchCommandCount 1
+            :broadSearchCommandCount 1
+            :scopedSearchCommandCount 0
+            :exactFileSearchCommandCount 0
             :fileReadCommandCount 0
             :shellCommandCount 0
             :segmentCount 3
             :yggSegmentCount 1
             :searchSegmentCount 1
+            :broadSearchSegmentCount 1
+            :scopedSearchSegmentCount 0
+            :exactFileSearchSegmentCount 0
             :fileReadSegmentCount 1
             :shellSegmentCount 0}
            summary))))
@@ -1236,7 +1266,7 @@
                                  :topFiles [{:path (str case-id ".clj")
                                              :rank 1
                                              :evidence ["candidate-file"]}]
-                                 :commands ["ygg explore"]}
+                                 :commands ["ygg query"]}
                          :groundTruth {:changedFiles [(str case-id ".clj")]
                                        :scoreableFiles [(str case-id ".clj")]
                                        :unsupportedGroundTruthFiles []}
@@ -1601,7 +1631,7 @@
               :topFiles [{:path "src/app.clj"
                           :rank 1
                           :evidence ["context-doc:config/runtime.env"]}]
-              :commands ["ygg explore"]}
+              :commands ["ygg query"]}
       :groundTruth {:changedFiles ["src/app.clj"]
                     :scoreableFiles ["src/app.clj"]
                     :unsupportedGroundTruthFiles []}
