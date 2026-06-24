@@ -264,6 +264,25 @@
   [xtdb ids opts]
   (rows-by-ids xtdb (:nodes store/tables) ids opts all-nodes node-row-query-fields))
 
+(defn- scoped-rows-by-field
+  [rows field opts]
+  (let [scope (effective-scope opts)]
+    (reduce
+     (fn [rows-by-value row]
+       (if (scope-match? scope row)
+         (update rows-by-value (get row field) (fnil conj []) row)
+         rows-by-value))
+     {}
+     rows)))
+
+(defn- rows-for-values
+  [rows-by-value values]
+  (reduce
+   (fn [rows value]
+     (into rows (get rows-by-value value [])))
+   []
+   values))
+
 (defn- rows-by-field-values
   [xtdb table field values opts return-fields]
   (let [values (distinct-by identity values)]
@@ -277,8 +296,8 @@
                    :constraints (scope-constraints opts)
                    :return-fields return-fields
                    :read-context (read-context opts)})
-            rows-by-value (group-by field (filter-scope rows opts))]
-        (mapcat #(get rows-by-value % []) values)))))
+            rows-by-value (scoped-rows-by-field rows field opts)]
+        (rows-for-values rows-by-value values)))))
 
 (defn nodes-by-file-ids
   "Return node rows for concrete file ids within the requested scope."
@@ -437,19 +456,12 @@
 (defn chunks-by-paths
   "Return chunk rows for concrete file paths within the requested scope."
   [xtdb paths opts]
-  (let [paths (distinct-by identity paths)]
-    (if (empty? paths)
-      []
-      (let [rows (store/rows-with-field-values
-                  xtdb
-                  {:table (:chunks store/tables)
-                   :field :path
-                   :values paths
-                   :constraints (scope-constraints opts)
-                   :return-fields chunk-row-query-fields
-                   :read-context (read-context opts)})
-            rows-by-path (group-by :path (filter-scope rows opts))]
-        (mapcat #(get rows-by-path % []) paths)))))
+  (rows-by-field-values xtdb
+                        (:chunks store/tables)
+                        :path
+                        paths
+                        opts
+                        chunk-row-query-fields))
 
 (defn all-diagnostics
   ([xtdb] (all-diagnostics xtdb {}))
