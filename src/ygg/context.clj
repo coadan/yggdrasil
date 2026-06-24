@@ -1124,19 +1124,26 @@
             (:name row)
             (:kind row))))
 
-(defn- source-graph-matched-query-tokens
-  [query-tokens row]
-  (let [row-tokens (set (source-graph-candidate-tokens row))]
-    (filterv row-tokens (distinct query-tokens))))
+(defn- matched-source-graph-query-tokens
+  [distinct-query-tokens tokens]
+  (let [row-token-set (set tokens)]
+    (filterv row-token-set distinct-query-tokens)))
+
+(defn- source-graph-token-data
+  [distinct-query-tokens row]
+  (let [tokens (source-graph-candidate-tokens row)]
+    {:row row
+     :tokens tokens
+     :matched-tokens (matched-source-graph-query-tokens distinct-query-tokens
+                                                        tokens)}))
 
 (defn- source-graph-token-row-counts
-  [query-tokens rows]
-  (let [query-token-set (set query-tokens)]
-    (->> rows
-         (mapcat (fn [row]
-                   (let [row-tokens (set (source-graph-candidate-tokens row))]
-                     (filter row-tokens query-token-set))))
-         frequencies)))
+  [token-data]
+  (reduce
+   (fn [counts {:keys [matched-tokens]}]
+     (reduce #(update %1 %2 (fnil inc 0)) counts matched-tokens))
+   {}
+   token-data))
 
 (defn- source-graph-rare-token-score
   [row-count token-row-counts matched-tokens]
@@ -1154,11 +1161,20 @@
    (text/token-score query-tokens (source-graph-candidate-tokens row)))
   ([query-tokens row-count token-row-counts row]
    (let [tokens (source-graph-candidate-tokens row)
-         matched-tokens (source-graph-matched-query-tokens query-tokens row)]
+         distinct-query-tokens (vec (distinct query-tokens))
+         matched-tokens (matched-source-graph-query-tokens distinct-query-tokens
+                                                           tokens)]
      (+ (text/token-score query-tokens tokens)
         (source-graph-rare-token-score row-count
                                        token-row-counts
                                        matched-tokens)))))
+
+(defn- source-graph-candidate-score-from-token-data
+  [query-tokens row-count token-row-counts {:keys [tokens matched-tokens]}]
+  (+ (text/token-score query-tokens tokens)
+     (source-graph-rare-token-score row-count
+                                    token-row-counts
+                                    matched-tokens)))
 
 (defn- row-id
   [row]
@@ -1167,45 +1183,42 @@
       (:_id row)
       (get row "_id")))
 
-(defn- source-graph-candidate-row
-  ([query-tokens row]
-   (source-graph-candidate-row query-tokens nil nil row))
-  ([query-tokens row-count token-row-counts row]
-   (let [path (not-empty (str (:path row)))
-         score (if row-count
-                 (source-graph-candidate-score query-tokens
-                                               row-count
-                                               token-row-counts
-                                               row)
-                 (source-graph-candidate-score query-tokens row))]
-     (when (and path
-                (<= source-graph-candidate-min-score score))
-       (let [file-row? (nil? (:label row))]
-         (cond-> {:path path
-                  :rank 0
-                  :score score
-                  :target-kind (if file-row? :file :node)
-                  :target-id (row-id row)
-                  :label (or (:label row) path)
-                  :kind (:kind row)
-                  :result-kind (if file-row? :file :node)
-                  :reason "query-matched source row"
-                  :score-components {:sourceGraph score}}
-           (:repo-id row) (assoc :repo-id (:repo-id row)
-                                 :repo (:repo-id row))
-           (:source-line row) (assoc :source-line (:source-line row))
-           (:end-line row) (assoc :end-line (:end-line row))))))))
+(defn- source-graph-candidate-row-from-token-data
+  [query-tokens row-count token-row-counts {:keys [row] :as token-data}]
+  (let [path (not-empty (str (:path row)))
+        score (source-graph-candidate-score-from-token-data query-tokens
+                                                            row-count
+                                                            token-row-counts
+                                                            token-data)]
+    (when (and path
+               (<= source-graph-candidate-min-score score))
+      (let [file-row? (nil? (:label row))]
+        (cond-> {:path path
+                 :rank 0
+                 :score score
+                 :target-kind (if file-row? :file :node)
+                 :target-id (row-id row)
+                 :label (or (:label row) path)
+                 :kind (:kind row)
+                 :result-kind (if file-row? :file :node)
+                 :reason "query-matched source row"
+                 :score-components {:sourceGraph score}}
+          (:repo-id row) (assoc :repo-id (:repo-id row)
+                                :repo (:repo-id row))
+          (:source-line row) (assoc :source-line (:source-line row))
+          (:end-line row) (assoc :end-line (:end-line row)))))))
 
 (defn- ranked-source-graph-candidates
   [query-tokens rows limit]
-  (let [rows (vec rows)
-        row-count (count rows)
-        token-row-counts (source-graph-token-row-counts query-tokens rows)]
-    (->> rows
-         (keep #(source-graph-candidate-row query-tokens
-                                            row-count
-                                            token-row-counts
-                                            %))
+  (let [distinct-query-tokens (vec (distinct query-tokens))
+        token-data (mapv #(source-graph-token-data distinct-query-tokens %) rows)
+        row-count (count token-data)
+        token-row-counts (source-graph-token-row-counts token-data)]
+    (->> token-data
+         (keep #(source-graph-candidate-row-from-token-data query-tokens
+                                                            row-count
+                                                            token-row-counts
+                                                            %))
          (sort-by (juxt (comp - :score)
                         :repo
                         :path
