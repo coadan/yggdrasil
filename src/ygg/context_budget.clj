@@ -451,16 +451,20 @@
   [doc]
   [(get-in doc [:source :repo]) (get-in doc [:source :path])])
 (defn- snippet-file-row
-  [[[repo path] docs]]
+  [[[repo path] items]]
   (cond-> {:path path
-           :items (mapv snippet-item docs)}
+           :items items}
     repo (assoc :repo repo)))
+(defn- add-snippet-file-item
+  [files doc]
+  (if (and (:snippet doc)
+           (not (str/blank? (str (get-in doc [:source :path])))))
+    (update files (snippet-file-key doc) (fnil conj []) (snippet-item doc))
+    files))
 (defn- packet-snippets
   [docs]
   (->> docs
-       (filter #(and (:snippet %)
-                     (not (str/blank? (str (get-in % [:source :path]))))))
-       (group-by snippet-file-key)
+       (reduce add-snippet-file-item {})
        (sort-by (fn [[[repo path] _]] [(or repo "") path]))
        (mapv snippet-file-row)))
 
@@ -596,8 +600,9 @@
         packet (reduce #(add-doc-with-budget %1 %2 budget) packet docs)
         packet (fit-candidate-files (assoc packet :candidateFiles candidate-files)
                                     budget)
+        snippets (packet-snippets (:docs packet))
         packet (cond-> packet
-                 (seq (packet-snippets (:docs packet)))
-                 (assoc :snippets (packet-snippets (:docs packet))))
+                 (seq snippets)
+                 (assoc :snippets snippets))
         truncated? (< (count (:docs packet)) (count docs))]
     (finalize-budget packet budget truncated?)))
