@@ -7,6 +7,7 @@
             [ygg.map-store :as map-store]
             [ygg.init :as init]
             [ygg.project :as project]
+            [ygg.project-registry :as registry]
             [ygg.report :as report]
             [ygg.xtdb :as store]
             [clojure.java.io :as io]))
@@ -68,8 +69,10 @@
   [path]
   (.exists (io/file path)))
 (defn- init-sync-args
-  [config-path map-path query-index?]
-  (cond-> [config-path "--check" "--no-progress"]
+  [project-id config-path map-path query-index?]
+  (cond-> (if config-path
+            [config-path "--check" "--no-progress"]
+            ["--project" project-id "--check" "--no-progress"])
     map-path (into ["--map" map-path])
     query-index? (conj "--query-index")))
 (defn init!
@@ -93,7 +96,8 @@
          (assoc :sync-output
                 (with-out-str
                   (dispatch "sync"
-                            (init-sync-args (:config result)
+                            (init-sync-args (:project-id result)
+                                            (:config result)
                                             map-path
                                             (query-index? args))))))))))
 (defn- sync-project-result!
@@ -116,7 +120,8 @@
       enqueued (assoc :enqueued enqueued))))
 (defn- start-project!
   [root config-path map-path args]
-  (if (and (project-config-exists? config-path)
+  (if (and config-path
+           (project-config-exists? config-path)
            (not (some #{"--force"} args)))
     {:mode "existing"
      :config config-path
@@ -132,49 +137,53 @@
       {:mode "initialized"
        :config (:config result)
        :init result
-       :project (project/read-project (:config result))})))
+       :project (if-let [path (:config result)]
+                  (project/read-project path)
+                  (registry/read-project (:project-id result)))})))
 (defn start-next-actions
   [project-id config-path map-path report-out]
-  (cond-> [{:kind :inspect
-            :label "Inspect freshness and evidence planes"
-            :command (str "ygg sync inspect " (command/shell-token config-path)
-                          (when map-path
-                            (str " --map " (command/shell-token map-path)))
-                          " --json")}
-           {:kind :activity
-            :label "Import local work and validation activity"
-            :command (str "ygg sync activity " (command/shell-token config-path)
-                          " --json")}
-           {:kind :audit-scope
-            :label "Inspect audit scopes and caveats"
-            :command (str "ygg audit-scope " (command/shell-token config-path)
-                          (when map-path
-                            (str " --map " (command/shell-token map-path)))
-                          " --json")}
-           {:kind :dependencies
-            :label "Inspect package dependency evidence"
-            :command (str "ygg packages --project "
-                          (command/shell-token project-id)
-                          " --json")}
-           {:kind :query
-            :label "Query graph-grounded implementation context"
-            :command (str "ygg query \"where is this handled?\" --project "
-                          (command/shell-token project-id)
-                          " --json")}
-           {:kind :systems
-            :label "Inspect system graph"
-            :command (str "ygg view systems --project "
-                          (command/shell-token project-id))}
-           {:kind :report
-            :label "Open or regenerate local report bundle"
-            :command (str "ygg report " (command/shell-token config-path)
-                          (when map-path
-                            (str " --map " (command/shell-token map-path)))
-                          " --out " (command/shell-token report-out))}
-           {:kind :agent-install
-            :label "Install project-local agent guidance"
-            :command "ygg agent install --platform codex --project"}]
-    true vec))
+  (let [target (if config-path
+                 (command/shell-token config-path)
+                 (str "--project " (command/shell-token project-id)))]
+    (cond-> [{:kind :inspect
+              :label "Inspect freshness and evidence planes"
+              :command (str "ygg sync inspect " target
+                            (when map-path
+                              (str " --map " (command/shell-token map-path)))
+                            " --json")}
+             {:kind :activity
+              :label "Import local work and validation activity"
+              :command (str "ygg sync activity " target " --json")}
+             {:kind :audit-scope
+              :label "Inspect audit scopes and caveats"
+              :command (str "ygg audit-scope " target
+                            (when map-path
+                              (str " --map " (command/shell-token map-path)))
+                            " --json")}
+             {:kind :dependencies
+              :label "Inspect package dependency evidence"
+              :command (str "ygg packages --project "
+                            (command/shell-token project-id)
+                            " --json")}
+             {:kind :query
+              :label "Query graph-grounded implementation context"
+              :command (str "ygg query \"where is this handled?\" --project "
+                            (command/shell-token project-id)
+                            " --json")}
+             {:kind :systems
+              :label "Inspect system graph"
+              :command (str "ygg view systems --project "
+                            (command/shell-token project-id))}
+             {:kind :report
+              :label "Open or regenerate local report bundle"
+              :command (str "ygg report " target
+                            (when map-path
+                              (str " --map " (command/shell-token map-path)))
+                            " --out " (command/shell-token report-out))}
+             {:kind :agent-install
+              :label "Install project-local agent guidance"
+              :command "ygg agent install --platform codex --project"}]
+      true vec)))
 (defn start-next-commands
   [actions]
   (mapv :command actions))
@@ -271,15 +280,16 @@
   (binding [*deps* deps]
     (let [workbench-root (option-value args "--workbench")
           root (or workbench-root (first (positional-args args)) ".")
-          config-path (or (option-value args "--out") "project.edn")
+          config-path (option-value args "--out")
           map-path (start-map-path args)
           report-out (or (option-value args "--report-out") report/default-output-dir)
           start-info (start-project! root config-path map-path args)
           project (:project start-info)]
       (ensure-init-map! (:id project) map-path)
-      (store/with-node (store/storage-path)
+      (store/with-node (store/storage-path (:id project))
         (fn [xtdb]
-          (let [sync-args (init-sync-args (:config start-info)
+          (let [sync-args (init-sync-args (:id project)
+                                          (:config start-info)
                                           map-path
                                           (query-index? args))
                 sync-result (sync-project-result! xtdb project sync-args)

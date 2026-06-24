@@ -1,65 +1,32 @@
 {:tasks
  {:requires ([babashka.process :refer [shell]])
+  :init (defn ygg [& args] (apply shell "./bin/ygg" args))
 
   start {:doc "Start Yggdrasil for a repo. Usage: bb start <repo-root> [--project ID] [--out project.edn] [--map ygg.map.json] [--report-out ygg-out]"
-         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "start"
-                      *command-line-args*)}
+         :task (apply ygg "start" *command-line-args*)}
 
-  sync {:doc "Sync Yggdrasil with a project. Usage: bb sync <project.edn> [--check] [--enqueue] [--query-index]"
-        :task (let [args *command-line-args*]
-                (if (= "inspect" (first args))
-                  (let [{:keys [exit]} (apply shell
-                                              {:continue true}
-                                              "python3"
-                                              "scripts/ygg-daemon-client.py"
-                                              "sync-inspect"
-                                              (rest args))]
-                    (if (= 75 exit)
-                      (apply shell "clojure" "-M:run" "-m" "ygg.cli-sync-inspect" (rest args))
-                      (System/exit exit)))
-                  (apply shell "clojure" "-M:run" "-m" "ygg.cli" "sync" args)))}
+  sync {:doc "Sync Yggdrasil with a project. Usage: bb sync [<project.edn>] [--project ID] [--check] [--enqueue] [--query-index]"
+        :task (apply ygg "sync" *command-line-args*)}
 
-  daemon {:doc "Run or control the local Yggdrasil daemon. Usage: bb daemon start|status|stop|query"
-          :task (let [command (first *command-line-args*)
-                      args *command-line-args*
-                      {:keys [exit]} (if (#{"status" "stop" "query"} command)
-                                       (apply shell
-                                              {:continue true}
-                                              "python3"
-                                              "scripts/ygg-daemon-client.py"
-                                              args)
-                                       (apply shell
-                                              {:continue true}
-                                              "clojure"
-                                              "-M:run"
-                                              "-m"
-                                              "ygg.daemon"
-                                              args))]
+  daemon {:doc "Run or control the local Yggdrasil daemon. Usage: bb daemon start|status|stop|<cli-command>"
+          :task (let [{:keys [exit]} (apply shell
+                                            {:continue true}
+                                            "./bin/ygg"
+                                            "daemon"
+                                            *command-line-args*)]
                   (System/exit exit))}
 
   query {:doc "Query the current graph. Usage: bb query \"text\" [--project ID]"
-         :task (let [args *command-line-args*
-                     {:keys [exit]} (apply shell
-                                           {:continue true}
-                                           "python3"
-                                           "scripts/ygg-daemon-client.py"
-                                           "query"
-                                           args)]
-                 (if (= 75 exit)
-                   (apply shell "clojure" "-M:run" "-m" "ygg.cli" "query" args)
-                   (System/exit exit)))}
+         :task (apply ygg "query" *command-line-args*)}
 
   view {:doc "Render or export graph slices. Usage: bb view overview|deps|query|systems ..."
-        :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "view"
-                     *command-line-args*)}
+        :task (apply ygg "view" *command-line-args*)}
 
   packages {:doc "Report package/dependency evidence. Usage: bb packages [--project ID] [--repo ID] [--ecosystem npm|cargo|go] [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N] [--json]"
-            :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "packages"
-                         *command-line-args*)}
+            :task (apply ygg "packages" *command-line-args*)}
 
   bench {:doc "Run issue replay benchmarks. Usage: bb bench prepare|agent-packet|agent-baseline|agent-run|agent-score|agent-report|agent-check|claim-pack|improve|run|report|show <benchmark.edn>"
-         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "bench"
-                      *command-line-args*)}
+         :task (apply ygg "bench" *command-line-args*)}
 
   headline {:doc "Run the architecture-first headline benchmark workflow. Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|prepare-ygg|ygg|agents|reports|token-check|compare|claim-pack|all [--suite PATH] [--out DIR] [--agent ID] [--command CMD] [--dry-run]"
             :task (apply shell "bash" "scripts/headline-bench.sh"
@@ -121,48 +88,37 @@
                            *command-line-args*)}
 
   index {:doc "Compatibility: index a repo. Usage: bb index <repo-path> [--dry-run]"
-         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "index"
-                      *command-line-args*)}
+         :task (apply ygg "index" *command-line-args*)}
 
   project {:doc "Compatibility: project commands. Prefer bb sync."
-           :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "project"
-                        *command-line-args*)}
+           :task (apply ygg "project" *command-line-args*)}
 
   systems {:doc "System candidate commands. Usage: bb systems candidates --project ID"
-           :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "systems"
-                        *command-line-args*)}
+           :task (apply ygg "systems" *command-line-args*)}
 
   classify {:doc "Focused classifier commands. Usage: bb classify decision <id> --project ID"
-            :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "classify"
-                         *command-line-args*)}
+            :task (apply ygg "classify" *command-line-args*)}
 
   queue {:doc "Compatibility: filesystem queue commands. Prefer bb sync work."
-         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "queue"
-                      *command-line-args*)}
+         :task (apply ygg "queue" *command-line-args*)}
 
   embed {:doc "Embed search docs. Usage: bb embed [--model MODEL] [--limit N]"
-         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "embed"
-                      *command-line-args*)}
+         :task (apply ygg "embed" *command-line-args*)}
 
   graph {:doc "Compatibility: write graph view. Prefer bb view."
-         :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "graph"
-                      *command-line-args*)}
+         :task (apply ygg "graph" *command-line-args*)}
 
   deps {:doc "Compatibility: show graph dependencies. Prefer bb view deps or bb query."
-        :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "deps"
-                     *command-line-args*)}
+        :task (apply ygg "deps" *command-line-args*)}
 
   path {:doc "Compatibility: find graph path."
-        :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "path"
-                     *command-line-args*)}
+        :task (apply ygg "path" *command-line-args*)}
 
-  report {:doc "Write a local report bundle. Usage: bb report <project.edn> [--map ygg.map.json] [--out ygg-out]"
-          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "report"
-                       *command-line-args*)}
+  report {:doc "Write a local report bundle. Usage: bb report [<project.edn>] [--project ID] [--map ygg.map.json] [--out ygg-out]"
+          :task (apply ygg "report" *command-line-args*)}
 
   plugin {:doc "Manage Yggdrasil plugin packages. Usage: bb plugin new|validate|diagnose|dry-run|install|list|remove|registry ..."
-          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "plugin"
-                       *command-line-args*)}
+          :task (apply ygg "plugin" *command-line-args*)}
 
   report-ui:install {:doc "Install report UI dependencies."
                      :task (shell {:dir "report-ui"} "npm install")}

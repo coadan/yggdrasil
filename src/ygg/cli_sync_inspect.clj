@@ -160,7 +160,7 @@
      (throw (ex-info "Missing project config path." {:usage ((:usage deps))})))
    (print-project-status-with-deps! (project/read-project config-path) config-path args deps))
   ([project config-path args deps]
-   (store/with-node (store/storage-path)
+   (store/with-node (store/storage-path (:id project))
      (fn [xtdb]
        (print-project-status-on-node-with-deps! xtdb project config-path args deps)))))
 

@@ -7,6 +7,7 @@
             [ygg.index :as index]
             [ygg.map-store :as map-store]
             [ygg.project :as project]
+            [ygg.project-registry :as registry]
             [ygg.queue :as queue]
             [ygg.system.decision-classifier :as decision-classifier]
             [ygg.xtdb :as store]
@@ -38,7 +39,9 @@
 (defn- apply-work-result! [root id map-path] (call-dep :apply-work-result! root id map-path))
 (defn- validate-work-result [root id] (call-dep :validate-work-result root id))
 (defn- dispatch [command args] (call-dep :dispatch command args))
-(defn- print-project-status! [config-path args] (call-dep :print-project-status! config-path args))
+(defn- print-project-status!
+  ([config-path args] (call-dep :print-project-status! config-path args))
+  ([project config-path args] (call-dep :print-project-status! project config-path args)))
 
 (defn- print-node-finding
   [{:keys [label kind repo-id path-prefix]}]
@@ -366,30 +369,38 @@
         (println "## Enqueued")
         (doseq [item enqueued]
           (println "-" (:id item) (:kind item) (:status item)))))))
+
+(defn- config-path
+  [args]
+  (first (positional-args args)))
+
+(defn- resolve-project-ref
+  [args]
+  (if-let [path (config-path args)]
+    {:project (project/read-project path)
+     :config-path path
+     :source :config-path}
+    (registry/resolve-project {:project-id (option-value args "--project")
+                               :cwd (System/getProperty "user.dir")})))
+
 (defn- sync-check!
   [args]
-  (let [config-path (first (positional-args args))]
-    (when-not config-path
-      (throw (ex-info "Missing project config path." {:usage (usage)})))
-    (let [project (project/read-project config-path)]
-      (store/with-node (store/storage-path)
-        (fn [xtdb]
-          (print-maintenance-result args
-                                    (maintenance-result
-                                     args
-                                     (maintenance-report xtdb project args))))))))
+  (let [{:keys [project]} (resolve-project-ref args)]
+    (store/with-node (store/storage-path (:id project))
+      (fn [xtdb]
+        (print-maintenance-result args
+                                  (maintenance-result
+                                   args
+                                   (maintenance-report xtdb project args)))))))
 (defn- sync-coverage!
   [args]
-  (let [config-path (first (positional-args args))]
-    (when-not config-path
-      (throw (ex-info "Missing project config path." {:usage (usage)})))
-    (let [project (project/read-project config-path)]
-      (store/with-node (store/storage-path)
-        (fn [xtdb]
-          (let [report (coverage/project-coverage xtdb project {})]
-            (if (json-output? args)
-              (print-json report)
-              (print-source-coverage report))))))))
+  (let [{:keys [project]} (resolve-project-ref args)]
+    (store/with-node (store/storage-path (:id project))
+      (fn [xtdb]
+        (let [report (coverage/project-coverage xtdb project {})]
+          (if (json-output? args)
+            (print-json report)
+            (print-source-coverage report)))))))
 (defn- print-activity-sync
   [{:keys [project-id queue-root counts result-schema-mismatches]}]
   (println "# Activity Sync")
@@ -415,54 +426,48 @@
                "item" itemId))))
 (defn- sync-activity!
   [args]
-  (let [config-path (first (positional-args args))]
-    (when-not config-path
-      (throw (ex-info "Missing project config path." {:usage (usage)})))
-    (let [project (project/read-project config-path)]
-      (store/with-node (store/storage-path)
-        (fn [xtdb]
-          (let [result (activity/sync-queue! xtdb
-                                             project
-                                             {:queue-root (queue-root args)})]
-            (if (json-output? args)
-              (print-json result)
-              (print-activity-sync result))))))))
-(defn- sync-project!
-  [args]
-  (let [config-path (first (positional-args args))]
-    (when-not config-path
-      (throw (ex-info "Missing project config path." {:usage (usage)})))
-    (let [project (project/read-project config-path)
-          repo-id (option-value args "--repo")
-          check? (or (some #{"--check"} args)
-                     (enqueue-output? args))]
-      (if (dry-run? args)
-        (let [index-summary (sync-index-project! nil project args)
-              result {:schema "ygg.sync/v1"
-                      :project-id (:id project)
-                      :repo-id repo-id
-                      :index-summary index-summary}]
+  (let [{:keys [project]} (resolve-project-ref args)]
+    (store/with-node (store/storage-path (:id project))
+      (fn [xtdb]
+        (let [result (activity/sync-queue! xtdb
+                                           project
+                                           {:queue-root (queue-root args)})]
           (if (json-output? args)
             (print-json result)
-            (print-sync-summary result)))
-        (store/with-node (store/storage-path)
-          (fn [xtdb]
-            (let [index-summary (sync-index-project! xtdb project args)
-                  system-summary (project/infer-project! xtdb project)
-                  report (when check?
-                           (maintenance-report xtdb project args))
-                  enqueued (when (and report (enqueue-output? args))
-                             (enqueue-sync-work! args report))
-                  result (cond-> {:schema "ygg.sync/v1"
-                                  :project-id (:id project)
-                                  :repo-id repo-id
-                                  :index-summary index-summary
-                                  :system-summary system-summary}
-                           report (assoc :check-report report)
-                           enqueued (assoc :enqueued enqueued))]
-              (if (json-output? args)
-                (print-json result)
-                (print-sync-summary result)))))))))
+            (print-activity-sync result)))))))
+(defn- sync-project!
+  [args]
+  (let [{:keys [project]} (resolve-project-ref args)
+        repo-id (option-value args "--repo")
+        check? (or (some #{"--check"} args)
+                   (enqueue-output? args))]
+    (if (dry-run? args)
+      (let [index-summary (sync-index-project! nil project args)
+            result {:schema "ygg.sync/v1"
+                    :project-id (:id project)
+                    :repo-id repo-id
+                    :index-summary index-summary}]
+        (if (json-output? args)
+          (print-json result)
+          (print-sync-summary result)))
+      (store/with-node (store/storage-path (:id project))
+        (fn [xtdb]
+          (let [index-summary (sync-index-project! xtdb project args)
+                system-summary (project/infer-project! xtdb project)
+                report (when check?
+                         (maintenance-report xtdb project args))
+                enqueued (when (and report (enqueue-output? args))
+                           (enqueue-sync-work! args report))
+                result (cond-> {:schema "ygg.sync/v1"
+                                :project-id (:id project)
+                                :repo-id repo-id
+                                :index-summary index-summary
+                                :system-summary system-summary}
+                         report (assoc :check-report report)
+                         enqueued (assoc :enqueued enqueued))]
+            (if (json-output? args)
+              (print-json result)
+              (print-sync-summary result))))))))
 (defn- sync-add-repo!
   [args]
   (let [[config-path repo-root] (positional-args args)]
@@ -603,8 +608,8 @@
          action-args (vec (rest args))]
      (case action
        :inspect
-       (let [config-path (first (positional-args action-args))]
-         (print-project-status! config-path action-args))
+       (let [{:keys [project config-path]} (resolve-project-ref action-args)]
+         (print-project-status! project config-path action-args))
 
        :add-repo
        (sync-add-repo! action-args)
@@ -633,9 +638,7 @@
        (:init :propose :explain :set-kind :include :ignore :package)
        (retired-sync-map-command! action)
 
-       (if action-name
-         (sync-project! args)
-         (throw (ex-info "Missing sync project config path." {:usage (usage)}))))))
+       (sync-project! args))))
   ([args deps]
    (binding [*deps* deps]
      (sync-dispatch! args))))

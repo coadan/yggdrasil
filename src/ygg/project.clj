@@ -209,19 +209,29 @@
   [project]
   (vec (get-in project [:plugins :reports])))
 
+(declare normalize-project)
+
 (defn read-project
   "Read and normalize a project.edn file."
   [path]
   (let [base (config-dir path)
-        data (read-config-data path)
+        data (read-config-data path)]
+    (normalize-project base data {:path (fs/canonical-path path)})))
+
+(defn normalize-project
+  "Normalize project config data using base as the directory for relative paths."
+  [base data {:keys [path]}]
+  (let [base (or base (io/file "."))
         plugins (plugin-config base data)
         project-id (some-> (:id data) str)]
     (when (str/blank? project-id)
-      (throw (ex-info "Project config is missing :id." {:path path})))
+      (throw (ex-info "Project config is missing :id."
+                      (cond-> {}
+                        path (assoc :path path)))))
     (cond-> {:id project-id
              :name (str (or (:name data) project-id))
-             :path (fs/canonical-path path)
              :repos (normalize-repos base data)}
+      path (assoc :path path)
       (some seq (vals plugins))
       (assoc :plugins plugins))))
 

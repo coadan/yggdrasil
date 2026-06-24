@@ -7,6 +7,7 @@
             [ygg.map-store :as map-store]
             [ygg.plugin-package-view :as plugin-package-view]
             [ygg.project :as project]
+            [ygg.project-registry :as registry]
             [ygg.query :as query]
             [ygg.queue :as queue]
             [ygg.xtdb :as store]
@@ -79,9 +80,10 @@
   {:root (or (option-value args "--root") default-root)
    :config-path (or (option-value args "--config")
                     (option-value args "--project-config"))
+   :project-id (option-value args "--project")
    :map-path (option-value args "--map")
    :queue-dir (or (option-value args "--queue-dir") queue/default-root)
-   :storage-path (or (option-value args "--storage") (store/storage-path))
+   :storage-path (option-value args "--storage")
    :tool-groups (parse-tool-groups (configured-tool-groups args))})
 
 (defn- json-schema
@@ -275,12 +277,11 @@
 (defn- read-project!
   [ctx args]
   (let [path (config-path ctx args)]
-    (when (str/blank? (str path))
-      (throw (ex-info "Missing project config path."
-                      {:schema "ygg.mcp.error/v1"
-                       :error "missing-project-config"
-                       :hint "Pass --config to ygg-mcp or configPath to the tool."})))
-    (project/read-project path)))
+    (if-not (str/blank? (str path))
+      (project/read-project path)
+      (:project (registry/resolve-project
+                 {:project-id (or (:projectId args) (:project-id ctx))
+                  :cwd (abs-path (:root ctx))})))))
 
 (defn- project-id
   [project args]
@@ -306,7 +307,10 @@
 
 (defn- with-xtdb
   [ctx f]
-  (store/with-node (:storage-path ctx) f))
+  (let [project-id (or (:project-id ctx) (System/getenv "YGG_PROJECT_ID"))]
+    (store/with-node (or (:storage-path ctx)
+                         (store/storage-path project-id))
+      f)))
 
 (defn- tool-packet
   [value]
@@ -345,7 +349,7 @@
         project (read-project! ctx args)
         overlay (map-overlay ctx args)]
     (with-xtdb
-      ctx
+      (assoc ctx :project-id (:id project))
       (fn [xtdb]
         (context/context-packet xtdb
                                 query
@@ -958,7 +962,7 @@
         limit (long (or (:limit args) default-node-inspect-limit))
         source-lines (long (or (:sourceLines args) default-node-source-lines))]
     (with-xtdb
-      ctx
+      (assoc ctx :project-id (:id project))
       (fn [xtdb]
         (let [files (target-file-candidates xtdb project-id target)
               nodes (node-target-candidates xtdb project-id target)
@@ -1041,7 +1045,7 @@
   [ctx args]
   (let [project (read-project! ctx args)]
     (with-xtdb
-      ctx
+      (assoc ctx :project-id (:id project))
       (fn [xtdb]
         (graph/system-graph xtdb
                             (project-id project args)
@@ -1058,7 +1062,7 @@
   (let [project (read-project! ctx args)
         config-path (config-path ctx args)]
     (with-xtdb
-      ctx
+      (assoc ctx :project-id (:id project))
       (fn [xtdb]
         (let [evidence-summary (evidence/summarize xtdb
                                                    project
@@ -1082,7 +1086,7 @@
   [ctx args]
   (let [project (read-project! ctx args)]
     (with-xtdb
-      ctx
+      (assoc ctx :project-id (:id project))
       #(project/maintain-project %
                                  project
                                  {:low-confidence-threshold (or (:minConfidence args) 0.60)
@@ -1092,7 +1096,7 @@
   [ctx args]
   (let [project (read-project! ctx args)]
     (with-xtdb
-      ctx
+      (assoc ctx :project-id (:id project))
       #(activity/sync-queue! %
                              project
                              {:queue-root (or (:queueDir args)

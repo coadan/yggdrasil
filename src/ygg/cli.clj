@@ -36,6 +36,7 @@
             [ygg.cli-plugin :as cli-plugin]
             [ygg.cli-project :as cli-project]
             [ygg.project :as project]
+            [ygg.project-registry :as registry]
             [ygg.queue :as queue]
             [ygg.query :as query]
             [ygg.report :as report]
@@ -462,7 +463,7 @@
     (print-json result)
     (print-map-summary (:path result) (map-store/read-map (:path result)))))
 
-(defn- sync-deps
+(defn sync-deps
   []
   {:usage usage
    :print-json print-json
@@ -613,6 +614,108 @@
                       {:command action
                        :usage "agent install|uninstall|list"})))))
 
+(defn- project-summary
+  [project]
+  {:id (:id project)
+   :name (:name project)
+   :repos (mapv #(select-keys % [:id :root :role]) (:repos project))})
+
+(defn- print-project-summary
+  [project]
+  (println "# Project")
+  (println "- id" (:id project))
+  (println "- name" (:name project))
+  (println "- repos" (count (:repos project)))
+  (doseq [{:keys [id root role]} (:repos project)]
+    (println "-" id (name role) root)))
+
+(defn- current!
+  [args]
+  (let [{:keys [project source root registry]} (registry/resolve-project
+                                                {:project-id (option-value args "--project")
+                                                 :cwd (System/getProperty "user.dir")})
+        result {:schema "ygg.current/v1"
+                :project (project-summary project)
+                :source source
+                :matched-root root
+                :storage-path (store/storage-path (:id project))
+                :registry registry}]
+    (if (json-output? args)
+      (print-json result)
+      (do
+        (print-project-summary project)
+        (println "- source" (name source))
+        (when root
+          (println "- matched-root" root))
+        (println "- storage" (:storage-path result))
+        (println "- registry" registry)))))
+
+(defn- use-project!
+  [args]
+  (let [project-id (first (positional-args args))]
+    (when (str/blank? (str project-id))
+      (throw (ex-info "Missing project id." {:usage "use <project-id> [--json]"})))
+    (let [result (registry/use-project! project-id (System/getProperty "user.dir"))]
+      (if (json-output? args)
+        (print-json result)
+        (do
+          (println "# Active Project")
+          (println "- project" (:project-id result))
+          (println "- root" (:root result))
+          (println "- registry" (:registry result)))))))
+
+(defn- project-list!
+  [args]
+  (let [registry-data (registry/read-registry)
+        project-ids (sort (keys (registry/projects registry-data)))
+        rows (mapv (fn [project-id]
+                     (project-summary (registry/read-project registry-data project-id)))
+                   project-ids)]
+    (if (json-output? args)
+      (print-json {:schema "ygg.projects.list/v1"
+                   :registry (registry/registry-path)
+                   :projects rows})
+      (do
+        (println "# Projects")
+        (println "- registry" (registry/registry-path))
+        (doseq [{:keys [id name repos]} rows]
+          (println "-" id (str "(" name ", " (count repos) " repos)")))))))
+
+(defn- projects!
+  [args]
+  (let [action (keyword (or (first args) "list"))
+        project-args (vec (rest args))]
+    (case action
+      :list
+      (project-list! project-args)
+
+      :show
+      (let [project-id (first (positional-args project-args))]
+        (when (str/blank? (str project-id))
+          (throw (ex-info "Missing project id." {:usage "projects show <project-id>"})))
+        (let [project (registry/read-project project-id)]
+          (if (json-output? project-args)
+            (print-json {:schema "ygg.projects.show/v1"
+                         :registry (registry/registry-path)
+                         :project (project-summary project)})
+            (print-project-summary project))))
+
+      :remove
+      (let [project-id (first (positional-args project-args))]
+        (when (str/blank? (str project-id))
+          (throw (ex-info "Missing project id." {:usage "projects remove <project-id>"})))
+        (let [result (registry/remove-project! project-id)]
+          (if (json-output? project-args)
+            (print-json result)
+            (do
+              (println "# Project Removed")
+              (println "- project" (:project-id result))
+              (println "- removed" (:removed? result))))))
+
+      (throw (ex-info "Unknown projects command."
+                      {:command (name action)
+                       :usage "projects list|show <project-id>|remove <project-id>"})))))
+
 (defn usage
   []
   (str/join
@@ -623,13 +726,16 @@
     "  start <repo-root> [--project ID] [--name NAME] [--out project.edn] [--map ygg.map.json] [--report-out ygg-out] [--force] [--query-index]"
     "  init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force] [--sync] [--map ygg.map.json]"
     "  init --workbench <root> [--task TASK] [--project ID] [--name NAME] [--out project.edn] [--force]"
+    "  current [--project ID] [--json]"
+    "  use <project-id> [--json]"
+    "  projects list|show <project-id>|remove <project-id> [--json]"
     ""
     "Sync and maintenance:"
-    "  audit-scope <project.edn> [--repo ID] [--map PATH] [--json]"
-    "  sync <project.edn> [--repo ID] [--map PATH] [--check] [--enqueue] [--query-index] [--dry-run] [--json]"
-    "  sync inspect <project.edn> [--map PATH] [--json]"
-    "  sync coverage <project.edn> [--json]"
-    "  sync activity <project.edn> [--queue-dir DIR] [--json]"
+    "  audit-scope [<project.edn>] [--project ID] [--repo ID] [--map PATH] [--json]"
+    "  sync [<project.edn>] [--project ID] [--repo ID] [--map PATH] [--check] [--enqueue] [--query-index] [--dry-run] [--json]"
+    "  sync inspect [<project.edn>] [--project ID] [--map PATH] [--json]"
+    "  sync coverage [<project.edn>] [--project ID] [--json]"
+    "  sync activity [<project.edn>] [--project ID] [--queue-dir DIR] [--json]"
     "  sync add-repo <project.edn> <repo-path> [--repo ID] [--role ROLE]"
     "  sync check <project.edn> [--map PATH] [--json] [--enqueue] [--queue-dir DIR]"
     "  sync docs candidates <target> [--project ID] [--limit N] [--snippet-chars N]"
@@ -665,7 +771,7 @@
     "View and report:"
     "  view overview|deps|query|systems|clusters|cluster [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--detail primary|expanded|evidence|raw] [--map PATH] [--no-map] [--view ID] [--format html|json] [--out PATH] [--valid-at INSTANT]"
     "  packages [--project ID] [--repo ID] [--ecosystem npm|cargo|go] [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N] [--json]"
-    "  report <project.edn> [--map ygg.map.json] [--out ygg-out] [--detail primary|expanded|evidence|raw] [--force]"
+    "  report [<project.edn>] [--project ID] [--map ygg.map.json] [--out ygg-out] [--detail primary|expanded|evidence|raw] [--force]"
     ""
     "Plugins:"
     "  plugin new <dir> [--id ID] [--file-kind KIND] [--path-glob GLOB] [--scan-glob GLOB] [--fixture PATH] [--extractor] [--report] [--public-base] [--force] [--json]"
@@ -696,7 +802,7 @@
     "  hook status <project.edn>"
     ""
     "Server integration:"
-    "  daemon start|status|stop|query <text> ..."
+    "  daemon start|status|stop|<cli-command> ..."
     "  mcp [--root DIR] [--config project.edn] [--map ygg.map.json] [--queue-dir DIR] [--tools default,sync,work|all]"
     ""
     "Benchmarks:"
@@ -729,6 +835,15 @@
     "start"
     (start! args)
 
+    "current"
+    (current! args)
+
+    "use"
+    (use-project! args)
+
+    "projects"
+    (projects! args)
+
     "sync"
     (sync-dispatch! args)
 
@@ -736,20 +851,23 @@
     (print-project-status! (first (positional-args args)) args)
 
     "audit-scope"
-    (let [config-path (first (positional-args args))]
-      (when-not config-path
-        (throw (ex-info "Missing project config path." {:usage (usage)})))
-      (let [project (project/read-project config-path)
-            opts {:config-path config-path
-                  :repo-id (option-value args "--repo")
-                  :map-path (default-map-path args)
-                  :read-context (temporal-options args)}]
-        (store/with-node (store/storage-path)
-          (fn [xtdb]
-            (let [report (audit-scope/report xtdb project opts)]
-              (if (json-output? args)
-                (print-json report)
-                (print-audit-scope-report report)))))))
+    (let [input-config-path (first (positional-args args))
+          {:keys [project config-path]} (if input-config-path
+                                          {:project (project/read-project input-config-path)
+                                           :config-path input-config-path}
+                                          (registry/resolve-project
+                                           {:project-id (option-value args "--project")
+                                            :cwd (System/getProperty "user.dir")}))
+          opts {:config-path config-path
+                :repo-id (option-value args "--repo")
+                :map-path (default-map-path args)
+                :read-context (temporal-options args)}]
+      (store/with-node (store/storage-path (:id project))
+        (fn [xtdb]
+          (let [report (audit-scope/report xtdb project opts)]
+            (if (json-output? args)
+              (print-json report)
+              (print-audit-scope-report report))))))
 
     "affected"
     (affected! args)
@@ -824,7 +942,7 @@
               limit (or (parse-limit system-args) 50)]
           (when (str/blank? (str project-id))
             (throw (ex-info "Missing --project for system candidates." {:usage (usage)})))
-          (store/with-node (store/storage-path)
+          (store/with-node (store/storage-path project-id)
             (fn [xtdb]
               (print-candidate-systems
                (->> (candidate-system-rows xtdb project-id)
@@ -850,7 +968,7 @@
           (when (str/blank? (str project-id))
             (throw (ex-info "Missing --project for decision classification."
                             {:usage (usage)})))
-          (store/with-node (store/storage-path)
+          (store/with-node (store/storage-path project-id)
             (fn [xtdb]
               (let [report (system/maintenance-report
                             xtdb
@@ -1013,7 +1131,7 @@
           (when-not config-path
             (throw (ex-info "Missing project config path." {:usage (usage)})))
           (let [project (project/read-project config-path)]
-            (store/with-node (store/storage-path)
+            (store/with-node (store/storage-path (:id project))
               (fn [xtdb]
                 (print-json (map-api/review xtdb
                                             project
@@ -1372,7 +1490,7 @@
                                 true
                                 (conj (str "ygg project maintain " config-path)))]
             (if index?
-              (store/with-node (store/storage-path)
+              (store/with-node (store/storage-path (:id project))
                 (fn [xtdb]
                   (let [index-summary (project/index-project-repo! xtdb
                                                                    project
@@ -1399,17 +1517,17 @@
             :index
             (if (dry-run? project-args)
               (print-project-index-summary (project/index-project! nil project {:dry-run? true}))
-              (store/with-node (store/storage-path)
+              (store/with-node (store/storage-path (:id project))
                 (fn [xtdb]
                   (print-project-index-summary (project/index-project! xtdb project {})))))
 
             :infer
-            (store/with-node (store/storage-path)
+            (store/with-node (store/storage-path (:id project))
               (fn [xtdb]
                 (print-system-summary (project/infer-project! xtdb project))))
 
             :maintain
-            (store/with-node (store/storage-path)
+            (store/with-node (store/storage-path (:id project))
               (fn [xtdb]
                 (let [map-path (default-map-path project-args)
                       report (project/maintain-project

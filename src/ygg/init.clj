@@ -2,6 +2,7 @@
   "Project config initialization for Yggdrasil onboarding."
   (:require [ygg.command :as command]
             [ygg.fs :as fs]
+            [ygg.project-registry :as registry]
             [charred.api :as json]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -57,8 +58,11 @@
       (count (:repos (json/read-json (slurp file) :key-fn keyword))))))
 
 (defn- sync-command
-  [config-path & args]
-  (str "ygg sync " (command/shell-token config-path)
+  [project-id config-path & args]
+  (str "ygg sync "
+       (if config-path
+         (command/shell-token config-path)
+         (str "--project " (command/shell-token project-id)))
        (when (seq args)
          (str " " (str/join " " (map command/shell-token args))))))
 
@@ -76,7 +80,7 @@
   [project-id config-path map-path]
   (cond-> [{:kind :sync
             :label "Index and validate project graph"
-            :command (str (sync-command config-path "--check")
+            :command (str (sync-command project-id config-path "--check")
                           (when map-path
                             (str " --map " (command/shell-token map-path))))}
            {:kind :query
@@ -119,24 +123,30 @@
       (:task opts) (assoc :workbench-task (:task opts)))))
 
 (defn init!
-  "Write a project config and return a compact onboarding summary."
+  "Register a project or write a portable project config when :out is provided."
   [root {:keys [out force? map-path workbench?] :as opts}]
   (let [config (if workbench?
                  (workbench-config root opts)
                  (plain-config root opts))
-        config-path (write-edn! (or out "project.edn") config force?)
+        registry-mode? (nil? out)
+        config-path (when out
+                      (write-edn! out config force?))
+        registry-result (when registry-mode?
+                          (registry/upsert-project! config))
         project-id (:id config)
         repo-count (if workbench?
                      (+ (count (:repos config))
                         (or (repos-json-count (:workbench-root config)) 0))
                      (count (:repos config)))
         actions (next-actions project-id config-path map-path)]
-    {:schema schema
-     :project-id project-id
-     :name (:name config)
-     :config config-path
-     :mode (if workbench? "workbench" "repo")
-     :root (or (:workbench-root config) (get-in config [:repos 0 :root]))
-     :repos repo-count
-     :next (next-commands actions)
-     :nextActions actions}))
+    (cond-> {:schema schema
+             :project-id project-id
+             :name (:name config)
+             :mode (if workbench? "workbench" "repo")
+             :root (or (:workbench-root config) (get-in config [:repos 0 :root]))
+             :repos repo-count
+             :next (next-commands actions)
+             :nextActions actions}
+      config-path (assoc :config config-path)
+      registry-mode? (assoc :registry (:registry registry-result)
+                            :registered true))))

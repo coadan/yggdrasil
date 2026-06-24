@@ -7,18 +7,45 @@
             [xtdb.api :as xt]
             [xtdb.node :as xtn])
   (:import [java.io Closeable]
+           [java.net URLEncoder]
            [java.nio.channels FileChannel]
            [java.nio.file OpenOption StandardOpenOption]
            [java.time Instant OffsetDateTime ZonedDateTime]
            [java.util Date]))
 
-(def default-storage-path ".dev/ygg/xtdb")
+(def default-project-id "default")
+
+(defn- xdg-data-home
+  []
+  (or (System/getenv "XDG_DATA_HOME")
+      (str (io/file (System/getProperty "user.home") ".local" "share"))))
+
+(defn storage-root
+  "Return the user-level Yggdrasil storage root."
+  []
+  (or (System/getenv "YGG_STORAGE_ROOT")
+      (str (io/file (xdg-data-home) "ygg"))))
+
+(defn- project-storage-key
+  [project-id]
+  (let [value (str (or project-id default-project-id))]
+    (when (str/blank? value)
+      (throw (ex-info "Missing project id for storage path." {})))
+    (URLEncoder/encode value "UTF-8")))
+
+(defn project-storage-path
+  "Return the default XTDB storage path for a Yggdrasil project id."
+  [project-id]
+  (str (io/file (storage-root) "projects" (project-storage-key project-id) "xtdb")))
 
 (defn storage-path
   "Return configured XTDB storage path."
-  []
-  (or (System/getenv "YGG_XTDB_PATH")
-      default-storage-path))
+  ([] (storage-path nil))
+  ([project-id]
+   (or (System/getenv "YGG_XTDB_PATH")
+       (project-storage-path (or project-id
+                                 (System/getenv "YGG_PROJECT_ID")
+                                 default-project-id)))))
 
 (defn- ensure-dir!
   [path]
@@ -32,19 +59,6 @@
   (let [root (ensure-dir! path)]
     {:log [:local {:path (ensure-dir! (io/file root "log"))}]
      :storage [:local {:path (ensure-dir! (io/file root "storage"))}]}))
-
-(defn- with-storage-lock
-  [path f]
-  (let [root (ensure-dir! path)
-        lock-path (.toPath (io/file root ".ygg.lock"))
-        options (into-array OpenOption [StandardOpenOption/CREATE
-                                        StandardOpenOption/WRITE])]
-    (with-open [channel (FileChannel/open lock-path options)]
-      (let [lock (.lock channel)]
-        (try
-          (f)
-          (finally
-            (.release lock)))))))
 
 (defn- await-ready!
   [node]
@@ -60,22 +74,51 @@
 
 (defn stop-node!
   "Close a node handle."
-  [{:keys [node]}]
-  (when (instance? Closeable node)
-    (.close ^Closeable node)))
+  [{:keys [node storage-lock storage-channel]}]
+  (try
+    (when (instance? Closeable node)
+      (.close ^Closeable node))
+    (finally
+      (when storage-lock
+        (.release storage-lock))
+      (when (instance? Closeable storage-channel)
+        (.close ^Closeable storage-channel)))))
+
+(defn open-node!
+  "Open a locked XTDB node at path.
+
+   The returned handle must be closed with `stop-node!`. Keeping the file lock
+   for the node lifetime prevents a daemon and a direct CLI process from opening
+   the same local store concurrently."
+  [path]
+  (let [root (ensure-dir! path)
+        lock-path (.toPath (io/file root ".ygg.lock"))
+        options (into-array OpenOption [StandardOpenOption/CREATE
+                                        StandardOpenOption/WRITE])
+        channel (FileChannel/open lock-path options)
+        lock (.lock channel)]
+    (try
+      (let [xtdb (start-node root)]
+        (await-ready! (:node xtdb))
+        (assoc xtdb
+               :path root
+               :storage-lock lock
+               :storage-channel channel))
+      (catch Throwable t
+        (try
+          (.release lock)
+          (finally
+            (.close channel)))
+        (throw t)))))
 
 (defn with-node
   "Open XTDB node at path, call f, and close the node."
   [path f]
-  (with-storage-lock
-    path
-    (fn []
-      (let [xtdb (start-node path)]
-        (try
-          (await-ready! (:node xtdb))
-          (f xtdb)
-          (finally
-            (stop-node! xtdb)))))))
+  (let [xtdb (open-node! path)]
+    (try
+      (f xtdb)
+      (finally
+        (stop-node! xtdb)))))
 
 (def tables
   {:projects :ygg/projects

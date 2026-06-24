@@ -232,7 +232,7 @@
                          :tests-only? (boolean (some #{"--tests"} args))
                          :read-context (temporal-options args)}
                   (seq files) (assoc :files files))]
-       (store/with-node (store/storage-path)
+       (store/with-node (store/storage-path (:id project))
          (fn [xtdb]
            (let [result (affected/analyze xtdb project opts)]
              (if (json-output? args)

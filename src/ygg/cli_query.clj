@@ -8,6 +8,7 @@
             [ygg.hash :as hash]
             [ygg.llm.openai-compatible :as llm]
             [ygg.project :as project]
+            [ygg.project-registry :as registry]
             [ygg.query :as query]
             [ygg.report :as report]
             [ygg.xtdb :as store]
@@ -491,15 +492,26 @@
                                    :temporal temporal
                                    :args args}))))))
 
+(defn- args-with-project
+  [args]
+  (if (option-value args "--project")
+    args
+    (let [{:keys [project-id]} (registry/resolve-project
+                                {:config-path (option-value args "--config")
+                                 :cwd (System/getProperty "user.dir")})]
+      (conj args "--project" project-id))))
+
 (defn query!
   [args]
-  (store/with-node (store/storage-path)
-    (fn [xtdb]
-      (query-with-node! xtdb args))))
+  (let [args (args-with-project args)
+        project-id (option-value args "--project")]
+    (store/with-node (store/storage-path project-id)
+      (fn [xtdb]
+        (query-with-node! xtdb args)))))
 (defn view!
   [args]
   (let [format (keyword (or (option-value args "--format") "html"))
-        view-args (remove-option args "--format")]
+        view-args (args-with-project (remove-option args "--format"))]
     (case format
       :html (dispatch "graph" view-args)
       :json (dispatch "graph" (into ["export"] view-args))
@@ -509,19 +521,22 @@
                        :usage (usage)})))))
 (defn report!
   [args]
-  (let [config-path (first (positional-args args))]
-    (when (str/blank? (str config-path))
-      (throw (ex-info "Missing project config." {:usage (usage)})))
-    (let [project (project/read-project config-path)
-          map-path (default-map-path args)]
-      (store/with-node (store/storage-path)
-        (fn [xtdb]
-          (print-json
-           (report/bundle! xtdb
-                           project
-                           {:out (or (option-value args "--out")
-                                     report/default-output-dir)
-                            :map-path map-path
-                            :detail (keyword (or (option-value args "--detail")
-                                                 (name report/default-detail)))
-                            :force? (boolean (some #{"--force"} args))})))))))
+  (let [config-path (first (positional-args args))
+        {:keys [project]} (if (str/blank? (str config-path))
+                            (registry/resolve-project
+                             {:project-id (option-value args "--project")
+                              :cwd (System/getProperty "user.dir")})
+                            {:project (project/read-project config-path)
+                             :config-path config-path})
+        map-path (default-map-path args)]
+    (store/with-node (store/storage-path (:id project))
+      (fn [xtdb]
+        (print-json
+         (report/bundle! xtdb
+                         project
+                         {:out (or (option-value args "--out")
+                                   report/default-output-dir)
+                          :map-path map-path
+                          :detail (keyword (or (option-value args "--detail")
+                                               (name report/default-detail)))
+                          :force? (boolean (some #{"--force"} args))}))))))

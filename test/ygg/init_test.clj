@@ -3,6 +3,7 @@
             [ygg.init :as init]
             [ygg.map-store :as map-store]
             [ygg.project :as project]
+            [ygg.project-registry :as registry]
             [charred.api :as json]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -36,6 +37,21 @@
              raw))
       (is (= "demo" (:id project)))
       (is (= canonical-root (get-in project [:repos 0 :root]))))))
+
+(deftest init-registers-project-by-default
+  (let [root (temp-dir "ygg-init-registry")
+        canonical-root (fs/canonical-path root)
+        registry-path (.getPath (io/file root ".config" "projects.edn"))]
+    (with-redefs [registry/registry-path (constantly registry-path)]
+      (let [result (init/init! root {:project-id "demo"
+                                     :name "Demo"})
+            registered (registry/read-project "demo")]
+        (is (= "demo" (:project-id result)))
+        (is (= registry-path (:registry result)))
+        (is (= true (:registered result)))
+        (is (not (.exists (io/file root "project.edn"))))
+        (is (= "demo" (:id registered)))
+        (is (= canonical-root (get-in registered [:repos 0 :root])))))))
 
 (deftest init-detects-git-root-when-run-from-subdirectory
   (let [root (temp-dir "ygg-init-git")

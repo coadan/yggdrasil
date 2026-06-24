@@ -2,6 +2,7 @@
   (:require [ygg.graph :as graph]
             [ygg.query :as query]
             [ygg.xtdb :as store]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (defn- temp-dir
@@ -18,6 +19,12 @@
 
 (def t3
   #inst "2026-03-01T00:00:00Z")
+
+(deftest project-storage-path-lives-under-user-project-root
+  (is (str/ends-with? (store/project-storage-path "demo")
+                      "/projects/demo/xtdb"))
+  (is (str/includes? (store/project-storage-path "team/a")
+                     "/projects/team%2Fa/xtdb")))
 
 (deftest instant-normalizes-xtdb-time-values
   (is (= t1 (store/instant (java.time.ZonedDateTime/parse "2026-01-01T00:00:00Z[UTC]"))))

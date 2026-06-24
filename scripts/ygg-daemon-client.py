@@ -38,6 +38,25 @@ def load_descriptor():
         return json.load(f)
 
 
+def storage_path():
+    path = os.environ.get("YGG_XTDB_PATH")
+    if not path:
+        return None
+    if os.path.isabs(path):
+        return path
+    return os.path.abspath(path)
+
+
+def option_value(args, flag):
+    try:
+        idx = args.index(flag)
+    except ValueError:
+        return None
+    if idx + 1 >= len(args):
+        return None
+    return args[idx + 1]
+
+
 def request(op, args, cleanup_stale=False):
     descriptor = load_descriptor()
     if not descriptor:
@@ -46,7 +65,14 @@ def request(op, args, cleanup_stale=False):
         "op": op,
         "args": args,
         "token": descriptor.get("token"),
+        "cwd": os.getcwd(),
     }
+    explicit_storage_path = storage_path()
+    if explicit_storage_path:
+        payload["storagePath"] = explicit_storage_path
+    project_id = option_value(args, "--project")
+    if project_id:
+        payload["projectId"] = project_id
     host = descriptor.get("host", "127.0.0.1")
     port = int(descriptor["port"])
     try:
@@ -90,7 +116,27 @@ def main(argv):
         return control_request("ping", argv[2:])
     if command == "stop":
         return control_request("stop", argv[2:])
-    response = request(command, argv[2:], cleanup_stale=True)
+    if command == "sync" and len(argv) > 2 and argv[2] == "inspect":
+        response = request("sync-inspect", argv[3:], cleanup_stale=True)
+    elif command == "sync" and len(argv) > 2 and argv[2] == "check":
+        response = request("sync-check", argv[3:], cleanup_stale=True)
+    elif command == "sync" and (len(argv) <= 2 or argv[2] not in {
+        "activity",
+        "add-repo",
+        "coverage",
+        "docs",
+        "inspect",
+        "meta",
+        "view",
+        "work",
+    }):
+        response = request("sync", argv[2:], cleanup_stale=True)
+    elif command == "sync-inspect":
+        response = request("sync-inspect", argv[2:], cleanup_stale=True)
+    elif command == "cli":
+        response = request("cli", argv[2:], cleanup_stale=True)
+    else:
+        response = request("cli", argv[1:], cleanup_stale=True)
     if response is None:
         return UNAVAILABLE
     return print_response(response)

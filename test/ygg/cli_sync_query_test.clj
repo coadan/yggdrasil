@@ -1652,7 +1652,7 @@
                                                             :data data})
                                            path)]
       (with-out-str
-        (cli/dispatch "view" ["overview" "--format" "json" "--out" "graph.json"]))
+        (cli/dispatch "view" ["overview" "--project" "fixture" "--format" "json" "--out" "graph.json"]))
       (is (= "graph.json" (:path @written)))
       (is (= graph/schema (get-in @written [:data :schema]))))))
 (deftest map-reject-updates-map-file
