@@ -409,19 +409,26 @@
                "\""))))))
 
 (defn- declaration-rg-command
-  [candidate]
-  (let [patterns (->> (:declarations candidate)
+  [candidates]
+  (let [patterns (->> candidates
+                      (mapcat :declarations)
                       (keep terraform-declaration-pattern)
                       distinct
-                      (take 4)
+                      (take 8)
                       vec)
-        path (:path candidate)]
-    (when (and (seq patterns) (not-empty path))
+        paths (->> candidates
+                   (filter #(some terraform-declaration-pattern
+                                  (:declarations %)))
+                   (keep :path)
+                   distinct
+                   (take 4)
+                   vec)]
+    (when (and (seq patterns) (seq paths))
       (str "rg -n --fixed-strings "
            (str/join " "
                      (map #(str "-e " (shell-quote %)) patterns))
            " "
-           (shell-quote path)))))
+           (str/join " " (map shell-quote paths))))))
 
 (defn- file-start-command
   [candidate]
@@ -429,26 +436,42 @@
     (str "sed -n '1,80p' " (shell-quote path))))
 
 (defn- selected-read-plan-commands
-  [hints selected-candidates]
-  (let [selected-paths (set (keep :path selected-candidates))]
+  [hints selected-paths]
+  (let [selected-paths (set selected-paths)]
     (->> (get-in hints [:readPlan :snippets])
          (filter #(contains? selected-paths (:path %)))
          (keep :command))))
 
+(defn- terraform-declaration-candidate?
+  [candidate]
+  (boolean
+   (some terraform-declaration-pattern (:declarations candidate))))
+
+(defn- resource-like-candidate?
+  [candidate]
+  (boolean
+   (some #(contains? #{"terraform-resource" "terraform-data-source"}
+                     (some-> (:kind %) str))
+         (:declarations candidate))))
+
 (defn- proof-commands
   [hints selected-candidates]
-  (let [candidate-commands (mapcat (fn [candidate]
-                                     (cond-> []
-                                       true
-                                       (conj (declaration-rg-command candidate))
-                                       (empty? (:declarations candidate))
-                                       (conj (file-start-command candidate))))
-                                   selected-candidates)]
-    (->> (concat candidate-commands
-                 (selected-read-plan-commands hints selected-candidates))
+  (let [declaration-command (declaration-rg-command selected-candidates)
+        read-plan-paths (->> selected-candidates
+                             (filter #(or (resource-like-candidate? %)
+                                          (and (seq (:declarations %))
+                                               (not (terraform-declaration-candidate? %)))))
+                             (keep :path)
+                             set)
+        file-only-commands (->> selected-candidates
+                                (filter #(empty? (:declarations %)))
+                                (keep file-start-command))]
+    (->> (concat [declaration-command]
+                 (selected-read-plan-commands hints read-plan-paths)
+                 file-only-commands)
          (remove nil?)
          distinct
-         (take 5)
+         (take 3)
          vec)))
 
 (defn- prepared-summary-lines
@@ -475,7 +498,7 @@
           candidates
           (when (seq proof-commands)
             (concat
-             ["" "Suggested proof commands; run these before inventing broader searches:"]
+             ["" "Minimal proof commands; run only until direct evidence is sufficient:"]
              (map #(str "- `" % "`") proof-commands)))
           [""]))))))
 
@@ -519,8 +542,9 @@
           "graph citations; cite the prepared summary evidence strings already "
           "shown in the prompt and the local file lines you inspect. "
           "Use full hints or context only when the prepared summary and focused "
-          "file reads cannot answer the task. Run suggested proof commands as "
-          "listed before inventing new commands. For file-only candidates "
+          "file reads cannot answer the task. Run suggested proof commands only "
+          "until direct evidence is sufficient before inventing new commands. "
+          "For file-only candidates "
           "without declaration labels, use the suggested `sed` window instead "
           "of `rg` over generic identifiers. Prefer exact-file `rg -n` for "
           "named declarations and references before long `sed` dumps; keep "

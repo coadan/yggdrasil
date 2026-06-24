@@ -408,6 +408,46 @@
     (is (str/includes? prompt "- Case fingerprint: sha256:case"))
     (is (str/includes? prompt "- Agent input fingerprint: sha256:input"))
     (is (str/includes? prompt "do not carry over stale graph-health text"))))
+
+(deftest ygg-agent-proof-commands-collapse-declaration-greps
+  (let [hints {:readPlan
+               {:snippets [{:path "variables.tf"
+                            :command "sed -n '1582,1614p' 'variables.tf'"}
+                           {:path "vpc-flow-logs.tf"
+                            :command "sed -n '14,46p' 'vpc-flow-logs.tf'"}]}}
+        candidates [{:rank 1
+                     :path "variables.tf"
+                     :declarations [{:label "var.vpc_flow_log_iam_role_name"
+                                     :kind "terraform-variable"}
+                                    {:label "var.vpc_flow_log_iam_role_path"
+                                     :kind "terraform-variable"}
+                                    {:label "var.flow_log_destination_type"
+                                     :kind "terraform-variable"}]}
+                    {:rank 2
+                     :path "vpc-flow-logs.tf"
+                     :declarations [{:label "aws_iam_role.vpc_flow_log_cloudwatch"
+                                     :kind "terraform-resource"}
+                                    {:label "data.aws_iam_policy_document.flow_log_cloudwatch_assume_role"
+                                     :kind "terraform-data-source"}]}
+                    {:rank 8
+                     :path "main.tf"
+                     :declarations []}]]
+    (is (= ["rg -n --fixed-strings -e 'variable \"vpc_flow_log_iam_role_name\"' -e 'variable \"vpc_flow_log_iam_role_path\"' -e 'variable \"flow_log_destination_type\"' -e 'resource \"aws_iam_role\" \"vpc_flow_log_cloudwatch\"' -e 'data \"aws_iam_policy_document\" \"flow_log_cloudwatch_assume_role\"' 'variables.tf' 'vpc-flow-logs.tf'"
+            "sed -n '14,46p' 'vpc-flow-logs.tf'"
+            "sed -n '1,80p' 'main.tf'"]
+           (#'benchmark-agent-run/proof-commands hints candidates)))))
+
+(deftest ygg-agent-proof-commands-keep-read-plan-for-non-terraform-declarations
+  (let [hints {:readPlan
+               {:snippets [{:path "src/connector.clj"
+                            :command "sed -n '40,70p' 'src/connector.clj'"}]}}
+        candidates [{:rank 1
+                     :path "src/connector.clj"
+                     :declarations [{:label "connector/contract"
+                                     :kind "clj-var"}]}]]
+    (is (= ["sed -n '40,70p' 'src/connector.clj'"]
+           (#'benchmark-agent-run/proof-commands hints candidates)))))
+
 (deftest ygg-agent-run-builds-context-artifacts-after-indexing
   (let [out (temp-dir "ygg-bench-agent-run-context-order")
         worktree (temp-dir "ygg-bench-agent-run-context-worktree")
