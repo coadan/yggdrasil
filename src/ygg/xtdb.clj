@@ -182,14 +182,27 @@
 
 (defn- distinct-by
   [f coll]
-  (first
-   (reduce (fn [[rows seen] row]
-             (let [k (f row)]
-               (if (contains? seen k)
-                 [rows seen]
-                 [(conj rows row) (conj seen k)])))
-           [[] #{}]
-           coll)))
+  (loop [remaining (seq coll)
+         seen #{}
+         out []]
+    (if-let [row (first remaining)]
+      (let [k (f row)]
+        (if (contains? seen k)
+          (recur (next remaining) seen out)
+          (recur (next remaining) (conj seen k) (conj out row))))
+      out)))
+
+(defn- distinct-non-nil
+  [coll]
+  (loop [remaining (seq coll)
+         seen #{}
+         out []]
+    (if-let [value (first remaining)]
+      (if (or (nil? value)
+              (contains? seen value))
+        (recur (next remaining) seen out)
+        (recur (next remaining) (conj seen value) (conj out value)))
+      out)))
 
 (declare fallback-constrained-rows rows-by-field)
 
@@ -407,7 +420,7 @@
   [xtdb {:keys [table field values constraints return-fields read-context min-field min-value]
          :or {constraints {}
               read-context {}}}]
-  (let [values (->> (seq values) (remove nil?) distinct vec)]
+  (let [values (distinct-non-nil values)]
     (cond
       (empty? values)
       []
@@ -464,21 +477,24 @@
   ids, instead of one read per seed id."
   ([xtdb ids constraints] (edge-rows-touching-ids xtdb ids constraints {}))
   ([xtdb ids constraints ctx]
-   (->> (concat (rows-with-field-values xtdb
-                                        {:table (:edges tables)
-                                         :field :source-id
-                                         :values ids
-                                         :constraints constraints
-                                         :return-fields edge-row-query-fields
-                                         :read-context ctx})
-                (rows-with-field-values xtdb
-                                        {:table (:edges tables)
-                                         :field :target-id
-                                         :values ids
-                                         :constraints constraints
-                                         :return-fields edge-row-query-fields
-                                         :read-context ctx}))
-        (distinct-by :xt/id))))
+   (let [ids (distinct-non-nil ids)]
+     (if (empty? ids)
+       []
+       (->> (concat (rows-with-field-values xtdb
+                                            {:table (:edges tables)
+                                             :field :source-id
+                                             :values ids
+                                             :constraints constraints
+                                             :return-fields edge-row-query-fields
+                                             :read-context ctx})
+                    (rows-with-field-values xtdb
+                                            {:table (:edges tables)
+                                             :field :target-id
+                                             :values ids
+                                             :constraints constraints
+                                             :return-fields edge-row-query-fields
+                                             :read-context ctx}))
+            (distinct-by :xt/id))))))
 
 (defn- fallback-all-rows
   [xtdb table ctx]
