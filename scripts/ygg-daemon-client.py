@@ -8,8 +8,26 @@ import sys
 UNAVAILABLE = 75
 
 
+def daemon_dir():
+    return os.environ.get("YGG_DAEMON_DIR", ".dev/ygg")
+
+
 def descriptor_path():
-    return os.environ.get("YGG_DAEMON_JSON", ".dev/ygg/daemon.json")
+    return os.environ.get("YGG_DAEMON_JSON", os.path.join(daemon_dir(), "daemon.json"))
+
+
+def descriptor_edn_path():
+    return os.environ.get("YGG_DAEMON_EDN", os.path.join(daemon_dir(), "daemon.edn"))
+
+
+def remove_descriptors():
+    for path in (descriptor_path(), descriptor_edn_path()):
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            pass
 
 
 def load_descriptor():
@@ -20,7 +38,7 @@ def load_descriptor():
         return json.load(f)
 
 
-def request(op, args):
+def request(op, args, cleanup_stale=False):
     descriptor = load_descriptor()
     if not descriptor:
         return None
@@ -41,6 +59,8 @@ def request(op, args):
                 return {"exit": 1, "out": "", "err": "Empty daemon response.\n"}
             return json.loads(response)
     except OSError:
+        if cleanup_stale:
+            remove_descriptors()
         return None
 
 
@@ -55,7 +75,7 @@ def print_response(response):
 
 
 def control_request(op, args):
-    response = request(op, args)
+    response = request(op, args, cleanup_stale=True)
     if response is None:
         sys.stderr.write("daemon not running\n")
         return UNAVAILABLE
@@ -70,7 +90,7 @@ def main(argv):
         return control_request("ping", argv[2:])
     if command == "stop":
         return control_request("stop", argv[2:])
-    response = request(command, argv[2:])
+    response = request(command, argv[2:], cleanup_stale=True)
     if response is None:
         return UNAVAILABLE
     return print_response(response)
