@@ -6,8 +6,10 @@
                       *command-line-args*)}
 
   sync {:doc "Sync Yggdrasil with a project. Usage: bb sync <project.edn> [--check] [--enqueue] [--query-index]"
-        :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "sync"
-                     *command-line-args*)}
+        :task (let [args *command-line-args*]
+                (if (= "inspect" (first args))
+                  (apply shell "clojure" "-M:run" "-m" "ygg.cli-sync-inspect" (rest args))
+                  (apply shell "clojure" "-M:run" "-m" "ygg.cli" "sync" args)))}
 
   query {:doc "Query the current graph. Usage: bb query \"text\" [--project ID]"
          :task (apply shell "clojure" "-M:run" "-m" "ygg.cli" "query"

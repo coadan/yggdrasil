@@ -16,6 +16,12 @@ REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 EDN_REPO_DIR=$(printf '%s' "$REPO_DIR" | sed 's/\\/\\\\/g; s/"/\\"/g')
 export YGG_HOME=${YGG_HOME:-$REPO_DIR}
 
+MAIN=ygg.cli
+if [ "${1:-}" = "sync" ] && [ "${2:-}" = "inspect" ]; then
+  MAIN=ygg.cli-sync-inspect
+  shift 2
+fi
+
 exec clojure \
   -Srepro \
   -Sdeps "{:deps {local/ygg {:local/root \"$EDN_REPO_DIR\"}}}" \
@@ -24,4 +30,4 @@ exec clojure \
   -J--enable-native-access=ALL-UNNAMED \
   -J-Dio.netty.tryReflectionSetAccessible=true \
   -M \
-  -m ygg.cli "$@"
+  -m "$MAIN" "$@"
