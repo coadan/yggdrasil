@@ -241,6 +241,17 @@
    :active?
    :run-id])
 
+(defn- scoped-rows-by-id
+  [rows opts]
+  (let [scope (effective-scope opts)]
+    (reduce
+     (fn [rows-by-id row]
+       (if (scope-match? scope row)
+         (assoc rows-by-id (:xt/id row) row)
+         rows-by-id))
+     {}
+     rows)))
+
 (defn- rows-by-ids
   [xtdb table ids opts all-fn return-fields]
   (let [ids (distinct-by identity ids)
@@ -257,7 +268,7 @@
                      :return-fields return-fields
                      :read-context (read-context opts)})
                    (filter #(contains? id-set (:xt/id %)) (all-fn xtdb opts)))]
-        (filter-scope (keep (into {} (map (juxt :xt/id identity)) rows) ids) opts)))))
+        (keep (scoped-rows-by-id rows opts) ids)))))
 
 (defn nodes-by-ids
   "Return node rows for concrete node ids within the requested scope."
