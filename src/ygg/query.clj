@@ -637,10 +637,33 @@
   [xtdb ids opts]
   (edges-touching-ids xtdb ids opts))
 
+(defn- bounded-seed-id-sample
+  [sample sample-limit sample-entry]
+  (if (pos? sample-limit)
+    (let [sample (conj sample sample-entry)]
+      (if (<= (count sample) sample-limit)
+        sample
+        (vec (take sample-limit (sort sample)))))
+    []))
+
+(defn- sample-seed-ids
+  [seed-ids sample-limit]
+  (let [[seed-count sample]
+        (reduce (fn [[seed-count sample] seed-id]
+                  [(inc seed-count)
+                   (bounded-seed-id-sample sample
+                                           sample-limit
+                                           [(str seed-id) seed-count seed-id])])
+                [0 []]
+                seed-ids)]
+    {:seed-count seed-count
+     :seed-id-sample (mapv #(nth % 2) (sort sample))}))
+
 (defn- adjacency-query-plan
   [xtdb seed-ids edges edge-load-ms]
-  (let [seed-ids (sort-by str seed-ids)
-        seed-count (count seed-ids)
+  (let [sample-limit default-instrumentation-seed-id-sample-limit
+        {:keys [seed-count seed-id-sample]} (sample-seed-ids seed-ids
+                                                             sample-limit)
         query-count (if (pos? seed-count) 2 0)]
     {:graph-adjacency-strategy (if (store/xtdb-handle? xtdb)
                                  "xtql-rel-unify"
@@ -650,10 +673,8 @@
      :graph-adjacency-source-query-count (if (pos? seed-count) 1 0)
      :graph-adjacency-target-query-count (if (pos? seed-count) 1 0)
      :graph-adjacency-seed-count seed-count
-     :graph-adjacency-seed-id-sample (vec (take default-instrumentation-seed-id-sample-limit
-                                                seed-ids))
-     :graph-adjacency-seed-ids-truncated? (< default-instrumentation-seed-id-sample-limit
-                                             seed-count)
+     :graph-adjacency-seed-id-sample seed-id-sample
+     :graph-adjacency-seed-ids-truncated? (< sample-limit seed-count)
      :graph-adjacency-loaded-rows (count edges)}))
 
 (defn system-neighbor-ids
