@@ -166,6 +166,10 @@
   0.25)
 (def ^:private rank-score-repeated-retrieved-source-cap
   3.2)
+(def ^:private rank-score-retrieved-path-self-identity-token-min
+  3)
+(def ^:private rank-score-retrieved-path-self-identity-boost
+  0.8)
 (def ^:private file-identity-part-min-length
   5)
 (def ^:private retrieved-source-rank-bonus-window
@@ -440,6 +444,28 @@
        flatten
        (keep identity-tail)
        (remove benchmark-util/blankish?)))
+(defn- path-file-stem
+  [file-name]
+  (let [file-name (str file-name)
+        idx (.lastIndexOf file-name ".")]
+    (if (pos? idx)
+      (subs file-name 0 idx)
+      file-name)))
+(defn- path-self-identity-token
+  [path]
+  (let [parts (->> (str/split (str path) #"/")
+                   (remove str/blank?)
+                   vec)]
+    (when (<= 2 (count parts))
+      (let [parent (str/lower-case (nth parts (- (count parts) 2)))
+            stem (str/lower-case (path-file-stem (peek parts)))]
+        (when (and (not (str/blank? parent))
+                   (= parent stem))
+          stem)))))
+(defn- query-matched-path-self-identity?
+  [query-tokens path]
+  (when-let [token (path-self-identity-token path)]
+    (contains? (set query-tokens) token)))
 (defn- identity-compound-token-pair-matches
   [query-tokens & values]
   (compact-compound-token-pair-matches query-tokens (apply identity-text values)))
@@ -518,6 +544,18 @@
                (max 0
                     (- (long matched-token-count)
                        rank-score-repeated-retrieved-source-token-min)))))
+    0.0))
+(defn- retrieved-path-self-identity-boost
+  [doc-count
+   retrieved-source-count
+   matched-token-count
+   query-matched-path-self-identity?]
+  (if (and (pos? (long doc-count))
+           (pos? (long retrieved-source-count))
+           query-matched-path-self-identity?
+           (<= rank-score-retrieved-path-self-identity-token-min
+               (long matched-token-count)))
+    rank-score-retrieved-path-self-identity-boost
     0.0))
 (defn- robust-candidate-only?
   [candidate-source-rank doc-count support-count graph-neighbor-score]
@@ -798,6 +836,8 @@
                                                          path)
                  :matched-identity-compound-token-span-length
                  (identity-compound-token-span-length query-tokens path (:heading source))
+                 :query-matched-path-self-identity?
+                 (boolean (query-matched-path-self-identity? query-tokens path))
                  :evidence [(str "context-doc:"
                                  path
                                  (line-label source)
@@ -1454,6 +1494,15 @@
                               retrieved-source-count
                               (count matched-tokens)
                               definition-kinds)
+                             query-matched-path-self-identity?
+                             (boolean (some :query-matched-path-self-identity?
+                                            ordered))
+                             retrieved-path-self-identity-boost
+                             (retrieved-path-self-identity-boost
+                              doc-count
+                              retrieved-source-count
+                              (count matched-tokens)
+                              query-matched-path-self-identity?)
                              graph-neighbor-boost (graph-neighbor-boost
                                                    doc-count
                                                    graph-neighbor-score
@@ -1552,6 +1601,7 @@
                                            retrieved-long-identity-compound-span-score
                                            retrieved-early-long-identity-compound-span-score
                                            repeated-retrieved-source-boost
+                                           retrieved-path-self-identity-boost
                                            candidate-support-label-score
                                            (* 0.08 (min rank-score-support-count-cap
                                                         support-count))
@@ -1612,6 +1662,9 @@
                                        (pos? repeated-retrieved-source-boost)
                                        (assoc :repeatedRetrievedSourceBoost
                                               repeated-retrieved-source-boost)
+                                       (pos? retrieved-path-self-identity-boost)
+                                       (assoc :retrievedPathSelfIdentityBoost
+                                              retrieved-path-self-identity-boost)
                                        (pos? candidate-support-label-count)
                                        (assoc :candidateSupportLabelCount
                                               candidate-support-label-count)
@@ -1726,6 +1779,7 @@
                                     :retrieved-support-label-count
                                     :matched-identity-compound-token-span-length
                                     :definition-kind
+                                    :query-matched-path-self-identity?
                                     :architecture-evidence?
                                     :query-supported-architecture-evidence?
                                     :direct-file-candidate?

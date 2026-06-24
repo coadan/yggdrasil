@@ -109,6 +109,9 @@
 (def ^:private source-graph-rare-token-cap
   8.0)
 
+(def ^:private path-self-identity-reserve-limit
+  6)
+
 (def ^:private source-graph-declaration-limit
   64)
 
@@ -1248,12 +1251,70 @@
           (:source-line row) (assoc :source-line (:source-line row))
           (:end-line row) (assoc :end-line (:end-line row)))))))
 
+(defn- path-file-stem
+  [file-name]
+  (let [file-name (str file-name)
+        idx (.lastIndexOf file-name ".")]
+    (if (pos? idx)
+      (subs file-name 0 idx)
+      file-name)))
+
+(defn- path-self-identity-token
+  [path]
+  (let [parts (->> (str/split (str path) #"/")
+                   (remove str/blank?)
+                   vec)]
+    (when (<= 2 (count parts))
+      (let [parent (str/lower-case (nth parts (- (count parts) 2)))
+            stem (str/lower-case (path-file-stem (peek parts)))]
+        (when (and (not (str/blank? parent))
+                   (= parent stem))
+          stem)))))
+
+(defn- path-self-identity-key
+  [row]
+  [(or (:repo-id row) (:repo row)) (:path row)])
+
+(defn- query-matched-path-self-identity-row?
+  [query-token-set row]
+  (when-let [token (path-self-identity-token (:path row))]
+    (contains? query-token-set token)))
+
+(defn- reserve-query-matched-path-self-identity
+  [query-token-set rows]
+  (if (empty? query-token-set)
+    rows
+    (let [{:keys [selected selected-keys]}
+          (loop [remaining (seq rows)
+                 selected []
+                 selected-keys #{}]
+            (if (or (nil? remaining)
+                    (<= path-self-identity-reserve-limit
+                        (count selected)))
+              {:selected selected
+               :selected-keys selected-keys}
+              (let [row (first remaining)
+                    row-key (path-self-identity-key row)]
+                (if (and (not (contains? selected-keys row-key))
+                         (query-matched-path-self-identity-row?
+                          query-token-set
+                          row))
+                  (recur (next remaining)
+                         (conj selected row)
+                         (conj selected-keys row-key))
+                  (recur (next remaining) selected selected-keys)))))]
+      (concat selected
+              (remove #(contains? selected-keys
+                                  (path-self-identity-key %))
+                      rows)))))
+
 (defn- ranked-source-graph-candidates
   [query-tokens rows limit]
   (let [distinct-query-tokens (vec (distinct query-tokens))
         token-data (mapv #(source-graph-token-data distinct-query-tokens %) rows)
         row-count (count token-data)
-        token-row-counts (source-graph-token-row-counts token-data)]
+        token-row-counts (source-graph-token-row-counts token-data)
+        query-token-set (set distinct-query-tokens)]
     (->> token-data
          (keep #(source-graph-candidate-row-from-token-data query-tokens
                                                             row-count
@@ -1263,6 +1324,7 @@
                         :repo
                         :path
                         :label))
+         (reserve-query-matched-path-self-identity query-token-set)
          (take limit)
          (map-indexed #(assoc %2 :rank (inc %1)))
          vec)))
@@ -1505,32 +1567,36 @@
                      rows)))))
 
 (defn- ranked-candidate-inputs
-  [results source-candidates]
-  (if-not (seq source-candidates)
-    results
-    (let [indexed-results (map-indexed (fn [idx row]
-                                         (assoc row ::candidate-input-index idx))
-                                       results)
-          indexed-source-candidates (map-indexed
-                                     (fn [idx row]
-                                       (assoc row
-                                              ::candidate-input-index
-                                              (+ (count results) idx)))
-                                     source-candidates)
-          prefix (retrieval-prefix-candidate-inputs indexed-results)
-          prefix-indexes (set (map ::candidate-input-index prefix))]
-      (->> (concat indexed-results indexed-source-candidates)
-           (remove #(contains? prefix-indexes (::candidate-input-index %)))
-           (sort-by (juxt (comp - candidate-input-score)
-                          #(or (:repo-id %) (:repo %) "")
-                          #(or (:path %) "")
-                          #(or (:label %) "")
-                          ::candidate-input-index))
-           (#(preserve-candidate-input-root-diversity
-              %
-              (set (map candidate-input-root prefix))))
-           (concat prefix)
-           (map #(dissoc % ::candidate-input-index))))))
+  ([results source-candidates]
+   (ranked-candidate-inputs [] results source-candidates))
+  ([query-tokens results source-candidates]
+   (if-not (seq source-candidates)
+     results
+     (let [indexed-results (map-indexed (fn [idx row]
+                                          (assoc row ::candidate-input-index idx))
+                                        results)
+           indexed-source-candidates (map-indexed
+                                      (fn [idx row]
+                                        (assoc row
+                                               ::candidate-input-index
+                                               (+ (count results) idx)))
+                                      source-candidates)
+           prefix (retrieval-prefix-candidate-inputs indexed-results)
+           prefix-indexes (set (map ::candidate-input-index prefix))
+           query-token-set (set (distinct query-tokens))]
+       (->> (concat indexed-results indexed-source-candidates)
+            (remove #(contains? prefix-indexes (::candidate-input-index %)))
+            (sort-by (juxt (comp - candidate-input-score)
+                           #(or (:repo-id %) (:repo %) "")
+                           #(or (:path %) "")
+                           #(or (:label %) "")
+                           ::candidate-input-index))
+            (#(preserve-candidate-input-root-diversity
+               %
+               (set (map candidate-input-root prefix))))
+            (reserve-query-matched-path-self-identity query-token-set)
+            (concat prefix)
+            (map #(dissoc % ::candidate-input-index)))))))
 
 (defn- source-graph-declaration-row?
   [row]
@@ -2702,7 +2768,9 @@
                            {:project-id project-id
                             :repo-id repo-id
                             :read-context read-context})
-        candidate-inputs (ranked-candidate-inputs results source-candidates)
+        candidate-inputs (ranked-candidate-inputs query-tokens
+                                                  results
+                                                  source-candidates)
         candidate-file-rows (candidate-files candidate-inputs)
         source-declarations (source-graph-declarations
                              xtdb

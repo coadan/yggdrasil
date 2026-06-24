@@ -2843,6 +2843,32 @@
                (:label target)))
         (is (<= (:rank target) 3))))))
 
+(deftest source-graph-candidates-reserve-query-matched-path-self-identity
+  (let [noise-rows (mapv (fn [idx]
+                           {:xt/id (str "node:noise:" idx)
+                            :path (format "impl/noise_%02d.go" idx)
+                            :kind :function
+                            :label (str "impl/noise_" idx
+                                        "/consumer component connector contracts")
+                            :source-line 1})
+                         (range 12))
+        ranked (#'context/ranked-source-graph-candidates
+                ["consumer" "component" "contracts"]
+                (concat noise-rows
+                        [{:xt/id "node:consumer"
+                          :path "consumer/consumer.go"
+                          :kind :type
+                          :label "consumer/consumer/Option"
+                          :source-line 18}
+                         {:xt/id "node:component"
+                          :path "component/component.go"
+                          :kind :interface
+                          :label "component/component/Component"
+                          :source-line 25}])
+                2)]
+    (is (= ["component/component.go" "consumer/consumer.go"]
+           (sort (map :path ranked))))))
+
 (deftest source-graph-candidates-include-bounded-neighbor-endpoint-files
   (with-redefs [store/xtdb-handle? (constantly true)
                 store/rows-matching-any-token
@@ -3429,6 +3455,33 @@
         paths (mapv :path ranked)]
     (is (= "src/noise_00.py" (first paths)))
     (is (< (.indexOf paths "src/flask/sansio/app.py") 15))))
+
+(deftest candidate-input-ranking-reserves-query-matched-path-self-identity
+  (with-redefs [context/candidate-input-retrieval-prefix-limit 1]
+    (let [results (mapv (fn [idx]
+                          {:path (format "docs/noise_%02d.go" idx)
+                           :score (- 9.0 (* idx 0.01))
+                           :label "consumer component connector contracts"})
+                        (range 12))
+          ranked (#'context/ranked-candidate-inputs
+                  ["consumer" "component" "contracts"]
+                  results
+                  [{:path "pkg/noise.go"
+                    :score 8.5
+                    :label "consumer component connector contracts"}
+                   {:path "consumer/consumer.go"
+                    :score 1.0
+                    :label "consumer/consumer/Option"}
+                   {:path "component/component.go"
+                    :score 1.1
+                    :label "component/component/Component"}])]
+      (is (= ["docs/noise_00.go"
+              "component/component.go"
+              "consumer/consumer.go"]
+             (->> ranked
+                  (map :path)
+                  (take 3)
+                  vec))))))
 
 (deftest context-packet-ranks-source-graph-candidates-before-low-score-results
   (with-redefs [context/candidate-input-retrieval-prefix-limit 0

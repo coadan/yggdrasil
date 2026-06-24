@@ -3892,6 +3892,34 @@
     (is (<= (get-in file [:metrics :candidateSourceRankScore]) 0.2))
     (is (> (get-in file [:metrics :sourceRankScore]) 2.0))))
 
+(deftest file-ranking-boosts-query-matched-retrieved-path-self-identity
+  (let [root (temp-dir "ygg-bench-retrieved-path-self-identity")
+        _ (spit-file! root "consumer/consumer.go" "package consumer\n")
+        _ (spit-file! root "pdata/pmetric/metric_type.go" "package pmetric\n")
+        packet {:query "consumer component connector contracts"
+                :docs [{:source {:path "pdata/pmetric/metric_type.go"
+                                 :heading "pmetric metric type"
+                                 :definitionKind :type}
+                        :score 1.0
+                        :snippet "consumer component connector contracts"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "consumer/consumer.go"
+                                 :heading "consumer/consumer/Option"
+                                 :definitionKind :type}
+                        :score 1.0
+                        :snippet "consumer component connector contracts"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]}
+        files (:suspectedFiles (benchmark/context-packet->agent-result packet
+                                                                       {:root root}))]
+    (is (= ["consumer/consumer.go"
+            "pdata/pmetric/metric_type.go"]
+           (mapv :path files)))
+    (is (pos? (get-in files [0 :metrics :retrievedPathSelfIdentityBoost])))
+    (is (> (get-in files [0 :metrics :rankScore])
+           (get-in files [1 :metrics :rankScore])))))
+
 (deftest file-ranking-boosts-doc-supported-source-graph-head
   (let [root (temp-dir "ygg-bench-doc-source-graph-head")
         _ (spit-file! root "tests/Dapper.Tests/TypeHandlerTests.cs" "namespace Dapper.Tests;\n")
