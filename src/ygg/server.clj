@@ -72,7 +72,7 @@
     "embed"})
 
 (def ^:private logged-ops
-  (set (concat ["sync"] (vals sync-subcommand->op) cli-command-ops)))
+  (set (concat ["command" "sync"] (vals sync-subcommand->op) cli-command-ops)))
 
 (defn- silence-jul!
   []
@@ -171,8 +171,10 @@
                      :event event)))))
 
 (defn- loggable-request
-  [{:keys [op args cwd projectId project-id storagePath storage-path]}]
-  (cond-> {:op op
+  [{:keys [op command args cwd projectId project-id storagePath storage-path]}]
+  (cond-> {:op (if (= "command" op)
+                 (or command op)
+                 op)
            :args (vec args)}
     cwd (assoc :cwd cwd)
     (or projectId project-id) (assoc :projectId (or projectId project-id))
@@ -789,6 +791,44 @@
   [ctx request subcommand]
   (command-response ctx request "sync" (into [subcommand] (:args request))))
 
+(defn- stop-response
+  [{:keys [running server]}]
+  (reset! running false)
+  (future
+    (Thread/sleep 25)
+    (when (instance? Closeable server)
+      (.close ^Closeable server)))
+  {:ok true
+   :exit 0
+   :out "stopping\n"
+   :err ""})
+
+(defn- command-request-response
+  [ctx request]
+  (let [command (:command request)
+        args (vec (:args request))]
+    (cond
+      (= "status" command)
+      (status-response ctx (assoc request :args args))
+
+      (= "stop" command)
+      (stop-response ctx)
+
+      (= "sync" command)
+      (let [[subcommand & subcommand-args] args]
+        (if (contains? sync-subcommand->op subcommand)
+          (sync-subcommand-response ctx (assoc request :args (vec subcommand-args)) subcommand)
+          (sync-response ctx (assoc request :args args))))
+
+      (contains? cli-command-ops command)
+      (command-response ctx request command args)
+
+      :else
+      {:ok false
+       :exit 2
+       :out ""
+       :err (str "Unknown command: " command "\n")})))
+
 (defn- mcp-response
   [ctx request]
   (let [args (vec (:args request))
@@ -837,6 +877,9 @@
       (= "status" op)
       (status-response ctx request)
 
+      (= "command" op)
+      (command-request-response ctx request)
+
       (= "sync" op)
       (sync-response ctx request)
 
@@ -850,16 +893,8 @@
       (mcp-response ctx request)
 
       (= "stop" op)
-      (do
-        (reset! running false)
-        (future
-          (Thread/sleep 25)
-          (when (instance? Closeable server)
-            (.close ^Closeable server)))
-        {:ok true
-         :exit 0
-         :out "stopping\n"
-         :err ""})
+      (stop-response {:running running
+                      :server server})
 
       :else
       {:ok false
@@ -1059,27 +1094,30 @@
         (halt!)))))
 
 (defn request
-  [op args]
-  (let [{:keys [host port]} (server-endpoint)]
-    (try
-      (let [socket (Socket.)
-            token (server-token)]
-        (.connect socket (InetSocketAddress. host (int port)) 250)
-        (with-open [socket socket
-                    reader (BufferedReader. (InputStreamReader. (.getInputStream socket)))
-                    writer (PrintWriter. (OutputStreamWriter. (.getOutputStream socket)))]
-          (write-json-line! writer (cond-> {:op op
-                                            :args (vec args)
-                                            :cwd (System/getProperty "user.dir")
-                                            :projectId (System/getenv "YGG_PROJECT_ID")
-                                            :storagePath (System/getenv "YGG_XTDB_PATH")}
-                                     token (assoc :token token)))
-          (read-json-line reader)))
-      (catch Exception _
-        {:ok false
-         :exit unavailable-exit
-         :out ""
-         :err unavailable-message}))))
+  ([op args]
+   (request op args nil))
+  ([op args extra]
+   (let [{:keys [host port]} (server-endpoint)]
+     (try
+       (let [socket (Socket.)
+             token (server-token)]
+         (.connect socket (InetSocketAddress. host (int port)) 250)
+         (with-open [socket socket
+                     reader (BufferedReader. (InputStreamReader. (.getInputStream socket)))
+                     writer (PrintWriter. (OutputStreamWriter. (.getOutputStream socket)))]
+           (write-json-line! writer (cond-> (merge {:op op
+                                                    :args (vec args)
+                                                    :cwd (System/getProperty "user.dir")
+                                                    :projectId (System/getenv "YGG_PROJECT_ID")
+                                                    :storagePath (System/getenv "YGG_XTDB_PATH")}
+                                                   extra)
+                                      token (assoc :token token)))
+           (read-json-line reader)))
+       (catch Exception _
+         {:ok false
+          :exit unavailable-exit
+          :out ""
+          :err unavailable-message})))))
 
 (defn- print-response!
   [{:keys [exit out err]}]
@@ -1103,20 +1141,8 @@
         (= "start" command)
         (serve!)
 
-        (= "status" command)
-        (print-response! (request "status" command-args))
-
-        (= "stop" command)
-        (print-response! (request "stop" command-args))
-
-        (= "sync" command)
-        (let [[subcommand & subcommand-args] command-args]
-          (if-let [op (get sync-subcommand->op subcommand)]
-            (print-response! (request op subcommand-args))
-            (print-response! (request "sync" command-args))))
-
-        (contains? cli-command-ops command)
-        (print-response! (request command command-args))
+        command
+        (print-response! (request "command" command-args {:command command}))
 
         :else
         (print-response! {:exit 2

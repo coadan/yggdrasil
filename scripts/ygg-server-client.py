@@ -13,56 +13,6 @@ DEFAULT_SERVER_PORT = 62121
 DEFAULT_CONNECT_TIMEOUT_MS = 30000
 CONNECT_RETRY_INTERVAL_SECONDS = 5.0
 DEFAULT_REQUEST_TIMEOUT_MS = 600000
-REMOVED_PUBLIC_COMMANDS = {
-    "classify",
-    "cli",
-    "context",
-    "daemon",
-    "deps",
-    "docs",
-    "graph",
-    "index",
-    "meta",
-    "path",
-    "project",
-    "queue",
-    "sync-inspect",
-    "systems",
-    "views",
-}
-
-PUBLIC_COMMAND_OPS = {
-    "init": "init",
-    "current": "current",
-    "use": "use",
-    "projects": "projects",
-    "audit-scope": "audit-scope",
-    "maintenance": "maintenance",
-    "corrections": "corrections",
-    "memory": "memory",
-    "affected": "affected",
-    "view": "view",
-    "packages": "packages",
-    "report": "report",
-    "plugin": "plugin",
-    "agent": "agent",
-    "watch": "watch",
-    "hook": "hook",
-    "bench": "bench",
-    "embed": "embed",
-}
-
-SYNC_SUBCOMMAND_OPS = {
-    "inspect": "sync.inspect",
-    "activity": "sync.activity",
-    "add-repo": "sync.add-repo",
-    "coverage": "sync.coverage",
-    "docs": "sync.docs",
-    "meta": "sync.meta",
-    "view": "sync.view",
-    "work": "sync.work",
-}
-
 
 def server_host():
     return os.environ.get("YGG_SERVER_HOST", DEFAULT_SERVER_HOST).strip() or DEFAULT_SERVER_HOST
@@ -283,51 +233,18 @@ def print_response(response):
     return int(response.get("exit", 1))
 
 
-def control_request(op, args):
-    response = request(op, args, cleanup_stale=True)
-    if response is None:
-        sys.stderr.write(UNAVAILABLE_MESSAGE)
-        return UNAVAILABLE
-    return print_response(response)
-
-
-def reject_removed_command(command):
-    response = request("status", [], cleanup_stale=True)
-    if response is None:
-        sys.stderr.write(UNAVAILABLE_MESSAGE)
-        return UNAVAILABLE
-    sys.stderr.write(f"Unknown command: {command}\n")
-    return 2
-
-
 def main(argv):
     if len(argv) < 2:
         return UNAVAILABLE
     command = argv[1]
     if command == "mcp":
         return mcp_proxy(argv[2:])
-    if command == "status":
-        return control_request("status", argv[2:])
-    if command == "stop":
-        return control_request("stop", argv[2:])
-    if command in REMOVED_PUBLIC_COMMANDS:
-        return reject_removed_command(command)
-    if command == "sync":
-        if len(argv) > 2 and argv[2] in SYNC_SUBCOMMAND_OPS:
-            response = request(SYNC_SUBCOMMAND_OPS[argv[2]], argv[3:], cleanup_stale=True)
-        else:
-            response = request("sync", argv[2:], cleanup_stale=True)
-    elif command == "query":
-        response = request("query", argv[2:], cleanup_stale=True)
-    elif command in PUBLIC_COMMAND_OPS:
-        response = request(PUBLIC_COMMAND_OPS[command], argv[2:], cleanup_stale=True)
-    else:
-        response = request("status", [], cleanup_stale=True)
-        if response is None:
-            sys.stderr.write(UNAVAILABLE_MESSAGE)
-            return UNAVAILABLE
-        sys.stderr.write(f"Unknown command: {command}\n")
-        return 2
+    response = request(
+        "command",
+        argv[2:],
+        cleanup_stale=True,
+        extra={"command": command},
+    )
     if response is None:
         sys.stderr.write(UNAVAILABLE_MESSAGE)
         return UNAVAILABLE

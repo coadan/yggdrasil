@@ -59,7 +59,8 @@
            (server/handle-request {:xtdb :xtdb
                                    :token "token"
                                    :running (atom true)}
-                                  {:op "view"
+                                  {:op "command"
+                                   :command "view"
                                    :token "token"
                                    :args ["systems" "--project" "demo"]})))))
 
@@ -82,7 +83,8 @@
            (server/handle-request {:xtdb {:path "default/xtdb"}
                                    :token "token"
                                    :running (atom true)}
-                                  {:op "bench"
+                                  {:op "command"
+                                   :command "bench"
                                    :token "token"
                                    :args ["agent-report" "suite.edn"]})))))
 
@@ -106,7 +108,8 @@
            (server/handle-request {:xtdb :xtdb
                                    :token "token"
                                    :running (atom true)}
-                                  {:op "view"
+                                  {:op "command"
+                                   :command "view"
                                    :token "token"
                                    :args ["systems" "--project" "demo"]})))))
 
@@ -134,12 +137,14 @@
                                       " xtdb=" (:path xtdb))))))]
       (let [first-response (server/handle-request
                             ctx
-                            {:op "view"
+                            {:op "command"
+                             :command "view"
                              :token "token"
                              :args ["systems" "--project" "demo-a"]})
             second-response (server/handle-request
                              ctx
-                             {:op "view"
+                             {:op "command"
+                              :command "view"
                               :token "token"
                               :args ["systems" "--project" "demo-b"]})]
         (is (= true (:ok first-response)))
@@ -179,7 +184,8 @@
                                       " xtdb=" (:path xtdb))))))]
       (let [response (server/handle-request
                       ctx
-                      {:op "report"
+                      {:op "command"
+                       :command "report"
                        :token "token"
                        :args ["new-project.edn"]})]
         (is (= true (:ok response)))
@@ -215,6 +221,19 @@
                                    :token "token"
                                    :args []})))))
 
+(deftest command-request-rejects-unknown-command
+  (is (= {:ok false
+          :exit 2
+          :out ""
+          :err "Unknown command: docs\n"}
+         (server/handle-request {:xtdb :xtdb
+                                 :token "token"
+                                 :running (atom true)}
+                                {:op "command"
+                                 :command "docs"
+                                 :token "token"
+                                 :args []}))))
+
 (deftest sync-inspect-request-is-named-server-operation
   (with-redefs [cli/dispatch
                 (fn [command args]
@@ -229,6 +248,22 @@
                                   {:op "sync.inspect"
                                    :token "token"
                                    :args ["project.edn" "--json"]})))))
+
+(deftest command-request-routes-sync-subcommand
+  (with-redefs [cli/dispatch
+                (fn [command args]
+                  (println (str "command=" command " args=" (pr-str args))))]
+    (is (= {:ok true
+            :exit 0
+            :out "command=sync args=[\"inspect\" \"project.edn\" \"--json\"]\n"
+            :err ""}
+           (server/handle-request {:xtdb :xtdb
+                                   :token "token"
+                                   :running (atom true)}
+                                  {:op "command"
+                                   :command "sync"
+                                   :token "token"
+                                   :args ["inspect" "project.edn" "--json"]})))))
 
 (deftest query-request-returns-command-output
   (with-redefs [cli-query/query-with-node!
@@ -559,7 +594,8 @@
                                                :token "token"
                                                :running (atom true)
                                                :operation-lock lock}
-                                              {:op "view"
+                                              {:op "command"
+                                               :command "view"
                                                :token "token"
                                                :args ["systems" "--project" "demo"]})]
           (is (= false (:ok response)))
@@ -582,7 +618,8 @@
                                                :token "token"
                                                :running (atom true)
                                                :request-counter (java.util.concurrent.atomic.AtomicLong.)}
-                                              {:op "current"
+                                              {:op "command"
+                                               :command "current"
                                                :token "token"
                                                :cwd "/repo"
                                                :projectId "demo"
