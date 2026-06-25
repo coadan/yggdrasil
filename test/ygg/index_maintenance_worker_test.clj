@@ -367,12 +367,14 @@
         (is (= "done" (get-in (queue/find-item queue-root work-id)
                               [:item :status])))
         (is (= {:edges 30
-                :evidence-ids 30
-                :correctionPatch 30}
+                :evidence-ids 30}
                (get-in decision [:data :omitted])))
         (is (= 30 (get-in decision [:data :targets :count])))
         (is (= true (get-in decision [:data :targets :truncated])))
         (is (= 24 (count (get-in decision [:data :targets :items]))))
+        (is (= 30 (get-in decision [:data :correctionPatch :count])))
+        (is (= true (get-in decision [:data :correctionPatch :truncated])))
+        (is (= 24 (count (get-in decision [:data :correctionPatch :items]))))
         (is (nil? (get-in decision [:data :edges])))
         (is (nil? (get-in work-input [:payload :messages])))))))
 
@@ -502,7 +504,13 @@
                                                       :evidence-count 1})
                                                    (range 20))
                                     :edges (mapv (fn [idx] {:xt/id (str "edge:" idx)})
-                                                 (range 20))}))
+                                                 (range 20))
+                                    :correctionPatch (mapv (fn [idx]
+                                                             {:source "source"
+                                                              :target (str "target:" idx)
+                                                              :relation "shares-config"
+                                                              :visibility "noise"})
+                                                           (range 20))}))
                   (-> (decision-packet "second")
                       :decision)])
         work-id (get-in (queue/enqueue! payload
@@ -530,6 +538,9 @@
         (is (= 2 (get-in work-input [:payload :omitted :messages])))
         (is (= 20 (get-in work-input
                           [:payload :decisions :items 0 :decision :data :targets :count])))
+        (is (= 20 (get-in work-input
+                          [:payload :decisions :items 0 :decision :data
+                           :correctionPatch :count])))
         (is (= 20 (get-in work-input
                           [:payload :decisions :items 0 :decision :data :omitted :edges])))))))
 

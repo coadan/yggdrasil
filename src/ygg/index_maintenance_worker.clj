@@ -18,6 +18,12 @@
 (def command-work-schema
   "ygg.index-maintenance.command-work/v1")
 
+(def ^:private decision-target-limit
+  24)
+
+(def ^:private decision-correction-patch-limit
+  24)
+
 (def ^:dynamic *deps* {})
 
 (defn- dep
@@ -168,17 +174,19 @@
     (assoc :peer (compact-system (:peer data)))
 
     (:targets data)
-    (assoc :targets (update (bounded-vec 24 (map compact-target (:targets data)))
+    (assoc :targets (update (bounded-vec decision-target-limit
+                                         (map compact-target (:targets data)))
                             :items vec))
+
+    (:correctionPatch data)
+    (assoc :correctionPatch (bounded-vec decision-correction-patch-limit
+                                         (:correctionPatch data)))
 
     (seq (:edges data))
     (assoc-in [:omitted :edges] (count (:edges data)))
 
     (seq (:evidence-ids data))
-    (assoc-in [:omitted :evidence-ids] (count (:evidence-ids data)))
-
-    (seq (:correctionPatch data))
-    (assoc-in [:omitted :correctionPatch] (count (:correctionPatch data)))))
+    (assoc-in [:omitted :evidence-ids] (count (:evidence-ids data)))))
 
 (defn- compact-decision
   [decision]
