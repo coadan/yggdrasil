@@ -50,7 +50,7 @@ YGG_MCP_BIN="$PREFIX/bin/ygg-mcp"
 SERVER_LOG="$REPO_DIR/.ygg/server.log"
 
 server_ready() {
-  "$YGG_BIN" status >/dev/null 2>&1
+  YGG_SERVER_CONNECT_TIMEOUT_MS=0 "$YGG_BIN" status >/dev/null 2>&1
 }
 
 fail_with_server_log() {
