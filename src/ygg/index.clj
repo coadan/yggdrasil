@@ -46,6 +46,17 @@
        (sort-by (juxt (comp - :elapsed-ms) :kind))
        vec))
 
+(defn- correction-overlay-package-imports?
+  [correction-overlay]
+  (boolean (seq (concat (:packageImports correction-overlay)
+                        (:package-imports correction-overlay)))))
+
+(defn- refresh-dependencies?
+  [planned deletes correction-overlay]
+  (or (seq (:changed planned))
+      (pos? (long (or (:files-deleted deletes) 0)))
+      (correction-overlay-package-imports? correction-overlay)))
+
 (defn deadline-ns
   [timeout-ms]
   (when (and timeout-ms (pos? (long timeout-ms)))
@@ -620,27 +631,37 @@
                                  {:project-id project-id
                                   :repo-id repo-id
                                   :files-deleted (:files-deleted deletes)})
+              dependency-refresh? (refresh-dependencies?
+                                   planned
+                                   deletes
+                                   correction-overlay)
               _ (progress! progress-fn
                            project-id
                            repo-id
-                           {:phase :dependency-start})
-              [dependency-result timings] (timed
-                                           timings
-                                           :dependency-ms
-                                           #(dependency/refresh-derived-edges!
-                                             xtdb
-                                             project-id
-                                             repo-id
-                                             run-id
-                                             {:valid-from valid-from
-                                              :project-id project-id
-                                              :repo-id repo-id
-                                              :correction-overlay correction-overlay}))
+                           {:phase :dependency-start
+                            :skipped? (not dependency-refresh?)})
+              [dependency-result timings] (if dependency-refresh?
+                                            (timed
+                                             timings
+                                             :dependency-ms
+                                             #(dependency/refresh-derived-edges!
+                                               xtdb
+                                               project-id
+                                               repo-id
+                                               run-id
+                                               {:valid-from valid-from
+                                                :project-id project-id
+                                                :repo-id repo-id
+                                                :correction-overlay correction-overlay}))
+                                            [{:dependency-edges 0
+                                              :skipped? true}
+                                             timings])
               _ (progress! progress-fn
                            project-id
                            repo-id
                            {:phase :dependency-complete
-                            :dependency-edges (:dependency-edges dependency-result)})
+                            :dependency-edges (:dependency-edges dependency-result)
+                            :skipped? (:skipped? dependency-result)})
               _ (check-deadline! index-deadline-ns
                                  :dependency
                                  {:project-id project-id

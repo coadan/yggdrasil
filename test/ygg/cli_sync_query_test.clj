@@ -296,6 +296,76 @@
                          "--json"
                          "--queue-dir" root]))
         (is (= 3 (count (queue/list-items root {:status "ready"}))))))))
+
+(deftest sync-check-does-not-reenqueue-identical-review-batches
+  (let [root (temp-dir "ygg-cli-review-batch-queue")
+        infra-packets (mapv (fn [idx]
+                              {:schema infra-review/packet-schema
+                               :reviewId (str "infra-review:batch-" idx)
+                               :project-id "fixture"
+                               :kind "container-image-consumer-without-producer"
+                               :artifact (str "container-image:api-" idx)
+                               :facts {:systems []
+                                       :evidence []}
+                               :allowedActions ["none"]
+                               :expectedOutput {:schema infra-review/result-schema
+                                                :reviewId (str "infra-review:batch-" idx)}
+                               :expectedResultSchema infra-review/result-schema})
+                            (range index-maintenance/review-batch-size))
+        dependency-packets (mapv (fn [idx]
+                                   {:schema dependency-review/packet-schema
+                                    :reviewId (str "dependency-review:batch-" idx)
+                                    :project-id "fixture"
+                                    :kind "unresolved-import"
+                                    :facts {:unresolvedImport {:import (str "missing-" idx)
+                                                               :path "App.java"
+                                                               :line idx}
+                                            :packages []
+                                            :evidence []}
+                                    :allowedActions ["none"]
+                                    :expectedOutput {:schema dependency-review/result-schema
+                                                     :reviewId (str "dependency-review:batch-" idx)}
+                                    :expectedResultSchema dependency-review/result-schema})
+                                 (range index-maintenance/review-batch-size))]
+    (with-redefs [project/read-project (constantly project-fixture)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  project/index-project! (fn [_ project _]
+                                           {:project-id (:id project)
+                                            :status :completed
+                                            :repos []})
+                  project/infer-project! (fn [_ project]
+                                           {:project-id (:id project)
+                                            :status :completed})
+                  project/maintain-project (fn [_ _ _]
+                                             {:project-id "fixture"
+                                              :counts {:infra-review-items (count infra-packets)
+                                                       :dependency-review-items (count dependency-packets)}
+                                              :infra-review-queue infra-packets
+                                              :dependency-review-queue dependency-packets})]
+      (with-out-str
+        (cli/dispatch "sync"
+                      ["project.edn"
+                       "--check"
+                       "--enqueue"
+                       "--json"
+                       "--queue-dir" root]))
+      (let [items (queue/list-items root {:status "ready"})]
+        (is (= 2 (count items)))
+        (is (= #{infra-review/batch-packet-schema
+                 dependency-review/batch-packet-schema}
+               (set (mapv #(get-in % [:item :payload :schema]) items)))))
+      (let [out (with-out-str
+                  (cli/dispatch "sync"
+                                ["project.edn"
+                                 "--check"
+                                 "--enqueue"
+                                 "--json"
+                                 "--queue-dir" root]))
+            parsed (read-json-output out)]
+        (is (= ["existing" "existing"]
+               (sort (mapv :enqueue-status (:enqueued parsed)))))
+        (is (= 2 (count (queue/list-items root))))))))
+
 (deftest sync-coverage-returns-source-coverage-report
   (with-redefs [project/read-project (constantly project-fixture)
                 store/with-node (fn [_ f] (f :xtdb))

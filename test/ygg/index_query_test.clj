@@ -1929,6 +1929,44 @@
               (is (= "extractor:test-changed"
                      (:extractor-fingerprint changed-row))))))))))
 
+(deftest index-skips-derived-dependency-refresh-when-inputs-are-unchanged
+  (let [xtdb-path (temp-dir "ygg-index-dependency-refresh-xtdb")
+        repo (io/file (temp-dir "ygg-index-dependency-refresh-repo"))
+        calls (atom [])]
+    (.mkdirs repo)
+    (spit (io/file repo "deps.edn") "{:deps {org.clojure/clojure {:mvn/version \"1.12.0\"}}}\n")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (with-redefs [dependency/refresh-derived-edges!
+                      (fn [& args]
+                        (swap! calls conj args)
+                        {:dependency-edges 0})]
+          (let [opts {:project-id "fixture"
+                      :repo-id "app"}
+                first-summary (index/index-repo! xtdb (.getPath repo) opts)]
+            (is (= 1 (get-in first-summary [:stats :files-indexed])))
+            (is (= 1 (count @calls)))
+            (let [second-summary (index/index-repo! xtdb (.getPath repo) opts)
+                  correction-overlay {:schema "ygg.correction-overlay/v1"
+                                      :project "fixture"
+                                      :packageImports [{:repo "app"
+                                                        :import "clojure"
+                                                        :ecosystem "maven"
+                                                        :package "org.clojure:clojure"
+                                                        :status "accepted"}]}]
+              (is (= 1 (get-in second-summary [:stats :files-skipped])))
+              (is (= 1 (count @calls)))
+              (is (not (contains? (get-in second-summary [:stats :timings-ms])
+                                  :dependency-ms)))
+              (let [third-summary (index/index-repo! xtdb
+                                                     (.getPath repo)
+                                                     (assoc opts
+                                                            :correction-overlay correction-overlay))]
+                (is (= 1 (get-in third-summary [:stats :files-skipped])))
+                (is (= 2 (count @calls)))
+                (is (= correction-overlay
+                       (:correction-overlay (nth (last @calls) 4))))))))))))
+
 (deftest index-reindexes-when-file-facts-contract-changes
   (let [xtdb-path (temp-dir "ygg-index-file-facts-fingerprint-xtdb")
         repo (io/file (temp-dir "ygg-index-file-facts-fingerprint-repo"))]

@@ -281,8 +281,14 @@
     "ygg.infra.review-packet/v1"
     [(:schema payload) (:reviewId payload)]
 
+    "ygg.infra.review-batch-packet/v1"
+    [(:schema payload) (:batchId payload)]
+
     "ygg.dependency.review-packet/v1"
     [(:schema payload) (:reviewId payload)]
+
+    "ygg.dependency.review-batch-packet/v1"
+    [(:schema payload) (:batchId payload)]
 
     nil))
 

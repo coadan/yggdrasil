@@ -545,13 +545,67 @@
    :active? true
    :updated-at-ms updated-at-ms})
 
+(def ^:private project-metadata-fields
+  [:xt/id :project-id :name :active?])
+
+(def ^:private repo-metadata-fields
+  [:xt/id :project-id :repo-id :root :role :active?])
+
+(defn- stable-project-row
+  [row]
+  (select-keys row project-metadata-fields))
+
+(defn- stable-repo-row
+  [row]
+  (select-keys row repo-metadata-fields))
+
+(defn- desired-project-metadata
+  [project]
+  (let [updated-at-ms 0]
+    {:project (stable-project-row (project-row project updated-at-ms))
+     :repos (->> (:repos project)
+                 (map #(stable-repo-row (repo-row (:id project) updated-at-ms %)))
+                 (sort-by :repo-id)
+                 vec)}))
+
+(defn- current-project-metadata
+  [xtdb project]
+  (let [repo-ids (set (map (comp str :id) (:repos project)))]
+    {:project (first
+               (store/ordered-rows
+                xtdb
+                {:table (:projects store/tables)
+                 :constraints {:project-id (:id project)
+                               :active? true}
+                 :return-fields project-metadata-fields}))
+     :repos (->> (store/ordered-rows
+                  xtdb
+                  {:table (:repos store/tables)
+                   :constraints {:project-id (:id project)
+                                 :active? true}
+                   :order-fields [:repo-id]
+                   :return-fields repo-metadata-fields})
+                 (filter #(contains? repo-ids (str (:repo-id %))))
+                 vec)}))
+
+(defn- project-metadata-current?
+  [xtdb project]
+  (= (desired-project-metadata project)
+     (current-project-metadata xtdb project)))
+
 (defn persist-project!
   "Persist project metadata rows."
   [xtdb project]
-  (let [updated-at-ms (now-ms)]
-    (store/commit-project! xtdb
-                           (project-row project updated-at-ms)
-                           (mapv #(repo-row (:id project) updated-at-ms %) (:repos project)))))
+  (if (project-metadata-current? xtdb project)
+    {:status :skipped
+     :reason :unchanged-project-metadata
+     :project-id (:id project)
+     :repos (count (:repos project))}
+    (let [updated-at-ms (now-ms)]
+      (store/commit-project! xtdb
+                             (project-row project updated-at-ms)
+                             (mapv #(repo-row (:id project) updated-at-ms %)
+                                   (:repos project))))))
 
 (defn- with-index-deadline
   [{:keys [index-timeout-ms index-deadline-ns] :as opts}]

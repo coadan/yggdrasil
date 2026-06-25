@@ -20,6 +20,57 @@
                                                       (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
+(deftest persist-project-skips-unchanged-project-metadata
+  (let [xtdb-path (temp-dir "ygg-project-metadata-xtdb")
+        project {:id "fixture"
+                 :name "Fixture"
+                 :repos [{:id "app"
+                          :root "/tmp/app"
+                          :role :application}]}]
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [project-row (fn []
+                            (first
+                             (store/ordered-rows
+                              xtdb
+                              {:table (:projects store/tables)
+                               :constraints {:project-id "fixture"
+                                             :active? true}
+                               :return-fields [:xt/id
+                                               :project-id
+                                               :name
+                                               :active?
+                                               :updated-at-ms]})))
+              repo-rows (fn []
+                          (vec
+                           (store/ordered-rows
+                            xtdb
+                            {:table (:repos store/tables)
+                             :constraints {:project-id "fixture"
+                                           :active? true}
+                             :order-fields [:repo-id]
+                             :return-fields [:xt/id
+                                             :project-id
+                                             :repo-id
+                                             :root
+                                             :role
+                                             :active?
+                                             :updated-at-ms]})))
+              first-result (project/persist-project! xtdb project)
+              first-project-row (project-row)
+              first-repo-rows (repo-rows)
+              second-result (project/persist-project! xtdb project)]
+          (is (= "fixture" (get-in first-result [:project :project-id])))
+          (is (= {:status :skipped
+                  :reason :unchanged-project-metadata
+                  :project-id "fixture"
+                  :repos 1}
+                 second-result))
+          (is (= first-project-row (project-row)))
+          (is (= first-repo-rows (repo-rows)))
+          (project/persist-project! xtdb (assoc project :name "Renamed"))
+          (is (= "Renamed" (:name (project-row)))))))))
+
 (deftest system-project-active-reads-use-constrained-store-queries
   (let [calls (atom [])
         system-a {:xt/id "system:a"
