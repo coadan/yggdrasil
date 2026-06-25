@@ -596,6 +596,52 @@
       (is (= "work-1" (get-in response [:data :enqueued 0 :id])))
       (is (re-find #"ygg\.sync" (:out response))))))
 
+(deftest sync-skips-system-inference-when-index-has-no-changes
+  (with-redefs [project/read-project
+                (fn [path]
+                  (is (= "project.edn" path))
+                  {:id "demo"})
+                cli-sync/sync-index-project!
+                (fn [xtdb project args deps opts]
+                  (is (= :xtdb xtdb))
+                  (is (= {:id "demo"} project))
+                  (is (= ["project.edn" "--check" "--json"] args))
+                  (is (map? deps))
+                  (is (= {:config-path "project.edn"
+                          :check? true
+                          :json? true}
+                         (select-keys opts [:config-path :check? :json?])))
+                  {:project-id "demo"
+                   :repos [{:repo-id "app"
+                            :status :completed
+                            :stats {:files-indexed 0
+                                    :files-deleted 0}}]})
+                project/infer-project!
+                (fn [& _]
+                  (throw (ex-info "unchanged index should not rewrite system graph" {})))
+                cli-sync/maintenance-report
+                (fn [xtdb project args deps]
+                  (is (= :xtdb xtdb))
+                  (is (= {:id "demo"} project))
+                  (is (= ["project.edn" "--check" "--json"] args))
+                  (is (map? deps))
+                  {:project-id "demo"
+                   :counts {:maintenance-decisions 0}})
+                cli/dispatch
+                (fn [& _]
+                  (throw (ex-info "unexpected command handler dispatch" {})))]
+    (let [response (server/handle-request {:xtdb :xtdb
+                                           :token "token"
+                                           :running (atom true)}
+                                          {:op "sync"
+                                           :token "token"
+                                           :args ["project.edn" "--check" "--json"]})]
+      (is (= true (:ok response)))
+      (is (= :skipped (get-in response [:data :system-summary :status])))
+      (is (= "no-index-changes"
+             (get-in response [:data :system-summary :reason])))
+      (is (= 0 (get-in response [:data :check-report :counts :maintenance-decisions]))))))
+
 (deftest sync-with-check-enqueue-runs-configured-index-maintenance-worker
   (let [root (temp-dir "ygg-server-index-maintenance")
         repo-root (io/file root "repo")
