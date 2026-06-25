@@ -34,7 +34,9 @@
 (deftest server-context-uses-canonical-config-flag
   (is (= "project.edn"
          (:config-path (mcp/server-context ["--config" "project.edn"]))))
-  (is (nil? (:config-path (mcp/server-context ["--project-config" "legacy.edn"])))))
+  (is (nil? (:config-path (mcp/server-context ["--project-config" "legacy.edn"]))))
+  (is (not (contains? (mcp/server-context ["--storage" "/tmp/xtdb"])
+                      :storage-path))))
 
 (def plugin-package-fixture
   {:id "datastar-hiccup"

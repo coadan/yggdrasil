@@ -82,7 +82,6 @@
    :config-path (option-value args "--config")
    :project-id (option-value args "--project")
    :queue-dir (or (option-value args "--queue-dir") queue/default-root)
-   :storage-path (option-value args "--storage")
    :tool-groups (parse-tool-groups (configured-tool-groups args))})
 
 (defn- json-schema
@@ -333,8 +332,7 @@
 (defn- with-xtdb
   [ctx f]
   (let [project-id (or (:project-id ctx) (System/getenv "YGG_PROJECT_ID"))]
-    (store/with-node (or (:storage-path ctx)
-                         (store/storage-path project-id))
+    (store/with-node (store/storage-path project-id)
       f)))
 
 (defn- tool-packet
