@@ -31,6 +31,11 @@
     (is (str/includes? (:err response) "ygg start"))
     (is (str/includes? (:err response) "ygg-mcp"))))
 
+(deftest server-context-uses-canonical-config-flag
+  (is (= "project.edn"
+         (:config-path (mcp/server-context ["--config" "project.edn"]))))
+  (is (nil? (:config-path (mcp/server-context ["--project-config" "legacy.edn"])))))
+
 (def plugin-package-fixture
   {:id "datastar-hiccup"
    :version "0.1.0"

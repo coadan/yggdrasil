@@ -79,8 +79,7 @@
   "Return immutable server context from CLI args."
   [args]
   {:root (or (option-value args "--root") default-root)
-   :config-path (or (option-value args "--config")
-                    (option-value args "--project-config"))
+   :config-path (option-value args "--config")
    :project-id (option-value args "--project")
    :queue-dir (or (option-value args "--queue-dir") queue/default-root)
    :storage-path (option-value args "--storage")
