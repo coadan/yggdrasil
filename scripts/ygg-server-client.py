@@ -273,10 +273,6 @@ def server_request(op, args, stream=False, render_progress=False):
     return print_response(response)
 
 
-def sync_request(args):
-    return server_request("sync", args, stream=True, render_progress=progress_output(args))
-
-
 def main(argv):
     if len(argv) < 2:
         return UNAVAILABLE
@@ -284,7 +280,8 @@ def main(argv):
     if command == "mcp":
         return mcp_proxy(argv[2:])
     if command == "sync":
-        return sync_request(argv[2:])
+        args = argv[2:]
+        return server_request("sync", args, stream=True, render_progress=progress_output(args))
     return server_request(command, argv[2:])
 
 
