@@ -18,7 +18,7 @@
   (:import [java.io BufferedReader Closeable InputStreamReader OutputStreamWriter
             PrintWriter StringWriter]
            [java.lang ProcessHandle]
-           [java.net InetAddress InetSocketAddress ServerSocket Socket]
+           [java.net InetAddress ServerSocket Socket]
            [java.util.concurrent ExecutorService Executors ThreadFactory TimeUnit]
            [java.util.concurrent.locks ReentrantLock]
            [java.util.concurrent.atomic AtomicLong]
@@ -29,9 +29,6 @@
 
 (def unavailable-exit
   daemon-contract/unavailable-exit)
-
-(def unavailable-message
-  daemon-contract/unavailable-message)
 
 (def server-frame-schema
   "ygg.server.frame/v1")
@@ -1142,32 +1139,6 @@
         @(get-in system [:ygg.server/server :stopped]))
       (finally
         (halt!)))))
-
-(defn request
-  ([op args]
-   (request op args nil))
-  ([op args extra]
-   (let [{:keys [host port]} (server-endpoint)]
-     (try
-       (let [socket (Socket.)
-             token (server-token)]
-         (.connect socket (InetSocketAddress. host (int port)) 250)
-         (with-open [socket socket
-                     reader (BufferedReader. (InputStreamReader. (.getInputStream socket)))
-                     writer (PrintWriter. (OutputStreamWriter. (.getOutputStream socket)))]
-           (write-json-line! writer (cond-> (merge {:op op
-                                                    :args (vec args)
-                                                    :cwd (System/getProperty "user.dir")
-                                                    :projectId (System/getenv "YGG_PROJECT_ID")
-                                                    :storagePath (System/getenv "YGG_XTDB_PATH")}
-                                                   extra)
-                                      token (assoc :token token)))
-           (read-json-line reader)))
-       (catch Exception _
-         {:ok false
-          :exit unavailable-exit
-          :out ""
-          :err unavailable-message})))))
 
 (defn- print-main-usage!
   []

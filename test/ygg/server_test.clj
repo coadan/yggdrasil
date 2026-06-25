@@ -615,18 +615,6 @@
       (finally
         (.unlock lock)))))
 
-(deftest request-requires-running-server
-  (let [socket (java.net.ServerSocket. 0)
-        port (.getLocalPort socket)]
-    (.close socket)
-    (with-redefs [server/server-endpoint (constantly {:host "127.0.0.1"
-                                                      :port port})]
-      (is (= {:ok false
-              :exit server/unavailable-exit
-              :out ""
-              :err server/unavailable-message}
-             (server/request "query" ["hello"]))))))
-
 (deftest query-request-runs-while-operation-lock-is-busy
   (let [lock (java.util.concurrent.locks.ReentrantLock.)
         locked (promise)
