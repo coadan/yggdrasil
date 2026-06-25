@@ -12,7 +12,8 @@
 
 (defn direct-entrypoint-response
   [entrypoint command]
-  {:exit unavailable-exit
+  {:ok false
+   :exit unavailable-exit
    :out ""
    :err (direct-entrypoint-message entrypoint command)})
 
