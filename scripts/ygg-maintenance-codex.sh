@@ -47,6 +47,27 @@ if [[ -n "${YGG_CODEX_MAINTENANCE_ADD_DIRS:-}" ]]; then
   done
 fi
 
+while IFS= read -r dir; do
+  if [[ -n "${dir}" && -d "${dir}" ]]; then
+    ADD_DIR_ARGS+=(--add-dir "$(cd "${dir}" && pwd)")
+  fi
+done < <(python3 - "${WORK_PATH}" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], "r", encoding="utf-8") as f:
+        value = json.load(f)
+except Exception:
+    raise SystemExit(0)
+
+for repo in value.get("project", {}).get("repos", []):
+    root = repo.get("root")
+    if isinstance(root, str) and root:
+        print(root)
+PY
+)
+
 CODEX_ARGS=(
   -C "${ROOT_DIR}"
   --skip-git-repo-check
@@ -59,6 +80,9 @@ if [[ -n "${YGG_CODEX_MAINTENANCE_MODEL:-}" ]]; then
   CODEX_ARGS+=(-m "${YGG_CODEX_MAINTENANCE_MODEL}")
 fi
 
+CODEX_REASONING="${YGG_CODEX_MAINTENANCE_REASONING:-${YGG_MAINTENANCE_REASONING:-medium}}"
+CODEX_ARGS+=(-c "model_reasoning_effort=\"${CODEX_REASONING}\"")
+
 codex exec \
   "${CODEX_ARGS[@]}" \
   - <<EOF
@@ -70,17 +94,22 @@ ${WORK_PATH}
 Required result JSON path:
 ${RESULT_PATH}
 
-Read the work item JSON. Its payload contains the task, allowed actions,
-expectedResultSchema, and often an expectedOutput example or messages. Produce a
-single JSON object that matches the expected result schema and write it to the
-required result path.
+Read the work item JSON. Follow payload.instructions first when present. Its
+payload contains the task, allowed actions, expectedResultSchema, and usually an
+expectedOutput example. For Codex command harnesses the payload is compact: use
+project.repos[].root to inspect the attached source repositories only when a
+bounded fact needs verification. Produce a single JSON object that matches the
+expected result schema and write it to the required result path.
 
 Rules:
 - Do not edit source repositories, project configs, correction facts, or queue
   item files.
 - Do not run ygg sync work complete, validate, apply, reject, or release.
-- Use only ids and evidence present in the work item unless reading the attached
-  project directories is necessary to verify a bounded fact.
+- Use only ids and bounded facts present in the work item plus source files under
+  the attached project repo roots. Do not infer project meaning from names alone.
+- Most packets should be straightforward: write one small correction patch, or
+  return an empty correctionPatch with a conservative recommendation when the
+  packet evidence is not enough.
 - Prefer conservative no-change, investigate, needs-human, or needs-scanner
   results with an empty correctionPatch when evidence is insufficient.
 - Write valid JSON only to the result path.

@@ -135,6 +135,7 @@
                       (write-edn! out config force?))
         registry-result (when registry-mode?
                           (registry/upsert-project! config))
+        init-record (registry/record-init!)
         project-id (:id config)
         project-ref (write-project-ref! project-id
                                         (or (:workbench-root config)
@@ -151,6 +152,9 @@
              :root (or (:workbench-root config) (get-in config [:repos 0 :root]))
              :project-ref project-ref
              :repos repo-count
+             :registry (:registry init-record)
+             :first-init (:first-init init-record)
+             :init-count (:init-count init-record)
              :next (next-commands actions)
              :nextActions actions}
       config-path (assoc :config config-path)

@@ -1,5 +1,7 @@
 (ns ygg.index-maintenance-worker-test
-  (:require [ygg.index-maintenance-worker :as index-maintenance-worker]
+  (:require [ygg.dependency-review :as dependency-review]
+            [ygg.index-maintenance-worker :as index-maintenance-worker]
+            [ygg.infra-review :as infra-review]
             [ygg.project :as project]
             [ygg.queue :as queue]
             [ygg.system.decision-classifier :as decision-classifier]
@@ -63,6 +65,58 @@
    :confidence 0.7
    :reason "Evidence is insufficient for an automatic correction patch."
    :correctionPatch []})
+
+(defn- infra-packet
+  []
+  (first
+   (infra-review/review-packets
+    {:project-id "demo"
+     :basis {:hash "basis"}
+     :systems [{:xt/id "system:demo:app"
+                :label "app"
+                :kind :system
+                :repo-id "app"
+                :path-prefix ""
+                :metrics {:file-count 2
+                          :node-count 4}}]
+     :evidence [{:xt/id "infra-evidence:image"
+                 :kind :container-image-producer
+                 :system-id "system:demo:app"
+                 :repo-id "app"
+                 :path "Dockerfile"
+                 :source-line 1
+                 :label "image"
+                 :normalized-value "container-image:demo"
+                 :confidence 1.0}]})))
+
+(defn- dependency-packet
+  []
+  (first
+   (dependency-review/review-packets
+    {:project-id "demo"
+     :basis {:hash "basis"}
+     :package-report {:packages [{:id "package:npm:left-pad"
+                                  :label "npm:left-pad"
+                                  :ecosystem "npm"
+                                  :package-name "left-pad"}]
+                      :unresolved-imports [{:repo-id "app"
+                                            :source-id "node:app"
+                                            :source-label "app"
+                                            :target-id "node:left_pad"
+                                            :import "left_pad"
+                                            :path "src/app.js"
+                                            :line 1
+                                            :kind :javascript}]}})))
+
+(defn- valid-review-result
+  [payload]
+  {:schema (:expectedResultSchema payload)
+   :reviewId (:reviewId payload)
+   :recommendation "no-change"
+   :confidence 0.7
+   :reason "Evidence is insufficient for an automatic correction patch."
+   :correctionPatch []
+   :findings []})
 
 (deftest disabled-worker-does-not-claim-ready-work
   (let [root (temp-dir "ygg-index-maintenance-worker-disabled")
@@ -156,10 +210,12 @@
                                :command ["codex-maintenance"]
                                :kinds #{:maintenance-decision}}]})
         work-id (enqueue-decision! queue-root)
-        argv* (atom nil)]
+        argv* (atom nil)
+        env* (atom nil)]
     (binding [index-maintenance-worker/*deps*
-              {:command-runner (fn [{:keys [argv]}]
+              {:command-runner (fn [{:keys [argv env]}]
                                  (reset! argv* argv)
+                                 (reset! env* env)
                                  (let [result-path (last argv)]
                                    (spit result-path
                                          (json/write-json-str (valid-result))))
@@ -170,10 +226,157 @@
         (is (= ["codex-maintenance" "--work" work-path "--result"
                 (get-in result [:items 0 :artifacts :result])]
                @argv*))
+        (is (= "medium" (get @env* "YGG_MAINTENANCE_REASONING")))
         (is (= "completed" (:status result)))
-        (is (= work-id (:id work-input)))
+        (is (= index-maintenance-worker/command-work-schema (:schema work-input)))
+        (is (= work-id (get-in work-input [:workItem :id])))
+        (is (= "maintenance-decision:test"
+               (get-in work-input [:payload :decisionId])))
+        (is (= [{:id "app"
+                 :root (.getCanonicalPath (io/file root "repo"))
+                 :role "application"}]
+               (get-in work-input [:project :repos])))
+        (is (nil? (get-in work-input [:payload :messages])))
         (is (= "done" (get-in (queue/find-item queue-root work-id)
                               [:item :status])))))))
+
+(deftest command-harness-work-input-compacts-large-frontier-decisions
+  (let [root (temp-dir "ygg-index-maintenance-worker-command-compact")
+        queue-root (.getPath (io/file root "queue"))
+        project (project-config
+                 root
+                 {:enabled true
+                  :queue-dir "queue"
+                  :report-dir "reports"
+                  :executors [{:id "codex"
+                               :type :command-harness
+                               :command ["codex-maintenance"]
+                               :kinds #{:maintenance-decision}}]})
+        payload (decision-classifier/decision-packet
+                 {:id "maintenance-decision:large"
+                  :project-id "demo"
+                  :kind :external-api-review-group
+                  :severity :medium
+                  :target "external-api-review:large"
+                  :reason "Review grouped outbound external APIs."
+                  :recommended-actions [:reject-external-api :none]
+                  :data {:id "external-api-review:large"
+                         :project-id "demo"
+                         :relation :calls-external-api
+                         :direction :outbound
+                         :visibility :secondary
+                         :peer {:xt/id "system:demo:app:path/src"
+                                :label "src"
+                                :kind :candidate-system
+                                :repo-id "app"
+                                :path-prefix "src"
+                                :metrics {:file-count 42
+                                          :node-count 100
+                                          :extra-large "omitted"}}
+                         :targets (mapv (fn [idx]
+                                          {:xt/id (str "system:demo:__external:external-api/api" idx)
+                                           :label (str "api" idx ".example.test")
+                                           :edge-count 1
+                                           :evidence-count 1
+                                           :relations [:calls-external-api]
+                                           :visibilities [:secondary]})
+                                        (range 30))
+                         :edges (mapv (fn [idx]
+                                        {:xt/id (str "edge:" idx)
+                                         :source {:large (apply str (repeat 200 "x"))}
+                                         :target {:large (apply str (repeat 200 "y"))}
+                                         :evidence-ids [(str "evidence:" idx)]})
+                                      (range 30))
+                         :evidence-ids (mapv #(str "evidence:" %) (range 30))
+                         :correctionPatch (mapv (fn [idx]
+                                                  {:op "reject-external-api"
+                                                   :target (str "api" idx ".example.test")
+                                                   :reason "candidate"})
+                                                (range 30))}})
+        work-id (get-in (queue/enqueue! payload
+                                        {:root queue-root
+                                         :kind "maintenance-decision"
+                                         :project-id "demo"})
+                        [:item :id])]
+    (binding [index-maintenance-worker/*deps*
+              {:command-runner (fn [{:keys [argv]}]
+                                 (let [result-path (last argv)]
+                                   (spit result-path
+                                         (json/write-json-str
+                                          (assoc (valid-result)
+                                                 :decisionId "maintenance-decision:large"))))
+                                 {:exit 0 :out "" :err ""})}]
+      (let [result (index-maintenance-worker/run! project)
+            work-input (read-json (get-in result [:items 0 :artifacts :work]))
+            decision (get-in work-input [:payload :decision])]
+        (is (= "done" (get-in (queue/find-item queue-root work-id)
+                              [:item :status])))
+        (is (= {:edges 30
+                :evidence-ids 30
+                :correctionPatch 30}
+               (get-in decision [:data :omitted])))
+        (is (= 30 (get-in decision [:data :targets :count])))
+        (is (= true (get-in decision [:data :targets :truncated])))
+        (is (= 24 (count (get-in decision [:data :targets :items]))))
+        (is (nil? (get-in decision [:data :edges])))
+        (is (nil? (get-in work-input [:payload :messages])))))))
+
+(deftest command-harness-work-input-compacts-review-packets
+  (let [root (temp-dir "ygg-index-maintenance-worker-command-review-compact")
+        queue-root (.getPath (io/file root "queue"))
+        project (project-config
+                 root
+                 {:enabled true
+                  :queue-dir "queue"
+                  :report-dir "reports"
+                  :max-items-per-run 2
+                  :executors [{:id "codex"
+                               :type :command-harness
+                               :command ["codex-maintenance"]
+                               :kinds #{:infra-review :dependency-review}}]})
+        infra (infra-packet)
+        dependency (dependency-packet)
+        infra-id (get-in (queue/enqueue! infra
+                                         {:root queue-root
+                                          :kind infra-review/work-kind
+                                          :project-id "demo"})
+                         [:item :id])
+        dependency-id (get-in (queue/enqueue! dependency
+                                              {:root queue-root
+                                               :kind dependency-review/work-kind
+                                               :project-id "demo"})
+                              [:item :id])
+        work-inputs* (atom [])]
+    (binding [index-maintenance-worker/*deps*
+              {:command-runner (fn [{:keys [argv]}]
+                                 (let [work-input (read-json (nth argv (- (count argv) 3)))
+                                       result-path (last argv)
+                                       payload (:payload work-input)]
+                                   (swap! work-inputs* conj work-input)
+                                   (spit result-path
+                                         (json/write-json-str
+                                          (valid-review-result payload))))
+                                 {:exit 0 :out "" :err ""})}]
+      (let [result (index-maintenance-worker/run! project)
+            by-kind (into {}
+                          (map (juxt #(get-in % [:workItem :kind]) identity))
+                          @work-inputs*)]
+        (is (= "limit-reached" (:status result)))
+        (is (= "done" (get-in (queue/find-item queue-root infra-id)
+                              [:item :status])))
+        (is (= "done" (get-in (queue/find-item queue-root dependency-id)
+                              [:item :status])))
+        (doseq [kind [infra-review/work-kind dependency-review/work-kind]]
+          (let [work-input (get by-kind kind)]
+            (is (= index-maintenance-worker/command-work-schema
+                   (:schema work-input)))
+            (is (nil? (get-in work-input [:payload :messages])))
+            (is (= 2 (get-in work-input [:payload :omitted :messages])))
+            (is (= true (get-in work-input [:fullPayload :storedInQueue])))))
+        (is (= infra-review/packet-schema
+               (get-in by-kind [infra-review/work-kind :payload :schema])))
+        (is (= dependency-review/packet-schema
+               (get-in by-kind [dependency-review/work-kind :payload :schema])))))))
 
 (deftest validate-only-fails-invalid-completed-result
   (let [root (temp-dir "ygg-index-maintenance-worker-invalid")

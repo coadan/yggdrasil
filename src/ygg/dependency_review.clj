@@ -28,6 +28,18 @@
 (def ^:private allowed-recommendations
   #{"add-package-import" "no-change" "needs-human" "needs-scanner"})
 
+(def ^:private review-instructions
+  ["Resolve only this one unresolved import review packet."
+   "Most packets should be straightforward: add one import-to-package correction, or return no patch when the package evidence is not enough."
+   "Choose packages only from facts.packages[], and cite evidence only from facts.evidence[].id."
+   "Do not classify the repository, infer broad architecture, edit files, update queue state, or invent ids."
+   "Return exactly one JSON object matching expectedResultSchema. If unsure, use no-change, needs-human, or needs-scanner with correctionPatch []."])
+
+(defn- instructions-text
+  [instructions]
+  (str "Instructions:\n"
+       (str/join "\n" (map #(str "- " %) instructions))))
+
 (defn- s
   [value]
   (cond
@@ -251,7 +263,8 @@
                          :recommendation "add-package-import|no-change|needs-human|needs-scanner"
                          :confidence 0.0
                          :reason "brief rationale"
-                         :correctionPatch []}]
+                         :correctionPatch []
+                         :findings []}]
     {:schema packet-schema
      :reviewId review-id
      :project-id project-id
@@ -261,6 +274,7 @@
      :basis basis
      :facts facts
      :allowedActions ["add-package-import" "none"]
+     :instructions review-instructions
      :expectedResultSchema result-schema
      :expectedOutput expected-output
      :messages [{:role "system"
@@ -268,12 +282,14 @@
                                "Return JSON only. Use only package ids and evidence from the packet. "
                                "Do not infer repository architecture or classify the whole project.")}
                 {:role "user"
-                 :content (str "Return this JSON shape:\n"
+                 :content (str (instructions-text review-instructions)
+                               "\n\nReturn this JSON shape:\n"
                                (json/write-json-str expected-output {:indent-str "  "})
                                "\n\nIf evidence is insufficient, return no correctionPatch and add a finding."
                                "\n\nPacket:\n"
                                (json/write-json-str {:reviewId review-id
                                                      :kind "unresolved-import"
+                                                     :instructions review-instructions
                                                      :basis basis
                                                      :facts facts
                                                      :allowedActions ["add-package-import"

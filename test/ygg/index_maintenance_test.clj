@@ -3,7 +3,19 @@
             [ygg.index-maintenance :as index-maintenance]
             [ygg.infra-review :as infra-review]
             [ygg.system.decision-classifier :as decision-classifier]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
+
+(defn- user-message
+  [packet]
+  (->> (:messages packet)
+       (filter #(= "user" (:role %)))
+       first
+       :content))
+
+(defn- has-instruction?
+  [packet text]
+  (boolean (some #(str/includes? % text) (:instructions packet))))
 
 (deftest graph-report-becomes-index-maintenance-lane
   (let [decision {:id "maintenance-decision:test"
@@ -43,3 +55,66 @@
              :producer index-maintenance/producer
              :lane index-maintenance/graph-lane}]
            (distinct (mapv :source work))))))
+
+(deftest maintenance-work-packets-include-clear-bounded-instructions
+  (let [decision-packet
+        (decision-classifier/decision-packet
+         {:id "maintenance-decision:test"
+          :project-id "demo"
+          :kind :orphaned-candidate
+          :severity :low
+          :target "system:demo:app"
+          :reason "Needs review."
+          :recommended-actions [:none]})
+        infra-packet
+        (first
+         (infra-review/review-packets
+          {:project-id "demo"
+           :basis {:hash "basis"}
+           :systems [{:xt/id "system:demo:app"
+                      :label "app"
+                      :kind :system
+                      :repo-id "app"
+                      :path-prefix ""
+                      :metrics {:file-count 2
+                                :node-count 4}}
+                     {:xt/id "system:demo:deploy"
+                      :label "deploy"
+                      :kind :system
+                      :repo-id "app"
+                      :path-prefix "deploy"
+                      :metrics {:file-count 1
+                                :node-count 1}}]
+           :evidence [{:xt/id "infra-evidence:image"
+                       :kind :container-image-producer
+                       :system-id "system:demo:app"
+                       :repo-id "app"
+                       :path "Dockerfile"
+                       :source-line 1
+                       :label "image"
+                       :normalized-value "registry.example/app:latest"
+                       :confidence 1.0}]}))
+        dependency-packet
+        (first
+         (dependency-review/review-packets
+          {:project-id "demo"
+           :basis {:hash "basis"}
+           :package-report {:packages [{:id "package:npm:left-pad"
+                                        :label "npm:left-pad"
+                                        :ecosystem "npm"
+                                        :package-name "left-pad"}]
+                            :unresolved-imports [{:repo-id "app"
+                                                  :source-id "node:app"
+                                                  :source-label "app"
+                                                  :target-id "node:left_pad"
+                                                  :import "left_pad"
+                                                  :path "src/app.js"
+                                                  :line 1
+                                                  :kind :javascript}]}}))]
+    (doseq [packet [decision-packet infra-packet dependency-packet]]
+      (is (seq (:instructions packet)))
+      (is (has-instruction? packet "Most"))
+      (is (has-instruction? packet "Return exactly one JSON object"))
+      (is (:expectedResultSchema packet))
+      (is (str/includes? (user-message packet) "Instructions:"))
+      (is (str/includes? (user-message packet) "Return exactly one JSON object")))))

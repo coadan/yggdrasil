@@ -51,6 +51,7 @@ Example:
      :type :openai-compatible
      :provider :deepseek
      :model "deepseek-v4-flash"
+     :reasoning :medium
      :env "YGG_DEEPSEEK_API_KEY"
      :kinds #{:maintenance-decision :infra-review :dependency-review}}
 
@@ -58,6 +59,7 @@ Example:
      :type :anthropic-compatible
      :provider :deepseek
      :model "deepseek-v4-flash"
+     :reasoning :medium
      :env "YGG_DEEPSEEK_API_KEY"
      :kinds #{:maintenance-decision}}
 
@@ -65,31 +67,44 @@ Example:
      :type :openai-compatible
      :provider :openrouter
      :model "deepseek/deepseek-v4-flash"
+     :reasoning :medium
      :env "YGG_OPENROUTER_API_KEY"
      :kinds #{:infra-review :dependency-review}}
 
     {:id "codex"
      :type :command-harness
      :command ["scripts/ygg-maintenance-codex.sh"]
+     :reasoning :medium
      :kinds #{:maintenance-decision :infra-review :dependency-review}
      :timeout-ms 600000}
 
     {:id "claude"
      :type :command-harness
      :command ["scripts/ygg-maintenance-claude.sh"]
+     :reasoning :medium
      :kinds #{:maintenance-decision :infra-review :dependency-review}
      :timeout-ms 600000}
 
     {:id "opencode"
      :type :command-harness
      :command ["scripts/ygg-maintenance-opencode.sh"]
+     :reasoning :medium
      :kinds #{:maintenance-decision :infra-review :dependency-review}
      :timeout-ms 600000}]}}}
 ```
 
 Command harness executors are called with `--work <input.json> --result
 <result.json>` appended to the configured command. The harness must write a
-valid JSON result to the result path.
+valid JSON result to the result path. Executor `:reasoning` defaults to
+`:medium` and supports `:low`, `:medium`, `:high`, and `:xhigh`. Command
+harnesses receive the normalized value as `YGG_MAINTENANCE_REASONING`; the Codex
+wrapper maps it to `model_reasoning_effort` and still allows a last-mile
+`YGG_CODEX_MAINTENANCE_REASONING` override.
+
+Maintenance packets carry first-class `:instructions`, `:expectedResultSchema`,
+and `:expectedOutput`. Treat the common path as one small correction patch, or a
+conservative empty `correctionPatch` result when the packet evidence is not
+enough. Do not broaden a packet into a whole-repository review.
 
 Server behavior:
 

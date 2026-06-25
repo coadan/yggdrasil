@@ -204,6 +204,9 @@
 (def ^:private index-maintenance-apply-modes
   #{:complete-only :validate-only})
 
+(def ^:private index-maintenance-reasoning-levels
+  #{"low" "medium" "high" "xhigh"})
+
 (def ^:private maintenance-schedule-tasks
   #{:sync})
 
@@ -220,6 +223,17 @@
       (throw (ex-info "Index maintenance executor requires non-empty :kinds."
                       {:executor-id (:id executor)})))
     (set (map name kinds))))
+
+(defn- normalize-reasoning
+  [executor]
+  (let [value (or (:reasoning executor) "medium")
+        reasoning (if (keyword? value) (name value) (str value))]
+    (when-not (contains? index-maintenance-reasoning-levels reasoning)
+      (throw (ex-info "Index maintenance executor reasoning level is not supported."
+                      {:executor-id (:id executor)
+                       :reasoning reasoning
+                       :supported (sort index-maintenance-reasoning-levels)})))
+    reasoning))
 
 (defn- normalize-api-executor
   [executor]
@@ -269,7 +283,8 @@
     (cond-> (assoc executor
                    :id id
                    :type type
-                   :kinds (normalize-work-kinds executor))
+                   :kinds (normalize-work-kinds executor)
+                   :reasoning (normalize-reasoning executor))
       (contains? #{:openai-compatible :anthropic-compatible} type)
       normalize-api-executor
 

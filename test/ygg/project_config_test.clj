@@ -40,6 +40,7 @@
                                           :type :openai-compatible
                                           :provider :openrouter
                                           :model "deepseek/deepseek-v4-flash"
+                                          :reasoning :high
                                           :env "YGG_OPENROUTER_API_KEY"
                                           :kinds #{:maintenance-decision}}
                                          {:id "codex"
@@ -79,6 +80,8 @@
              (get-in worker [:executors 0 :kinds])))
       (is (= :openai-compatible (get-in worker [:executors 0 :type])))
       (is (= :openrouter (get-in worker [:executors 0 :provider])))
+      (is (= "high" (get-in worker [:executors 0 :reasoning])))
+      (is (= "medium" (get-in worker [:executors 1 :reasoning])))
       (is (= ["codex-maintenance"] (get-in worker [:executors 1 :command]))))))
 
 (deftest project-config-defaults-maintenance-to-central-project-state
@@ -166,4 +169,24 @@
                                           :kinds #{:maintenance-decision}}]}}}))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #"DeepSeek V4 or newer"
+                          (project/read-project (.getPath project-edn))))))
+
+(deftest index-maintenance-worker-rejects-unsupported-reasoning-level
+  (let [root (temp-dir "ygg-project-maintenance-reasoning")
+        repo (io/file root "repo")
+        project-edn (io/file root "project.edn")]
+    (.mkdirs repo)
+    (spit project-edn
+          (pr-str {:id "demo"
+                   :repos [{:id "app" :root "repo"}]
+                   :maintenance
+                   {:enabled true
+                    :worker {:enabled true
+                             :executors [{:id "codex"
+                                          :type :command-harness
+                                          :command ["codex-maintenance"]
+                                          :reasoning :extreme
+                                          :kinds #{:maintenance-decision}}]}}}))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"reasoning level is not supported"
                           (project/read-project (.getPath project-edn))))))

@@ -756,7 +756,7 @@
    :status (index-maintenance-worker/config-status project)})
 
 (defn- executor-label
-  [{:keys [id type provider model kinds available missing-env]}]
+  [{:keys [id type provider model kinds reasoning available missing-env]}]
   (str id
        " "
        (name type)
@@ -764,6 +764,8 @@
          (str "/" (name provider)))
        (when model
          (str " " model))
+       (when reasoning
+         (str " reasoning=" reasoning))
        " kinds="
        (str/join "," kinds)
        " "

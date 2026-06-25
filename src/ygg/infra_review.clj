@@ -39,6 +39,18 @@
 (def ^:private allowed-recommendations
   #{"add-correction-edge" "no-change" "needs-human" "needs-scanner"})
 
+(def ^:private review-instructions
+  ["Resolve only this one infrastructure review packet."
+   "Most packets should be straightforward: return one small edge correction, one visibility correction, or no patch when the evidence is not enough."
+   "Choose source and target only from facts.systems[].id, and cite evidence only from facts.evidence[].id."
+   "Do not classify the repository, infer broad architecture, edit files, update queue state, or invent ids."
+   "Return exactly one JSON object matching expectedResultSchema. If unsure, use no-change, needs-human, or needs-scanner with correctionPatch []."])
+
+(defn- instructions-text
+  [instructions]
+  (str "Instructions:\n"
+       (str/join "\n" (map #(str "- " %) instructions))))
+
 (defn- s
   [value]
   (cond
@@ -147,6 +159,7 @@
      :basis basis
      :facts facts
      :allowedActions ["add-edge" "set-edge-visibility" "reject-edge" "none"]
+     :instructions review-instructions
      :expectedResultSchema result-schema
      :expectedOutput expected-output
      :messages [{:role "system"
@@ -154,12 +167,14 @@
                                "Return JSON only. Use only ids and evidence from the packet. "
                                "Do not classify the whole repository.")}
                 {:role "user"
-                 :content (str "Return this JSON shape:\n"
+                 :content (str (instructions-text review-instructions)
+                               "\n\nReturn this JSON shape:\n"
                                (json/write-json-str expected-output {:indent-str "  "})
                                "\n\nIf evidence is insufficient, return no correctionPatch and add a finding."
                                "\n\nPacket:\n"
                                (json/write-json-str {:reviewId review-id
                                                      :kind kind
+                                                     :instructions review-instructions
                                                      :artifact artifact
                                                      :basis basis
                                                      :facts facts

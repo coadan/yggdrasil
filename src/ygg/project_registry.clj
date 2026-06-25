@@ -13,6 +13,21 @@
 (def project-ref-schema
   "ygg.project-ref/v1")
 
+(def onboarding-schema
+  "ygg.project.onboarding/v1")
+
+(def init-record-schema
+  "ygg.project.onboarding.init/v1")
+
+(defn- now-ms
+  []
+  (System/currentTimeMillis))
+
+(defn- empty-onboarding
+  []
+  {:schema onboarding-schema
+   :init-count 0})
+
 (defn config-home
   "Return the user-level Yggdrasil config directory."
   []
@@ -31,7 +46,8 @@
   []
   {:schema schema
    :projects {}
-   :active-by-dir {}})
+   :active-by-dir {}
+   :onboarding (empty-onboarding)})
 
 (defn read-registry
   "Read the user-level project registry, returning an empty registry if missing."
@@ -55,6 +71,31 @@
                  *print-namespace-maps* false]
          (pprint/pprint registry)))
      registry)))
+
+(defn- onboarding
+  [registry]
+  (merge (empty-onboarding) (:onboarding registry)))
+
+(defn record-init!
+  "Record that `ygg init` ran for this user config and return init metadata."
+  []
+  (let [registry (read-registry)
+        state (onboarding registry)
+        previous-count (long (or (:init-count state) 0))
+        first-init? (zero? previous-count)
+        now (now-ms)
+        next-state (cond-> (assoc state
+                                  :init-count (inc previous-count)
+                                  :last-init-at-ms now)
+                     first-init? (assoc :first-init-at-ms now))
+        updated (assoc registry :onboarding next-state)]
+    (write-registry! updated)
+    {:schema init-record-schema
+     :registry (registry-path)
+     :first-init first-init?
+     :init-count (:init-count next-state)
+     :first-init-at-ms (:first-init-at-ms next-state)
+     :last-init-at-ms (:last-init-at-ms next-state)}))
 
 (defn- registry-base
   [path]

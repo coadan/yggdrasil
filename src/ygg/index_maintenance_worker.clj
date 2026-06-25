@@ -15,6 +15,9 @@
 (def schema
   "ygg.index-maintenance-worker.run/v1")
 
+(def command-work-schema
+  "ygg.index-maintenance.command-work/v1")
+
 (def ^:dynamic *deps* {})
 
 (defn- dep
@@ -73,6 +76,7 @@
     (cond-> {:id (:id executor)
              :type (:type executor)
              :kinds (sort (:kinds executor))
+             :reasoning (:reasoning executor)
              :available available?}
       (:provider executor) (assoc :provider (:provider executor))
       (:model executor) (assoc :model (:model executor))
@@ -124,6 +128,105 @@
   (io/file (:report-dir config)
            (str now "-" (hash/short-hash [work-id now]))))
 
+(defn- repo-summary
+  [repo]
+  (select-keys repo [:id :root :role]))
+
+(defn- bounded-vec
+  [limit xs]
+  (let [items (vec (take limit (or xs [])))
+        total (count (or xs []))]
+    (cond-> {:items items
+             :count total}
+      (< limit total) (assoc :truncated true
+                             :omitted (- total limit)))))
+
+(defn- compact-system
+  [system]
+  (cond-> (select-keys system [:xt/id :label :kind :repo-id :path-prefix])
+    (:metrics system)
+    (assoc :metrics (select-keys (:metrics system)
+                                 [:file-count
+                                  :node-count
+                                  :internal-code-edge-count
+                                  :incoming-code-edge-count
+                                  :outgoing-code-edge-count]))))
+
+(defn- compact-target
+  [target]
+  (select-keys target [:xt/id :label :kind :repo-id :path-prefix :edge-count
+                       :evidence-count :relations :visibilities]))
+
+(defn- compact-decision-data
+  [data]
+  (cond-> (select-keys data [:id :project-id :relation :visibility :direction
+                             :target-count :edge-count :evidence-count])
+    (:peer data)
+    (assoc :peer (compact-system (:peer data)))
+
+    (:targets data)
+    (assoc :targets (update (bounded-vec 24 (map compact-target (:targets data)))
+                            :items vec))
+
+    (seq (:edges data))
+    (assoc-in [:omitted :edges] (count (:edges data)))
+
+    (seq (:evidence-ids data))
+    (assoc-in [:omitted :evidence-ids] (count (:evidence-ids data)))
+
+    (seq (:correctionPatch data))
+    (assoc-in [:omitted :correctionPatch] (count (:correctionPatch data)))))
+
+(defn- compact-decision
+  [decision]
+  (cond-> (select-keys decision [:id :kind :severity :target :reason :status
+                                 :project-id :scope :recommended-actions])
+    (:basis decision)
+    (assoc :basis (select-keys (:basis decision) [:schema :project-id :hash :counts]))
+
+    (seq (:evidence-ids decision))
+    (assoc :evidence-count (count (:evidence-ids decision)))
+
+    (:data decision)
+    (assoc :data (compact-decision-data (:data decision)))))
+
+(defn- mark-messages-omitted
+  [out payload]
+  (if-let [messages (seq (:messages payload))]
+    (assoc-in out [:omitted :messages] (count messages))
+    out))
+
+(defn- compact-payload
+  [payload]
+  (case (:schema payload)
+    "ygg.frontier.decision/v1"
+    (mark-messages-omitted
+     {:schema (:schema payload)
+      :decisionId (:decisionId payload)
+      :project-id (:project-id payload)
+      :goal (:goal payload)
+      :allowedActions (:allowedActions payload)
+      :instructions (:instructions payload)
+      :expectedResultSchema (:expectedResultSchema payload)
+      :expectedOutput (:expectedOutput payload)
+      :decision (compact-decision (:decision payload))}
+     payload)
+
+    (mark-messages-omitted (dissoc payload :messages) payload)))
+
+(defn- command-work-input
+  [project found dir]
+  (let [item (:item found)
+        payload (:payload item)]
+    {:schema command-work-schema
+     :workItem (queue/item-summary found)
+     :project {:id (:id project)
+               :repos (mapv repo-summary (:repos project))}
+     :artifactDir (.getPath (io/file dir))
+     :payload (compact-payload payload)
+     :fullPayload {:storedInQueue true
+                   :reason "Queue payload remains durable for validation and audit; command harness input is compact so repo-aware agents inspect attached source directories directly."}}))
+
 (defn- openai-client
   [executor]
   ((dep :openai-client openai-compatible/client)
@@ -158,10 +261,14 @@
     result))
 
 (defn- command-result!
-  [{:keys [argv timeout-ms cwd]}]
+  [{:keys [argv timeout-ms cwd env]}]
   (let [builder (ProcessBuilder. ^java.util.List (mapv str argv))
+        environment (.environment builder)
         _ (when (present? cwd)
             (.directory builder (io/file cwd)))
+        _ (doseq [[k v] env
+                  :when (some? v)]
+            (.put environment (str k) (str v)))
         process (.start builder)
         out-result (slurp-stream-async (.getInputStream process))
         err-result (slurp-stream-async (.getErrorStream process))]
@@ -194,6 +301,7 @@
         process (runner {:argv argv
                          :timeout-ms (:timeout-ms executor)
                          :cwd (:base-dir config)
+                         :env {"YGG_MAINTENANCE_REASONING" (:reasoning executor)}
                          :executor executor})]
     (if-let [reason (command-failure-reason process)]
       {:error reason
@@ -224,7 +332,7 @@
       {:validation validation})))
 
 (defn- process-claimed!
-  [config executor claimed]
+  [project config executor claimed]
   (let [root (:queue-dir config)
         item (:item claimed)
         work-id (:id item)
@@ -233,7 +341,10 @@
         input-path (.getPath (io/file dir "work.json"))
         result-path (.getPath (io/file dir "result.json"))
         messages (get-in item [:payload :messages])]
-    (write-json-file! input-path item)
+    (write-json-file! input-path
+                      (if (= :command-harness (:type executor))
+                        (command-work-input project claimed dir)
+                        item))
     (try
       (let [{:keys [result error process]}
             (case (:type executor)
@@ -286,7 +397,7 @@
                                                :project-id (:id project)
                                                :kind kind})]
           (let [executor (executor-for-kind executors (get-in claimed [:item :kind]))]
-            (process-claimed! config executor claimed)))))))
+            (process-claimed! project config executor claimed)))))))
 
 (defn- run-status
   [config results exhausted?]

@@ -54,27 +54,45 @@
 (def ^:private allowed-recommendations
   #{"accept" "reject" "change" "investigate"})
 
+(def ^:private decision-instructions
+  ["Resolve only this one maintenance decision."
+   "Most decisions should be straightforward: return one small allowed correction patch, or return no patch when the packet evidence is not enough."
+   "Use only decision, allowedActions, and ids already present in this packet."
+   "Do not classify the repository, infer broad architecture, edit files, update queue state, or invent ids."
+   "Return exactly one JSON object matching expectedResultSchema. If unsure, use recommendation investigate with correctionPatch []."])
+
+(defn- instructions-text
+  [instructions]
+  (str "Instructions:\n"
+       (str/join "\n" (map #(str "- " %) instructions))))
+
+(defn- expected-output
+  [decision-id]
+  {:schema schema
+   :decisionId decision-id
+   :recommendation "accept|reject|change|investigate"
+   :confidence 0.0
+   :reason "brief rationale"
+   :correctionPatch []})
+
 (defn prompt
   "Return OpenAI-compatible chat messages for one index maintenance decision."
   [decision]
-  (let [allowed-actions (allowed-actions-for-decision decision)]
+  (let [allowed-actions (allowed-actions-for-decision decision)
+        expected-output (expected-output (:id decision))]
     [{:role "system"
       :content (str "You resolve one Yggdrasil index maintenance frontier decision. Return JSON only. "
                     "Do not classify a whole repository. Use only the provided decision data. "
                     "Prefer hiding or rejecting noisy references over promoting weak edges.")}
      {:role "user"
       :content (str
+                (instructions-text decision-instructions)
+                "\n\n"
                 "Return this JSON shape:\n"
-                "{"
-                "\"schema\":\"" schema "\","
-                "\"decisionId\":\"...\","
-                "\"recommendation\":\"accept|reject|change|investigate\","
-                "\"confidence\":0.0,"
-                "\"reason\":\"brief rationale\","
-                "\"correctionPatch\":[{\"op\":\"" (str/join "|" allowed-actions) "\","
-                "\"target\":\"id or label\",\"value\":{},\"reason\":\"brief rationale\"}]"
-                "}\n\n"
+                (json/write-json-str expected-output {:indent-str "  "})
+                "\n\n"
                 (json/write-json-str {:decision decision
+                                      :instructions decision-instructions
                                       :allowedActions allowed-actions}
                                      {:indent-str "  "}))}]))
 
@@ -103,14 +121,10 @@
      :goal "Resolve one bounded Yggdrasil index maintenance decision without classifying the whole project."
      :decision decision
      :allowedActions allowed-actions
+     :instructions decision-instructions
      :messages (prompt decision)
      :expectedResultSchema schema
-     :expectedOutput {:schema schema
-                      :decisionId (:id decision)
-                      :recommendation "accept|reject|change|investigate"
-                      :confidence 0.0
-                      :reason "brief rationale"
-                      :correctionPatch []}}))
+     :expectedOutput (expected-output (:id decision))}))
 
 (defn decision-by-id
   "Find a decision by id or by its shortest unique suffix."
