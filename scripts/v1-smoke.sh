@@ -38,6 +38,7 @@ export YGG_CONFIG_HOME="$WORK_DIR/config"
 export YGG_PROJECTS_FILE="$WORK_DIR/projects.edn"
 PREFIX="$WORK_DIR/prefix"
 FIXTURE_REPO="$WORK_DIR/repo"
+PROJECT_EDN="$FIXTURE_REPO/project.edn"
 SERVER_PID=""
 
 cleanup() {
@@ -111,22 +112,22 @@ def bucket_client():
 EOF
 
 pushd "$FIXTURE_REPO" >/dev/null
-"$PREFIX/bin/ygg" init . \
+"$PREFIX/bin/ygg" init "$FIXTURE_REPO" \
   --project v1-smoke \
-  --out project.edn > "$WORK_DIR/start.json"
-"$PREFIX/bin/ygg" sync project.edn \
+  --out "$PROJECT_EDN" > "$WORK_DIR/start.json"
+"$PREFIX/bin/ygg" sync "$PROJECT_EDN" \
   --query-index \
   --json > "$WORK_DIR/initial-sync.json"
-"$PREFIX/bin/ygg" report project.edn \
+"$PREFIX/bin/ygg" report "$PROJECT_EDN" \
   --out ygg-out \
   --force > "$WORK_DIR/report-output.json"
-"$PREFIX/bin/ygg" sync inspect project.edn \
+"$PREFIX/bin/ygg" sync inspect "$PROJECT_EDN" \
   --map ygg.map.json \
   --json > "$WORK_DIR/inspect.json"
 "$PREFIX/bin/ygg" packages \
   --project v1-smoke \
   --json > "$WORK_DIR/packages.json"
-"$PREFIX/bin/ygg" sync project.edn \
+"$PREFIX/bin/ygg" sync "$PROJECT_EDN" \
   --check \
   --map ygg.map.json \
   --enqueue \
@@ -187,7 +188,7 @@ PY
   --project v1-smoke \
   --json > "$WORK_DIR/packages-after-apply.json"
 "$PREFIX/bin/ygg" memory add \
-  --config project.edn \
+  --config "$PROJECT_EDN" \
   --scope project \
   --reviewed \
   --text "The V1 smoke release memory should surface through normal query packets." \
@@ -195,16 +196,16 @@ PY
   --tag v1-smoke > "$WORK_DIR/memory-add.json"
 "$PREFIX/bin/ygg" query \
   "v1 smoke release memory normal query packets" \
-  --config project.edn \
+  --config "$PROJECT_EDN" \
   --retriever lexical \
   --json > "$WORK_DIR/memory-query.json"
-"$PREFIX/bin/ygg" sync activity project.edn \
+"$PREFIX/bin/ygg" sync activity "$PROJECT_EDN" \
   --json > "$WORK_DIR/activity.json"
 printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' \
-  | "$PREFIX/bin/ygg-mcp" --config project.edn \
+  | "$PREFIX/bin/ygg-mcp" --config "$PROJECT_EDN" \
   > "$WORK_DIR/mcp-tools-list-bin.jsonl"
 printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' \
-  | "$PREFIX/bin/ygg" mcp --config project.edn \
+  | "$PREFIX/bin/ygg" mcp --config "$PROJECT_EDN" \
   > "$WORK_DIR/mcp-tools-list-cli.jsonl"
 popd >/dev/null
 
@@ -260,10 +261,10 @@ require_mcp_tools(mcp_tools_cli, "ygg mcp")
 
 require(start.get("schema") == "ygg.init/v1", "init schema mismatch")
 require(start.get("project-id") == "v1-smoke", "init project id mismatch")
-require(start.get("config") == "project.edn", "init config path should stay caller-relative")
+require(start.get("config") == str(repo / "project.edn"), "init config path mismatch")
 start_actions = {action.get("kind"): action.get("command")
                  for action in start.get("nextActions", [])}
-require(start_actions.get("sync") == "ygg sync project.edn --check",
+require(start_actions.get("sync") == f"ygg sync {repo / 'project.edn'} --check",
         "init nextActions did not make sync canonical")
 require(initial_sync.get("schema") == "ygg.sync/v1", "initial sync schema mismatch")
 

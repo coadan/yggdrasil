@@ -191,6 +191,30 @@
     (is (= [:env-file] (mapv :kind (:chunks env-result))))
     (is (= [:html-file] (mapv :kind (:chunks html-result))))
     (is (= [:text-file] (mapv :kind (:chunks text-result))))))
+
+(deftest svg-chunks-use-bounded-element-summary
+  (let [root (.toFile (java.nio.file.Files/createTempDirectory
+                       "ygg-svg-summary"
+                       (make-array java.nio.file.attribute.FileAttribute 0)))
+        svg-file (doto (io/file root "assets/large.svg")
+                   (io/make-parents))
+        path-payload (str/join " "
+                               (repeat 2000
+                                       "THIS_PATH_PAYLOAD_SHOULD_NOT_BE_INDEXED"))
+        svg-content (str "<svg id=\"logo-root\" xmlns=\"http://www.w3.org/2000/svg\">"
+                         "<path id=\"logo-path\" d=\"" path-payload "\" />"
+                         "</svg>")]
+    (spit svg-file svg-content)
+    (let [result (extract/extract-file "run/test"
+                                       (fs/file-record (.getPath root)
+                                                       (.getPath svg-file)))
+          labels (set (map :label (:nodes result)))
+          chunk-text (:text (first (:chunks result)))]
+      (is (contains? labels "svg#logo-root"))
+      (is (contains? labels "path#logo-path"))
+      (is (str/includes? chunk-text "path#logo-path"))
+      (is (not (str/includes? chunk-text "THIS_PATH_PAYLOAD_SHOULD_NOT_BE_INDEXED"))))))
+
 (deftest extracts-binary-asset-metadata-without-text-chunks
   (let [root (.toFile (java.nio.file.Files/createTempDirectory
                        "ygg-binary-assets"

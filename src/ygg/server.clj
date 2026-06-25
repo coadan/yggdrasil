@@ -72,7 +72,7 @@
     "embed"})
 
 (def ^:private logged-ops
-  (set (concat ["command" "sync"] (vals sync-subcommand->op) cli-command-ops)))
+  (set (concat ["sync"] (vals sync-subcommand->op) cli-command-ops)))
 
 (defn- silence-jul!
   []
@@ -296,19 +296,20 @@
    the CLI without requiring those callers to shell out."
   [{:keys [config-path project-id repo-id queue-dir check? enqueue? query-index? dry-run?
            json? no-progress? min-confidence]}]
-  (cond-> (cond
-            config-path [config-path]
-            project-id ["--project" project-id]
-            :else [])
-    repo-id (option-flag "--repo" repo-id)
-    queue-dir (option-flag "--queue-dir" queue-dir)
-    min-confidence (option-flag "--min-confidence" min-confidence)
-    check? (present-flag "--check" true)
-    enqueue? (present-flag "--enqueue" true)
-    query-index? (present-flag "--query-index" true)
-    dry-run? (present-flag "--dry-run" true)
-    json? (present-flag "--json" true)
-    no-progress? (present-flag "--no-progress" true)))
+  (let [args (cond
+               config-path [config-path]
+               project-id ["--project" project-id]
+               :else [])]
+    (-> args
+        (option-flag "--repo" repo-id)
+        (option-flag "--queue-dir" queue-dir)
+        (option-flag "--min-confidence" min-confidence)
+        (present-flag "--check" check?)
+        (present-flag "--enqueue" enqueue?)
+        (present-flag "--query-index" query-index?)
+        (present-flag "--dry-run" dry-run?)
+        (present-flag "--json" json?)
+        (present-flag "--no-progress" no-progress?))))
 
 (defn- sync-args->options
   [args]
@@ -803,32 +804,6 @@
    :out "stopping\n"
    :err ""})
 
-(defn- command-request-response
-  [ctx request]
-  (let [command (:command request)
-        args (vec (:args request))]
-    (cond
-      (= "status" command)
-      (status-response ctx (assoc request :args args))
-
-      (= "stop" command)
-      (stop-response ctx)
-
-      (= "sync" command)
-      (let [[subcommand & subcommand-args] args]
-        (if (contains? sync-subcommand->op subcommand)
-          (sync-subcommand-response ctx (assoc request :args (vec subcommand-args)) subcommand)
-          (sync-response ctx (assoc request :args args))))
-
-      (contains? cli-command-ops command)
-      (command-response ctx request command args)
-
-      :else
-      {:ok false
-       :exit 2
-       :out ""
-       :err (str "Unknown command: " command "\n")})))
-
 (defn- mcp-response
   [ctx request]
   (let [args (vec (:args request))
@@ -876,9 +851,6 @@
 
       (= "status" op)
       (status-response ctx request)
-
-      (= "command" op)
-      (command-request-response ctx request)
 
       (= "sync" op)
       (sync-response ctx request)
@@ -1141,8 +1113,20 @@
         (= "start" command)
         (serve!)
 
-        command
-        (print-response! (request "command" command-args {:command command}))
+        (= "status" command)
+        (print-response! (request "status" command-args))
+
+        (= "stop" command)
+        (print-response! (request "stop" command-args))
+
+        (= "sync" command)
+        (let [[subcommand & subcommand-args] command-args]
+          (if-let [op (get sync-subcommand->op subcommand)]
+            (print-response! (request op subcommand-args))
+            (print-response! (request "sync" command-args))))
+
+        (contains? cli-command-ops command)
+        (print-response! (request command command-args))
 
         :else
         (print-response! {:exit 2

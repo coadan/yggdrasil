@@ -13,6 +13,53 @@ DEFAULT_SERVER_PORT = 62121
 DEFAULT_CONNECT_TIMEOUT_MS = 30000
 CONNECT_RETRY_INTERVAL_SECONDS = 5.0
 DEFAULT_REQUEST_TIMEOUT_MS = 600000
+REMOVED_PUBLIC_COMMANDS = {
+    "classify",
+    "context",
+    "daemon",
+    "deps",
+    "docs",
+    "graph",
+    "index",
+    "meta",
+    "path",
+    "project",
+    "queue",
+    "sync-inspect",
+    "systems",
+    "views",
+}
+PUBLIC_COMMAND_OPS = {
+    "affected",
+    "agent",
+    "audit-scope",
+    "bench",
+    "corrections",
+    "current",
+    "embed",
+    "hook",
+    "init",
+    "maintenance",
+    "memory",
+    "packages",
+    "plugin",
+    "projects",
+    "query",
+    "report",
+    "use",
+    "view",
+    "watch",
+}
+SYNC_SUBCOMMAND_OPS = {
+    "activity": "sync.activity",
+    "add-repo": "sync.add-repo",
+    "coverage": "sync.coverage",
+    "docs": "sync.docs",
+    "inspect": "sync.inspect",
+    "meta": "sync.meta",
+    "view": "sync.view",
+    "work": "sync.work",
+}
 
 def server_host():
     return os.environ.get("YGG_SERVER_HOST", DEFAULT_SERVER_HOST).strip() or DEFAULT_SERVER_HOST
@@ -233,22 +280,47 @@ def print_response(response):
     return int(response.get("exit", 1))
 
 
+def control_request(op, args):
+    response = request(op, args, cleanup_stale=True)
+    if response is None:
+        sys.stderr.write(UNAVAILABLE_MESSAGE)
+        return UNAVAILABLE
+    return print_response(response)
+
+
+def reject_removed_command(command):
+    response = request("status", [], cleanup_stale=True)
+    if response is None:
+        sys.stderr.write(UNAVAILABLE_MESSAGE)
+        return UNAVAILABLE
+    return print_response({
+        "exit": 2,
+        "out": "",
+        "err": f"Unknown command: {command}\n",
+    })
+
+
 def main(argv):
     if len(argv) < 2:
         return UNAVAILABLE
     command = argv[1]
     if command == "mcp":
         return mcp_proxy(argv[2:])
-    response = request(
-        "command",
-        argv[2:],
-        cleanup_stale=True,
-        extra={"command": command},
-    )
-    if response is None:
-        sys.stderr.write(UNAVAILABLE_MESSAGE)
-        return UNAVAILABLE
-    return print_response(response)
+    if command == "status":
+        return control_request("status", argv[2:])
+    if command == "stop":
+        return control_request("stop", argv[2:])
+    if command in REMOVED_PUBLIC_COMMANDS:
+        return reject_removed_command(command)
+    if command == "sync":
+        args = argv[2:]
+        op = SYNC_SUBCOMMAND_OPS.get(args[0]) if args else None
+        if op:
+            return control_request(op, args[1:])
+        return control_request("sync", args)
+    if command in PUBLIC_COMMAND_OPS:
+        return control_request(command, argv[2:])
+    return reject_removed_command(command)
 
 
 if __name__ == "__main__":

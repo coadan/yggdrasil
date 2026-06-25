@@ -43,6 +43,14 @@
      :chunks (:chunks chunk-result)
      :diagnostics []}))
 
+(def ^:private max-svg-summary-elements 500)
+
+(defn- svg-summary
+  [path elements]
+  (str/join "\n"
+            (concat [path]
+                    (map :label (take max-svg-summary-elements elements)))))
+
 (defn extract-svg
   "Extract SVG id-bearing elements as concrete asset facts."
   [run-id {:keys [id-scope file-id path content] :as file}]
@@ -65,7 +73,9 @@
                                              :extracted
                                              (:source-line %))
                            element-nodes)
-        chunk-result (common/extract-text-source run-id file :svg-file)]
+        chunk-result (common/extract-text-source run-id
+                                                 (assoc file :content (svg-summary path elements))
+                                                 :svg-file)]
     {:nodes (into [asset-node] element-nodes)
      :edges define-edges
      :chunks (:chunks chunk-result)
