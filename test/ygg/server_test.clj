@@ -44,7 +44,7 @@
    :reason "Evidence is insufficient for an automatic correction patch."
    :correctionPatch []})
 
-(deftest named-command-op-dispatches-command-with-warm-node
+(deftest generic-command-op-dispatches-command-with-warm-node
   (with-redefs [cli/dispatch
                 (fn [command args]
                   (store/with-node (store/storage-path)
@@ -54,14 +54,14 @@
                                     " xtdb=" xtdb)))))]
     (is (= {:ok true
             :exit 0
-            :out "command=view args=[\"systems\" \"--project\" \"demo\"] xtdb=:xtdb\n"
+            :out "command=packages args=[\"--project\" \"demo\"] xtdb=:xtdb\n"
             :err ""}
            (server/handle-request {:xtdb :xtdb
                                    :token "token"
                                    :running (atom true)}
-                                  {:op "view"
+                                  {:op "packages"
                                    :token "token"
-                                   :args ["systems" "--project" "demo"]})))))
+                                   :args ["--project" "demo"]})))))
 
 (deftest named-command-op-dispatches-help-through-server
   (with-redefs [cli/dispatch
@@ -101,7 +101,7 @@
                                    :token "token"
                                    :args ["agent-report" "suite.edn"]})))))
 
-(deftest named-command-op-routes-project-id-to-warm-node
+(deftest generic-command-op-routes-project-id-to-warm-node
   (with-redefs [store/storage-path
                 (fn
                   ([] "/store/default/xtdb")
@@ -111,6 +111,33 @@
                   (store/with-node (store/storage-path)
                     (fn [xtdb]
                       (println (str "command=" command
+                                    " args=" (pr-str args)
+                                    " xtdb=" xtdb
+                                    " storage=" (store/storage-path))))))]
+    (is (= {:ok true
+            :exit 0
+            :out "command=packages args=[\"--project\" \"demo\"] xtdb=:xtdb storage=/store/projects/demo/xtdb\n"
+            :err ""}
+           (server/handle-request {:xtdb :xtdb
+                                   :token "token"
+                                   :running (atom true)}
+                                  {:op "packages"
+                                   :token "token"
+                                   :args ["--project" "demo"]})))))
+
+(deftest view-request-routes-through-explicit-server-handler
+  (with-redefs [store/storage-path
+                (fn
+                  ([] "/store/default/xtdb")
+                  ([project-id] (str "/store/projects/" project-id "/xtdb")))
+                cli/dispatch
+                (fn [& _]
+                  (throw (ex-info "view should not use generic CLI dispatch" {})))
+                cli-query/view!
+                (fn [args]
+                  (store/with-node (store/storage-path)
+                    (fn [xtdb]
+                      (println (str "command=view"
                                     " args=" (pr-str args)
                                     " xtdb=" xtdb
                                     " storage=" (store/storage-path))))))]
@@ -149,14 +176,14 @@
                                       " xtdb=" (:path xtdb))))))]
       (let [first-response (server/handle-request
                             ctx
-                            {:op "view"
+                            {:op "packages"
                              :token "token"
-                             :args ["systems" "--project" "demo-a"]})
+                             :args ["--project" "demo-a"]})
             second-response (server/handle-request
                              ctx
-                             {:op "view"
+                             {:op "packages"
                               :token "token"
-                              :args ["systems" "--project" "demo-b"]})]
+                              :args ["--project" "demo-b"]})]
         (is (= true (:ok first-response)))
         (is (= true (:ok second-response)))
         (is (= ["/store/projects/demo-a/xtdb"
@@ -166,7 +193,7 @@
                  "/store/projects/demo-b/xtdb"}
                (set (keys @node-pool))))))))
 
-(deftest named-command-op-routes-config-path-to-on-demand-project-node
+(deftest report-request-routes-config-path-to-on-demand-project-node
   (let [opened (atom [])
         node-pool (atom {})
         ctx {:token "token"
@@ -186,10 +213,13 @@
                     {:path path})
                   store/stop-node! (fn [_node] nil)
                   cli/dispatch
-                  (fn [command args]
+                  (fn [& _]
+                    (throw (ex-info "report should not use generic CLI dispatch" {})))
+                  cli-query/report!
+                  (fn [args]
                     (store/with-node (store/storage-path)
                       (fn [xtdb]
-                        (println (str "command=" command
+                        (println (str "command=report"
                                       " args=" (pr-str args)
                                       " xtdb=" (:path xtdb))))))]
       (let [response (server/handle-request
@@ -336,6 +366,56 @@
       (is (= "app" (get-in response [:data :repo-id])))
       (is (= 3 (get-in response [:data :check-report :counts :maintenance-decisions])))
       (is (re-find #"ygg\.sync" (:out response))))))
+
+(deftest sync-request-emits-server-progress-frames-when-streaming
+  (let [frames (atom [])]
+    (with-redefs [project/read-project
+                  (fn [path]
+                    (is (= "project.edn" path))
+                    {:id "demo"})
+                  cli-sync/sync-index-project!
+                  (fn
+                    ([_xtdb _project _args _deps]
+                     (throw (ex-info "streaming sync should pass progress options" {})))
+                    ([xtdb project args deps opts]
+                     (is (= :xtdb xtdb))
+                     (is (= {:id "demo"} project))
+                     (is (= ["project.edn"] args))
+                     (is (map? deps))
+                     (is (fn? (:progress-fn opts)))
+                     ((:progress-fn opts) {:phase :scan-complete
+                                           :repo-id "app"
+                                           :files-scanned 2})
+                     {:project-id "demo"
+                      :status :completed
+                      :repos [{:repo-id "app"
+                               :status :completed}]}))
+                  project/infer-project!
+                  (fn [xtdb project]
+                    (is (= :xtdb xtdb))
+                    (is (= {:id "demo"} project))
+                    {:system-nodes 1})
+                  cli/dispatch
+                  (fn [& _]
+                    (throw (ex-info "unexpected command handler dispatch" {})))]
+      (let [response (server/handle-request {:xtdb :xtdb
+                                             :token "token"
+                                             :running (atom true)
+                                             :emit-frame! #(swap! frames conj %)}
+                                            {:op "sync"
+                                             :token "token"
+                                             :args ["project.edn"]})]
+        (is (= true (:ok response)))
+        (is (= 0 (:exit response)))
+        (is (= [{:schema server/server-frame-schema
+                 :type "progress"
+                 :operation "sync"
+                 :message "app scanned 2 files"
+                 :event {:phase :scan-complete
+                         :repo-id "app"
+                         :files-scanned 2}}]
+               @frames))
+        (is (not (str/includes? (:err response) "# Sync Progress")))))))
 
 (deftest sync-with-check-runs-maintenance-inside-server
   (with-redefs [project/read-project

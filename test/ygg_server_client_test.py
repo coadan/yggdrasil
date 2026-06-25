@@ -1,6 +1,7 @@
 import contextlib
 import importlib.util
 import io
+import json
 import os
 import pathlib
 import unittest
@@ -60,8 +61,8 @@ class ServerClientRoutingTest(unittest.TestCase):
             with self.subTest(argv=argv):
                 requests = []
 
-                def capture_request(op, args):
-                    requests.append((op, args))
+                def capture_request(op, args, **kwargs):
+                    requests.append((op, args, kwargs))
                     return {"exit": 0, "out": "ok\n", "err": ""}
 
                 client.request = capture_request
@@ -71,21 +72,25 @@ class ServerClientRoutingTest(unittest.TestCase):
 
                 self.assertEqual(0, exit_code)
                 self.assertEqual("ok\n", out.getvalue())
-                self.assertEqual([expected_request], requests)
+                self.assertEqual([(expected_request[0], expected_request[1],
+                                   {"stream": False, "render_progress": False})],
+                                 requests)
 
     def test_sync_command_routes_to_sync_server_ops(self):
         client = load_client()
         cases = [
-            (["ygg", "sync", "project.edn"], ("sync", ["project.edn"])),
-            (["ygg", "sync", "work", "pull"], ("sync.work", ["pull"])),
+            (["ygg", "sync", "project.edn"],
+             ("sync", ["project.edn"], {"stream": True, "render_progress": True})),
+            (["ygg", "sync", "work", "pull"],
+             ("sync.work", ["pull"], {"stream": False, "render_progress": False})),
         ]
 
         for argv, expected_request in cases:
             with self.subTest(argv=argv):
                 requests = []
 
-                def capture_request(op, args):
-                    requests.append((op, args))
+                def capture_request(op, args, **kwargs):
+                    requests.append((op, args, kwargs))
                     return {"exit": 0, "out": "ok\n", "err": ""}
 
                 client.request = capture_request
@@ -95,10 +100,69 @@ class ServerClientRoutingTest(unittest.TestCase):
                 self.assertEqual(0, exit_code)
                 self.assertEqual([expected_request], requests)
 
+    def test_sync_json_and_no_progress_suppress_client_rendering(self):
+        client = load_client()
+        cases = [
+            ["ygg", "sync", "project.edn", "--json"],
+            ["ygg", "sync", "project.edn", "--no-progress"],
+        ]
+
+        for argv in cases:
+            with self.subTest(argv=argv):
+                requests = []
+
+                def capture_request(op, args, **kwargs):
+                    requests.append((op, args, kwargs))
+                    return {"exit": 0, "out": "", "err": ""}
+
+                client.request = capture_request
+                exit_code = client.main(argv)
+
+                self.assertEqual(0, exit_code)
+                self.assertEqual(False, requests[0][2]["render_progress"])
+
+    def test_streaming_progress_frames_render_to_stderr(self):
+        client = load_client()
+        final_response = {"exit": 0, "out": "done\n", "err": ""}
+        stream = io.StringIO(
+            json.dumps({
+                "schema": client.SERVER_FRAME_SCHEMA,
+                "type": "progress",
+                "message": "app scanned 2 files",
+            }) + "\n" +
+            json.dumps(final_response) + "\n"
+        )
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            response = client.read_server_response(stream, render_progress=True)
+
+        self.assertEqual(final_response, response)
+        self.assertEqual("# Sync Progress\n- app scanned 2 files\n", err.getvalue())
+
+    def test_streaming_progress_frames_can_be_ignored(self):
+        client = load_client()
+        final_response = {"exit": 0, "out": "done\n", "err": ""}
+        stream = io.StringIO(
+            json.dumps({
+                "schema": client.SERVER_FRAME_SCHEMA,
+                "type": "progress",
+                "message": "app scanned 2 files",
+            }) + "\n" +
+            json.dumps(final_response) + "\n"
+        )
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            response = client.read_server_response(stream, render_progress=False)
+
+        self.assertEqual(final_response, response)
+        self.assertEqual("", err.getvalue())
+
     def test_unknown_server_response_is_printed(self):
         client = load_client()
 
-        def unknown_request(op, args):
+        def unknown_request(op, args, **kwargs):
             return {"exit": 2, "out": "", "err": f"Unknown server op: {op}\n"}
 
         client.request = unknown_request

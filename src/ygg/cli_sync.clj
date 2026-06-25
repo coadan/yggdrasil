@@ -214,22 +214,36 @@
               (println "# Sync Progress"))
             (println line)
             (flush)))))))
+(defn- sync-index-options
+  [xtdb project args opts]
+  (let [external-progress? (contains? opts :progress-fn)
+        progress-fn (if external-progress?
+                      (:progress-fn opts)
+                      (sync-progress-fn args))]
+    (cond-> {:dry-run? (dry-run? args)
+             :index-profile (sync-index-profile args)
+             :correction-overlay (correction-overlay xtdb (:id project))}
+      progress-fn (assoc :progress-fn progress-fn))))
+
+(defn- sync-index-project-with-options!
+  [xtdb project args opts]
+  (let [index-opts (sync-index-options xtdb project args opts)]
+    (if-let [repo-id (option-value args "--repo")]
+      (let [run (project/index-project-repo! xtdb project repo-id index-opts)]
+        {:project-id (:id project)
+         :status (:status run)
+         :repos [(repo-run-summary run)]})
+      (project/index-project! xtdb project index-opts))))
+
 (defn sync-index-project!
   ([xtdb project args]
-   (let [progress-fn (sync-progress-fn args)
-         opts (cond-> {:dry-run? (dry-run? args)
-                       :index-profile (sync-index-profile args)
-                       :correction-overlay (correction-overlay xtdb (:id project))}
-                progress-fn (assoc :progress-fn progress-fn))]
-     (if-let [repo-id (option-value args "--repo")]
-       (let [run (project/index-project-repo! xtdb project repo-id opts)]
-         {:project-id (:id project)
-          :status (:status run)
-          :repos [(repo-run-summary run)]})
-       (project/index-project! xtdb project opts))))
+   (sync-index-project-with-options! xtdb project args {}))
   ([xtdb project args deps]
    (binding [*deps* deps]
-     (sync-index-project! xtdb project args))))
+     (sync-index-project! xtdb project args)))
+  ([xtdb project args deps opts]
+   (binding [*deps* deps]
+     (sync-index-project-with-options! xtdb project args opts))))
 (defn maintenance-report
   ([xtdb project args]
    (index-maintenance/from-graph-report

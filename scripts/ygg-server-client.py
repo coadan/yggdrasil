@@ -13,6 +13,7 @@ DEFAULT_SERVER_PORT = 62121
 DEFAULT_CONNECT_TIMEOUT_MS = 30000
 CONNECT_RETRY_INTERVAL_SECONDS = 5.0
 DEFAULT_REQUEST_TIMEOUT_MS = 600000
+SERVER_FRAME_SCHEMA = "ygg.server.frame/v1"
 SYNC_SUBCOMMAND_OPS = {
     "activity": "sync.activity",
     "add-repo": "sync.add-repo",
@@ -108,7 +109,37 @@ def option_value(args, flag):
     return args[idx + 1]
 
 
-def request(op, args, extra=None):
+def progress_output(args):
+    return "--json" not in args and "--no-progress" not in args
+
+
+def render_progress_frame(frame, printed_header):
+    message = frame.get("message")
+    if not message:
+        return printed_header
+    if not printed_header:
+        sys.stderr.write("# Sync Progress\n")
+        printed_header = True
+    sys.stderr.write(f"- {message}\n")
+    sys.stderr.flush()
+    return printed_header
+
+
+def read_server_response(response_file, render_progress=False):
+    printed_header = False
+    for line in response_file:
+        if not line:
+            continue
+        response = json.loads(line)
+        if response.get("schema") == SERVER_FRAME_SCHEMA:
+            if response.get("type") == "progress" and render_progress:
+                printed_header = render_progress_frame(response, printed_header)
+            continue
+        return response
+    return None
+
+
+def request(op, args, extra=None, stream=False, render_progress=False):
     payload = {
         "op": op,
         "args": args,
@@ -125,6 +156,8 @@ def request(op, args, extra=None):
     project_id = option_value(args, "--project") or os.environ.get("YGG_PROJECT_ID")
     if project_id:
         payload["projectId"] = project_id
+    if stream:
+        payload["stream"] = True
     host = server_host()
     port = server_port()
     timeout_seconds = request_timeout_seconds()
@@ -137,10 +170,13 @@ def request(op, args, extra=None):
             sock.settimeout(timeout_seconds)
             request_line = json.dumps(payload, separators=(",", ":")) + "\n"
             sock.sendall(request_line.encode("utf-8"))
-            response = sock.makefile("r", encoding="utf-8").readline()
-            if not response:
+            response = read_server_response(
+                sock.makefile("r", encoding="utf-8"),
+                render_progress=render_progress,
+            )
+            if response is None:
                 return {"exit": 1, "out": "", "err": "Empty server response.\n"}
-            return json.loads(response)
+            return response
     except socket.timeout:
         elapsed_ms = int((time.monotonic() - start) * 1000)
         timeout_ms = None if timeout_seconds is None else int(timeout_seconds * 1000)
@@ -239,8 +275,8 @@ def print_response(response):
     return int(response.get("exit", 1))
 
 
-def server_request(op, args):
-    response = request(op, args)
+def server_request(op, args, stream=False, render_progress=False):
+    response = request(op, args, stream=stream, render_progress=render_progress)
     if response is None:
         sys.stderr.write(UNAVAILABLE_MESSAGE)
         return UNAVAILABLE
@@ -251,7 +287,7 @@ def sync_request(args):
     op = SYNC_SUBCOMMAND_OPS.get(args[0]) if args else None
     if op:
         return server_request(op, args[1:])
-    return server_request("sync", args)
+    return server_request("sync", args, stream=True, render_progress=progress_output(args))
 
 
 def main(argv):

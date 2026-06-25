@@ -5,6 +5,7 @@
                                      option-value
                                      positional-args]]
             [ygg.index-maintenance-worker :as index-maintenance-worker]
+            [ygg.progress :as progress]
             [ygg.project :as project]
             [ygg.project-registry :as registry]
             [ygg.xtdb :as store]
@@ -30,6 +31,9 @@
 
 (def unavailable-message
   "Yggdrasil server is not running. Run `ygg start` first.\n")
+
+(def server-frame-schema
+  "ygg.server.frame/v1")
 
 (def default-host
   "127.0.0.1")
@@ -147,6 +151,24 @@
   [^PrintWriter writer value]
   (.println writer (json/write-json-str value))
   (.flush writer))
+
+(defn- sync-progress-frame
+  [event]
+  (when-let [message (progress/sync-progress-message event)]
+    {:schema server-frame-schema
+     :type "progress"
+     :operation "sync"
+     :message message
+     :event event}))
+
+(defn- sync-server-progress-fn
+  [ctx args]
+  (when (and (:emit-frame! ctx)
+             (not (json-output? args))
+             (not (some #{"--no-progress"} args)))
+    (fn [event]
+      (when-let [frame (sync-progress-frame event)]
+        ((:emit-frame! ctx) frame)))))
 
 (defn- error-response
   [^Exception e]
@@ -404,20 +426,36 @@
         args (sync-options->args opts)
         check? (or check? enqueue?)]
     (if dry-run?
-      (let [index-summary (call-var 'ygg.cli-sync/sync-index-project!
-                                    nil
-                                    project
-                                    args
-                                    (cli-sync-deps))]
+      (let [sync-deps (cli-sync-deps)
+            index-summary (if-let [progress-fn (:progress-fn opts)]
+                            (call-var 'ygg.cli-sync/sync-index-project!
+                                      nil
+                                      project
+                                      args
+                                      sync-deps
+                                      {:progress-fn progress-fn})
+                            (call-var 'ygg.cli-sync/sync-index-project!
+                                      nil
+                                      project
+                                      args
+                                      sync-deps))]
         {:schema "ygg.sync/v1"
          :project-id (:id project)
          :repo-id repo-id
          :index-summary index-summary})
-      (let [index-summary (call-var 'ygg.cli-sync/sync-index-project!
-                                    xtdb
-                                    project
-                                    args
-                                    (cli-sync-deps))
+      (let [sync-deps (cli-sync-deps)
+            index-summary (if-let [progress-fn (:progress-fn opts)]
+                            (call-var 'ygg.cli-sync/sync-index-project!
+                                      xtdb
+                                      project
+                                      args
+                                      sync-deps
+                                      {:progress-fn progress-fn})
+                            (call-var 'ygg.cli-sync/sync-index-project!
+                                      xtdb
+                                      project
+                                      args
+                                      sync-deps))
             system-summary (project/infer-project! xtdb project)
             report (when check?
                      (call-var 'ygg.cli-sync/maintenance-report
@@ -773,9 +811,12 @@
 (defn- sync-response
   [ctx request]
   (let [args (vec (:args request))
+        progress-fn (sync-server-progress-fn ctx args)
         opts (merge (sync-args->options args)
                     {:cwd (:cwd request)}
-                    (:options request))
+                    (:options request)
+                    (when progress-fn
+                      {:progress-fn progress-fn}))
         xtdb (node-for! ctx (request-storage-path request args opts))]
     (capture-response
      (fn []
@@ -833,10 +874,10 @@
                      (run-command-handler! command args)
                      (println (command-usage)))))))))))))
 
-(defn- query-response
-  [ctx request]
+(defn- cli-query-response
+  [ctx request command handler-symbol]
   (let [args (absolutize-path-options (:cwd request) (vec (:args request)))
-        cli-args (into ["query"] args)
+        cli-args (into [command] args)
         query-deps-var (requiring-resolve 'ygg.cli-query/*deps*)]
     (capture-response
      (fn []
@@ -852,7 +893,7 @@
                  cli-args
                  (fn []
                    (with-bindings {query-deps-var (call-var 'ygg.cli/query-deps)}
-                     (call-var 'ygg.cli-query/query! args))))))))))))
+                     (call-var handler-symbol args))))))))))))
 
 (defn- sync-subcommand-response
   [ctx request subcommand]
@@ -910,7 +951,13 @@
       (sync-subcommand-response ctx request (get sync-op->subcommand op))
 
       (= "query" op)
-      (query-response ctx request)
+      (cli-query-response ctx request "query" 'ygg.cli-query/query!)
+
+      (= "view" op)
+      (cli-query-response ctx request "view" 'ygg.cli-query/view!)
+
+      (= "report" op)
+      (cli-query-response ctx request "report" 'ygg.cli-query/report!)
 
       (contains? cli-command-ops op)
       (command-response ctx request op (:args request))
@@ -969,7 +1016,11 @@
   (with-open [socket socket
               reader (BufferedReader. (InputStreamReader. (.getInputStream socket)))
               writer (PrintWriter. (OutputStreamWriter. (.getOutputStream socket)))]
-    (write-json-line! writer (handle-request ctx (read-json-line reader)))))
+    (let [request (read-json-line reader)
+          request-ctx (cond-> ctx
+                        (:stream request)
+                        (assoc :emit-frame! #(write-json-line! writer %)))]
+      (write-json-line! writer (handle-request request-ctx request)))))
 
 (defn- request-executor
   []
