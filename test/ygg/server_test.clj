@@ -803,6 +803,8 @@
   (let [response (server/handle-request {:token "token"
                                          :running (atom true)
                                          :node-pool (atom {"/tmp/ygg/xtdb" :node})
+                                         :semantic-client-pool (atom {[:local "server-model"] {:provider :local
+                                                                                               :model "server-model"}})
                                          :storage-path "/tmp/ygg/default"
                                          :started-at-ms 123}
                                         {:op "status"
@@ -813,8 +815,14 @@
     (is (= "running" (get-in response [:data :status])))
     (is (= 1 (get-in response [:data :openNodes])))
     (is (= ["/tmp/ygg/xtdb"] (get-in response [:data :openNodePaths])))
+    (is (= 1 (get-in response [:data :semanticClients])))
+    (is (= [{:provider "local"
+             :model "server-model"}]
+           (get-in response [:data :semanticClientKeys])))
     (is (re-find #"# Server" (:out response)))
-    (is (re-find #"- status running" (:out response)))))
+    (is (re-find #"- status running" (:out response)))
+    (is (re-find #"- semantic-clients 1" (:out response)))
+    (is (re-find #"  - local:server-model" (:out response)))))
 
 (deftest status-request-reports-busy-operation-lock
   (let [lock (java.util.concurrent.locks.ReentrantLock.)

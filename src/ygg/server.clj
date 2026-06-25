@@ -868,12 +868,24 @@
 
 (declare capture-response)
 
+(defn- semantic-client-key-summary
+  [[provider model]]
+  {:provider (name (keyword provider))
+   :model (str model)})
+
+(defn- semantic-client-summaries
+  [semantic-client-pool]
+  (->> (keys @(or semantic-client-pool (atom {})))
+       (map semantic-client-key-summary)
+       (sort-by (juxt :provider :model))
+       vec))
+
 (defn- server-status
   [ctx]
   (let [open-node-paths (if-let [node-pool (:node-pool ctx)]
                           (sort (keys @node-pool))
                           [])
-        semantic-client-count (count @(or (:semantic-client-pool ctx) (atom {})))
+        semantic-client-keys (semantic-client-summaries (:semantic-client-pool ctx))
         maintenance-projects (mapv maintenance-project-status (registered-projects))
         enabled-projects (filterv :enabled maintenance-projects)
         scheduled-count (reduce + (map #(count (:schedules %)) maintenance-projects))
@@ -892,7 +904,8 @@
      :queuedRequests (long (:queuedRequests lock-status))
      :openNodes (count open-node-paths)
      :openNodePaths (vec open-node-paths)
-     :semanticClients semantic-client-count
+     :semanticClients (count semantic-client-keys)
+     :semanticClientKeys semantic-client-keys
      :maintenance {:scheduler {:running true
                                :pollMs scheduler-poll-ms
                                :recentRuns (vec (:runs scheduler-state))}
@@ -934,6 +947,8 @@
       (println "- queued-requests" (:queuedRequests status 0))
       (println "- open-nodes" (:openNodes status))
       (println "- semantic-clients" (:semanticClients status 0))
+      (doseq [{:keys [provider model]} (:semanticClientKeys status)]
+        (println "  -" (str provider ":" model)))
       (doseq [path (:openNodePaths status)]
         (println "  -" path))
       (println)
