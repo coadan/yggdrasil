@@ -6,6 +6,13 @@
             [clojure.test :refer [deftest is]]))
 
 (deftest sync-progress-line-renders-human-counts
+  (is (= "app plan 1 changed file, 2 reused unchanged files, 0 deleted files"
+         (progress/sync-progress-message
+          {:phase :plan-complete
+           :repo-id "app"
+           :files-changed 1
+           :files-reused 2
+           :files-deleted 0})))
   (is (= "- app plan 1 changed file, 2 reused unchanged files, 0 deleted files"
          (progress/sync-progress-line
           {:phase :plan-complete
