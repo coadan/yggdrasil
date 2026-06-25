@@ -37,6 +37,7 @@ suites need. Check local setup without creating generated artifacts:
 bb bench repos check --suite benchmarks/architecture-synthetic.edn
 bb bench repos check --suite benchmarks/agent-efficiency-broad.edn
 bb bench repos check --suite benchmarks/multi-repo-quality.edn
+bb bench repos check --suite benchmarks/graphify.edn
 bb bench:gate --setup-check
 ```
 

@@ -23,6 +23,7 @@
             [ygg.benchmark-agent-packet :as benchmark-agent-packet]
             [ygg.benchmark-local-vector :as benchmark-local-vector]
             [ygg.benchmark-codebase-memory :as benchmark-codebase-memory]
+            [ygg.benchmark-graphify :as benchmark-graphify]
             [ygg.benchmark-maintenance :as benchmark-maintenance]
             [ygg.benchmark-score-artifacts :as benchmark-score-artifacts]
             [ygg.benchmark-context-artifacts :as benchmark-context-artifacts]
@@ -357,6 +358,7 @@
   (case (keyword (or (:retriever opts) :lexical))
     :local-vector "local-vector"
     :codebase-memory "codebase-memory"
+    :graphify "graphify"
     "ygg"))
 
 (defn current-agent-score-artifacts
@@ -394,6 +396,15 @@
                        :codebaseMemoryCacheDir
                        (fs/canonical-path (or (:codebase-memory-cache-dir opts)
                                               (benchmark-paths/codebase-memory-cache-dir
+                                               suite
+                                               case
+                                               opts))))
+                (= "graphify" (get-in score [:agent :mode]))
+                (assoc :graphifyRequestPath
+                       (fs/canonical-path (benchmark-paths/graphify-request-path suite case opts))
+                       :graphifyOutputDir
+                       (fs/canonical-path (or (:graphify-output-dir opts)
+                                              (benchmark-paths/graphify-output-dir
                                                suite
                                                case
                                                opts)))))
@@ -452,6 +463,11 @@
   "Generate, write, and score one Codebase Memory MCP benchmark baseline."
   [suite case opts]
   (benchmark-codebase-memory/codebase-memory-baseline! suite case opts))
+
+(defn graphify-baseline!
+  "Generate, write, and score one Graphify benchmark baseline."
+  [suite case opts]
+  (benchmark-graphify/graphify-baseline! suite case opts))
 
 (defn- agent-run-command
   [opts]
@@ -525,6 +541,9 @@
 
                                     (= :codebase-memory retriever)
                                     (codebase-memory-baseline! suite case opts)
+
+                                    (= :graphify retriever)
+                                    (graphify-baseline! suite case opts)
 
                                     :else
                                     (agent-baseline! suite case opts)))))

@@ -119,9 +119,11 @@
     (is (str/includes? usage "bench agent-packet"))
     (is (str/includes? usage "bench agent-baseline"))
     (is (str/includes? usage "--provider local|openrouter|openai"))
-    (is (str/includes? usage "--retriever auto|hybrid|lexical|semantic|local-vector|codebase-memory"))
+    (is (str/includes? usage "--retriever auto|hybrid|lexical|semantic|local-vector|codebase-memory|graphify"))
     (is (str/includes? usage "--codebase-memory-command CMD"))
     (is (str/includes? usage "--codebase-memory-bin PATH"))
+    (is (str/includes? usage "--graphify-command CMD"))
+    (is (str/includes? usage "--graphify-bin CMD"))
     (is (str/includes? usage "bench agent-run"))
     (is (str/includes? usage "bench agent-rerun"))
     (is (str/includes? usage "bench agent-score"))
@@ -1748,6 +1750,12 @@
                                  "--codebase-memory-command" "fake-codebase-memory-worker"
                                  "--codebase-memory-bin" "fake-codebase-memory-bin"
                                  "--codebase-memory-cache-dir" ".dev/fake-cbm-cache"
+                                 "--graphify-command" "fake-graphify-worker"
+                                 "--graphify-bin" "fake-graphify-bin"
+                                 "--graphify-output-dir" ".dev/fake-graphify"
+                                 "--graphify-query-budget" "123"
+                                 "--graphify-max-workers" "2"
+                                 "--graphify-include-non-code"
                                  "--parser-worker" "java"
                                  "--index-timeout-ms" "1234"
                                  "--skip-existing"
@@ -1768,11 +1776,17 @@
                   :codebase-memory-command "fake-codebase-memory-worker"
                   :codebase-memory-bin "fake-codebase-memory-bin"
                   :codebase-memory-cache-dir ".dev/fake-cbm-cache"
+                  :graphify-command "fake-graphify-worker"
+                  :graphify-bin "fake-graphify-bin"
+                  :graphify-output-dir ".dev/fake-graphify"
+                  :graphify-query-budget 123
+                  :graphify-max-workers 2
                   :limit 3
                   :doc-limit 12
                   :retrieval-limit 80
                   :index-timeout-ms 1234
-                  :skip-existing? true}]]
+                  :skip-existing? true
+                  :graphify-include-non-code? true}]]
                @calls))))))
 
 (deftest bench-agent-run-dispatches-to-benchmark-runner

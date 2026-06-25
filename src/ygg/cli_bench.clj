@@ -59,6 +59,15 @@
                                                              (option-value
                                                               args
                                                               "--codebase-memory-cache-dir"))
+    (option-value args "--graphify-command") (assoc :graphify-command
+                                                    (option-value args
+                                                                  "--graphify-command"))
+    (option-value args "--graphify-bin") (assoc :graphify-bin
+                                                (option-value args "--graphify-bin"))
+    (option-value args "--graphify-output-dir") (assoc :graphify-output-dir
+                                                       (option-value
+                                                        args
+                                                        "--graphify-output-dir"))
     (option-value args "--agent") (assoc :agent-id (option-value args "--agent"))
     (option-value args "--prompt-profile") (assoc :prompt-profile
                                                   (option-value args "--prompt-profile"))
@@ -70,6 +79,16 @@
                                                            (parse-optional-long
                                                             args
                                                             "--index-timeout-ms"))
+    (parse-optional-long args "--graphify-query-budget") (assoc
+                                                          :graphify-query-budget
+                                                          (parse-optional-long
+                                                           args
+                                                           "--graphify-query-budget"))
+    (parse-optional-long args "--graphify-max-workers") (assoc
+                                                         :graphify-max-workers
+                                                         (parse-optional-long
+                                                          args
+                                                          "--graphify-max-workers"))
     (parse-optional-long args "--min-cases") (assoc :min-cases
                                                     (parse-optional-long args
                                                                          "--min-cases"))
@@ -345,6 +364,9 @@
     (some #{"--skip-existing"} args) (assoc :skip-existing? true)
     (some #{"--allow-missing"} args) (assoc :allow-missing? true)
     (some #{"--allow-duplicate-runs"} args) (assoc :allow-duplicate-runs? true)
+    (some #{"--graphify-include-non-code"} args) (assoc
+                                                  :graphify-include-non-code?
+                                                  true)
     (some #{"--allow-unverified-scores"} args) (assoc :allow-unverified-scores? true)))
 (defn- print-benchmark-case-summary
   [case]

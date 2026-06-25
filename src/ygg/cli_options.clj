@@ -72,7 +72,9 @@
     "--ecosystem" "--package" "--prompt-profile" "--report-out" "--command"
     "--python" "--venv"
     "--vector-command" "--vector-model" "--codebase-memory-command"
-    "--codebase-memory-bin" "--codebase-memory-cache-dir" "--parser-worker"
+    "--codebase-memory-bin" "--codebase-memory-cache-dir"
+    "--graphify-command" "--graphify-bin" "--graphify-output-dir"
+    "--graphify-query-budget" "--graphify-max-workers" "--parser-worker"
     "--ref" "--subdir" "--cache-dir" "--shell-report" "--ygg-report"
     "--timeout-ms" "--index-timeout-ms" "--min-cases" "--min-runs"
     "--min-shared-cases"
@@ -122,6 +124,7 @@
     "--allow-duplicate-runs" "--allow-unverified-scores"
     "--skip-existing" "--with-conflicts" "--without-import-evidence"
     "--no-progress" "--extractor" "--report" "--tests" "--proof-commands"
+    "--graphify-include-non-code"
     "--changed-only" "--reviewed" "--skill" "--mcp" "--force-agent" "--start-at-login"
     "--no-start-at-login" "--no-start-server" "--yes" "--no-input" "--non-interactive"})
 

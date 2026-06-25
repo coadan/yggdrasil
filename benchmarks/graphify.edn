@@ -1,0 +1,59 @@
+{:id "graphify"
+ :project-id "graphify-benchmark"
+ :description "Synthetic Graphify benchmark cases for comparing Yggdrasil retrieval against a Graphify extraction/query baseline."
+ :repos [{:id "graphify"
+          :root "../.dev/ygg/benchmark-repos/graphify"
+          :role :application}]
+ :cases [{:id "graphify-headless-code-extraction"
+          :repo-id "graphify"
+          :coverage {:source-kinds [:python]}
+          :tags [:synthetic
+                 :graphify
+                 :problem-architecture
+                 :architecture-runtime-boundary
+                 :audit-scope-runtime-config
+                 :python]
+          :base-sha "9b583a0dd51061db2f459d4c53a5fc6731bbfbe5"
+          :fix-sha "9b583a0dd51061db2f459d4c53a5fc6731bbfbe5"
+          :ground-truth {:localization-files ["graphify/__main__.py"
+                                              "graphify/extract.py"]}
+          :issue {:id "synthetic-graphify-headless-code-extraction"
+                  :url "local:graphify/headless-code-extraction"
+                  :title "Trace headless code-only extraction"
+                  :body "A CI job needs to run Graphify headless extraction without clustering, with worker-count control and code-only inputs. Identify the CLI extraction dispatch and deterministic code extractor files that control that flow. Return only files likely to need edits."}}
+
+         {:id "graphify-query-scope-search"
+          :repo-id "graphify"
+          :coverage {:source-kinds [:python]}
+          :tags [:synthetic
+                 :graphify
+                 :problem-architecture
+                 :architecture-search-retrieval
+                 :audit-scope-query
+                 :python]
+          :base-sha "9b583a0dd51061db2f459d4c53a5fc6731bbfbe5"
+          :fix-sha "9b583a0dd51061db2f459d4c53a5fc6731bbfbe5"
+          :ground-truth {:localization-files ["graphify/__main__.py"
+                                              "graphify/serve.py"]}
+          :issue {:id "synthetic-graphify-query-scope-search"
+                  :url "local:graphify/query-scope-search"
+                  :title "Locate query dispatch and graph search scoring"
+                  :body "The graphify query command returns a scoped subgraph for an architecture question. Identify where the CLI dispatch parses the query request and where graph search, scoring, and budgeted output are implemented. Return only files likely to need edits."}}
+
+         {:id "graphify-git-hook-rebuild"
+          :repo-id "graphify"
+          :coverage {:source-kinds [:python]}
+          :tags [:synthetic
+                 :graphify
+                 :problem-architecture
+                 :architecture-runtime-boundary
+                 :audit-scope-tooling
+                 :python]
+          :base-sha "9b583a0dd51061db2f459d4c53a5fc6731bbfbe5"
+          :fix-sha "9b583a0dd51061db2f459d4c53a5fc6731bbfbe5"
+          :ground-truth {:localization-files ["graphify/__main__.py"
+                                              "graphify/hooks.py"]}
+          :issue {:id "synthetic-graphify-git-hook-rebuild"
+                  :url "local:graphify/git-hook-rebuild"
+                  :title "Trace git hook rebuild installation"
+                  :body "A project wants Graphify to install post-commit and post-checkout hooks that rebuild the graph using the pinned Python interpreter and detached launcher. Identify the CLI hook command dispatch and hook implementation files likely to need edits."}}]}

@@ -1056,7 +1056,7 @@
                           :key-fn keyword)
                          [:properties :agentInputFingerprint])))
           (is (= {:type "string"
-                  :enum ["ygg" "shell-only" "local-vector" "codebase-memory"]}
+                  :enum ["ygg" "shell-only" "local-vector" "codebase-memory" "graphify"]}
                  (get-in (json/read-json
                           (slurp (get-in run [:artifacts :outputSchemaPath]))
                           :key-fn keyword)
@@ -5628,6 +5628,221 @@
           (is (empty? (:suspectedFiles result)))
           (is (seq (:warnings result)))
           (is (= "codebase-memory-result-surface-estimate"
+                 (get-in result [:tokenUsage :source])))
+          (is (pos? (get-in result [:tokenUsage :totalTokens]))))))))
+
+(deftest graphify-baseline-shells-out-and-scores-agent-result
+  (let [repo (temp-dir "ygg-bench-graphify-repo")
+        out (temp-dir "ygg-bench-graphify-out")
+        suite-dir (temp-dir "ygg-bench-graphify-suite")
+        worker-dir (temp-dir "ygg-bench-graphify-worker")
+        suite-path (.getPath (io/file suite-dir "benchmark.edn"))
+        worker-path (spit-file!
+                     worker-dir
+                     "fake-graphify-worker.sh"
+                     (str "#!/bin/sh\n"
+                          "case_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"caseId\"])' \"$1\")\n"
+                          "case_fingerprint=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"caseFingerprint\"])' \"$1\")\n"
+                          "agent_input_fingerprint=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"agentInputFingerprint\"])' \"$1\")\n"
+                          "agent_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))[\"agentId\"])' \"$1\")\n"
+                          "cat > \"$2\" <<JSON\n"
+                          "{\"schema\":\"ygg.benchmark.agent-result/v2\","
+                          "\"caseId\":\"$case_id\","
+                          "\"caseFingerprint\":\"$case_fingerprint\","
+                          "\"agentInputFingerprint\":\"$agent_input_fingerprint\","
+                          "\"agentId\":\"$agent_id\","
+                          "\"mode\":\"graphify\","
+                          "\"suspectedFiles\":[{\"path\":\"src/app.clj\",\"rank\":1,"
+                          "\"confidence\":0.9,\"reason\":\"fake graphify match\","
+                          "\"evidence\":[\"fake-graphify path=src/app.clj\"]}],"
+                          "\"suspectedSymbols\":[],\"commands\":[\"fake-graphify-worker\"],"
+                          "\"warnings\":[],\"summary\":\"fake graphify result\"}\n"
+                          "JSON\n"))]
+    (.setExecutable (io/file worker-path) true)
+    (sh! "git" "init" repo)
+    (git! repo "config" "user.email" "bench@example.test")
+    (git! repo "config" "user.name" "Benchmark Test")
+    (spit-file! repo "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (let [base (commit! repo "base")]
+      (spit-file! repo "src/app.clj" "(ns app)\n(defn broken [] :new)\n")
+      (let [fix (commit! repo "fix")]
+        (spit-file!
+         suite-dir
+         "benchmark.edn"
+         (pr-str {:id "fixture"
+                  :repos [{:id "repo" :root repo}]
+                  :cases [{:id "case-1"
+                           :repo-id "repo"
+                           :base-sha base
+                           :fix-sha fix
+                           :issue {:id 1
+                                   :title "broken app"
+                                   :body "The app returns the old value."}}]}))
+        (let [suite (benchmark/read-suite suite-path)
+              result (benchmark/agent-baselines!
+                      suite
+                      {:out out
+                       :case-id "case-1"
+                       :retriever "graphify"
+                       :graphify-command worker-path
+                       :graphify-bin "fake-graphify"
+                       :graphify-query-budget 123
+                       :graphify-max-workers 2})
+              baseline (first (:baselines result))
+              request (json/read-json
+                       (slurp (get-in baseline [:artifacts :graphifyRequestPath]))
+                       :key-fn keyword)
+              scored (json/read-json
+                      (slurp (get-in baseline [:artifacts :agentScorePath]))
+                      :key-fn keyword)
+              resumed (benchmark/agent-baselines!
+                       suite
+                       {:out out
+                        :case-id "case-1"
+                        :retriever "graphify"
+                        :graphify-command "missing-graphify-worker"
+                        :graphify-bin "fake-graphify"
+                        :skip-existing? true})
+              skipped (first (:baselines resumed))]
+          (is (= benchmark/agent-baselines-schema (:schema result)))
+          (is (= "ygg-baseline-graphify" (:agentId baseline)))
+          (is (= "graphify" (:mode baseline)))
+          (is (= "graphify" (:retriever baseline)))
+          (is (= "fake-graphify" (get-in baseline [:graphify :binary])))
+          (is (= 123 (get-in baseline [:graphify :queryBudget])))
+          (is (true? (get-in baseline [:graphify :codeOnly])))
+          (is (= 1.0 (get-in baseline [:scores :fileRecallAt5])))
+          (is (= 1.0 (get-in baseline [:scores :meanReciprocalRankFile])))
+          (is (= "ygg.benchmark.graphify-request/v1" (:schema request)))
+          (is (= (:caseFingerprint baseline) (:caseFingerprint request)))
+          (is (= (:agentInputFingerprint baseline)
+                 (:agentInputFingerprint request)))
+          (is (= "fake-graphify" (get-in request [:graphify :command])))
+          (is (= 123 (get-in request [:graphify :queryBudget])))
+          (is (= 2 (get-in request [:graphify :maxWorkers])))
+          (is (true? (get-in request [:graphify :codeOnly])))
+          (is (str/ends-with? (get-in request [:graphify :outputDir])
+                              "graphify"))
+          (is (not (contains? request :groundTruth)))
+          (is (= benchmark/agent-result-schema (get-in scored [:agent :schema])))
+          (is (= "graphify" (get-in scored [:agent :mode])))
+          (is (= "graphify-result-surface-estimate"
+                 (get-in scored [:agent :tokenUsage :source])))
+          (is (pos? (get-in scored [:agent :tokenUsage :totalTokens])))
+          (is (empty? (get-in scored [:agent :warnings])))
+          (is (= 1.0 (get-in scored [:scores :evidenceCitationRate])))
+          (is (= ["src/app.clj"]
+                 (mapv :path (get-in scored [:agent :topFiles]))))
+          (is (= 1 (:skipped resumed)))
+          (is (= "skipped" (:status skipped)))
+          (is (= "current-score-artifact" (:skipReason skipped)))
+          (is (= (:scores baseline) (:scores skipped))))))))
+
+(deftest graphify-worker-emits-current-agent-result-contract
+  (let [repo (temp-dir "ygg-bench-graphify-worker-repo")
+        bin-dir (temp-dir "ygg-bench-graphify-worker-bin")
+        request-dir (temp-dir "ygg-bench-graphify-worker-request")
+        binary-path (spit-file!
+                     bin-dir
+                     "fake-graphify"
+                     (str "#!/usr/bin/env python3\n"
+                          "import json, pathlib, sys\n"
+                          "cmd = sys.argv[1] if len(sys.argv) > 1 else ''\n"
+                          "if cmd == 'extract':\n"
+                          "    out = pathlib.Path(sys.argv[sys.argv.index('--out') + 1])\n"
+                          "    graph_dir = out / 'graphify-out'\n"
+                          "    graph_dir.mkdir(parents=True, exist_ok=True)\n"
+                          "    src = pathlib.Path('"
+                          repo
+                          "') / 'src' / 'app.clj'\n"
+                          "    graph = {'nodes': [{'id': 'broken_app', 'label': 'broken app', 'source_file': str(src), 'source_location': 'L1'}], 'edges': []}\n"
+                          "    (graph_dir / 'graph.json').write_text(json.dumps(graph), encoding='utf-8')\n"
+                          "elif cmd == 'query':\n"
+                          "    src = pathlib.Path('"
+                          repo
+                          "') / 'src' / 'app.clj'\n"
+                          "    print(f'NODE broken_app [src={src} loc=L1 community=]')\n"
+                          "else:\n"
+                          "    print('unknown command', cmd, file=sys.stderr)\n"
+                          "    sys.exit(1)\n"))
+        graphify-out (.getPath (io/file request-dir "graphify"))
+        request-path (spit-json!
+                      request-dir
+                      "request.json"
+                      {:schema "ygg.benchmark.graphify-request/v1"
+                       :caseId "case-1"
+                       :caseFingerprint "sha256:case-1"
+                       :agentInputFingerprint "sha256:case-input"
+                       :agentId "ygg-baseline-graphify"
+                       :mode "graphify"
+                       :worktreeRoot repo
+                       :input {:title "broken app"
+                               :body "The app returns the old value."}
+                       :limit 2
+                       :graphify {:command binary-path
+                                  :outputDir graphify-out
+                                  :codeOnly true
+                                  :queryBudget 100
+                                  :maxWorkers 1}})
+        result-path (.getPath (io/file request-dir "result.json"))]
+    (.setExecutable (io/file binary-path) true)
+    (spit-file! repo "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (spit-file! repo "docs/readme.md" "The app behavior is documented here.\n")
+    (let [{:keys [exit err]} (shell/sh "python3"
+                                       "scripts/graphify-baseline.py"
+                                       request-path
+                                       result-path)]
+      (is (zero? exit) err)
+      (when (zero? exit)
+        (let [result (json/read-json (slurp result-path) :key-fn keyword)]
+          (is (= benchmark/agent-result-schema (:schema result)))
+          (is (= "case-1" (:caseId result)))
+          (is (= "sha256:case-1" (:caseFingerprint result)))
+          (is (= "sha256:case-input" (:agentInputFingerprint result)))
+          (is (= "ygg-baseline-graphify" (:agentId result)))
+          (is (= "graphify" (:mode result)))
+          (is (= ["src/app.clj"] (mapv :path (:suspectedFiles result))))
+          (is (every? #(seq (:evidence %)) (:suspectedFiles result)))
+          (is (some #(str/includes? % "code-only extraction")
+                    (:warnings result)))
+          (is (= "graphify-result-surface-estimate"
+                 (get-in result [:tokenUsage :source])))
+          (is (pos? (get-in result [:tokenUsage :totalTokens])))
+          (is (= 2 (count (:commands result)))))))))
+
+(deftest graphify-worker-emits-warned-empty-result-when-binary-is-missing
+  (let [repo (temp-dir "ygg-bench-graphify-missing-repo")
+        request-dir (temp-dir "ygg-bench-graphify-missing-request")
+        request-path (spit-json!
+                      request-dir
+                      "request.json"
+                      {:schema "ygg.benchmark.graphify-request/v1"
+                       :caseId "case-1"
+                       :caseFingerprint "sha256:case-1"
+                       :agentInputFingerprint "sha256:case-input"
+                       :agentId "ygg-baseline-graphify"
+                       :mode "graphify"
+                       :worktreeRoot repo
+                       :input {:title "broken app"}
+                       :limit 2
+                       :graphify {:command (.getPath
+                                            (io/file request-dir "missing-graphify"))
+                                  :outputDir (.getPath
+                                              (io/file request-dir "graphify"))}})
+        result-path (.getPath (io/file request-dir "result.json"))]
+    (spit-file! repo "src/app.clj" "(ns app)\n")
+    (let [{:keys [exit err]} (shell/sh "python3"
+                                       "scripts/graphify-baseline.py"
+                                       request-path
+                                       result-path)]
+      (is (zero? exit) err)
+      (when (zero? exit)
+        (let [result (json/read-json (slurp result-path) :key-fn keyword)]
+          (is (= benchmark/agent-result-schema (:schema result)))
+          (is (= "graphify" (:mode result)))
+          (is (empty? (:suspectedFiles result)))
+          (is (seq (:warnings result)))
+          (is (= "graphify-result-surface-estimate"
                  (get-in result [:tokenUsage :source])))
           (is (pos? (get-in result [:tokenUsage :totalTokens]))))))))
 

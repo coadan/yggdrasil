@@ -316,8 +316,20 @@ plugin-fit choice, not just a shorter suspected-file list.
   or under `--codebase-memory-cache-dir <dir>` when set. This lane measures
   Codebase Memory's structural retrieval/localization as a deterministic
   benchmark baseline. It is not the same as giving an LLM the Codebase Memory
-  MCP tools during an agent run. Use `--skip-existing` to resume an interrupted
-  suite run. A case is skipped only
+  MCP tools during an agent run. Use `--retriever graphify` to run a Graphify
+  comparison lane against the base checkout. The default worker is
+  `python3 scripts/graphify-baseline.py`; it shells out to
+  `uvx --from graphifyy graphify` unless `GRAPHIFY_BENCH_CMD` or
+  `--graphify-bin <cmd>` is set. Override the worker itself with
+  `--graphify-command <cmd>` when testing worker changes. Graphify extraction
+  output stays under the case output root in `graphify/` unless
+  `--graphify-output-dir <dir>` is set. By default this lane excludes non-code
+  files during extraction so it is replayable without Graphify document/image
+  LLM keys; pass `--graphify-include-non-code` only when the required Graphify
+  providers are configured. Use `--graphify-query-budget <n>` and
+  `--graphify-max-workers <n>` to control Graphify query budget and extraction
+  parallelism. Use `--skip-existing` to resume an interrupted suite run. A case
+  is skipped only
   when exactly one current score artifact already matches the case fingerprint,
   agent id, mode, and result path; stale, duplicate, or missing artifacts are
   rerun.
@@ -799,9 +811,9 @@ agent input. New results should include both; the scorer accepts legacy results
 that only include `caseFingerprint`, but hidden expectation-only edits can make
 those legacy results report identity warnings until the agent run is refreshed.
 
-`mode` is one of `ygg`, `shell-only`, `local-vector`, or
-`codebase-memory`. `agent-run` only uses `ygg` and `shell-only`;
-`local-vector` and `codebase-memory` are reserved for optional deterministic
+`mode` is one of `ygg`, `shell-only`, `local-vector`, `codebase-memory`, or
+`graphify`. `agent-run` only uses `ygg` and `shell-only`; `local-vector`,
+`codebase-memory`, and `graphify` are reserved for optional deterministic
 baseline lanes.
 
 Recall, MRR, and noise use `suspectedFiles.path` and rank. The citation score

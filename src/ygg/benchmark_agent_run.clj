@@ -167,7 +167,7 @@
    :caseFingerprint "case fingerprint from the packet"
    :agentInputFingerprint "agent input fingerprint from the packet"
    :agentId "stable id for the agent run"
-   :mode "ygg, shell-only, local-vector, or codebase-memory"
+   :mode "ygg, shell-only, local-vector, codebase-memory, or graphify"
    :selection {:rawCandidateFiles 0
                :candidateFiles 0
                :coverageFilteredCandidateFiles 0

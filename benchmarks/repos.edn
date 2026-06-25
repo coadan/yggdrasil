@@ -59,4 +59,8 @@
           :dir "junit-framework"
           :required-shas ["b040e97f4890dc914f41d86ee2caddb2df6b1f68"
                           "c8168b7c79a0591f421ef37dbbd20eb1f34cafef"
-                          "5bc7cb12f5bc4492011bdcf278fde44ac45166d5"]}]}
+                          "5bc7cb12f5bc4492011bdcf278fde44ac45166d5"]}
+         {:id "graphify"
+          :url "https://github.com/safishamsi/graphify.git"
+          :dir "graphify"
+          :required-shas ["9b583a0dd51061db2f459d4c53a5fc6731bbfbe5"]}]}

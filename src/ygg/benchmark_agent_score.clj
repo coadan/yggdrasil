@@ -14,7 +14,7 @@
   "ygg.benchmark.agent-result-contract/decision-quality-v1")
 
 (def agent-result-modes
-  ["ygg" "shell-only" "local-vector" "codebase-memory"])
+  ["ygg" "shell-only" "local-vector" "codebase-memory" "graphify"])
 
 (def decision-kinds
   ["architecture-choice"
