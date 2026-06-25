@@ -934,6 +934,7 @@
                       :check? true
                       :enqueue? true
                       :query-index? nil
+                      :index-profile :graph
                       :json? true
                       :no-progress? true}}]
              @calls)))))

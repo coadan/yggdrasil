@@ -531,6 +531,7 @@
    :check? (:check schedule)
    :enqueue? (:enqueue schedule)
    :query-index? (:query-index schedule)
+   :index-profile (if (:query-index schedule) :query :graph)
    :json? true
    :no-progress? true})
 

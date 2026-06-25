@@ -221,7 +221,8 @@
                       (:progress-fn opts)
                       (sync-progress-fn args))]
     (cond-> {:dry-run? (dry-run? args)
-             :index-profile (sync-index-profile args)
+             :index-profile (or (:index-profile opts)
+                                (sync-index-profile args))
              :correction-overlay (correction-overlay xtdb (:id project))}
       progress-fn (assoc :progress-fn progress-fn))))
 
