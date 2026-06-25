@@ -647,32 +647,6 @@
                       :no-progress? true}}]
              @calls)))))
 
-(deftest scheduler-runs-sync-check-task
-  (let [calls (atom [])]
-    (with-redefs [server/run-sync!
-                  (fn [xtdb opts]
-                    (swap! calls conj {:xtdb xtdb
-                                       :opts opts})
-                    {:schema "ygg.sync/v1"})]
-      (is (= {:schema "ygg.sync/v1"}
-             (#'server/run-maintenance-schedule!
-              {:xtdb :xtdb}
-              {:id "demo"}
-              {:id "check"
-               :task :sync-check
-               :enabled true
-               :enqueue true})))
-      (is (= [{:xtdb :xtdb
-               :opts {:project {:id "demo"}
-                      :project-id "demo"
-                      :repo-id nil
-                      :check? true
-                      :enqueue? true
-                      :query-index? nil
-                      :json? true
-                      :no-progress? true}}]
-             @calls)))))
-
 (deftest status-request-rereads-project-registry
   (let [registry (atom (registry/empty-registry))
         ctx {:token "token"

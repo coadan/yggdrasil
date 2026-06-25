@@ -402,10 +402,6 @@
           enqueued (assoc :enqueued enqueued)
           worker-run (assoc :maintenance-worker worker-run))))))
 
-(defn- run-sync-check!
-  [xtdb opts]
-  (run-sync! xtdb (assoc opts :check? true)))
-
 (defn- print-sync-result!
   [args result]
   (if (json-output? args)
@@ -494,8 +490,7 @@
      (let [xtdb (node-for! ctx (store/storage-path (:id project)))
            opts (schedule-sync-options project schedule)]
        (case (:task schedule)
-         :sync (run-sync! xtdb opts)
-         :sync-check (run-sync-check! xtdb opts))))))
+         :sync (run-sync! xtdb opts))))))
 
 (defn- due-schedule?
   [state now-ms project-id schedule]
