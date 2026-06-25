@@ -20,6 +20,9 @@
 (def ^:private code-definition-token-chars 50000)
 (def ^:private code-definition-fragment-token-chars 20000)
 (def ^:private max-code-definition-fragments 24)
+(def ^:private max-definition-scan-line-chars 4000)
+(def ^:private definition-symbol-names
+  (set (map name (conj definition-symbols 'defc))))
 
 (defn- tokenize-definition-text
   [value max-chars]
@@ -40,6 +43,40 @@
             tail-count (- max-code-definition-fragments head-count)]
         (vec (concat (take head-count fragments)
                      (take-last tail-count fragments)))))))
+
+(defn- leading-form-symbol
+  [line]
+  (let [line (str line)
+        length (count line)]
+    (when (<= length max-definition-scan-line-chars)
+      (loop [idx 0]
+        (when (< idx length)
+          (let [ch (.charAt line idx)]
+            (cond
+              (Character/isWhitespace ch)
+              (recur (inc idx))
+
+              (= \( ch)
+              (let [start (inc idx)
+                    end (loop [idx start]
+                          (if (or (>= idx length)
+                                  (Character/isWhitespace (.charAt line idx)))
+                            idx
+                            (recur (inc idx))))]
+                (when (< start end)
+                  (subs line start end)))
+
+              :else
+              nil)))))))
+
+(defn- definition-line?
+  [line]
+  (when-let [form-symbol (leading-form-symbol line)]
+    (let [slash-idx (str/last-index-of form-symbol "/")
+          base (if slash-idx
+                 (subs form-symbol (inc slash-idx))
+                 form-symbol)]
+      (contains? definition-symbol-names base))))
 
 (defn- ns-form-text
   [content]
@@ -119,7 +156,8 @@
     (->> (str/split-lines content)
          (map-indexed vector)
          (keep (fn [[idx line]]
-                 (when-let [[_ def-sym metadata-prefixes name] (re-find pattern line)]
+                 (when-let [[_ def-sym metadata-prefixes name] (when (definition-line? line)
+                                                                 (re-find pattern line))]
                    (let [form-start (+ (get line-starts idx 0)
                                        (or (str/index-of line "(") 0))
                          form-text (common/balanced-form content form-start)]

@@ -994,6 +994,19 @@
       (is (some #(str/includes? (:text %) ":tail-marker") fragments))
       (is (not-any? #(str/includes? (:text %) ":middle-marker") fragments)))))
 
+(deftest skips-huge-clojure-lines-before-definition-regex
+  (let [file {:file-id "file:src/demo/huge_line.clj"
+              :id-scope "fixture"
+              :path "src/demo/huge_line.clj"
+              :kind :code
+              :content (str "(ns demo.huge-line)\n"
+                            "(" (apply str (repeat 200000 "x")) "\n"
+                            "(defn still-found [] :ok)\n")}
+        result (extract/extract-file "run/test" file)
+        labels (set (map :label (:nodes result)))]
+    (is (contains? labels "demo.huge-line/still-found"))
+    (is (empty? (:diagnostics result)))))
+
 (deftest extracts-typescript-modules-definitions-and-imports
   (let [file (fs/file-record "test/fixtures/sample-repo"
                              "test/fixtures/sample-repo/src/web/app.ts")
