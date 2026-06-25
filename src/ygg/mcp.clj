@@ -279,9 +279,15 @@
   (let [path (config-path ctx args)]
     (if-not (str/blank? (str path))
       (project/read-project path)
-      (:project (registry/resolve-project
-                 {:project-id (or (:projectId args) (:project-id ctx))
-                  :cwd (abs-path (:root ctx))})))))
+      (let [project-id (or (:projectId args) (:project-id ctx))]
+        (if (str/blank? (str project-id))
+          (throw (ex-info "Missing Yggdrasil project config."
+                          {:schema "ygg.mcp.error/v1"
+                           :error "missing-project-config"
+                           :hint "Start ygg-mcp with --config project.edn or pass projectId."}))
+          (:project (registry/resolve-project
+                     {:project-id project-id
+                      :cwd (abs-path (:root ctx))})))))))
 
 (defn- project-id
   [project args]
