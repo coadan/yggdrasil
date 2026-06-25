@@ -150,7 +150,7 @@
        "`ygg_node`, `ygg_status`, and `ygg_systems`. Opt into advanced listed "
        "tools with `--tools default,sync,work` or "
        "`YGG_MCP_TOOLS=all`; direct handlers remain bounded Yggdrasil packet "
-       "tools, not arbitrary shell or map mutation.\n\n"
+       "tools, not arbitrary shell or unbounded state mutation.\n\n"
        "Use `ygg_query` as the primary context packet for structural "
        "questions. It returns graph-basis freshness, `evidence.planes`, candidate files, "
        "snippets, relationships, graph facts, architecture evidence, and "

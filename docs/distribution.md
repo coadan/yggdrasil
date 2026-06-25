@@ -46,7 +46,7 @@ the local Yggdrasil server started by `ygg start`, then lists the primary
 `ygg_systems` tools by default. Use `--tools default,sync,work` or
 `YGG_MCP_TOOLS=all` to list bounded advanced packet tools for sync
 inspection/checks and filesystem queue handoff. Use the CLI for explicit map
-mutation and applying validated work results.
+correction-fact changes and applying validated work results.
 
 ## Docker
 

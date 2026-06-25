@@ -84,7 +84,7 @@
   embed {:doc "Embed search docs. Usage: bb embed [--model MODEL] [--limit N]"
          :task (apply ygg "embed" *command-line-args*)}
 
-  report {:doc "Write a local report bundle. Usage: bb report [<project.edn>] [--project ID] [--map ygg.map.json] [--out ygg-out]"
+  report {:doc "Write a local report bundle. Usage: bb report [<project.edn>] [--project ID] [--out ygg-out]"
           :task (apply ygg "report" *command-line-args*)}
 
   plugin {:doc "Manage Yggdrasil plugin packages. Usage: bb plugin new|validate|diagnose|dry-run|install|list|remove|registry ..."

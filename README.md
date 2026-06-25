@@ -120,7 +120,7 @@ ygg query "where is auth handled" --project my-project --provider openrouter
 - Extend: add extractor plugins for project-specific or experimental file
   families, and report plugins for generated dashboards.
 - Hand off work: enqueue bounded maintenance packets, claim them from the local
-  queue, validate results, and apply accepted map changes.
+  queue, validate results, and apply accepted corrections.
 
 ## Install And Develop
 

@@ -74,13 +74,13 @@ single JSON object that matches the expected result schema and write it to the
 required result path.
 
 Rules:
-- Do not edit source repositories, project configs, ygg.map.json, or queue item
-  files.
+- Do not edit source repositories, project configs, correction facts, or queue
+  item files.
 - Do not run ygg sync work complete, validate, apply, reject, or release.
 - Use only ids and evidence present in the work item unless reading the attached
   project directories is necessary to verify a bounded fact.
 - Prefer conservative no-change, investigate, needs-human, or needs-scanner
-  results with an empty mapPatch when evidence is insufficient.
+  results with an empty correctionPatch when evidence is insufficient.
 - Write valid JSON only to the result path.
 - Your final assistant message can be brief; Yggdrasil will read the result file.
 EOF
