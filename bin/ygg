@@ -13,7 +13,6 @@ done
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-EDN_REPO_DIR=$(printf '%s' "$REPO_DIR" | sed 's/\\/\\\\/g; s/"/\\"/g')
 export YGG_HOME=${YGG_HOME:-$REPO_DIR}
 
 if [ "${1:-}" = "start" ]; then
@@ -38,6 +37,8 @@ else
   printf '%s\n' "Usage: ygg start | ygg <command> ..." >&2
   exit 2
 fi
+
+EDN_REPO_DIR=$(printf '%s' "$REPO_DIR" | sed 's/\\/\\\\/g; s/"/\\"/g')
 
 exec clojure \
   -Srepro \
