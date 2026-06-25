@@ -805,7 +805,8 @@
                           {:project-id (:id project)
                            :retriever :lexical
                            :plugins (:plugins project)
-                           :budget context/default-budget}))
+                           :budget context/default-budget
+                           :exclude-private-memory? true}))
 
 (defn bundle!
   "Write a local report bundle and return the generated file paths."

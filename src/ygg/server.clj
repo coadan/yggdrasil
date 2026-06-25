@@ -4,6 +4,7 @@
                                      json-output?
                                      option-value
                                      positional-args]]
+            [ygg.daemon-contract :as daemon-contract]
             [ygg.index-maintenance-worker :as index-maintenance-worker]
             [ygg.progress :as progress]
             [ygg.project :as project]
@@ -27,10 +28,10 @@
   "ygg.server/v1")
 
 (def unavailable-exit
-  75)
+  daemon-contract/unavailable-exit)
 
 (def unavailable-message
-  "Yggdrasil server is not running. Run `ygg start` first.\n")
+  daemon-contract/unavailable-message)
 
 (def server-frame-schema
   "ygg.server.frame/v1")

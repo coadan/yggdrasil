@@ -98,12 +98,18 @@
             bob-result (memory/search xtdb
                                       "release checklist"
                                       {:project-id "fixture"
-                                       :owner "bob"})]
+                                       :owner "bob"})
+            public-only-result (memory/search xtdb
+                                              "release checklist"
+                                              {:project-id "fixture"
+                                               :owner "alice"
+                                               :exclude-private? true})]
         (is (= ["Use the canonical query packet for memory recall."]
                (mapv :text (:memories public-result))))
         (is (= ["Alice keeps the release checklist in query notes."]
                (mapv :text (:memories alice-result))))
-        (is (= [] (:memories bob-result)))))))
+        (is (= [] (:memories bob-result)))
+        (is (= [] (:memories public-only-result)))))))
 
 (deftest suggested-memory-enters-query-only-through-direct-graph-attachment
   (store/with-node

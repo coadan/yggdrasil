@@ -2,6 +2,7 @@
   (:require [ygg.activity :as activity]
             [ygg.context :as context]
             [ygg.corrections :as corrections]
+            [ygg.daemon-contract :as daemon-contract]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
             [ygg.mcp :as mcp]
@@ -20,6 +21,15 @@
    :repos [{:id "app"
             :root "/tmp/app"
             :role :application}]})
+
+(deftest direct-clojure-main-requires-server-backed-mcp
+  (let [response (mcp/direct-main-response [])]
+    (is (= daemon-contract/unavailable-exit (:exit response)))
+    (is (= "" (:out response)))
+    (is (str/includes? (:err response)
+                       "Direct ygg.mcp entrypoint is disabled."))
+    (is (str/includes? (:err response) "ygg start"))
+    (is (str/includes? (:err response) "ygg-mcp"))))
 
 (def plugin-package-fixture
   {:id "datastar-hiccup"

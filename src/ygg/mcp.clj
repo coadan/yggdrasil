@@ -3,6 +3,7 @@
   (:require [ygg.activity :as activity]
             [ygg.context :as context]
             [ygg.corrections :as corrections]
+            [ygg.daemon-contract :as daemon-contract]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
             [ygg.plugin-package-view :as plugin-package-view]
@@ -1333,6 +1334,10 @@
           (catch Exception e
             (json-rpc-error nil -32700 "Parse error." {:message (ex-message e)}))))))))
 
+(defn direct-main-response
+  [_args]
+  (daemon-contract/direct-entrypoint-response "ygg.mcp" "ygg-mcp"))
+
 (defn -main
   [& args]
-  (run-stdio! (server-context (vec args))))
+  (daemon-contract/exit! (direct-main-response (vec args))))

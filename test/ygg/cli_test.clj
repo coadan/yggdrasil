@@ -6,7 +6,9 @@
             [ygg.benchmark-repos :as benchmark-repos]
             [ygg.cli :as cli]
             [ygg.cli-bench :as cli-bench]
+            [ygg.cli-sync-inspect :as cli-sync-inspect]
             [ygg.cli-sync :as cli-sync]
+            [ygg.daemon-contract :as daemon-contract]
             [ygg.embedding.local :as local-embedding]
             [ygg.evidence :as evidence]
             [ygg.hook :as hook]
@@ -41,6 +43,22 @@
    :repos [{:id "app"
             :root "/tmp/app"
             :role :application}]})
+
+(deftest direct-clojure-mains-require-server-backed-entrypoints
+  (let [cli-response (cli/direct-main-response ["query" "needle"])
+        inspect-response (cli-sync-inspect/direct-main-response ["project.edn"])]
+    (is (= daemon-contract/unavailable-exit (:exit cli-response)))
+    (is (= "" (:out cli-response)))
+    (is (str/includes? (:err cli-response)
+                       "Direct ygg.cli entrypoint is disabled."))
+    (is (str/includes? (:err cli-response) "ygg start"))
+    (is (str/includes? (:err cli-response) "ygg <command>"))
+    (is (= daemon-contract/unavailable-exit (:exit inspect-response)))
+    (is (= "" (:out inspect-response)))
+    (is (str/includes? (:err inspect-response)
+                       "Direct ygg.cli-sync-inspect entrypoint is disabled."))
+    (is (str/includes? (:err inspect-response) "ygg start"))
+    (is (str/includes? (:err inspect-response) "ygg sync inspect"))))
 
 (deftest usage-shows-canonical-surface
   (let [usage (cli/usage)]

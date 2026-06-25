@@ -1,5 +1,6 @@
 (ns ygg.report-test
   (:require [ygg.graph :as graph]
+            [ygg.memory :as memory]
             [ygg.project :as project]
             [ygg.report :as report]
             [ygg.report-plugin :as report-plugin]
@@ -306,6 +307,12 @@
       (fn [xtdb]
         (project/index-project! xtdb project {})
         (project/infer-project! xtdb project)
+        (memory/add! xtdb
+                     "fixture"
+                     {:text "Private handled report memory secret."
+                      :target-ids ["node:report-private"]
+                      :status :reviewed
+                      :now 1800000000000})
         (let [result (report/bundle! xtdb
                                      project
                                      {:out (.getPath out-dir)
@@ -316,6 +323,13 @@
               systems-json (json/read-json (slurp (:systems files)) :key-fn keyword)
               report-json (json/read-json (slurp (:report-data files)) :key-fn keyword)
               plugins-json (json/read-json (slurp (:plugins files)) :key-fn keyword)
+              context-example-json (json/read-json (slurp (:context-example files))
+                                                   :key-fn keyword)
+              report-bundle-text (str (slurp (:report-data files))
+                                      "\n"
+                                      (slurp (:context-example files))
+                                      "\n"
+                                      (slurp (:plugins files)))
               report-md (slurp (:report files))]
           (is (= report/schema (:schema result)))
           (is (= "fixture" (:project-id result)))
@@ -354,8 +368,9 @@
           (is (= (get-in report-json [:maintenance :queue :decisions])
                  (get-in report-json [:maintenance :decision-summary :total])))
           (is (= "ygg.context/v1"
-                 (:schema (json/read-json (slurp (:context-example files))
-                                          :key-fn keyword))))
+                 (:schema context-example-json)))
+          (is (not (str/includes? report-bundle-text
+                                  "Private handled report memory secret.")))
           (is (str/includes? report-md "# Yggdrasil Report"))
           (is (str/includes? report-md "<EvidenceSurface"))
           (is (str/includes? report-md "## File Coverage"))

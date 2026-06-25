@@ -1,11 +1,11 @@
 (ns ygg.cli-sync-inspect
   (:require [ygg.cli-options :refer [json-output? positional-args]]
             [ygg.corrections :as corrections]
+            [ygg.daemon-contract :as daemon-contract]
             [ygg.evidence :as evidence]
             [ygg.project :as project]
             [ygg.xtdb :as store]
             [charred.api :as json]
-            [clojure.pprint :as pprint]
             [clojure.string :as str])
   (:import [java.util.logging LogManager]))
 
@@ -191,19 +191,11 @@
     (with-out-str
       (print-project-status-on-node! xtdb config-path args))))
 
+(defn direct-main-response
+  [_args]
+  (daemon-contract/direct-entrypoint-response "ygg.cli-sync-inspect" "ygg sync inspect"))
+
 (defn -main
   [& args]
-  (try
-    (silence-jul!)
-    (let [args (vec args)
-          config-path (first (positional-args args))]
-      (print-project-status! config-path args))
-    (shutdown-agents)
-    (catch Exception e
-      (binding [*out* *err*]
-        (let [data (ex-data e)]
-          (println (ex-message e))
-          (when data
-            (pprint/pprint data))))
-      (shutdown-agents)
-      (System/exit 1))))
+  (silence-jul!)
+  (daemon-contract/exit! (direct-main-response (vec args))))

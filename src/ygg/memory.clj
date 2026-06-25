@@ -351,11 +351,12 @@
   (not= false (:active? row)))
 
 (defn- visible-row?
-  [{:keys [owner include-private?]} row]
+  [{:keys [owner include-private? exclude-private?]} row]
   (or (= :project (:visibility row))
       (= "project" (str (:visibility row)))
-      include-private?
-      (= (str (or owner (default-owner))) (str (:owner row)))))
+      (and (not exclude-private?)
+           (or include-private?
+               (= (str (or owner (default-owner))) (str (:owner row)))))))
 
 (defn- active-memory-rows
   [xtdb {:keys [project-id repo-id read-context status]}]

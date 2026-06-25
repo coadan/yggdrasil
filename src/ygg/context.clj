@@ -3062,7 +3062,8 @@
                            retrieval-limit
                            retriever embedding-client project-id repo-id
                            correction-overlay min-confidence read-context freshness plugins
-                           output proof-commands? query-input]
+                           output proof-commands? query-input memory-owner
+                           exclude-private-memory?]
                     :or {budget default-budget
                          entity-limit default-entity-limit
                          edge-limit default-edge-limit
@@ -3134,7 +3135,10 @@
                                           {:project-id project-id
                                            :repo-id repo-id
                                            :read-context read-context
-                                           :target-ids targets})
+                                           :target-ids targets
+                                           :owner memory-owner
+                                           :exclude-private?
+                                           exclude-private-memory?})
         selected-system-ids (concat (map :id entities)
                                     (map :id accepted-systems))
         system-evidence (selected-system-evidence

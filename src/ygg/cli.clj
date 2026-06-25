@@ -18,6 +18,7 @@
             [ygg.context :as context]
             [ygg.corrections :as corrections]
             [ygg.corrections-api :as corrections-api]
+            [ygg.daemon-contract :as daemon-contract]
             [ygg.dependency :as dependency]
             [ygg.embedding :as embedding]
             [ygg.embedding.local :as local-embedding]
@@ -40,7 +41,6 @@
             [ygg.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
-            [clojure.pprint :as pprint]
             [clojure.string :as str])
   (:import [java.util.logging LogManager]))
 
@@ -1558,19 +1558,11 @@
     (throw (ex-info "Unknown command." {:command command
                                         :usage (usage)}))))
 
+(defn direct-main-response
+  [_args]
+  (daemon-contract/direct-entrypoint-response "ygg.cli" "ygg <command>"))
+
 (defn -main
   [& args]
-  (try
-    (silence-jul!)
-    (if-let [command (first args)]
-      (dispatch command (vec (rest args)))
-      (println (usage)))
-    (shutdown-agents)
-    (catch Exception e
-      (binding [*out* *err*]
-        (let [data (ex-data e)]
-          (println (ex-message e))
-          (when data
-            (pprint/pprint data))))
-      (shutdown-agents)
-      (System/exit 1))))
+  (silence-jul!)
+  (daemon-contract/exit! (direct-main-response (vec args))))
