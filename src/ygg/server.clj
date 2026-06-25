@@ -492,8 +492,7 @@
 
 (defn- operation-lock
   [ctx]
-  (or (:operation-lock ctx)
-      (:cli-lock ctx)))
+  (:operation-lock ctx))
 
 (defn- with-operation-lock
   [ctx f]
@@ -1052,7 +1051,6 @@
              :request-executor request-executor
              :request-counter request-counter
              :operation-lock operation-lock
-             :cli-lock operation-lock
              :node-pool node-pool
              :host host
              :port (.getLocalPort server)
@@ -1086,7 +1084,6 @@
      :request-executor request-executor
      :request-counter request-counter
      :operation-lock operation-lock
-     :cli-lock operation-lock
      :scheduler-thread scheduler-thread
      :scheduler-state scheduler-state
      :host host
