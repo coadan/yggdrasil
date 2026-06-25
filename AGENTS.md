@@ -77,6 +77,13 @@ Core commands:
 - `bb lint`
 - `bb format:check`
 
+Prefer scoped tests for most development work because the full suite is slow.
+Run the smallest relevant test namespaces or focused checks that cover the
+change, plus `bb lint` and `bb format:check` when code changed. Use the full
+`bb test` suite only when the change touches broad shared behavior, cross-module
+contracts, test infrastructure, or when a full regression pass is explicitly
+needed before release or handoff.
+
 Keep setup commands noun-scoped. Agent guidance is installed with
 `ygg agent install --platform codex --project` and removed with
 `ygg agent uninstall --platform codex --project`; do not introduce or
