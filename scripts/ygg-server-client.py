@@ -14,16 +14,6 @@ DEFAULT_CONNECT_TIMEOUT_MS = 30000
 CONNECT_RETRY_INTERVAL_SECONDS = 5.0
 DEFAULT_REQUEST_TIMEOUT_MS = 600000
 SERVER_FRAME_SCHEMA = "ygg.server.frame/v1"
-SYNC_SUBCOMMAND_OPS = {
-    "activity": "sync.activity",
-    "add-repo": "sync.add-repo",
-    "coverage": "sync.coverage",
-    "docs": "sync.docs",
-    "inspect": "sync.inspect",
-    "meta": "sync.meta",
-    "view": "sync.view",
-    "work": "sync.work",
-}
 
 def server_host():
     return os.environ.get("YGG_SERVER_HOST", DEFAULT_SERVER_HOST).strip() or DEFAULT_SERVER_HOST
@@ -284,9 +274,6 @@ def server_request(op, args, stream=False, render_progress=False):
 
 
 def sync_request(args):
-    op = SYNC_SUBCOMMAND_OPS.get(args[0]) if args else None
-    if op:
-        return server_request(op, args[1:])
     return server_request("sync", args, stream=True, render_progress=progress_output(args))
 
 

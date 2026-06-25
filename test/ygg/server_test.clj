@@ -287,7 +287,7 @@
                                  :token "token"
                                  :args []}))))
 
-(deftest sync-subcommand-op-routes-sync-command
+(deftest sync-subcommand-args-route-sync-command
   (with-redefs [cli/dispatch
                 (fn [command args]
                   (println (str "command=" command " args=" (pr-str args))))]
@@ -298,9 +298,9 @@
            (server/handle-request {:xtdb :xtdb
                                    :token "token"
                                    :running (atom true)}
-                                  {:op "sync.inspect"
+                                  {:op "sync"
                                    :token "token"
-                                   :args ["project.edn" "--json"]})))))
+                                   :args ["inspect" "project.edn" "--json"]})))))
 
 (deftest query-request-returns-command-output
   (with-redefs [cli/dispatch

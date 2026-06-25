@@ -82,7 +82,7 @@ class ServerClientRoutingTest(unittest.TestCase):
             (["ygg", "sync", "project.edn"],
              ("sync", ["project.edn"], {"stream": True, "render_progress": True})),
             (["ygg", "sync", "work", "pull"],
-             ("sync.work", ["pull"], {"stream": False, "render_progress": False})),
+             ("sync", ["work", "pull"], {"stream": True, "render_progress": True})),
         ]
 
         for argv, expected_request in cases:

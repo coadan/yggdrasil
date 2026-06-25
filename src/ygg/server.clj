@@ -39,18 +39,15 @@
 (def default-port
   62121)
 
-(def ^:private sync-subcommand->op
-  {"inspect" "sync.inspect"
-   "activity" "sync.activity"
-   "add-repo" "sync.add-repo"
-   "coverage" "sync.coverage"
-   "docs" "sync.docs"
-   "meta" "sync.meta"
-   "view" "sync.view"
-   "work" "sync.work"})
-
-(def ^:private sync-op->subcommand
-  (into {} (map (fn [[subcommand op]] [op subcommand]) sync-subcommand->op)))
+(def ^:private sync-subcommands
+  #{"inspect"
+    "activity"
+    "add-repo"
+    "coverage"
+    "docs"
+    "meta"
+    "view"
+    "work"})
 
 (def ^:private cli-command-ops
   #{"help"
@@ -78,7 +75,6 @@
 
 (def ^:private logged-ops
   (set (concat ["sync"]
-               (vals sync-subcommand->op)
                (keys cli-query-command-handlers)
                cli-command-ops)))
 
@@ -879,8 +875,15 @@
         (call-var handler-symbol args)))))
 
 (defn- sync-subcommand-response
-  [ctx request subcommand]
-  (command-response ctx request "sync" (into [subcommand] (:args request))))
+  [ctx request subcommand args]
+  (command-response ctx request "sync" (into [subcommand] args)))
+
+(defn- sync-response-dispatch
+  [ctx request]
+  (let [[subcommand & args] (vec (:args request))]
+    (if (contains? sync-subcommands subcommand)
+      (sync-subcommand-response ctx request subcommand args)
+      (sync-response ctx request))))
 
 (defn- stop-response
   [{:keys [running server]}]
@@ -921,10 +924,7 @@
       (status-response ctx request)
 
       (= "sync" op)
-      (sync-response ctx request)
-
-      (contains? sync-op->subcommand op)
-      (sync-subcommand-response ctx request (get sync-op->subcommand op))
+      (sync-response-dispatch ctx request)
 
       (contains? cli-query-command-handlers op)
       (cli-query-response ctx request op (get cli-query-command-handlers op))
