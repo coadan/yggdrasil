@@ -41,17 +41,17 @@
 (defn embedding-row
   "Return an embedding row."
   [{:keys [target-id project-id repo-id provider model input-sha vector created-at-ms]}]
-  {:xt/id (embedding-id target-id provider model input-sha)
-   :project-id project-id
-   :repo-id repo-id
-   :target-id target-id
-   :provider provider
-   :model model
-   :dims (count vector)
-   :input-sha input-sha
-   :vector (mapv double vector)
-   :created-at-ms (long (or created-at-ms (now-ms)))
-   :active? true})
+  (cond-> {:xt/id (embedding-id target-id provider model input-sha)
+           :target-id target-id
+           :provider provider
+           :model model
+           :dims (count vector)
+           :input-sha input-sha
+           :vector (mapv double vector)
+           :created-at-ms (long (or created-at-ms (now-ms)))
+           :active? true}
+    project-id (assoc :project-id project-id)
+    repo-id (assoc :repo-id repo-id)))
 
 (defn all-search-docs
   ([xtdb] (all-search-docs xtdb {}))

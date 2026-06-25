@@ -149,6 +149,7 @@ This installs the Yggdrasil binary. Project agent setup is noun-scoped: use
 - [Dependencies](docs/dependencies.md)
 - [Distribution](docs/distribution.md)
 - [System map corrections](docs/system-map.md)
+- [Project memory](docs/memory.md)
 - [Context packets and doc attachments](docs/context.md)
 - [Graph export schema](docs/graph-export.md)
 - [Extractor plugins](docs/extractor-plugins.md)

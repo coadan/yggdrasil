@@ -204,7 +204,7 @@
   #{:complete-only :validate-only})
 
 (def ^:private maintenance-schedule-tasks
-  #{:sync :sync-check})
+  #{:sync})
 
 (defn- deepseek-v4+-model?
   [model]

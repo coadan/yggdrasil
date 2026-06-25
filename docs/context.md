@@ -29,6 +29,7 @@ The packet schema is `ygg.context/v1`:
     "counts": {"accepted": 0, "candidates": 0}
   },
   "activity": [],
+  "memories": [],
   "docs": [],
   "sourceCoverage": {
     "schema": "ygg.source-coverage.context/v1",
@@ -142,6 +143,19 @@ flags map onto that selector: `--snippets` to `snippets`, `--evidence` to
 the packet may include compact `:kind :grep` command suggestions for rerunnable
 audit over exact candidate files. Default packets do not include action rows.
 
+## Memory In Query Packets
+
+Project memory is retrieved through the same context packet as graph and docs.
+There is no separate memory query command or default MCP search tool in V1.
+Reviewed and observed memory rows keep `target-kind: memory` search docs, so
+`ygg query --json` can return them in `memories` through lexical retrieval and,
+after `ygg embed`, semantic retrieval. Suggested memory stays out of broad query
+unless it is directly attached to a selected graph target.
+
+Use `ygg memory add/review/accept/reject/supersede/attach` to manage the memory
+lifecycle. See [Project Memory](memory.md) for the command reference and privacy
+rules.
+
 ## Evidence Readiness
 
 Every context packet reports `evidence`: a mechanical summary of which evidence
@@ -155,7 +169,8 @@ that evidence surface when an agent needs to see available evidence families at
 a glance.
 Its `families` field is a bounded readiness table for source files, file facts,
 source graph rows, dependencies, docs, embeddings, system evidence, system graph
-rows, local activity, validation history, and accepted map overlay evidence.
+rows, local activity, validation history, memory, and accepted map overlay
+evidence.
 Use `ygg query --json` when the agent has a concrete question and needs the
 smaller query-scoped `evidence` packet plus matching entities, edges, docs, and
 activity.
@@ -171,7 +186,7 @@ benchmark-backed architecture understanding.
 - `status`: `ready`, `limited`, or `empty`
 - `available`: populated evidence planes, such as `source-graph`,
   `dependencies`, `system-evidence`, `docs`, `system-graph`, `embeddings`,
-  `activity`, `validation-history`, or `map-overlay`
+  `activity`, `memory`, `validation-history`, or `map-overlay`
 - `missing`: supported evidence planes with no useful rows for this project or
   read context
 - `weak`: evidence exists, but did not match this query well
@@ -190,7 +205,8 @@ benchmark-backed architecture understanding.
   `activity-events`, `validation-events`, `result-schema-statuses`,
   `result-schema-status-items`, per-status item counts such as
   `result-schema-matching-items` and `result-schema-missing-result-items`, and
-  `result-schema-mismatch-events`.
+  `result-schema-mismatch-events`. Memory counts include active memory rows and
+  status counts for `suggested`, `observed`, and `reviewed`.
 - `retrieval`: requested and effective retriever, including lexical fallback
 - `warnings`: short mechanical explanations
 - `nextActions`: follow-up work as structured rows with `kind`,

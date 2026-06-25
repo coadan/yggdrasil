@@ -32,6 +32,10 @@ while [ "$#" -gt 0 ]; do
 done
 
 WORK_DIR="${YGG_V1_SMOKE_DIR:-$(mktemp -d)}"
+mkdir -p "$WORK_DIR"
+WORK_DIR="$(CDPATH= cd -- "$WORK_DIR" && pwd)"
+export YGG_CONFIG_HOME="$WORK_DIR/config"
+export YGG_PROJECTS_FILE="$WORK_DIR/projects.edn"
 PREFIX="$WORK_DIR/prefix"
 FIXTURE_REPO="$WORK_DIR/repo"
 SERVER_PID=""
@@ -82,7 +86,9 @@ start_server() {
 
 install_wrappers
 start_server
-"$PREFIX/bin/ygg" help > "$WORK_DIR/help.txt"
+if ! "$PREFIX/bin/ygg" > "$WORK_DIR/help.txt" 2>&1; then
+  grep -q "Usage:" "$WORK_DIR/help.txt"
+fi
 test -x "$PREFIX/bin/ygg"
 test -x "$PREFIX/bin/ygg-mcp"
 
@@ -107,9 +113,10 @@ EOF
 pushd "$FIXTURE_REPO" >/dev/null
 "$PREFIX/bin/ygg" init . \
   --project v1-smoke \
-  --out project.edn \
-  --sync \
-  --query-index > "$WORK_DIR/start.json"
+  --out project.edn > "$WORK_DIR/start.json"
+"$PREFIX/bin/ygg" sync project.edn \
+  --query-index \
+  --json > "$WORK_DIR/initial-sync.json"
 "$PREFIX/bin/ygg" report project.edn \
   --out ygg-out \
   --force > "$WORK_DIR/report-output.json"
@@ -179,6 +186,18 @@ PY
 "$PREFIX/bin/ygg" packages \
   --project v1-smoke \
   --json > "$WORK_DIR/packages-after-apply.json"
+"$PREFIX/bin/ygg" memory add \
+  --config project.edn \
+  --scope project \
+  --reviewed \
+  --text "The V1 smoke release memory should surface through normal query packets." \
+  --summary "V1 smoke memory rides normal query." \
+  --tag v1-smoke > "$WORK_DIR/memory-add.json"
+"$PREFIX/bin/ygg" query \
+  "v1 smoke release memory normal query packets" \
+  --config project.edn \
+  --retriever lexical \
+  --json > "$WORK_DIR/memory-query.json"
 "$PREFIX/bin/ygg" sync activity project.edn \
   --json > "$WORK_DIR/activity.json"
 printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' \
@@ -212,6 +231,7 @@ def require(condition, message):
         raise AssertionError(message)
 
 start = load_json("start.json")
+initial_sync = load_json("initial-sync.json")
 inspect = load_json("inspect.json")
 packages = load_json("packages.json")
 sync_check = load_json("sync-check.json")
@@ -220,6 +240,8 @@ work_complete = load_json("work-complete.json")
 work_validate = load_json("work-validate.json")
 work_apply = load_json("work-apply.json")
 packages_after_apply = load_json("packages-after-apply.json")
+memory_add = load_json("memory-add.json")
+memory_query = load_json("memory-query.json")
 activity = load_json("activity.json")
 mcp_tools_bin = load_jsonl("mcp-tools-list-bin.jsonl")
 mcp_tools_cli = load_jsonl("mcp-tools-list-cli.jsonl")
@@ -231,6 +253,7 @@ def require_mcp_tools(response, label):
     tools = {tool.get("name") for tool in response.get("result", {}).get("tools", [])}
     for tool in ("ygg_query", "ygg_node", "ygg_status", "ygg_systems"):
         require(tool in tools, f"{label} tools/list missing {tool}")
+    require("ygg_memory_search" not in tools, f"{label} exposed standalone memory search")
 
 require_mcp_tools(mcp_tools_bin, "ygg-mcp")
 require_mcp_tools(mcp_tools_cli, "ygg mcp")
@@ -242,6 +265,7 @@ start_actions = {action.get("kind"): action.get("command")
                  for action in start.get("nextActions", [])}
 require(start_actions.get("sync") == "ygg sync project.edn --check",
         "init nextActions did not make sync canonical")
+require(initial_sync.get("schema") == "ygg.sync/v1", "initial sync schema mismatch")
 
 require(inspect.get("schema") == "ygg.project.inspect/v1", "inspect schema mismatch")
 freshness = inspect.get("freshness", {})
@@ -300,6 +324,16 @@ storage_package = package_by_name.get("google-cloud-storage")
 require(storage_package, "packages after apply missing google-cloud-storage")
 require(storage_package.get("imported-by"),
         "packages after apply did not use the accepted package import correction")
+require(memory_add.get("schema") == "ygg.memory.write/v1", "memory add schema mismatch")
+require(memory_add.get("action") == "add", "memory add action mismatch")
+added_memory = memory_add.get("memory", {})
+require(added_memory.get("status") == "reviewed", "reviewed memory was not stored")
+require(memory_query.get("schema") == "ygg.context/v1", "memory query schema mismatch")
+memories = memory_query.get("memories", [])
+require(any(row.get("id") == added_memory.get("id") for row in memories),
+        "normal query did not include reviewed memory")
+require(any("normal query packets" in row.get("text", "") for row in memories),
+        "query memory payload did not include expected memory text")
 require(activity.get("schema") == "ygg.activity.sync/v1", "activity sync schema mismatch")
 require(activity.get("counts", {}).get("items", 0) > 0, "activity sync did not import queue items")
 

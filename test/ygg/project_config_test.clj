@@ -98,6 +98,30 @@
              (:report-dir maintenance)))
       (is (= (:queue-dir maintenance) (:queue-dir worker))))))
 
+(deftest project-config-rejects-legacy-sync-check-schedule-task
+  (let [root (temp-dir "ygg-project-maintenance-schedule-task")
+        repo (io/file root "repo")
+        project-edn (io/file root "project.edn")]
+    (.mkdirs repo)
+    (spit project-edn
+          (pr-str {:id "demo"
+                   :repos [{:id "app" :root "repo"}]
+                   :maintenance
+                   {:enabled true
+                    :schedules [{:id "check"
+                                 :task :sync-check
+                                 :enabled true}]}}))
+    (try
+      (project/read-project (.getPath project-edn))
+      (is false "Expected legacy sync-check schedule task to be rejected.")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= "Maintenance schedule task is not supported."
+               (ex-message e)))
+        (is (= {:schedule-id "check"
+                :task :sync-check
+                :supported [:sync]}
+               (ex-data e)))))))
+
 (deftest index-maintenance-worker-rejects-non-deepseek-api-provider
   (let [root (temp-dir "ygg-project-maintenance-provider")
         repo (io/file root "repo")
