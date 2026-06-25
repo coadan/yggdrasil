@@ -238,9 +238,6 @@
 (defn sync-index-project!
   ([xtdb project args]
    (sync-index-project-with-options! xtdb project args {}))
-  ([xtdb project args deps]
-   (binding [*deps* deps]
-     (sync-index-project! xtdb project args)))
   ([xtdb project args deps opts]
    (binding [*deps* deps]
      (sync-index-project-with-options! xtdb project args opts))))

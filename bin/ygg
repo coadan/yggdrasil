@@ -15,7 +15,27 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 export YGG_HOME=${YGG_HOME:-$REPO_DIR}
 
-if [ "${1:-}" = "start" ]; then
+if [ "$#" -eq 0 ] || [ "${1:-}" = "help" ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
+  cat <<'EOF'
+Usage: ygg start | ygg <command> ...
+
+Server:
+  start                 Start the local Yggdrasil server.
+  status [--json]       Show server and project status.
+  stop                  Stop the local server.
+
+Project:
+  init                  Initialize a project reference.
+  sync                  Sync or inspect a project.
+  query                 Query the current graph.
+  view                  Render graph slices.
+  packages              Report package/dependency evidence.
+  maintenance           Manage scheduled maintenance.
+  corrections           Manage accepted graph corrections.
+  agent                 Install or remove agent guidance.
+EOF
+  exit 0
+elif [ "${1:-}" = "start" ]; then
   if [ "$#" -gt 1 ]; then
     printf '%s\n' "ygg start starts the local server and does not accept project setup arguments." >&2
     printf '%s\n' "Use ygg init --sync for project setup." >&2
@@ -33,9 +53,6 @@ elif [ "$#" -gt 0 ] && command -v python3 >/dev/null 2>&1; then
 elif [ "$#" -gt 0 ]; then
   printf '%s\n' "python3 is required for server-backed ygg commands." >&2
   exit 75
-else
-  printf '%s\n' "Usage: ygg start | ygg <command> ..." >&2
-  exit 2
 fi
 
 EDN_REPO_DIR=$(printf '%s' "$REPO_DIR" | sed 's/\\/\\\\/g; s/"/\\"/g')

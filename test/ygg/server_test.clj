@@ -427,11 +427,16 @@
                   (is (= "project.edn" path))
                   {:id "demo"})
                 cli-sync/sync-index-project!
-                (fn [xtdb project args deps]
+                (fn [xtdb project args deps opts]
                   (is (= :xtdb xtdb))
                   (is (= {:id "demo"} project))
                   (is (= ["project.edn" "--repo" "app" "--check" "--json"] args))
                   (is (map? deps))
+                  (is (= {:config-path "project.edn"
+                          :repo-id "app"
+                          :check? true
+                          :json? true}
+                         (select-keys opts [:config-path :repo-id :check? :json?])))
                   {:project-id "demo"
                    :repos [{:repo-id "app"
                             :status :completed}]})
@@ -473,22 +478,19 @@
                     (is (= "project.edn" path))
                     {:id "demo"})
                   cli-sync/sync-index-project!
-                  (fn
-                    ([_xtdb _project _args _deps]
-                     (throw (ex-info "streaming sync should pass progress options" {})))
-                    ([xtdb project args deps opts]
-                     (is (= :xtdb xtdb))
-                     (is (= {:id "demo"} project))
-                     (is (= ["project.edn"] args))
-                     (is (map? deps))
-                     (is (fn? (:progress-fn opts)))
-                     ((:progress-fn opts) {:phase :scan-complete
-                                           :repo-id "app"
-                                           :files-scanned 2})
-                     {:project-id "demo"
-                      :status :completed
-                      :repos [{:repo-id "app"
-                               :status :completed}]}))
+                  (fn [xtdb project args deps opts]
+                    (is (= :xtdb xtdb))
+                    (is (= {:id "demo"} project))
+                    (is (= ["project.edn"] args))
+                    (is (map? deps))
+                    (is (fn? (:progress-fn opts)))
+                    ((:progress-fn opts) {:phase :scan-complete
+                                          :repo-id "app"
+                                          :files-scanned 2})
+                    {:project-id "demo"
+                     :status :completed
+                     :repos [{:repo-id "app"
+                              :status :completed}]})
                   project/infer-project!
                   (fn [xtdb project]
                     (is (= :xtdb xtdb))
@@ -522,11 +524,16 @@
                   (is (= "project.edn" path))
                   {:id "demo"})
                 cli-sync/sync-index-project!
-                (fn [xtdb project args deps]
+                (fn [xtdb project args deps opts]
                   (is (= :xtdb xtdb))
                   (is (= {:id "demo"} project))
                   (is (= ["project.edn" "--check" "--enqueue" "--json"] args))
                   (is (map? deps))
+                  (is (= {:config-path "project.edn"
+                          :check? true
+                          :enqueue? true
+                          :json? true}
+                         (select-keys opts [:config-path :check? :enqueue? :json?])))
                   {:project-id "demo"
                    :repos [{:repo-id "app"
                             :status :completed}]})
@@ -597,7 +604,7 @@
                                           :env "YGG_DEEPSEEK_API_KEY"
                                           :kinds #{:maintenance-decision}}]}}}))
     (with-redefs [cli-sync/sync-index-project!
-                  (fn [xtdb project args deps]
+                  (fn [xtdb project args deps opts]
                     (is (= :xtdb xtdb))
                     (is (= "demo" (:id project)))
                     (is (= [(.getPath project-edn)
@@ -608,6 +615,16 @@
                             "--json"]
                            args))
                     (is (map? deps))
+                    (is (= {:config-path (.getPath project-edn)
+                            :queue-dir queue-root
+                            :check? true
+                            :enqueue? true
+                            :json? true}
+                           (select-keys opts [:config-path
+                                              :queue-dir
+                                              :check?
+                                              :enqueue?
+                                              :json?])))
                     {:project-id "demo"
                      :repos [{:repo-id "app"
                               :status :completed}]})

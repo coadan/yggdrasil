@@ -409,21 +409,6 @@
              (get-in project [:maintenance :worker]))
     (index-maintenance-worker/run! project (worker-run-options opts))))
 
-(defn- sync-index-project!
-  [xtdb project args sync-deps {:keys [progress-fn]}]
-  (if progress-fn
-    (call-var 'ygg.cli-sync/sync-index-project!
-              xtdb
-              project
-              args
-              sync-deps
-              {:progress-fn progress-fn})
-    (call-var 'ygg.cli-sync/sync-index-project!
-              xtdb
-              project
-              args
-              sync-deps)))
-
 (defn run-sync!
   "Run a regular project sync inside the server JVM and return the result map.
 
@@ -435,14 +420,21 @@
         opts (default-worker-queue-dir project opts)
         args (sync-options->args opts)
         sync-deps (cli-sync-deps)
+        run-index! (fn [index-xtdb]
+                     (call-var 'ygg.cli-sync/sync-index-project!
+                               index-xtdb
+                               project
+                               args
+                               sync-deps
+                               opts))
         check? (or check? enqueue?)]
     (if dry-run?
-      (let [index-summary (sync-index-project! nil project args sync-deps opts)]
+      (let [index-summary (run-index! nil)]
         {:schema "ygg.sync/v1"
          :project-id (:id project)
          :repo-id repo-id
          :index-summary index-summary})
-      (let [index-summary (sync-index-project! xtdb project args sync-deps opts)
+      (let [index-summary (run-index! xtdb)
             system-summary (project/infer-project! xtdb project)
             report (when check?
                      (call-var 'ygg.cli-sync/maintenance-report
