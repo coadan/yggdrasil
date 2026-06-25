@@ -961,7 +961,7 @@
         (deliver release true)
         @holder))))
 
-(deftest mcp-tool-call-returns-busy-without-storage-resolution
+(deftest read-only-mcp-tool-call-runs-while-operation-lock-is-busy
   (let [lock (java.util.concurrent.locks.ReentrantLock.)
         locked (promise)
         release (promise)
@@ -976,7 +976,13 @@
     (try
       (with-redefs [store/storage-path
                     (fn [& _]
-                      (throw (ex-info "tools/call should not resolve storage while busy" {})))]
+                      (throw (ex-info "read-only tool should use explicit request storage" {})))
+                    queue/list-summary
+                    (fn [root opts]
+                      {:schema queue/summary-schema
+                       :root root
+                       :opts opts
+                       :items []})]
         (let [response (server/handle-request
                         {:xtdb :xtdb
                          :token "token"
@@ -984,12 +990,56 @@
                          :operation-lock lock}
                         {:op "mcp"
                          :token "token"
+                         :storagePath "/tmp/ygg/mcp"
+                         :args ["--tools" "all"]
+                         :message {:jsonrpc "2.0"
+                                   :id 1
+                                   :method "tools/call"
+                                   :params {:name "ygg_work_list"
+                                            :arguments {:queueDir "/tmp/ygg/queue"
+                                                        :status "ready"}}}})]
+          (is (= true (:ok response)))
+          (is (= "ygg.queue.summary/v1"
+                 (get-in response [:data :result :structuredContent :schema])))
+          (is (= "/tmp/ygg/queue"
+                 (get-in response [:data :result :structuredContent :root])))))
+      (finally
+        (deliver release true)
+        @holder))))
+
+(deftest mutating-mcp-tool-call-returns-busy-without-storage-resolution
+  (let [lock (java.util.concurrent.locks.ReentrantLock.)
+        locked (promise)
+        release (promise)
+        holder (future
+                 (.lock lock)
+                 (try
+                   (deliver locked true)
+                   @release
+                   (finally
+                     (.unlock lock))))]
+    @locked
+    (try
+      (with-redefs [store/storage-path
+                    (fn [& _]
+                      (throw (ex-info "mutating tool should not resolve storage while busy" {})))
+                    queue/claim-next!
+                    (fn [& _]
+                      (throw (ex-info "mutating tool should not run while busy" {})))]
+        (let [response (server/handle-request
+                        {:xtdb :xtdb
+                         :token "token"
+                         :running (atom true)
+                         :operation-lock lock}
+                        {:op "mcp"
+                         :token "token"
+                         :storagePath "/tmp/ygg/mcp"
                          :args []
                          :message {:jsonrpc "2.0"
                                    :id 1
                                    :method "tools/call"
-                                   :params {:name "ygg_status"
-                                            :arguments {}}}})]
+                                   :params {:name "ygg_work_pull"
+                                            :arguments {:queueDir "/tmp/ygg/queue"}}}})]
           (is (= false (:ok response)))
           (is (= daemon-contract/unavailable-exit (:exit response)))
           (is (= "operation-lock-busy" (get-in response [:data :reason])))))

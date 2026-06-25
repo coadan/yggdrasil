@@ -935,6 +935,34 @@
   [message]
   (= "tools/call" (:method message)))
 
+(def ^:private read-only-mcp-tools
+  #{"ygg_query"
+    "ygg_node"
+    "ygg_systems"
+    "ygg_sync_inspect"
+    "ygg_status"
+    "ygg_sync_check"
+    "ygg_work_list"
+    "ygg_work_show"})
+
+(defn- mcp-tool-name
+  [message]
+  (get-in message [:params :name]))
+
+(defn- read-only-mcp-tool-call?
+  [message]
+  (contains? read-only-mcp-tools (mcp-tool-name message)))
+
+(defn- without-operation-lock
+  [f]
+  (f))
+
+(defn- mcp-tool-lock
+  [ctx message]
+  (if (read-only-mcp-tool-call? message)
+    without-operation-lock
+    #(with-operation-lock ctx %)))
+
 (defn- handle-mcp-message
   [args message]
   (call-var 'ygg.mcp/handle-message
@@ -950,7 +978,7 @@
        ctx
        request
        args
-       #(with-operation-lock ctx %)
+       (mcp-tool-lock ctx message)
        #(handle-mcp-message args message))
       (capture-response
        #(with-user-dir (:cwd request)
