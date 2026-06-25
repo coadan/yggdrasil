@@ -266,7 +266,7 @@ def print_response(response):
     return int(response.get("exit", 1))
 
 
-def control_request(op, args):
+def server_request(op, args):
     response = request(op, args)
     if response is None:
         sys.stderr.write(UNAVAILABLE_MESSAGE)
@@ -289,10 +289,10 @@ def main(argv):
         args = argv[2:]
         op = SYNC_SUBCOMMAND_OPS.get(args[0]) if args else None
         if op:
-            return control_request(op, args[1:])
-        return control_request("sync", args)
+            return server_request(op, args[1:])
+        return server_request("sync", args)
     if command in SERVER_COMMAND_OPS:
-        return control_request(command, argv[2:])
+        return server_request(command, argv[2:])
     return reject_unknown_command(command)
 
 
