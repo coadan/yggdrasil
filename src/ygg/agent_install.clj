@@ -126,7 +126,7 @@
        "```\n\n"
        "When known, pass anchors, symbols, or literal strings to `ygg query` "
        "instead of relying on broad prose alone.\n\n"
-       "For graph maintenance work:\n\n"
+       "For index maintenance work:\n\n"
        "```sh\n"
        "ygg sync check <project.edn> --enqueue\n"
        "ygg sync work list --project <project-id> --status ready\n"

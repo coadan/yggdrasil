@@ -89,7 +89,7 @@
                                           :kind "infra-review"
                                           :project-id "demo"})
                          [:item :id])
-        decision-id (get-in (queue/enqueue! {:schema "ygg.maintenance.decision-packet/v1"
+        decision-id (get-in (queue/enqueue! {:schema "ygg.frontier.decision/v1"
                                              :decisionId "maintenance-decision:test"
                                              :project-id "demo"
                                              :decision {:kind "unclustered-system"
@@ -98,7 +98,7 @@
                                                         :reason "Needs review."
                                                         :basis {:hash "basis123"}}
                                              :allowedActions ["accept-system" "none"]
-                                             :expectedResultSchema "ygg.maintenance.classification/v1"}
+                                             :expectedResultSchema "ygg.index-maintenance.classification/v1"}
                                             {:root root
                                              :kind "maintenance-decision"
                                              :project-id "demo"})
@@ -120,7 +120,7 @@
             :basisHash "basis123"
             :allowedActions ["accept-system" "none"]}
            (:payload-summary (get by-id decision-id))))
-    (is (= "ygg.maintenance.classification/v1"
+    (is (= "ygg.index-maintenance.classification/v1"
            (:expected-result-schema (get by-id decision-id))))))
 
 (deftest queue-summary-includes-state-specific-actions
@@ -204,7 +204,7 @@
                                           :project-id "demo"
                                           :priority 90})
                          [:item :id])
-        decision-id (get-in (queue/enqueue! {:schema "ygg.maintenance.decision-packet/v1"
+        decision-id (get-in (queue/enqueue! {:schema "ygg.frontier.decision/v1"
                                              :decisionId "maintenance-decision:test"
                                              :project-id "demo"}
                                             {:root root

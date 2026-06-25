@@ -1,5 +1,5 @@
 (ns ygg.system.decision-classifier
-  "Focused classifier for one maintenance decision at a time."
+  "Focused classifier for one index maintenance decision at a time."
   (:require [ygg.map :as graph-map]
             [ygg.map-api :as map-api]
             [ygg.queue :as queue]
@@ -7,10 +7,10 @@
             [clojure.string :as str]))
 
 (def schema
-  "ygg.maintenance.classification/v1")
+  "ygg.index-maintenance.classification/v1")
 
 (def packet-schema
-  "ygg.maintenance.decision-packet/v1")
+  "ygg.frontier.decision/v1")
 
 (def apply-schema
   "ygg.sync.work.apply/v1")
@@ -55,11 +55,11 @@
   #{"accept" "reject" "change" "investigate"})
 
 (defn prompt
-  "Return OpenAI-compatible chat messages for one maintenance decision."
+  "Return OpenAI-compatible chat messages for one index maintenance decision."
   [decision]
   (let [allowed-actions (allowed-actions-for-decision decision)]
     [{:role "system"
-      :content (str "You classify one Yggdrasil maintenance decision. Return JSON only. "
+      :content (str "You resolve one Yggdrasil index maintenance frontier decision. Return JSON only. "
                     "Do not classify a whole repository. Use only the provided decision data. "
                     "Prefer hiding or rejecting noisy references over promoting weak edges.")}
      {:role "user"
@@ -79,28 +79,28 @@
                                      {:indent-str "  "}))}]))
 
 (defn classify
-  "Classify one maintenance decision with an OpenAI-compatible JSON client."
+  "Classify one index maintenance decision with an OpenAI-compatible JSON client."
   [{:keys [client decision]}]
   (when-not decision
-    (throw (ex-info "Missing maintenance decision." {})))
+    (throw (ex-info "Missing index maintenance decision." {})))
   (let [response ((:complete-json client) (prompt decision))]
     (assoc response
            :schema (or (:schema response) schema)
            :decisionId (or (:decisionId response) (:id decision)))))
 
 (defn decision-packet
-  "Return a provider-agnostic packet for one maintenance decision.
+  "Return a provider-agnostic packet for one index maintenance decision.
 
   The packet includes OpenAI-compatible messages as one possible consumer input,
   but it is plain JSON and can be processed by any human, model, or agent loop."
   [decision]
   (when-not decision
-    (throw (ex-info "Missing maintenance decision." {})))
+    (throw (ex-info "Missing index maintenance decision." {})))
   (let [allowed-actions (allowed-actions-for-decision decision)]
     {:schema packet-schema
      :decisionId (:id decision)
      :project-id (:project-id decision)
-     :goal "Resolve one bounded Yggdrasil maintenance decision without classifying the whole graph."
+     :goal "Resolve one bounded Yggdrasil index maintenance decision without classifying the whole project."
      :decision decision
      :allowedActions allowed-actions
      :messages (prompt decision)
@@ -201,7 +201,7 @@
              :label (or (:label system) target)
              :kind (or (some-> (:kind system) s) "system")
              :status "accepted"
-             :provenance "maintenance-classification"}
+             :provenance "index-maintenance-classification"}
       (:repo-id system) (assoc :repo (:repo-id system))
       (:path-prefix system) (assoc :pathPrefix (:path-prefix system)
                                    :includes [{:repo (:repo-id system)
@@ -225,7 +225,7 @@
      (remove nil?
              [(when-not (contains? allowed-ops op)
                 {:path [:mapPatch idx :op]
-                 :error "Maintenance map patch op is not allowed for this decision."
+                 :error "Index maintenance map patch op is not allowed for this decision."
                  :value op})
               (when (and (#{"accept-system" "reject-system" "set-system-kind"} op)
                          (not (target-system? packet target)))
@@ -271,11 +271,11 @@
                   :value (:status item)})
                (when-not (= packet-schema (:schema packet))
                  {:path [:payload :schema]
-                  :error "Work item payload is not a maintenance decision packet."
+                  :error "Work item payload is not an index maintenance frontier decision packet."
                   :value (:schema packet)})
                (when-not (= schema (:schema result))
                  {:path [:result :schema]
-                  :error "Result is not a maintenance classification."
+                  :error "Result is not an index maintenance classification."
                   :value (:schema result)})
                (when-not (= (:decisionId packet) (:decisionId result))
                  {:path [:result :decisionId]
@@ -320,7 +320,7 @@
              :target (s (patch-target patch))
              :relation (s (patch-relation patch))
              :confidence (confidence (:confidence patch) 1.0)
-             :rules "maintenance-classification"}
+             :rules "index-maintenance-classification"}
       (:reason patch) (assoc :reason (:reason patch))
       visibility (assoc :visibility (s visibility))
       (:importance patch) (assoc :importance (s (:importance patch))))))
@@ -365,7 +365,7 @@
           (map-patch result)))
 
 (defn apply-work-result!
-  "Validate and apply a completed maintenance-decision queue item to a map file."
+  "Validate and apply a completed index maintenance decision queue item to a map file."
   [root id map-path]
   (let [found (or (queue/find-item root id)
                   (throw (ex-info "Queue item not found." {:id id})))
@@ -374,7 +374,7 @@
     (if (seq errors)
       (let [failed (queue/fail! root
                                 (:id item)
-                                (str "Invalid maintenance classification: "
+                                (str "Invalid index maintenance classification: "
                                      (str/join "; " (map :error errors))))]
         {:schema apply-schema
          :status "failed"

@@ -88,13 +88,12 @@
   (case (:schema payload)
     "ygg.context/v1" "context"
     "ygg.frontier.decision/v1" "maintenance-decision"
-    "ygg.maintenance.decision-packet/v1" "maintenance-decision"
-    "ygg.maintenance.classification/v1" "maintenance-classification"
+    "ygg.index-maintenance.classification/v1" "index-maintenance-classification"
     "ygg.infra.review-packet/v1" "infra-review"
     "ygg.infra.review-result/v1" "infra-review-result"
     "ygg.dependency.review-packet/v1" "dependency-review"
     "ygg.dependency.review-result/v1" "dependency-review-result"
-    "ygg.maintain/v1" "maintenance-report"
+    "ygg.index-maintenance.report/v1" "index-maintenance-report"
     nil))
 
 (defn- payload-project-id
@@ -348,7 +347,7 @@
                            :path (get-in payload [:facts :unresolvedImport :path])
                            :line (get-in payload [:facts :unresolvedImport :line])}
 
-                          "ygg.maintenance.decision-packet/v1"
+                          "ygg.frontier.decision/v1"
                           (cond-> {:id (:decisionId payload)
                                    :kind (:kind decision)
                                    :severity (:severity decision)
@@ -375,6 +374,7 @@
       (assoc :expected-result-schema (:expectedResultSchema payload))
       (get-in item [:result :schema])
       (assoc :result-schema (get-in item [:result :schema]))
+      (:source item) (assoc :source (:source item))
       (seq actions) (assoc :actions actions)
       payload-summary (assoc :payload-summary payload-summary)
       (:lease item) (assoc :lease (:lease item)))))

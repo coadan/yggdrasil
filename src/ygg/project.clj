@@ -30,6 +30,11 @@
        file
        (io/file base root)))))
 
+(defn- relative-path?
+  [path]
+  (let [file (io/file path)]
+    (not (.isAbsolute file))))
+
 (defn- read-json-file
   [path]
   (json/read-json (slurp (io/file path)) :key-fn keyword))
@@ -194,6 +199,117 @@
      :extractors (extractor-plugin/normalize-plugins extractors)
      :reports (report-plugin/normalize-plugins reports)}))
 
+(def ^:private index-maintenance-executor-types
+  #{:openai-compatible :anthropic-compatible :command-harness})
+
+(def ^:private index-maintenance-api-providers
+  #{:deepseek :openrouter})
+
+(def ^:private index-maintenance-apply-modes
+  #{:complete-only :validate-only})
+
+(defn- deepseek-v4+-model?
+  [model]
+  (boolean
+   (re-matches #"^(?:deepseek/)?deepseek-v(?:[4-9]|[1-9][0-9]+)(?:[-._/].*)?$"
+               (str model))))
+
+(defn- normalize-work-kinds
+  [executor]
+  (let [kinds (:kinds executor)]
+    (when-not (and (or (sequential? kinds) (set? kinds)) (seq kinds))
+      (throw (ex-info "Index maintenance executor requires non-empty :kinds."
+                      {:executor-id (:id executor)})))
+    (set (map name kinds))))
+
+(defn- normalize-api-executor
+  [executor]
+  (let [provider (keyword (or (:provider executor) :deepseek))
+        model (str (or (:model executor)
+                       (case provider
+                         :openrouter "deepseek/deepseek-v4-flash"
+                         "deepseek-v4-flash")))]
+    (when-not (contains? index-maintenance-api-providers provider)
+      (throw (ex-info "Index maintenance API executor only supports DeepSeek or OpenRouter."
+                      {:executor-id (:id executor)
+                       :provider provider
+                       :supported (sort index-maintenance-api-providers)})))
+    (when-not (deepseek-v4+-model? model)
+      (throw (ex-info "Index maintenance API executor model must be DeepSeek V4 or newer."
+                      {:executor-id (:id executor)
+                       :model model})))
+    (assoc executor
+           :provider provider
+           :model model
+           :env (str (or (:env executor)
+                         (case provider
+                           :openrouter "YGG_OPENROUTER_API_KEY"
+                           "YGG_DEEPSEEK_API_KEY"))))))
+
+(defn- normalize-command-executor
+  [executor]
+  (let [command (:command executor)]
+    (when-not (and (sequential? command) (seq command))
+      (throw (ex-info "Command index maintenance executor requires non-empty :command."
+                      {:executor-id (:id executor)})))
+    (assoc executor
+           :command (mapv str command)
+           :timeout-ms (long (or (:timeout-ms executor) 600000)))))
+
+(defn- normalize-index-maintenance-executor
+  [executor]
+  (let [id (some-> (:id executor) str)
+        type (keyword (:type executor))]
+    (when (str/blank? id)
+      (throw (ex-info "Index maintenance executor is missing :id." {:executor executor})))
+    (when-not (contains? index-maintenance-executor-types type)
+      (throw (ex-info "Index maintenance executor declares unsupported :type."
+                      {:executor-id id
+                       :type type
+                       :supported (sort index-maintenance-executor-types)})))
+    (cond-> (assoc executor
+                   :id id
+                   :type type
+                   :kinds (normalize-work-kinds executor))
+      (contains? #{:openai-compatible :anthropic-compatible} type)
+      normalize-api-executor
+
+      (= :command-harness type)
+      normalize-command-executor)))
+
+(defn- normalize-index-maintenance-apply
+  [apply-config]
+  (let [apply-config (or apply-config {})
+        mode (keyword (or (:mode apply-config) :complete-only))]
+    (when-not (contains? index-maintenance-apply-modes mode)
+      (throw (ex-info "Index maintenance worker apply mode is not supported yet."
+                      {:mode mode
+                       :supported (sort index-maintenance-apply-modes)})))
+    (assoc apply-config :mode mode)))
+
+(defn- normalize-index-maintenance-worker
+  [base data]
+  (when-let [worker (:index-maintenance-worker data)]
+    (let [executors (:executors worker)]
+      (when-not (and (sequential? executors) (seq executors))
+        (throw (ex-info "Index maintenance worker requires non-empty :executors." {})))
+      (cond-> (assoc worker
+                     :enabled (boolean (:enabled worker))
+                     :agent-id (str (or (:agent-id worker) "ygg-auto"))
+                     :queue-dir (resolve-root base (or (:queue-dir worker)
+                                                       ".dev/ygg/queue"))
+                     :report-dir (resolve-root base (or (:report-dir worker)
+                                                        ".dev/reports/index-maintenance"))
+                     :lease-minutes (long (or (:lease-minutes worker) 10))
+                     :max-items-per-run (long (or (:max-items-per-run worker) 25))
+                     :apply (normalize-index-maintenance-apply (:apply worker))
+                     :executors (mapv normalize-index-maintenance-executor executors)
+                     :base-dir (fs/canonical-path base))
+        (:map-path worker)
+        (assoc :map-path (if (relative-path? (:map-path worker))
+                           (resolve-root base (:map-path worker))
+                           (fs/canonical-path (:map-path worker))))))))
+
 (defn plugin-packages
   "Return normalized installed plugin package summaries for a project."
   [project]
@@ -223,6 +339,7 @@
   [base data {:keys [path]}]
   (let [base (or base (io/file "."))
         plugins (plugin-config base data)
+        index-maintenance-worker (normalize-index-maintenance-worker base data)
         project-id (some-> (:id data) str)]
     (when (str/blank? project-id)
       (throw (ex-info "Project config is missing :id."
@@ -233,7 +350,9 @@
              :repos (normalize-repos base data)}
       path (assoc :path path)
       (some seq (vals plugins))
-      (assoc :plugins plugins))))
+      (assoc :plugins plugins)
+      index-maintenance-worker
+      (assoc :index-maintenance-worker index-maintenance-worker))))
 
 (defn add-repo-to-config!
   "Add a repo entry to project config and return the normalized project.

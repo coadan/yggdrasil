@@ -9,6 +9,7 @@
             [ygg.dependency-review :as dependency-review]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
+            [ygg.index-maintenance :as index-maintenance]
             [ygg.infra-review :as infra-review]
             [ygg.init :as init]
             [ygg.map-store :as map-store]
@@ -462,8 +463,15 @@
             parsed (read-json-output out)
             items (queue/list-items root {:status "ready"})]
         (is (= "ygg.sync.check/v1" (:schema parsed)))
+        (is (= index-maintenance/schema (get-in parsed [:report :schema])))
+        (is (= "graph" (get-in parsed [:report :lanes :graph :lane])))
+        (is (= 3 (count (get-in parsed [:report :work]))))
         (is (= #{"maintenance-decision" "infra-review" "dependency-review"}
                (set (mapv #(get-in % [:item :kind]) items))))
+        (is (= #{{:schema index-maintenance/source-schema
+                  :producer index-maintenance/producer
+                  :lane index-maintenance/graph-lane}}
+               (set (mapv #(get-in % [:item :source]) items))))
         (is (= #{"maintenance-decision:test" nil}
                (set (mapv #(get-in % [:item :payload :decisionId]) items))))
         (is (= #{"infra-review:test" nil}
@@ -1420,7 +1428,7 @@
     (is (= ["set-system-kind" "none"]
            (:allowedActions packet)))
     (is (= [{:path [:mapPatch 0 :op]
-             :error "Maintenance map patch op is not allowed for this decision."
+             :error "Index maintenance map patch op is not allowed for this decision."
              :value "add-edge"}]
            (decision-classifier/validate-result item)))
     (is (empty? (decision-classifier/validate-result

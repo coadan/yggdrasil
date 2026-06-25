@@ -7,6 +7,8 @@
             [ygg.embedding.local :as local-embedding]
             [ygg.evidence :as evidence]
             [ygg.hook :as hook]
+            [ygg.index-maintenance :as index-maintenance]
+            [ygg.index-maintenance-worker :as index-maintenance-worker]
             [ygg.plugin-package :as plugin-package]
             [ygg.project :as project]
             [ygg.report :as report]
@@ -100,6 +102,7 @@
     (is (str/includes? usage "bench agent-compare"))
     (is (str/includes? usage "bench claim-pack"))
     (is (str/includes? usage "sync work heartbeat"))
+    (is (str/includes? usage "sync work auto <project.edn>"))
     (is (str/includes? usage "embed setup [--venv PATH] [--python PYTHON] [--json]"))
     (is (str/includes? usage "--cases ID,ID"))
     (is (str/includes? usage "--min-evidence-citation-rate N"))
@@ -115,6 +118,29 @@
     (is (str/includes? usage "--max-missed-and-absent-from-context-runs N"))
     (is (str/includes? usage "--require-parser-worker none|java|dotnet|javascript|typescript|all"))
     (is (not (str/includes? usage "overlay")))))
+
+(deftest sync-work-auto-dispatches-to-index-maintenance-worker
+  (let [calls (atom [])]
+    (with-redefs [project/read-project (fn [path]
+                                         (swap! calls conj [:project path])
+                                         project-fixture)
+                  index-maintenance-worker/run! (fn [project]
+                                                  (swap! calls conj [:run (:id project)])
+                                                  {:schema index-maintenance-worker/schema
+                                                   :project-id (:id project)
+                                                   :status "disabled"
+                                                   :counts {:claimed 0
+                                                            :completed 0
+                                                            :failed 0
+                                                            :validated 0}})]
+      (let [result (read-json-output
+                    (with-out-str
+                      (cli/dispatch "sync" ["work" "auto" "project.edn" "--json"])))]
+        (is (= [[:project "project.edn"]
+                [:run "fixture"]]
+               @calls))
+        (is (= "ygg.index-maintenance-worker.run/v1" (:schema result)))
+        (is (= "disabled" (:status result)))))))
 
 (deftest embed-setup-dispatches-to-local-embedding-setup
   (let [calls (atom [])]
@@ -1077,24 +1103,25 @@
 (deftest maintenance-summary-prints-decision-breakdown
   (let [out (with-out-str
               (#'cli/print-maintenance-report
-               {:project-id "fixture"
-                :graph-basis {:hash "basis123"}
-                :counts {:maintenance-decisions 2}
-                :decision-summary {:total 2
-                                   :bySeverity [{:severity :high
-                                                 :count 1}
-                                                {:severity :low
-                                                 :count 1}]
-                                   :byKind [{:kind :ambiguous-high-salience-edge
-                                             :count 1}
-                                            {:kind :unclustered-system
-                                             :count 1}]
-                                   :byRecommendedAction [{:action :accept-system
-                                                          :count 1}
-                                                         {:action :set-edge-visibility
-                                                          :count 2}]}
-                :decision-queue []}))]
-    (is (str/includes? out "# Maintain"))
+               (index-maintenance/from-graph-report
+                {:project-id "fixture"
+                 :graph-basis {:hash "basis123"}
+                 :counts {:maintenance-decisions 2}
+                 :decision-summary {:total 2
+                                    :bySeverity [{:severity :high
+                                                  :count 1}
+                                                 {:severity :low
+                                                  :count 1}]
+                                    :byKind [{:kind :ambiguous-high-salience-edge
+                                              :count 1}
+                                             {:kind :unclustered-system
+                                              :count 1}]
+                                    :byRecommendedAction [{:action :accept-system
+                                                           :count 1}
+                                                          {:action :set-edge-visibility
+                                                           :count 2}]}
+                 :decision-queue []})))]
+    (is (str/includes? out "# Index Maintain"))
     (is (str/includes? out "- decision-summary severity high:1,low:1 kind ambiguous-high-salience-edge:1,unclustered-system:1 action accept-system:1,set-edge-visibility:2"))))
 
 (deftest benchmark-summary-prints-parser-worker-profiles

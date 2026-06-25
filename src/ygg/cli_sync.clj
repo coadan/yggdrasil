@@ -2,14 +2,13 @@
   (:require [ygg.activity :as activity]
             [ygg.cli-options :refer [dry-run? json-output? option-value parse-double-option parse-limit positional-args]]
             [ygg.coverage :as coverage]
-            [ygg.dependency-review :as dependency-review]
-            [ygg.infra-review :as infra-review]
             [ygg.index :as index]
+            [ygg.index-maintenance :as index-maintenance]
+            [ygg.index-maintenance-worker :as index-maintenance-worker]
             [ygg.map-store :as map-store]
             [ygg.project :as project]
             [ygg.project-registry :as registry]
             [ygg.queue :as queue]
-            [ygg.system.decision-classifier :as decision-classifier]
             [ygg.xtdb :as store]
             [clojure.string :as str]))
 
@@ -29,7 +28,6 @@
 (defn- queue-priority
   ([args] (call-dep :queue-priority args))
   ([args default] (call-dep :queue-priority args default)))
-(defn- severity-priority [severity] (call-dep :severity-priority severity))
 (defn- print-source-coverage [report] (call-dep :print-source-coverage report))
 (defn- print-sync-summary [result] (call-dep :print-sync-summary result))
 (defn- print-project-add-repo-summary [result] (call-dep :print-project-add-repo-summary result))
@@ -53,130 +51,135 @@
   [{:keys [relation confidence source-id target-id]}]
   (println "-" (name relation) (format "%.2f" (double confidence)) source-id "->" target-id))
 (defn print-maintenance-report
-  [{:keys [project-id graph-basis map counts scale graph-health fold-in orphaned-systems
-           dangling-edges low-confidence-edges decision-summary
-           external-api-review decision-queue infra-review-queue dependency-review-queue]}]
-  (println "# Maintain")
-  (println "- project" project-id)
-  (when graph-basis
-    (println "- graph-basis" (:hash graph-basis)))
-  (when map
-    (println "- map-rejects" (:rejects map))
-    (println "- map-rejected-systems" (:rejected-systems map)))
-  (doseq [[k v] counts]
-    (println "-" (name k) v))
-  (when scale
-    (println "- scale" (name (:tier scale)))
-    (println "- noise-ratio" (format "%.2f" (double (get-in scale [:ratios :noise]))))
-    (println "- orphan-ratio" (format "%.2f" (double (get-in scale [:ratios :orphaned])))))
-  (when (pos? (long (:total decision-summary 0)))
-    (println "- decision-summary"
-             "severity"
-             (str/join ","
-                       (clojure.core/map (fn [{:keys [severity count]}]
-                                           (str (name severity) ":" count))
-                                         (:bySeverity decision-summary)))
-             "kind"
-             (str/join ","
-                       (clojure.core/map (fn [{:keys [kind count]}]
-                                           (str (name kind) ":" count))
-                                         (:byKind decision-summary)))
-             "action"
-             (str/join ","
-                       (clojure.core/map (fn [{:keys [action count]}]
-                                           (str (name action) ":" count))
-                                         (:byRecommendedAction decision-summary)))))
-  (when (seq (or (:high-degree-hubs graph-health) (:top-hubs scale)))
-    (println)
-    (println "## Top Hubs")
-    (doseq [{:keys [label kind repo-id degree]} (take 10 (or (:high-degree-hubs graph-health)
-                                                             (:top-hubs scale)))]
-      (println "-" label "[" (name kind) "]" "repo" repo-id "degree" degree)))
-  (when (seq (:cross-cluster-edges graph-health))
-    (println)
-    (println "## Cross Cluster Edges")
-    (doseq [{:keys [relation salience source target]} (take 10 (:cross-cluster-edges graph-health))]
-      (println "-"
-               (name relation)
-               (format "%.2f" (double (or salience 0.0)))
-               (:label source)
-               "->"
-               (:label target))))
-  (when (seq (:evidence-concentrations graph-health))
-    (println)
-    (println "## Evidence Concentrations")
-    (doseq [{:keys [system kind count]} (take 10 (:evidence-concentrations graph-health))]
-      (println "-"
-               (:label system)
-               "[" (name kind) "]"
-               "count"
-               count)))
-  (when (or (pos? (long (get-in external-api-review [:counts :nodes] 0)))
-            (seq (:source-fanouts external-api-review)))
-    (println)
-    (println "## External API Review")
-    (doseq [[k v] (:counts external-api-review)]
+  [report]
+  (let [{:keys [project-id graph-basis map counts scale graph-health fold-in orphaned-systems
+                dangling-edges low-confidence-edges decision-summary
+                external-api-review decision-queue infra-review-queue dependency-review-queue]}
+        (index-maintenance/graph-report report)]
+    (println "# Index Maintain")
+    (println "- project" (:project-id report project-id))
+    (println "- schema" (:schema report))
+    (when-let [lanes (seq (:lanes report))]
+      (println "- lanes" (str/join "," (clojure.core/map (comp name key) lanes))))
+    (when graph-basis
+      (println "- graph-basis" (:hash graph-basis)))
+    (when map
+      (println "- map-rejects" (:rejects map))
+      (println "- map-rejected-systems" (:rejected-systems map)))
+    (doseq [[k v] counts]
       (println "-" (name k) v))
-    (when (seq (:source-fanouts external-api-review))
+    (when scale
+      (println "- scale" (name (:tier scale)))
+      (println "- noise-ratio" (format "%.2f" (double (get-in scale [:ratios :noise]))))
+      (println "- orphan-ratio" (format "%.2f" (double (get-in scale [:ratios :orphaned])))))
+    (when (pos? (long (:total decision-summary 0)))
+      (println "- decision-summary"
+               "severity"
+               (str/join ","
+                         (clojure.core/map (fn [{:keys [severity count]}]
+                                             (str (name severity) ":" count))
+                                           (:bySeverity decision-summary)))
+               "kind"
+               (str/join ","
+                         (clojure.core/map (fn [{:keys [kind count]}]
+                                             (str (name kind) ":" count))
+                                           (:byKind decision-summary)))
+               "action"
+               (str/join ","
+                         (clojure.core/map (fn [{:keys [action count]}]
+                                             (str (name action) ":" count))
+                                           (:byRecommendedAction decision-summary)))))
+    (when (seq (or (:high-degree-hubs graph-health) (:top-hubs scale)))
       (println)
-      (println "### Source Fanouts")
-      (doseq [{:keys [peer relation visibility direction target-count evidence-count]} (take 10 (:source-fanouts external-api-review))]
+      (println "## Top Hubs")
+      (doseq [{:keys [label kind repo-id degree]} (take 10 (or (:high-degree-hubs graph-health)
+                                                               (:top-hubs scale)))]
+        (println "-" label "[" (name kind) "]" "repo" repo-id "degree" degree)))
+    (when (seq (:cross-cluster-edges graph-health))
+      (println)
+      (println "## Cross Cluster Edges")
+      (doseq [{:keys [relation salience source target]} (take 10 (:cross-cluster-edges graph-health))]
         (println "-"
-                 (:label peer)
-                 (or (some-> relation name) relation)
-                 (or (some-> direction name) direction)
-                 "visibility"
-                 visibility
-                 "targets"
-                 target-count
-                 "evidence"
-                 evidence-count))))
-  (when (seq orphaned-systems)
-    (println)
-    (println "## Orphaned Systems")
-    (doseq [node (take 20 orphaned-systems)]
-      (print-node-finding node)))
-  (when (seq dangling-edges)
-    (println)
-    (println "## Dangling Edges")
-    (doseq [edge (take 20 dangling-edges)]
-      (print-edge-finding edge)))
-  (when (seq low-confidence-edges)
-    (println)
-    (println "## Low Confidence Edges")
-    (doseq [edge (take 20 low-confidence-edges)]
-      (print-edge-finding edge)))
-  (when (seq decision-queue)
-    (println)
-    (println "## Decision Queue")
-    (doseq [{:keys [id kind severity target reason]} (take 20 decision-queue)]
-      (println "-" (name severity) (name kind) target "-" reason)
-      (println " " id)))
-  (when (seq infra-review-queue)
-    (println)
-    (println "## Infra Review Queue")
-    (doseq [{:keys [reviewId kind artifact question]} (take 20 infra-review-queue)]
-      (println "-" kind artifact "-" question)
-      (println " " reviewId)))
-  (when (seq dependency-review-queue)
-    (println)
-    (println "## Dependency Review Queue")
-    (doseq [{:keys [reviewId question facts]} (take 20 dependency-review-queue)]
-      (let [unresolved (:unresolvedImport facts)]
+                 (name relation)
+                 (format "%.2f" (double (or salience 0.0)))
+                 (:label source)
+                 "->"
+                 (:label target))))
+    (when (seq (:evidence-concentrations graph-health))
+      (println)
+      (println "## Evidence Concentrations")
+      (doseq [{:keys [system kind count]} (take 10 (:evidence-concentrations graph-health))]
         (println "-"
-                 (:import unresolved)
-                 (when-let [path (:path unresolved)]
-                   (str path (when-let [line (:line unresolved)]
-                               (str ":" line))))
-                 "-"
-                 question)
-        (println " " reviewId))))
-  (when (seq (:actions fold-in))
-    (println)
-    (println "## Fold In")
-    (doseq [{:keys [kind command reason]} (:actions fold-in)]
-      (println "-" (name kind) command)
-      (println " " reason))))
+                 (:label system)
+                 "[" (name kind) "]"
+                 "count"
+                 count)))
+    (when (or (pos? (long (get-in external-api-review [:counts :nodes] 0)))
+              (seq (:source-fanouts external-api-review)))
+      (println)
+      (println "## External API Review")
+      (doseq [[k v] (:counts external-api-review)]
+        (println "-" (name k) v))
+      (when (seq (:source-fanouts external-api-review))
+        (println)
+        (println "### Source Fanouts")
+        (doseq [{:keys [peer relation visibility direction target-count evidence-count]} (take 10 (:source-fanouts external-api-review))]
+          (println "-"
+                   (:label peer)
+                   (or (some-> relation name) relation)
+                   (or (some-> direction name) direction)
+                   "visibility"
+                   visibility
+                   "targets"
+                   target-count
+                   "evidence"
+                   evidence-count))))
+    (when (seq orphaned-systems)
+      (println)
+      (println "## Orphaned Systems")
+      (doseq [node (take 20 orphaned-systems)]
+        (print-node-finding node)))
+    (when (seq dangling-edges)
+      (println)
+      (println "## Dangling Edges")
+      (doseq [edge (take 20 dangling-edges)]
+        (print-edge-finding edge)))
+    (when (seq low-confidence-edges)
+      (println)
+      (println "## Low Confidence Edges")
+      (doseq [edge (take 20 low-confidence-edges)]
+        (print-edge-finding edge)))
+    (when (seq decision-queue)
+      (println)
+      (println "## Decision Queue")
+      (doseq [{:keys [id kind severity target reason]} (take 20 decision-queue)]
+        (println "-" (name severity) (name kind) target "-" reason)
+        (println " " id)))
+    (when (seq infra-review-queue)
+      (println)
+      (println "## Infra Review Queue")
+      (doseq [{:keys [reviewId kind artifact question]} (take 20 infra-review-queue)]
+        (println "-" kind artifact "-" question)
+        (println " " reviewId)))
+    (when (seq dependency-review-queue)
+      (println)
+      (println "## Dependency Review Queue")
+      (doseq [{:keys [reviewId question facts]} (take 20 dependency-review-queue)]
+        (let [unresolved (:unresolvedImport facts)]
+          (println "-"
+                   (:import unresolved)
+                   (when-let [path (:path unresolved)]
+                     (str path (when-let [line (:line unresolved)]
+                                 (str ":" line))))
+                   "-"
+                   question)
+          (println " " reviewId))))
+    (when (seq (:actions fold-in))
+      (println)
+      (println "## Fold In")
+      (doseq [{:keys [kind command reason]} (:actions fold-in)]
+        (println "-" (name kind) command)
+        (println " " reason)))))
 (defn- repo-run-summary
   [run]
   {:repo-id (:repo-id run)
@@ -299,58 +302,31 @@
 (defn maintenance-report
   ([xtdb project args]
    (let [map-path (default-map-path args)]
-     (project/maintain-project
-      xtdb
-      project
-      {:low-confidence-threshold (parse-double-option args "--min-confidence" 0.60)
-       :map-overlay (when map-path
-                      (map-store/read-map map-path))})))
+     (index-maintenance/from-graph-report
+      (project/maintain-project
+       xtdb
+       project
+       {:low-confidence-threshold (parse-double-option args "--min-confidence" 0.60)
+        :map-overlay (when map-path
+                       (map-store/read-map map-path))}))))
   ([xtdb project args deps]
    (binding [*deps* deps]
      (maintenance-report xtdb project args))))
-(defn- enqueue-maintenance-decisions!
-  [args decisions]
-  (mapv
-   (fn [decision]
-     (queue/item-summary
-      (queue/enqueue!
-       (decision-classifier/decision-packet decision)
-       {:root (queue-root args)
-        :kind "maintenance-decision"
-        :project-id (:project-id decision)
-        :priority (queue-priority args (severity-priority (:severity decision)))})))
-   decisions))
-(defn- enqueue-infra-review-packets!
-  [args packets]
-  (mapv
-   (fn [packet]
-     (queue/item-summary
-      (queue/enqueue!
-       packet
-       {:root (queue-root args)
-        :kind infra-review/work-kind
-        :project-id (:project-id packet)
-        :priority (queue-priority args 50)})))
-   packets))
-(defn- enqueue-dependency-review-packets!
-  [args packets]
-  (mapv
-   (fn [packet]
-     (queue/item-summary
-      (queue/enqueue!
-       packet
-       {:root (queue-root args)
-        :kind dependency-review/work-kind
-        :project-id (:project-id packet)
-        :priority (queue-priority args 45)})))
-   packets))
+(defn- enqueue-work-item!
+  [args {:keys [kind payload priority project-id source]}]
+  (queue/item-summary
+   (queue/enqueue!
+    payload
+    {:root (queue-root args)
+     :kind kind
+     :project-id project-id
+     :priority (queue-priority args priority)
+     :source source})))
+
 (defn enqueue-sync-work!
   ([args report]
-   (vec
-    (concat
-     (enqueue-maintenance-decisions! args (:decision-queue report))
-     (enqueue-infra-review-packets! args (:infra-review-queue report))
-     (enqueue-dependency-review-packets! args (:dependency-review-queue report)))))
+   (mapv #(enqueue-work-item! args %)
+         (index-maintenance/work-items report)))
   ([args report deps]
    (binding [*deps* deps]
      (enqueue-sync-work! args report))))
@@ -579,6 +555,14 @@
                             id
                             {:agent-id (queue-agent work-args)
                              :lease-ms (queue-lease-ms work-args)}))))
+
+      :auto
+      (let [config-path (first positional)]
+        (when-not config-path
+          (throw (ex-info "Missing project config path."
+                          {:usage (usage)})))
+        (print-json
+         (index-maintenance-worker/run! (project/read-project config-path))))
 
       (throw (ex-info "Unknown sync work command." {:command action
                                                     :usage (usage)})))))

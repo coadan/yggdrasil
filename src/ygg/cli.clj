@@ -20,14 +20,13 @@
             [ygg.cli-sync :as cli-sync]
             [ygg.context :as context]
             [ygg.dependency :as dependency]
-            [ygg.dependency-review :as dependency-review]
             [ygg.embedding :as embedding]
             [ygg.embedding.local :as local-embedding]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
             [ygg.hook :as hook]
             [ygg.index :as index]
-            [ygg.infra-review :as infra-review]
+            [ygg.index-maintenance :as index-maintenance]
             [ygg.map :as graph-map]
             [ygg.map-api :as map-api]
             [ygg.map-store :as map-store]
@@ -43,6 +42,7 @@
             [ygg.system :as system]
             [ygg.system.decision-classifier :as decision-classifier]
             [ygg.watch :as watch]
+            [ygg.work :as work]
             [ygg.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -188,105 +188,13 @@
       (throw (ex-info "Missing --map and ygg.map.json was not found."
                       {:usage (usage)}))))
 
-(defn- apply-work-result-without-validation!
-  [root id map-path payload-schema]
-  (case payload-schema
-    "ygg.infra.review-packet/v1"
-    (infra-review/apply-work-result! root id map-path)
-
-    "ygg.dependency.review-packet/v1"
-    (dependency-review/apply-work-result! root id map-path)
-
-    "ygg.maintenance.decision-packet/v1"
-    (decision-classifier/apply-work-result! root id map-path)
-
-    {:schema "ygg.sync.work.apply/v1"
-     :status "failed"
-     :errors [{:path [:payload :schema]
-               :error "No apply handler for work item payload schema."
-               :value payload-schema}]}))
-
-(defn- work-apply-schema
-  [payload-schema]
-  (case payload-schema
-    "ygg.infra.review-packet/v1" infra-review/apply-schema
-    "ygg.dependency.review-packet/v1" dependency-review/apply-schema
-    "ygg.maintenance.decision-packet/v1" decision-classifier/apply-schema
-    "ygg.sync.work.apply/v1"))
-
 (defn- validate-work-result
   [root id]
-  (let [found (or (queue/find-item root id)
-                  (throw (ex-info "Queue item not found." {:id id})))
-        item (:item found)
-        payload-schema (get-in item [:payload :schema])
-        result-schema (get-in item [:result :schema])
-        status (queue/status-name (:status item))
-        expected-result-schema (get-in item [:payload :expectedResultSchema])
-        raw-errors (case payload-schema
-                     "ygg.infra.review-packet/v1"
-                     (infra-review/validate-result item)
-
-                     "ygg.dependency.review-packet/v1"
-                     (dependency-review/validate-result item)
-
-                     "ygg.maintenance.decision-packet/v1"
-                     (decision-classifier/validate-result item)
-
-                     nil)
-        errors (when (= "done" status)
-                 raw-errors)]
-    (cond-> {:schema "ygg.sync.work.validation/v1"
-             :status (cond
-                       (not= "done" status) "not-done"
-                       (nil? raw-errors) "unsupported"
-                       (seq errors) "invalid"
-                       :else "valid")
-             :payload-schema payload-schema
-             :item (queue/item-summary found)}
-      result-schema (assoc :result-schema result-schema)
-      expected-result-schema (assoc :expected-result-schema expected-result-schema)
-      (seq errors) (assoc :errors errors)
-      (and (= "done" status)
-           (nil? raw-errors))
-      (assoc :errors [{:path [:payload :schema]
-                       :error "No validation handler for work item payload schema."
-                       :value payload-schema}]))))
-
-(defn- validation-apply-errors
-  [validation]
-  (or (seq (:errors validation))
-      [{:path [:validation :status]
-        :error "Work result must validate before apply."
-        :value (:status validation)}]))
-
-(defn- failed-validated-apply-result
-  [root id validation]
-  (let [errors (vec (validation-apply-errors validation))
-        done? (= "done" (get-in validation [:item :status]))
-        failed (when done?
-                 (queue/fail! root
-                              id
-                              (str "Invalid sync work result: "
-                                   (str/join "; " (map :error errors)))))]
-    {:schema (work-apply-schema (:payload-schema validation))
-     :status "failed"
-     :errors errors
-     :validation validation
-     :item (if failed
-             (queue/item-summary failed)
-             (:item validation))}))
+  (work/validate-result root id))
 
 (defn- apply-work-result!
   [root id map-path]
-  (let [validation (validate-work-result root id)]
-    (if (= "valid" (:status validation))
-      (assoc (apply-work-result-without-validation! root
-                                                    id
-                                                    map-path
-                                                    (:payload-schema validation))
-             :validation validation)
-      (failed-validated-apply-result root id validation))))
+  (work/apply-result! root id map-path))
 
 (defn- print-json
   [value]
@@ -752,6 +660,7 @@
     "  sync work reject <work-id> --reason TEXT [--queue-dir DIR]"
     "  sync work release <work-id> [--reason TEXT] [--queue-dir DIR]"
     "  sync work heartbeat <work-id> [--queue-dir DIR] [--agent ID] [--lease-minutes N]"
+    "  sync work auto <project.edn> [--json]"
     "  map init <project.edn> [--map ygg.map.json]"
     "  map status <project.edn> [--map ygg.map.json] [--json]"
     "  map review <project.edn> [--map ygg.map.json] [--limit N] [--json]"
@@ -990,6 +899,9 @@
                      {:root (queue-root classify-args)
                       :kind "maintenance-decision"
                       :project-id project-id
+                      :source {:schema index-maintenance/source-schema
+                               :producer index-maintenance/producer
+                               :lane index-maintenance/graph-lane}
                       :priority (queue-priority classify-args
                                                 (severity-priority (:severity decision)))})))
                   (print-json
@@ -1530,15 +1442,16 @@
             (store/with-node (store/storage-path (:id project))
               (fn [xtdb]
                 (let [map-path (default-map-path project-args)
-                      report (project/maintain-project
-                              xtdb
-                              project
-                              {:low-confidence-threshold
-                               (parse-double-option project-args
-                                                    "--min-confidence"
-                                                    0.60)
-                               :map-overlay (when map-path
-                                              (map-store/read-map map-path))})]
+                      report (index-maintenance/from-graph-report
+                              (project/maintain-project
+                               xtdb
+                               project
+                               {:low-confidence-threshold
+                                (parse-double-option project-args
+                                                     "--min-confidence"
+                                                     0.60)
+                                :map-overlay (when map-path
+                                               (map-store/read-map map-path))}))]
                   (if (json-output? project-args)
                     (print-json report)
                     (print-maintenance-report report)))))
