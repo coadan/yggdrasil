@@ -4,15 +4,6 @@
 (def unavailable-exit
   75)
 
-(def unavailable-message
-  "Yggdrasil server is not running. Run `ygg start` first.\n")
-
-(defn unavailable-response
-  []
-  {:exit unavailable-exit
-   :out ""
-   :err unavailable-message})
-
 (defn direct-entrypoint-message
   [entrypoint command]
   (str "Direct " entrypoint " entrypoint is disabled. "
