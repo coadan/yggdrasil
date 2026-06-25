@@ -37,13 +37,22 @@
   [value]
   (str/replace (str/lower-case (str value)) #"[^a-z0-9]" ""))
 
+(defn- normalized-name-variants
+  [value]
+  (let [base (normalized-name value)]
+    (cond-> #{base}
+      (str/includes? base "2") (conj (str/replace base "2" "to")))))
+
 (defn- normalized-prefix?
   [prefix value]
-  (let [prefix (normalized-name prefix)
-        value (normalized-name value)]
-    (and (seq prefix)
-         (or (= prefix value)
-             (str/starts-with? value prefix)))))
+  (boolean
+   (some (fn [prefix]
+           (and (seq prefix)
+                (some (fn [value]
+                        (or (= prefix value)
+                            (str/starts-with? value prefix)))
+                      (normalized-name-variants value))))
+         (normalized-name-variants prefix))))
 
 (defn- name-root
   [value]
@@ -51,10 +60,13 @@
 
 (defn- normalized-root-match?
   [target package-name]
-  (let [target-root (normalized-name (name-root target))
-        package-root (normalized-name (name-root package-name))]
-    (and (seq target-root)
-         (= target-root package-root))))
+  (let [target-roots (normalized-name-variants (name-root target))
+        package-roots (normalized-name-variants (name-root package-name))]
+    (boolean
+     (some (fn [target-root]
+             (and (seq target-root)
+                  (contains? package-roots target-root)))
+           target-roots))))
 
 (defn- package-match-score
   [target package-name]

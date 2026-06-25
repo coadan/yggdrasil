@@ -74,6 +74,18 @@ The binary is written to `target/native/ygg-server`. `bin/ygg start` prefers
 that binary when it exists and falls back to the Clojure server path otherwise.
 Set `YGG_NATIVE_SERVER` to point the wrapper at another built server binary.
 
+When the host does not have GraalVM installed, use Docker to verify the
+native-image build in the GraalVM community image:
+
+```sh
+bb graalvm:docker-check
+bb graalvm:docker-native
+```
+
+The Docker build writes `target/native/ygg-server-linux`; it is a Linux
+verification binary and is intentionally separate from the host launcher path.
+Set `YGG_NATIVE_IMAGE_DOCKER_IMAGE` to use another GraalVM native-image image.
+
 `ygg-mcp` is the stdio MCP proxy for editor and agent integrations. It uses the
 local Yggdrasil server started by `ygg init` or `ygg start`, then lists the
 primary `ygg_query`, `ygg_node`, `ygg_status`, and

@@ -11,7 +11,6 @@
             [charred.api :as json]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.pprint :as pprint]
             [clojure.string :as str]))
 
 (defn now-ms
@@ -90,7 +89,7 @@
   (with-open [writer (io/writer path)]
     (binding [*out* writer
               *print-namespace-maps* false]
-      (pprint/pprint data)))
+      (prn data)))
   path)
 
 (defn- normalize-repo

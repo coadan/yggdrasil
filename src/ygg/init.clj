@@ -7,7 +7,6 @@
             [charred.api :as json]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
-            [clojure.pprint :as pprint]
             [clojure.string :as str]))
 
 (def schema
@@ -49,7 +48,7 @@
     (with-open [writer (io/writer file)]
       (binding [*out* writer
                 *print-namespace-maps* false]
-        (pprint/pprint value)))
+        (prn value)))
     (.getPath file)))
 
 (defn- repos-json-count

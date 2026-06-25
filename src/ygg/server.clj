@@ -10,6 +10,7 @@
             [ygg.cli-start :as cli-start]
             [ygg.cli-sync :as cli-sync]
             [ygg.daemon-contract :as daemon-contract]
+            [ygg.embedding-client :as embedding-client]
             [ygg.index-maintenance-worker :as index-maintenance-worker]
             [ygg.mcp :as mcp]
             [ygg.progress :as progress]
@@ -847,6 +848,7 @@
   (let [open-node-paths (if-let [node-pool (:node-pool ctx)]
                           (sort (keys @node-pool))
                           [])
+        semantic-client-count (count @(or (:semantic-client-pool ctx) (atom {})))
         maintenance-projects (mapv maintenance-project-status (registered-projects))
         enabled-projects (filterv :enabled maintenance-projects)
         scheduled-count (reduce + (map #(count (:schedules %)) maintenance-projects))
@@ -865,6 +867,7 @@
      :queuedRequests (long (:queuedRequests lock-status))
      :openNodes (count open-node-paths)
      :openNodePaths (vec open-node-paths)
+     :semanticClients semantic-client-count
      :maintenance {:scheduler {:running true
                                :pollMs scheduler-poll-ms
                                :recentRuns (vec (:runs scheduler-state))}
@@ -905,6 +908,7 @@
                              (conj (str "tool=" (:toolName operation)))))))
       (println "- queued-requests" (:queuedRequests status 0))
       (println "- open-nodes" (:openNodes status))
+      (println "- semantic-clients" (:semanticClients status 0))
       (doseq [path (:openNodePaths status)]
         (println "  -" path))
       (println)
@@ -1236,14 +1240,15 @@
 (defn handle-request
   "Handle one decoded server protocol request."
   [ctx request]
-  (if-not (authorized? ctx request)
-    {:ok false
-     :exit 1
-     :out ""
-     :err "Unauthorized server request.\n"}
-    (if (contains? logged-ops (:op request))
-      (handle-logged-request ctx request)
-      (handle-authorized-request ctx request))))
+  (binding [embedding-client/*client-pool* (:semantic-client-pool ctx)]
+    (if-not (authorized? ctx request)
+      {:ok false
+       :exit 1
+       :out ""
+       :err "Unauthorized server request.\n"}
+      (if (contains? logged-ops (:op request))
+        (handle-logged-request ctx request)
+        (handle-authorized-request ctx request)))))
 
 (defn- handle-socket!
   [ctx ^Socket socket]
@@ -1289,7 +1294,9 @@
   "Returns the Integrant config for the long-lived local Yggdrasil server."
   []
   {:ygg.server/node-pool {}
+   :ygg.server/semantic-client-pool {}
    :ygg.server/server {:node-pool (ig/ref :ygg.server/node-pool)
+                       :semantic-client-pool (ig/ref :ygg.server/semantic-client-pool)
                        :storage-path (absolute-path nil (store/storage-path))}})
 
 (defmethod ig/init-key :ygg.server/node-pool
@@ -1300,8 +1307,16 @@
   [_ node-pool]
   (close-node-pool! node-pool))
 
+(defmethod ig/init-key :ygg.server/semantic-client-pool
+  [_ _]
+  (atom {}))
+
+(defmethod ig/halt-key! :ygg.server/semantic-client-pool
+  [_ semantic-client-pool]
+  (embedding-client/close-client-pool! semantic-client-pool))
+
 (defmethod ig/init-key :ygg.server/server
-  [_ {:keys [node-pool storage-path]}]
+  [_ {:keys [node-pool semantic-client-pool storage-path]}]
   (let [{:keys [host port]} (server-endpoint)
         token (server-token)
         started-at-ms (System/currentTimeMillis)
@@ -1322,6 +1337,7 @@
              :operation-locks operation-locks
              :active-operations active-operations
              :node-pool node-pool
+             :semantic-client-pool semantic-client-pool
              :host host
              :port (.getLocalPort server)
              :storage-path storage-path
@@ -1361,6 +1377,7 @@
      :active-operations active-operations
      :scheduler-thread scheduler-thread
      :scheduler-state scheduler-state
+     :semantic-client-pool semantic-client-pool
      :host host
      :port (.getLocalPort server)
      :storage-path storage-path

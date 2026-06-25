@@ -9,7 +9,6 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
-            [clojure.pprint :as pprint]
             [clojure.string :as str])
   (:import [java.nio.file Files]))
 
@@ -170,7 +169,7 @@
   (with-open [writer (io/writer path)]
     (binding [*out* writer
               *print-namespace-maps* false]
-      (pprint/pprint data)))
+      (prn data)))
   path)
 
 (defn- git!

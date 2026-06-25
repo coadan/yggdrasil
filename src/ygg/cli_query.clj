@@ -8,9 +8,7 @@
                                      project-scope
                                      remove-option]]
             [ygg.context :as context]
-            [ygg.embedding.local :as local]
-            [ygg.embedding.openai :as openai]
-            [ygg.embedding.openrouter :as openrouter]
+            [ygg.embedding-client :as embedding-client]
             [ygg.graph :as graph]
             [ygg.hash :as hash]
             [ygg.llm.openai-compatible :as llm]
@@ -131,45 +129,23 @@
                     (str " path " path))))))
 (defn default-provider
   []
-  :local)
+  (embedding-client/default-provider))
 (defn provider-option
   [args]
   (keyword (or (option-value args "--provider")
                (name (default-provider)))))
 (defn default-model
   [provider]
-  (case provider
-    :local (local/configured-model)
-    :openrouter openrouter/default-model
-    :openai openai/default-model
-    (throw (ex-info "Unsupported embedding provider."
-                    {:provider provider
-                     :supported [:local :openrouter :openai]}))))
+  (embedding-client/default-model provider))
 (defn provider-api-key
   [provider]
-  (case provider
-    :local true
-    :openrouter (openrouter/api-key)
-    :openai (openai/api-key)
-    nil))
+  (embedding-client/provider-api-key provider))
 (defn provider-client
   [provider model]
-  (case provider
-    :local (local/client {:model model})
-    :openrouter (openrouter/client {:model model})
-    :openai (openai/client {:model model})
-    (throw (ex-info "Unsupported embedding provider."
-                    {:provider provider
-                     :supported [:local :openrouter :openai]}))))
+  (embedding-client/client provider model))
 (defn missing-key-message
   [provider]
-  (case provider
-    :local (str "Local embeddings require sentence-transformers. "
-                "Run `ygg embed setup`, or set YGG_LOCAL_EMBEDDING_COMMAND "
-                "to a custom worker command.")
-    :openrouter "Missing OpenRouter API key. Set YGG_OPENROUTER_API_KEY or OPENROUTER_API_KEY."
-    :openai "Missing OpenAI API key. Set YGG_OPENAI_API_KEY or OPENAI_API_KEY."
-    "Missing embedding provider API key."))
+  (embedding-client/missing-key-message provider))
 (defn llm-provider-option
   [args]
   (keyword (or (option-value args "--provider") "openrouter")))
@@ -321,13 +297,7 @@
       (default-graph-json-out mode value)))
 (defn query-embedding-client
   [retriever provider model]
-  (cond
-    (= :lexical retriever) nil
-    (provider-api-key provider) (provider-client provider model)
-    (= :auto retriever) nil
-    :else (throw (ex-info (missing-key-message provider)
-                          {:retriever retriever
-                           :provider provider}))))
+  (embedding-client/query-embedding-client retriever provider model))
 (defn print-graph-output
   [path data]
   (println "# Graph")

@@ -4,7 +4,6 @@
             [ygg.project :as project]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.pprint :as pprint]
             [clojure.string :as str]))
 
 (def schema
@@ -69,7 +68,7 @@
      (with-open [writer (io/writer file)]
        (binding [*out* writer
                  *print-namespace-maps* false]
-         (pprint/pprint registry)))
+         (prn registry)))
      registry)))
 
 (defn- onboarding
@@ -208,7 +207,7 @@
     (with-open [writer (io/writer file)]
       (binding [*out* writer
                 *print-namespace-maps* false]
-        (pprint/pprint value)))
+        (prn value)))
     path))
 
 (defn- parent-dirs

@@ -2,7 +2,6 @@
   "Local scaffold generation for git-shareable plugin packages."
   (:require [ygg.fs :as fs]
             [clojure.java.io :as io]
-            [clojure.pprint :as pprint]
             [clojure.string :as str]))
 
 (defn- write-edn-file!
@@ -10,7 +9,7 @@
   (with-open [writer (io/writer path)]
     (binding [*out* writer
               *print-namespace-maps* false]
-      (pprint/pprint data)))
+      (prn data)))
   path)
 
 (defn- write-file!

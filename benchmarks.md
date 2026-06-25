@@ -1,14 +1,78 @@
 # Benchmarks
 
-Generated on 2026-06-23. Artifacts live under
-`.dev/ygg/performance-benchmarks/` and are intentionally local generated
-outputs.
+Generated on 2026-06-25. Artifacts live under `.dev/ygg/server-bench/`,
+`.dev/ygg/performance-benchmarks/`, and the slice-specific `.dev/ygg/`
+subdirectories named below. They are intentionally local generated outputs.
 
 These numbers are for the current synthetic architecture benchmark slices. They
 are useful for regression tracking, but they do not support a broad efficiency
-claim by themselves. The headline agent comparison reports `mixed` /
-`inconclusive`: Yggdrasil improved localization, noise, and evidence metrics,
-but regressed token usage and wall-clock time.
+claim by themselves. The current server-backed deterministic gate passes with
+claim readiness supported for the measured synthetic architecture classes, while
+the headline agent comparison remains `mixed` / `inconclusive`: Yggdrasil
+improved localization, noise, and evidence metrics, but regressed token usage
+and wall-clock time.
+
+## Current Server-backed Gate
+
+Commands run:
+
+```sh
+YGG_HOME="$PWD/.dev/ygg/server-bench-home" \
+YGG_PROJECTS_FILE="$PWD/.dev/ygg/server-bench-home/projects.edn" \
+YGG_SERVER_PORT=62122 \
+YGG_XTDB_PATH="$PWD/.dev/ygg/server-bench-xtdb" \
+bb bench:gate --out .dev/ygg/server-bench/final-gate
+
+YGG_HOME="$PWD/.dev/ygg/server-bench-home" \
+YGG_PROJECTS_FILE="$PWD/.dev/ygg/server-bench-home/projects.edn" \
+YGG_SERVER_PORT=62122 \
+YGG_XTDB_PATH="$PWD/.dev/ygg/server-bench-xtdb" \
+bb bench:gate --check-only --out .dev/ygg/server-bench/final-gate
+```
+
+The server was run with an isolated home, registry file, port, and XTDB path.
+Before the run, `ygg status --json` reported `busy: false`,
+`activeOperations: []`, and zero registered maintenance projects. That keeps the
+benchmark from paying per-command JVM startup and from picking up unrelated
+scheduled project maintenance.
+
+Deterministic gate result: passed.
+
+| Metric | Value |
+| --- | ---: |
+| Completed cases | 5/5 |
+| Runs | 5 |
+| File recall@5 | 0.83 |
+| File recall@10 | 0.83 |
+| File recall@20 | 0.83 |
+| MRR | 0.80 |
+| Evidence citation | 1.00 |
+| Expected evidence citation | 0.80 |
+| Path evidence citation | 1.00 |
+| Noise@20 | 0.376 |
+| Maintenance preflight blockers | 0 |
+| Claim readiness | supported |
+| Warm elapsed | 5,139 ms |
+| Agent-ready elapsed | 1,519 ms |
+| Amortized setup elapsed | 111,189 ms |
+| Total elapsed | 116,328 ms |
+
+The Dapper JSONB test-stack case previously blocked maintenance preflight on
+unresolved `.NET` imports for `LinqToDB.*` with declared package
+`linq2db.SqlServer`. A narrow Dapper-only rerun now reports maintenance
+preflight passed with zero blocked cases; that single-case rerun still fails the
+global recall gate because the case alone has file recall@20 `0.67`.
+
+Claim status: supports that the current server-backed deterministic gate passes
+and that the maintenance preflight regression is fixed. It does not support a
+broad wall-clock or agent-efficiency claim by itself; the suite is still wholly
+synthetic, and the existing headline agent comparison remains mixed.
+
+Source artifacts:
+`.dev/ygg/server-bench/final-gate/architecture-synthetic/agent-check.json`,
+`.dev/ygg/server-bench/final-gate/architecture-synthetic/agent-report.json`,
+and the Dapper fix check under
+`.dev/ygg/server-bench/dapper-fix-gate/architecture-synthetic/agent-report.json`.
 
 ## Ripgrep Query Work Protocol
 

@@ -165,6 +165,8 @@ Native server build path:
 bb graalvm:uber
 bb graalvm:check
 bb graalvm:native
+bb graalvm:docker-check
+bb graalvm:docker-native
 ```
 
 Project agent setup is noun-scoped: use `ygg agent install` and

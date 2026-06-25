@@ -1077,6 +1077,59 @@
              (set (map :package-name edges))))
       (is (= #{:nuget :dotnet-assembly} (set (map :ecosystem edges)))))))
 
+(deftest import-package-resolution-resolves-dotnet-number-word-variants
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :ygg/files
+                                        [{:path "benchmarks/App.cs"
+                                          :kind :dotnet
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :ygg/nodes
+                                        [{:xt/id "manifest:benchmarks:csproj"
+                                          :kind :manifest
+                                          :path "benchmarks/App.csproj"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:nuget:linq2db-sqlserver"
+                                          :kind :external-package
+                                          :ecosystem :nuget
+                                          :package-name "linq2db.SqlServer"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [_ query]
+                          (case (last query)
+                            :requires
+                            [{:source-id "manifest:benchmarks:csproj"
+                              :target-id "pkg:nuget:linq2db-sqlserver"
+                              :relation :requires
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :imports
+                            [{:source-id "node:namespace:App"
+                              :target-id "node:namespace:LinqToDB.Data"
+                              :relation :imports
+                              :path "benchmarks/App.cs"
+                              :source-line 1
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :uses []
+                            []))]
+    (let [edges (dependency/resolve-import-package-edges
+                 :xtdb
+                 "project-a"
+                 "repo-a"
+                 "run-a"
+                 {})]
+      (is (= ["linq2db.SqlServer"] (mapv :package-name edges)))
+      (is (= [:declared] (mapv :resolution-source edges))))))
+
 (deftest import-package-resolution-rejects-ambiguous-dotnet-root-match
   (with-redefs [store/rows-by-field (fn [_ table _ _]
                                       (case table
