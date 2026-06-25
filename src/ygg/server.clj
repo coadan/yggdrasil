@@ -103,10 +103,6 @@
   [command args]
   (call-var 'ygg.cli/dispatch command args))
 
-(defn- command-usage
-  []
-  (call-var 'ygg.cli/usage))
-
 (defn- pid
   []
   (-> (ProcessHandle/current) .pid))
@@ -850,47 +846,39 @@
                           (original-with-node path f)))))]
       (f))))
 
+(defn- captured-request-storage-response
+  [ctx request cli-args lock! f]
+  (capture-response
+   (fn []
+     (with-user-dir (:cwd request)
+       (fn []
+         (lock!
+          (fn []
+            (with-request-storage ctx request cli-args f))))))))
+
 (defn- command-response
   [ctx request command args]
   (let [args (absolutize-path-options (:cwd request) (vec args))
         cli-args (into [command] args)]
-    (capture-response
-     (fn []
-       (with-user-dir (:cwd request)
-         (fn []
-           (with-cli-operation
-             ctx
-             cli-args
-             (fn []
-               (with-request-storage
-                 ctx
-                 request
-                 cli-args
-                 (fn []
-                   (if command
-                     (run-command-handler! command args)
-                     (println (command-usage)))))))))))))
+    (captured-request-storage-response
+     ctx
+     request
+     cli-args
+     #(with-cli-operation ctx cli-args %)
+     #(run-command-handler! command args))))
 
 (defn- cli-query-response
   [ctx request command handler-symbol]
   (let [args (absolutize-path-options (:cwd request) (vec (:args request)))
         cli-args (into [command] args)
         query-deps-var (requiring-resolve 'ygg.cli-query/*deps*)]
-    (capture-response
-     (fn []
-       (with-user-dir (:cwd request)
-         (fn []
-           (with-cli-operation
-             ctx
-             cli-args
-             (fn []
-               (with-request-storage
-                 ctx
-                 request
-                 cli-args
-                 (fn []
-                   (with-bindings {query-deps-var (call-var 'ygg.cli/query-deps)}
-                     (call-var handler-symbol args))))))))))))
+    (captured-request-storage-response
+     ctx
+     request
+     cli-args
+     #(with-cli-operation ctx cli-args %)
+     #(with-bindings {query-deps-var (call-var 'ygg.cli/query-deps)}
+        (call-var handler-symbol args)))))
 
 (defn- sync-subcommand-response
   [ctx request subcommand]
@@ -912,21 +900,14 @@
   [ctx request]
   (let [args (vec (:args request))
         message (:message request)]
-    (capture-response
-     (fn []
-       (with-user-dir (:cwd request)
-         (fn []
-           (with-operation-lock
-             ctx
-             (fn []
-               (with-request-storage
-                 ctx
-                 request
-                 args
-                 (fn []
-                   (call-var 'ygg.mcp/handle-message
-                             (call-var 'ygg.mcp/server-context args)
-                             message)))))))))))
+    (captured-request-storage-response
+     ctx
+     request
+     args
+     #(with-operation-lock ctx %)
+     #(call-var 'ygg.mcp/handle-message
+                (call-var 'ygg.mcp/server-context args)
+                message))))
 
 (defn- handle-authorized-request
   [{:keys [running server] :as ctx} request]
