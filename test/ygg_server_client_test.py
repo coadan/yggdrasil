@@ -1,6 +1,7 @@
 import contextlib
 import importlib.util
 import io
+import os
 import pathlib
 import unittest
 
@@ -17,6 +18,36 @@ def load_client():
 
 
 class ServerClientRoutingTest(unittest.TestCase):
+    def setUp(self):
+        self._env_snapshot = os.environ.copy()
+
+    def tearDown(self):
+        os.environ.clear()
+        os.environ.update(self._env_snapshot)
+
+    def test_timeout_env_parsing_keeps_distinct_zero_semantics(self):
+        client = load_client()
+
+        os.environ["YGG_SERVER_REQUEST_TIMEOUT_MS"] = "0"
+        os.environ["YGG_SERVER_CONNECT_TIMEOUT_MS"] = "0"
+        self.assertIsNone(client.request_timeout_seconds())
+        self.assertEqual(0, client.connect_timeout_ms())
+
+        os.environ["YGG_SERVER_REQUEST_TIMEOUT_MS"] = "2500"
+        os.environ["YGG_SERVER_CONNECT_TIMEOUT_MS"] = "2500"
+        self.assertEqual(2.5, client.request_timeout_seconds())
+        self.assertEqual(2500, client.connect_timeout_ms())
+
+    def test_invalid_timeout_env_values_use_defaults(self):
+        client = load_client()
+
+        os.environ["YGG_SERVER_REQUEST_TIMEOUT_MS"] = "invalid"
+        os.environ["YGG_SERVER_CONNECT_TIMEOUT_MS"] = "invalid"
+        self.assertEqual(client.DEFAULT_REQUEST_TIMEOUT_MS / 1000.0,
+                         client.request_timeout_seconds())
+        self.assertEqual(client.DEFAULT_CONNECT_TIMEOUT_MS,
+                         client.connect_timeout_ms())
+
     def test_server_command_routes_to_matching_server_op(self):
         client = load_client()
         cases = [

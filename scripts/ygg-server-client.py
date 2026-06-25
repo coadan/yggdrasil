@@ -60,28 +60,25 @@ def storage_path():
     return os.path.abspath(path)
 
 
-def request_timeout_seconds():
-    raw = os.environ.get("YGG_SERVER_REQUEST_TIMEOUT_MS")
+def env_int(name, default):
+    raw = os.environ.get(name)
     if not raw:
-        return DEFAULT_REQUEST_TIMEOUT_MS / 1000.0
+        return default
     try:
-        timeout_ms = int(raw)
+        return int(raw)
     except ValueError:
-        return DEFAULT_REQUEST_TIMEOUT_MS / 1000.0
+        return default
+
+
+def request_timeout_seconds():
+    timeout_ms = env_int("YGG_SERVER_REQUEST_TIMEOUT_MS", DEFAULT_REQUEST_TIMEOUT_MS)
     if timeout_ms <= 0:
         return None
     return timeout_ms / 1000.0
 
 
 def connect_timeout_ms():
-    raw = os.environ.get("YGG_SERVER_CONNECT_TIMEOUT_MS")
-    if not raw:
-        return DEFAULT_CONNECT_TIMEOUT_MS
-    try:
-        timeout_ms = int(raw)
-    except ValueError:
-        return DEFAULT_CONNECT_TIMEOUT_MS
-    return max(timeout_ms, 0)
+    return max(env_int("YGG_SERVER_CONNECT_TIMEOUT_MS", DEFAULT_CONNECT_TIMEOUT_MS), 0)
 
 
 def connect_socket(host, port):
