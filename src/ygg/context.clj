@@ -1923,8 +1923,10 @@
         lanes (score-lanes (:scoreComponents row))]
     (compact-map
      {:path path-id
+      :resolvedPath (:path row)
       :repo (:repo row)
       :rank (:rank row)
+      :sourceRank (:sourceRank row)
       :line (:sourceLine row)
       :endLine (:endLine row)
       :score (:score row)
@@ -1938,11 +1940,31 @@
   (compact-map
    {:kind :candidate
     :path (get path-ids [(:repo row) (:path row)])
+    :resolvedPath (:path row)
     :repo (:repo row)
     :line (:sourceLine row)
     :endLine (:endLine row)
     :label (:label row)
     :why (score-lanes (:scoreComponents row))}))
+
+(defn- compact-result-sort-key
+  [row]
+  [(- (double (or (:score row) 0.0)))
+   (long (or (:rank row) Long/MAX_VALUE))
+   (or (:repo row) "")
+   (or (:path row) "")
+   (or (:label row) "")])
+
+(defn- compact-result-rows
+  [packet]
+  (->> (:candidateFiles packet)
+       (sort-by compact-result-sort-key)
+       (take compact-result-limit)
+       (map-indexed (fn [idx row]
+                      (assoc row
+                             :rank (inc idx)
+                             :sourceRank (:rank row))))
+       vec))
 
 (defn- compact-lanes
   [packet results]
@@ -2008,10 +2030,9 @@
 (defn- compact-packet
   [packet query-text proof-commands?]
   (let [{:keys [paths path-ids]} (path-index packet)
-        results (->> (:candidateFiles packet)
-                     (take compact-result-limit)
-                     (mapv #(compact-result-row path-ids %)))
-        evidence (->> (:candidateFiles packet)
+        result-rows (compact-result-rows packet)
+        results (mapv #(compact-result-row path-ids %) result-rows)
+        evidence (->> result-rows
                       (take compact-evidence-limit)
                       (mapv #(compact-evidence-row path-ids %)))
         action (when proof-commands? (proof-grep-action query-text packet))]
@@ -2915,35 +2936,37 @@
                        :rejected-corrections (:rejectedCorrections architecture)
                        :docs (:docs architecture)})
         plugin-packages (get plugins :packages)
-        blast-radius (blast-radius entities edges)]
-    (packet-output
-     (fit-budget (cond-> (base-packet query-text
-                                      budget
-                                      graph-data
-                                      entities
-                                      edges
-                                      activity
-                                      warnings
-                                      drilldowns
-                                      evidence
-                                      search-context
-                                      freshness
-                                      source-coverage
-                                      architecture
-                                      systems
-                                      audit-scopes
-                                      (relationship-groups edges)
-                                      blast-radius
-                                      candidate-file-rows
-                                      source-declarations
-                                      plugin-packages)
-                   (seq (compact-query-input query-input))
-                   (assoc :input query-input))
-                 docs
-                 budget)
-     query-text
-     output
-     proof-commands?)))
+        blast-radius (blast-radius entities edges)
+        output-mode (keyword (or output default-output))
+        packet (cond-> (base-packet query-text
+                                    budget
+                                    graph-data
+                                    entities
+                                    edges
+                                    activity
+                                    warnings
+                                    drilldowns
+                                    evidence
+                                    search-context
+                                    freshness
+                                    source-coverage
+                                    architecture
+                                    systems
+                                    audit-scopes
+                                    (relationship-groups edges)
+                                    blast-radius
+                                    candidate-file-rows
+                                    source-declarations
+                                    plugin-packages)
+                 (seq (compact-query-input query-input))
+                 (assoc :input query-input))
+        packet (if (= :compact output-mode)
+                 packet
+                 (fit-budget packet docs budget))]
+    (packet-output packet
+                   query-text
+                   output-mode
+                   proof-commands?)))
 
 (defn doc-candidates
   "Return compact doc candidates for a graph target."

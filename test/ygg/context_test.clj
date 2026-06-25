@@ -2651,7 +2651,9 @@
              (:input packet)))
       (is (= {"p1" "src/caller.clj"} (:paths packet)))
       (is (= [{:path "p1"
+               :resolvedPath "src/caller.clj"
                :rank 1
+               :sourceRank 1
                :line 7
                :score 0.8
                :kind "node"
@@ -2666,6 +2668,100 @@
       (is (not (contains? packet :actions)))
       (is (not (contains? packet :candidateFiles)))
       (is (not (contains? packet :docs))))))
+
+(deftest context-packet-compact-output-ranks-results-by-visible-score
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :retriever-requested :auto
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 2
+                                                         :returned-count 2}
+                                       :results [{:path "docs/backlog.md"
+                                                  :score 0.2
+                                                  :target-kind :chunk
+                                                  :target-id "chunk:backlog"
+                                                  :label "backlog note"
+                                                  :reason "lexical match"
+                                                  :score-components {:lexical 0.2}}
+                                                 {:path "src/runtime.clj"
+                                                  :score 1.4
+                                                  :target-kind :node
+                                                  :target-id "node:runtime"
+                                                  :label "demo.runtime/start"
+                                                  :source-line 12
+                                                  :reason "literal grep match"
+                                                  :score-components {:grep 1.0
+                                                                     :exact 0.4}}]})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/query-evidence (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "runtime"
+                                         {:project-id "fixture"
+                                          :retriever :lexical
+                                          :output :compact})]
+      (is (= ["src/runtime.clj" "docs/backlog.md"]
+             (mapv :resolvedPath (:results packet))))
+      (is (= [1 2] (mapv :rank (:results packet))))
+      (is (= [2 1] (mapv :sourceRank (:results packet)))))))
+
+(deftest context-packet-compact-output-preserves-results-before-full-budget-trimming
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :retriever-requested :auto
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 1
+                                                         :ranked-count 1
+                                                         :returned-count 1}
+                                       :results [{:path "src/caller.clj"
+                                                  :score 0.8
+                                                  :target-kind :node
+                                                  :target-id "node:caller"
+                                                  :label "demo/caller"
+                                                  :source-line 7
+                                                  :reason "literal grep match"
+                                                  :score-components {:grep 1.0}}]})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes (mapv (fn [idx]
+                                                     {:id (str "system:" idx)
+                                                      :label (apply str
+                                                                    "Verbose system "
+                                                                    idx
+                                                                    " "
+                                                                    (repeat 200 "x"))
+                                                      :kind :candidate-system})
+                                                   (range 80))
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/query-evidence (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "caller"
+                                         {:project-id "fixture"
+                                          :retriever :lexical
+                                          :output :compact
+                                          :budget 200})]
+      (is (= 1 (get-in packet [:search :instrumentation :returned-count])))
+      (is (= ["src/caller.clj"] (mapv :resolvedPath (:results packet)))))))
 
 (deftest context-packet-proof-commands-are-opt-in-grep-actions
   (with-redefs [query/search-report (fn [_ _ _]
