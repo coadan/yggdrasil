@@ -430,10 +430,149 @@
             (is (= :ok (:grep-status instrumentation)))
             (is (= 1 (:grep-repos instrumentation)))
             (is (= 3 (:grep-patterns instrumentation)))
-            (is (= 1 (:grep-searches instrumentation)))
+            (is (= 3 (:grep-searches instrumentation)))
             (is (= 3 (:grep-raw-matches instrumentation)))
             (is (= 1 (:grep-indexed-paths instrumentation)))
             (is (= 1 (:grep-candidates instrumentation)))))))))
+
+(deftest lexical-query-grep-patterns-prefer-specific-late-tokens
+  (let [repo-root (temp-dir "ygg-query-specific-grep-repo")]
+    (spit-file! repo-root
+                "mercury_app/templates/root.html"
+                "{{ notebooks_button_label }}\n")
+    (spit-file! repo-root
+                "src/pytop/__init__.py"
+                "__version__ = \"1.7.0\"\n")
+    (spit-file! repo-root
+                "mercury_app/templates/login.html"
+                "<form id=\"login_submit\">Log in</form>\n")
+    (store/with-node (temp-dir "ygg-query-specific-grep-xtdb")
+      (fn [xtdb]
+        (store/execute-tx!
+         xtdb
+         [(store/put-op (store/table-ref :repos)
+                        {:xt/id "repo:fixture:app"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :root repo-root
+                         :active? true})
+          (store/put-op (store/table-ref :files)
+                        {:xt/id "file:fixture:app:mercury_app/templates/root.html"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :repo-root repo-root
+                         :path "mercury_app/templates/root.html"
+                         :ext "html"
+                         :kind :html
+                         :content-sha "root-sha"
+                         :mtime-ms 1
+                         :size-bytes 29
+                         :active? true
+                         :run-id "run"})
+          (store/put-op (store/table-ref :files)
+                        {:xt/id "file:fixture:app:src/pytop/__init__.py"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :repo-root repo-root
+                         :path "src/pytop/__init__.py"
+                         :ext "py"
+                         :kind :python
+                         :content-sha "init-sha"
+                         :mtime-ms 1
+                         :size-bytes 22
+                         :active? true
+                         :run-id "run"})
+          (store/put-op (store/table-ref :files)
+                        {:xt/id "file:fixture:app:mercury_app/templates/login.html"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :repo-root repo-root
+                         :path "mercury_app/templates/login.html"
+                         :ext "html"
+                         :kind :html
+                         :content-sha "login-sha"
+                         :mtime-ms 1
+                         :size-bytes 38
+                         :active? true
+                         :run-id "run"})])
+        (let [root-report (query/search-report
+                           xtdb
+                           "customize search notebooks filter config.toml notebooks_button_label hide search"
+                           {:retriever :lexical
+                            :project-id "fixture"
+                            :repo-id "app"
+                            :limit 5})
+              version-report (query/search-report
+                              xtdb
+                              "python -m pytop --version capability banner __version__ __main__"
+                              {:retriever :lexical
+                               :project-id "fixture"
+                               :repo-id "app"
+                               :limit 5})
+              login-report (query/search-report
+                            xtdb
+                            "login view custom styles top toolbar color fonts config theme"
+                            {:retriever :lexical
+                             :project-id "fixture"
+                             :repo-id "app"
+                             :limit 5})]
+          (is (= ["mercury_app/templates/root.html"]
+                 (mapv :path (:results root-report))))
+          (is (= 1 (get-in root-report
+                           [:instrumentation :transient-file-candidates])))
+          (is (= ["src/pytop/__init__.py"]
+                 (mapv :path (:results version-report))))
+          (is (= 1 (get-in version-report
+                           [:instrumentation :transient-file-candidates])))
+          (is (= ["mercury_app/templates/login.html"]
+                 (mapv :path (:results login-report))))
+          (is (= 1 (get-in login-report
+                           [:instrumentation :transient-file-candidates]))))))))
+
+(deftest lexical-query-ranks-indexed-docs-with-literal-grep-evidence
+  (let [repo-root (temp-dir "ygg-query-indexed-grep-repo")]
+    (spit-file! repo-root
+                "mercury_app/templates/root.html"
+                "{{ notebooks_button_label }}\n")
+    (store/with-node (temp-dir "ygg-query-indexed-grep-xtdb")
+      (fn [xtdb]
+        (store/execute-tx!
+         xtdb
+         [(store/put-op (store/table-ref :repos)
+                        {:xt/id "repo:fixture:app"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :root repo-root
+                         :active? true})
+          (store/put-op (store/table-ref :search-docs)
+                        {:xt/id "search-doc:root-chunk"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :target-id "chunk:root"
+                         :target-kind :chunk
+                         :file-id "file:root"
+                         :path "mercury_app/templates/root.html"
+                         :kind :chunk
+                         :label "layout block"
+                         :text "layout block"
+                         :tokens ["layout" "block"]
+                         :input-sha "root"
+                         :source-line 1
+                         :active? true
+                         :run-id "run"})])
+        (let [report (query/search-report
+                      xtdb
+                      "customize search notebooks filter config.toml notebooks_button_label hide search"
+                      {:retriever :lexical
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :limit 5})
+              result (first (:results report))]
+          (is (= ["mercury_app/templates/root.html"]
+                 (mapv :path (:results report))))
+          (is (= :chunk (:result-kind result)))
+          (is (= 1.0 (get-in result [:score-components :grep])))
+          (is (pos? (:score result))))))))
 
 (deftest explicit-hybrid-query-still-calls-embedding-client
   (store/with-node (temp-dir "ygg-query-explicit-hybrid-xtdb")

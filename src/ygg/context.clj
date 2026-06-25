@@ -51,6 +51,9 @@
 (def compact-evidence-limit
   10)
 
+(def ^:private compact-grep-result-reserve-limit
+  3)
+
 (def proof-command-path-limit
   8)
 
@@ -89,6 +92,9 @@
 
 (def ^:private source-graph-neighbor-score-cap
   4.8)
+
+(def ^:private source-graph-visible-score-cap
+  0.6)
 
 (defn- active-row?
   [row]
@@ -1219,6 +1225,11 @@
                                     token-row-counts
                                     matched-tokens)))
 
+(defn- source-graph-visible-score
+  [score]
+  (min source-graph-visible-score-cap
+       (double (or score 0.0))))
+
 (defn- row-id
   [row]
   (or (:xt/id row)
@@ -1238,14 +1249,16 @@
       (let [file-row? (nil? (:label row))]
         (cond-> {:path path
                  :rank 0
-                 :score score
+                 :score (source-graph-visible-score score)
+                 ::source-graph-raw-score score
                  :target-kind (if file-row? :file :node)
                  :target-id (row-id row)
                  :label (or (:label row) path)
                  :kind (:kind row)
                  :result-kind (if file-row? :file :node)
                  :reason "query-matched source row"
-                 :score-components {:sourceGraph score}}
+                 :score-components {:sourceGraph (source-graph-visible-score
+                                                  score)}}
           (:repo-id row) (assoc :repo-id (:repo-id row)
                                 :repo (:repo-id row))
           (:source-line row) (assoc :source-line (:source-line row))
@@ -1320,13 +1333,14 @@
                                                             row-count
                                                             token-row-counts
                                                             %))
-         (sort-by (juxt (comp - :score)
+         (sort-by (juxt (comp - ::source-graph-raw-score)
                         :repo
                         :path
                         :label))
          (reserve-query-matched-path-self-identity query-token-set)
          (take limit)
          (map-indexed #(assoc %2 :rank (inc %1)))
+         (map #(dissoc % ::source-graph-raw-score))
          vec)))
 
 (defn- source-graph-neighbor-id
@@ -1357,14 +1371,16 @@
                               vec)]
       (cond-> {:path path
                :rank 0
-               :score score
+               :score (source-graph-visible-score score)
+               ::source-graph-raw-score score
                :target-kind :node
                :target-id (:xt/id node)
                :label (or (:label node) path)
                :kind (:kind node)
                :result-kind :node
                :reason "graph-neighbor source row"
-               :score-components {:sourceGraph score}}
+               :score-components {:sourceGraph (source-graph-visible-score
+                                                score)}}
         (:repo-id node) (assoc :repo-id (:repo-id node)
                                :repo (:repo-id node))
         seed-rank (assoc ::neighbor-seed-rank seed-rank)
@@ -1461,12 +1477,13 @@
                                                       support-labels
                                                       seed-rank))))
                  (sort-by (juxt (comp - :score)
+                                (comp - ::source-graph-raw-score)
                                 ::neighbor-seed-rank
                                 :repo-id
                                 :path
                                 :label))
                  select-source-graph-neighbor-rows
-                 (map #(dissoc % ::neighbor-seed-rank))
+                 (map #(dissoc % ::neighbor-seed-rank ::source-graph-raw-score))
                  (map-indexed #(assoc %2 :rank (inc %1)))
                  vec)))))))
 
@@ -1955,16 +1972,43 @@
    (or (:path row) "")
    (or (:label row) "")])
 
+(defn- compact-grep-result-sort-key
+  [row]
+  [(- (double (get-in row [:scoreComponents :grep] 0.0)))
+   (- (double (or (:score row) 0.0)))
+   (long (or (:rank row) Long/MAX_VALUE))
+   (or (:repo row) "")
+   (or (:path row) "")
+   (or (:label row) "")])
+
 (defn- compact-result-rows
   [packet]
-  (->> (:candidateFiles packet)
-       (sort-by compact-result-sort-key)
-       (take compact-result-limit)
-       (map-indexed (fn [idx row]
-                      (assoc row
-                             :rank (inc idx)
-                             :sourceRank (:rank row))))
-       vec))
+  (let [sorted (sort-by compact-result-sort-key (:candidateFiles packet))
+        reserve-limit (min compact-grep-result-reserve-limit
+                           compact-result-limit)
+        primary-limit (max 0 (- compact-result-limit reserve-limit))
+        primary (vec (take primary-limit sorted))
+        primary-keys (set (map (juxt :repo :path) primary))
+        reserve (->> sorted
+                     (remove #(contains? primary-keys [(:repo %) (:path %)]))
+                     (filter #(pos? (double (get-in % [:scoreComponents :grep] 0.0))))
+                     (sort-by compact-grep-result-sort-key)
+                     (take reserve-limit)
+                     vec)
+        selected-keys (set (map (juxt :repo :path) (concat primary reserve)))
+        fill (->> sorted
+                  (remove #(contains? selected-keys [(:repo %) (:path %)]))
+                  (take (max 0 (- compact-result-limit
+                                  (count primary)
+                                  (count reserve)))))
+        selected (->> (concat primary reserve fill)
+                      (sort-by compact-result-sort-key))]
+    (->> selected
+         (map-indexed (fn [idx row]
+                        (assoc row
+                               :rank (inc idx)
+                               :sourceRank (:rank row))))
+         vec)))
 
 (defn- compact-lanes
   [packet results]

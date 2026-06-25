@@ -16,16 +16,17 @@
 (def default-seed-count 20)
 (def default-same-label-doc-label-fanout-limit 32)
 (def default-instrumentation-seed-id-sample-limit 25)
-(def default-grep-patterns 4)
+(def default-grep-patterns 6)
 (def default-grep-timeout-ms 1500)
 (def default-grep-max-stdout-bytes 200000)
 (def default-transient-file-candidates 80)
+(def default-grep-reserve-candidates 12)
 (def lexical-graph-weight 0.25)
 (def hybrid-graph-weight 0.20)
 (def lexical-same-label-weight 0.25)
 (def hybrid-same-label-weight 0.20)
-(def lexical-grep-weight 0.35)
-(def hybrid-grep-weight 0.10)
+(def lexical-grep-weight 0.75)
+(def hybrid-grep-weight 0.20)
 
 (def search-report-schema "ygg.search.report/v1")
 
@@ -978,10 +979,27 @@
 
 (defn- grep-patterns
   [query-tokens opts]
-  (let [limit (long (or (:grep-pattern-limit opts) default-grep-patterns))]
-    (->> query-tokens
-         (remove #(str/blank? (str %)))
-         (filter #(<= 2 (count (str %))))
+  (let [base-limit (long (or (:grep-pattern-limit opts) default-grep-patterns))
+        tokens (->> query-tokens
+                    (remove #(str/blank? (str %)))
+                    (filter #(<= 2 (count (re-seq #"[A-Za-z0-9]" (str %)))))
+                    distinct
+                    vec)
+        shaped-count (count (filter #(re-find #"[._/-]" (str %)) tokens))
+        limit (if (<= 2 shaped-count)
+                (min base-limit 4)
+                base-limit)
+        ordered-limit 1
+        ordered (take ordered-limit tokens)
+        specific (->> tokens
+                      (sort-by (fn [token]
+                                 (let [token (str token)
+                                       alnum-count (count (re-seq #"[A-Za-z0-9]" token))
+                                       shaped? (boolean (re-find #"[._/-]" token))]
+                                   [(- (+ alnum-count
+                                          (if shaped? 6 0)))
+                                    token]))))]
+    (->> (concat ordered specific)
          distinct
          (take limit)
          vec)))
@@ -1011,26 +1029,63 @@
     (:grep-bin opts)
     (assoc :bin (:grep-bin opts))))
 
+(defn- grep-pattern-weight
+  [pattern]
+  (let [pattern (str pattern)
+        alnum-count (count (re-seq #"[A-Za-z0-9]" pattern))
+        shaped? (boolean (re-find #"[._/-]" pattern))]
+    (+ 1.0
+       (min 3.0 (/ (double alnum-count) 8.0))
+       (if shaped? 3.0 0.0))))
+
 (defn- grep-search-results
   [repo-roots repo-ids patterns opts]
   (let [search-opts (grep-search-opts opts)]
     (vec
      (for [repo-id repo-ids
-           :let [root (get repo-roots repo-id)]]
-       (assoc (ripgrep/search-counts-many root
-                                          patterns
-                                          []
-                                          search-opts)
-              :repo-id repo-id)))))
+           :let [root (get repo-roots repo-id)
+                 pattern-results (mapv (fn [pattern]
+                                         (let [weight (grep-pattern-weight pattern)]
+                                           (assoc (ripgrep/search-counts-many
+                                                   root
+                                                   [pattern]
+                                                   []
+                                                   search-opts)
+                                                  :pattern pattern
+                                                  :pattern-weight weight)))
+                                       patterns)
+                 matches-by-path (->> pattern-results
+                                      (mapcat (fn [{:keys [pattern-weight matches]}]
+                                                (map #(assoc %
+                                                             :weighted-count
+                                                             (* (double pattern-weight)
+                                                                (Math/log1p
+                                                                 (double (or (:count %) 1)))))
+                                                     matches)))
+                                      (group-by :path)
+                                      (mapv (fn [[path matches]]
+                                              {:path path
+                                               :count (reduce + 0 (map :count matches))
+                                               :weighted-count (reduce + 0.0 (map :weighted-count matches))})))]]
+       {:repo-id repo-id
+        :matches matches-by-path
+        :match-count (reduce + 0 (map :match-count pattern-results))
+        :file-count (count matches-by-path)
+        :elapsed-ms (reduce + 0 (map :elapsed-ms pattern-results))
+        :search-count (count pattern-results)
+        :diagnostics (mapcat :diagnostics pattern-results)}))))
 
 (defn- grep-match-counts
   [search-results]
   (reduce
    (fn [counts {:keys [repo-id matches]}]
-     (reduce (fn [counts {:keys [path count]}]
+     (reduce (fn [counts {:keys [path count weighted-count]}]
                (if (str/blank? (str path))
                  counts
-                 (update counts [repo-id path] (fnil + 0) (long (or count 1)))))
+                 (update counts
+                         [repo-id path]
+                         (fnil + 0.0)
+                         (double (or weighted-count count 1)))))
              counts
              matches))
    {}
@@ -1040,10 +1095,10 @@
   [match-counts single-repo-id doc]
   (let [path (:path doc)
         repo-id (:repo-id doc)]
-    (long (or (get match-counts [(some-> repo-id str) path])
-              (when (and (nil? repo-id) single-repo-id)
-                (get match-counts [single-repo-id path]))
-              0))))
+    (double (or (get match-counts [(some-> repo-id str) path])
+                (when (and (nil? repo-id) single-repo-id)
+                  (get match-counts [single-repo-id path]))
+                0.0))))
 
 (defn- grep-score-data-for-docs
   [docs repo-ids match-counts]
@@ -1053,7 +1108,7 @@
        (let [n (grep-count-for-doc match-counts single-repo-id doc)]
          (if (pos? n)
            (-> state
-               (assoc-in [:scores (:target-id doc)] (double n))
+               (assoc-in [:scores (:target-id doc)] n)
                (update :indexed-paths conj [(:repo-id doc) (:path doc)]))
            state)))
      {:scores {}
@@ -1269,7 +1324,8 @@
                                  :grep-status (if (seq all-diagnostics) :partial :ok)
                                  :grep-repos (count repo-ids)
                                  :grep-patterns (count patterns)
-                                 :grep-searches (count search-results)
+                                 :grep-searches (reduce + 0 (map #(or (:search-count %) 1)
+                                                                 search-results))
                                  :grep-raw-matches (reduce + 0 (map :match-count search-results))
                                  :grep-indexed-paths matched-indexed-paths
                                  :grep-candidates (count scores)
@@ -1572,19 +1628,62 @@
   [row]
   [(- (:score row)) (:label row) (:path row)])
 
-(defn- bounded-ranked-results
-  [results row n]
-  (let [results (conj (or results []) row)]
-    (if (<= (count results) n)
-      results
-      (vec (take n (sort-by ranked-result-sort-key results))))))
-
 (defn- add-ranked-result
   [state row n]
   (let [state (update state :ranked-count inc)]
     (if (pos? n)
-      (update state :ranked bounded-ranked-results row n)
+      (update state :ranked conj row)
       state)))
+
+(defn- grep-reserve-sort-key
+  [row]
+  [(- (double (get-in row [:score-components :grep] 0.0)))
+   (- (double (or (:score row) 0.0)))
+   (:path row)
+   (:label row)])
+
+(defn- path-key
+  [row]
+  [(or (:repo-id row) (:repo row)) (:path row)])
+
+(defn- ranked-grep-reserve-rows
+  [rows selected-ids n]
+  (loop [remaining (seq (sort-by grep-reserve-sort-key rows))
+         seen-paths #{}
+         selected []]
+    (if (or (nil? remaining)
+            (<= n (count selected)))
+      selected
+      (let [row (first remaining)
+            row-id (:target-id row)
+            path-key (path-key row)]
+        (if (or (contains? selected-ids row-id)
+                (contains? seen-paths path-key)
+                (not (pos? (double (get-in row [:score-components :grep] 0.0)))))
+          (recur (next remaining) seen-paths selected)
+          (recur (next remaining)
+                 (conj seen-paths path-key)
+                 (conj selected row)))))))
+
+(defn- select-ranked-results
+  [rows limit]
+  (let [rows (sort-by ranked-result-sort-key rows)]
+    (if (or (= Long/MAX_VALUE limit)
+            (<= (count rows) limit))
+      (vec rows)
+      (let [reserve-limit (min default-grep-reserve-candidates
+                               (max 0 (quot limit 4)))
+            primary-limit (max 0 (- limit reserve-limit))
+            primary (vec (take primary-limit rows))
+            primary-ids (set (map :target-id primary))
+            reserve (ranked-grep-reserve-rows rows primary-ids reserve-limit)
+            selected-ids (set (map :target-id (concat primary reserve)))
+            fill (->> rows
+                      (remove #(contains? selected-ids (:target-id %)))
+                      (take (max 0 (- limit (count primary) (count reserve)))))]
+        (->> (concat primary reserve fill)
+             (sort-by ranked-result-sort-key)
+             vec)))))
 
 (defn- ranked-candidates
   [{:keys [query-text query-tokens docs lexical semantic grep neighbor-scores same-label-scores retriever limit]}]
@@ -1645,9 +1744,6 @@
                              semantic-score (double (get semantic (:target-id doc) 0.0))
                              lexical-score (double (get lexical (:target-id doc) 0.0))
                              grep-score (double (get grep (:target-id doc) 0.0))
-                             rankable-grep-score (if (= :file (:target-kind doc))
-                                                   grep-score
-                                                   0.0)
                              graph-score (double (get neighbor-scores (:target-id doc) 0.0))
                              same-label-score (double (get same-label-scores (:target-id doc) 0.0))
                              exact-score (exact-match-boost query
@@ -1658,12 +1754,12 @@
                              total (+ (case retriever
                                         :semantic semantic-score
                                         :lexical (+ lexical-score
-                                                    (* lexical-grep-weight rankable-grep-score)
+                                                    (* lexical-grep-weight grep-score)
                                                     (* lexical-graph-weight graph-score)
                                                     (* lexical-same-label-weight same-label-score))
                                         (+ (* 0.70 semantic-score)
                                            (* 0.20 lexical-score)
-                                           (* hybrid-grep-weight rankable-grep-score)
+                                           (* hybrid-grep-weight grep-score)
                                            (* hybrid-graph-weight graph-score)
                                            (* hybrid-same-label-weight same-label-score)))
                                       exact-score)]
@@ -1704,9 +1800,7 @@
      :candidate-doc-count (:candidate-doc-count rank-data)
      :candidates-by-kind (:candidates-by-kind rank-data)
      :ranked-count (:ranked-count rank-data)
-     :ranked (->> (:ranked rank-data)
-                  (sort-by ranked-result-sort-key)
-                  vec)}))
+     :ranked (select-ranked-results (:ranked rank-data) rank-limit)}))
 
 (defn- auto-lexical-short-circuit-reason
   [ranked-data transient-file-data]

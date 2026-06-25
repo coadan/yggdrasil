@@ -2716,6 +2716,51 @@
       (is (= [1 2] (mapv :rank (:results packet))))
       (is (= [2 1] (mapv :sourceRank (:results packet)))))))
 
+(deftest context-packet-compact-output-reserves-grep-backed-results
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :retriever-requested :auto
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 12
+                                                         :returned-count 12}
+                                       :results (concat
+                                                 (mapv (fn [idx]
+                                                         {:path (format "docs/noise_%02d.md" idx)
+                                                          :score (- 2.0 (* idx 0.01))
+                                                          :target-kind :chunk
+                                                          :target-id (str "chunk:noise:" idx)
+                                                          :label (str "noise " idx)
+                                                          :score-components {:lexical 1.0}})
+                                                       (range 12))
+                                                 [{:path "src/exact.clj"
+                                                   :score 0.4
+                                                   :target-kind :chunk
+                                                   :target-id "chunk:exact"
+                                                   :label "exact literal"
+                                                   :score-components {:grep 1.0}}])})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/query-evidence (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "exact"
+                                         {:project-id "fixture"
+                                          :retriever :lexical
+                                          :output :compact})]
+      (is (some #{"src/exact.clj"} (map :resolvedPath (:results packet))))
+      (is (= (sort > (map :score (:results packet)))
+             (map :score (:results packet)))))))
+
 (deftest context-packet-compact-output-preserves-results-before-full-budget-trimming
   (with-redefs [query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema
@@ -3608,7 +3653,7 @@
                                        :instrumentation {:search-docs 1
                                                          :returned-count 1}
                                        :results [{:path "site/src/pages/docs/index.astro"
-                                                  :score 0.9
+                                                  :score 0.4
                                                   :target-kind :node
                                                   :target-id "node:docs"
                                                   :label "site.src.pages.docs.index"}]})
