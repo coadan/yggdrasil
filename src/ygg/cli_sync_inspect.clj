@@ -1,25 +1,16 @@
 (ns ygg.cli-sync-inspect
-  (:require [ygg.cli-options :refer [json-output? positional-args]]
+  (:require [ygg.cli-options :refer [json-output?]]
             [ygg.corrections :as corrections]
             [ygg.daemon-contract :as daemon-contract]
             [ygg.evidence :as evidence]
             [ygg.project :as project]
             [ygg.xtdb :as store]
-            [charred.api :as json]
             [clojure.string :as str])
   (:import [java.util.logging LogManager]))
 
 (defn- silence-jul!
   []
   (.reset (LogManager/getLogManager)))
-
-(defn- usage
-  []
-  "Usage: ygg sync inspect <project.edn> [--json]")
-
-(defn- print-json
-  [value]
-  (println (json/write-json-str value {:indent-str "  "})))
 
 (defn project-inspect-result
   [xtdb project {:keys [config-path]}]
@@ -135,23 +126,6 @@
     (println "-" id (clojure.core/name role) root))
   (print-evidence-summary evidence))
 
-(defn- default-deps
-  []
-  {:usage usage
-   :print-json print-json})
-
-(declare print-project-status-on-node-with-deps!)
-
-(defn print-project-status-with-deps!
-  ([config-path args deps]
-   (when-not config-path
-     (throw (ex-info "Missing project config path." {:usage ((:usage deps))})))
-   (print-project-status-with-deps! (project/read-project config-path) config-path args deps))
-  ([project config-path args deps]
-   (store/with-node (store/storage-path (:id project))
-     (fn [xtdb]
-       (print-project-status-on-node-with-deps! xtdb project config-path args deps)))))
-
 (defn print-project-status-result!
   [result args deps]
   (if (json-output? args)
@@ -174,22 +148,15 @@
                                         {:config-path config-path})]
      (print-project-status-result! result args deps))))
 
-(defn print-project-status!
-  ([config-path args]
-   (print-project-status-with-deps! config-path args (default-deps)))
-  ([project config-path args]
-   (print-project-status-with-deps! project config-path args (default-deps))))
-
-(defn print-project-status-on-node!
-  [xtdb config-path args]
-  (print-project-status-on-node-with-deps! xtdb config-path args (default-deps)))
-
-(defn project-status-output
-  [xtdb args]
-  (let [args (vec args)
-        config-path (first (positional-args args))]
-    (with-out-str
-      (print-project-status-on-node! xtdb config-path args))))
+(defn print-project-status-with-deps!
+  ([config-path args deps]
+   (when-not config-path
+     (throw (ex-info "Missing project config path." {:usage ((:usage deps))})))
+   (print-project-status-with-deps! (project/read-project config-path) config-path args deps))
+  ([project config-path args deps]
+   (store/with-node (store/storage-path (:id project))
+     (fn [xtdb]
+       (print-project-status-on-node-with-deps! xtdb project config-path args deps)))))
 
 (defn direct-main-response
   [_args]
