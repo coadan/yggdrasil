@@ -176,28 +176,31 @@
       (get-in payload [:decision :project-id])
       (get-in payload [:decision :projectId])))
 
-(defn- project-option
-  [project-id]
-  (when-not (str/blank? (str project-id))
-    (str " --project " (command/shell-token project-id))))
+(defn- option-args
+  [flag value]
+  (when-not (str/blank? (str value))
+    [flag (str value)]))
 
-(defn- queue-option
+(defn- project-args
+  [project-id]
+  (option-args "--project" project-id))
+
+(defn- queue-args
   [root project-id]
   (when (str/blank? (str project-id))
-    (str " --queue-dir " (command/shell-token root))))
+    ["--queue-dir" root]))
 
-(defn- kind-option
+(defn- kind-args
   [kind]
-  (when-not (str/blank? (str kind))
-    (str " --kind " (command/shell-token kind))))
+  (option-args "--kind" kind))
 
 (defn- work-command
   [{:keys [root item]} action & args]
-  (str "ygg sync work " action
-       (when (seq args)
-         (str " " (str/join " " (map command/shell-token args))))
-       (project-option (:project-id item))
-       (queue-option root (:project-id item))))
+  (apply command/command
+         (concat ["ygg" "sync" "work" action]
+                 args
+                 (project-args (:project-id item))
+                 (queue-args root (:project-id item)))))
 
 (defn- item-actions
   [{:keys [item] :as found}]
@@ -209,11 +212,12 @@
       (= "ready" status)
       (conj {:kind :claim
              :label "Claim next matching work item"
-             :command (str "ygg sync work pull"
-                           (project-option (:project-id item))
-                           (kind-option (:kind item))
-                           " --agent <agent-id>"
-                           (queue-option (:root found) (:project-id item)))})
+             :command (apply command/command
+                             (concat ["ygg" "sync" "work" "pull"]
+                                     (project-args (:project-id item))
+                                     (kind-args (:kind item))
+                                     ["--agent" "<agent-id>"]
+                                     (queue-args (:root found) (:project-id item))))})
 
       (= "claimed" status)
       (conj {:kind :heartbeat

@@ -127,6 +127,7 @@
 
 (deftest queue-summary-includes-state-specific-actions
   (let [root (str (temp-dir "ygg-queue actions") "/queue root")
+        no-project-root (str (temp-dir "ygg-queue no project") "/queue root")
         ready-id (get-in (queue/enqueue! {:schema "custom.packet/v1"
                                           :project-id "demo"}
                                          {:root root
@@ -138,6 +139,12 @@
                                          :project-id "demo"
                                          :kind "custom"})
         claimed-summary (queue/item-summary claimed)
+        no-project-id (get-in (queue/enqueue! {:schema "custom.packet/v1"}
+                                              {:root no-project-root
+                                               :kind "custom"})
+                              [:item :id])
+        no-project-summary (queue/item-summary (queue/find-item no-project-root
+                                                                no-project-id))
         done-summary (queue/item-summary
                       (queue/complete! root
                                        ready-id
@@ -152,6 +159,10 @@
              :label "Claim next matching work item"
              :command "ygg sync work pull --project demo --kind custom --agent <agent-id>"}]
            (:actions ready-summary)))
+    (is (= (str "ygg sync work pull --kind custom --agent <agent-id> --queue-dir '"
+                no-project-root
+                "'")
+           (get-in no-project-summary [:actions 1 :command])))
     (is (= #{:show :heartbeat :complete :release :reject}
            (set (map :kind (:actions claimed-summary)))))
     (is (some #(= (str "ygg sync work show "
