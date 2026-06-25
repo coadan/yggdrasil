@@ -482,8 +482,8 @@
                            xtdb
                            {:id "noise"
                             :repos [{:id "app" :root "/tmp/app"}]
-                            :maintenance {:max-queued-decisions 10
-                                          :max-queued-decisions-per-kind 3}}
+                            :maintenance {:work {:max-decisions 10
+                                                 :max-decisions-per-kind 3}}}
                            {})]
           (is (= 12 (get-in maintenance [:counts :maintenance-decision-candidates])))
           (is (= 3 (get-in maintenance [:counts :maintenance-decisions])))

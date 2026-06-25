@@ -22,11 +22,52 @@
 (def producer
   "index-maintenance")
 
+(def default-work-controls
+  {:max-decisions 24
+   :max-decisions-per-kind 8
+   :max-infra-reviews 32
+   :max-dependency-reviews 32
+   :decision-batch-size 12
+   :review-batch-size 16})
+
 (def decision-batch-size
-  8)
+  (:decision-batch-size default-work-controls))
 
 (def review-batch-size
-  4)
+  (:review-batch-size default-work-controls))
+
+(defn- long-value
+  [value default]
+  (cond
+    (integer? value) (long value)
+    (number? value) (long value)
+    (some? value) (Long/parseLong (str value))
+    :else default))
+
+(defn- non-negative-long
+  [value default]
+  (max 0 (long-value value default)))
+
+(defn- positive-long
+  [value default]
+  (max 1 (long-value value default)))
+
+(defn normalize-work-controls
+  "Return canonical index-maintenance work emission controls."
+  [controls]
+  (let [controls (or controls {})]
+    {:max-decisions (non-negative-long (:max-decisions controls)
+                                       (:max-decisions default-work-controls))
+     :max-decisions-per-kind (non-negative-long (:max-decisions-per-kind controls)
+                                                (:max-decisions-per-kind default-work-controls))
+     :max-infra-reviews (non-negative-long (:max-infra-reviews controls)
+                                           (:max-infra-reviews default-work-controls))
+     :max-dependency-reviews (non-negative-long (:max-dependency-reviews controls)
+                                                (:max-dependency-reviews default-work-controls))
+     :decision-batch-size (positive-long (:decision-batch-size controls)
+                                         (:decision-batch-size default-work-controls))
+     :review-batch-size (positive-long (:review-batch-size controls)
+                                       (:review-batch-size default-work-controls))}))
 
 (defn- severity-priority
   [severity]
@@ -82,32 +123,61 @@
         45
         (batched-payload packets dependency-review/batch-packet)))
 
+(defn- capped
+  [items limit]
+  (vec (take limit (or items []))))
+
+(defn- omitted
+  [items selected]
+  (max 0 (- (count (or items [])) (count selected))))
+
 (defn- graph-work
-  [graph-report]
-  (vec
-   (concat
-    (map decision-batch-work
-         (partition-all decision-batch-size (:decision-queue graph-report)))
-    (map infra-review-work
-         (partition-all review-batch-size (:infra-review-queue graph-report)))
-    (map dependency-review-work
-         (partition-all review-batch-size (:dependency-review-queue graph-report))))))
+  [graph-report controls]
+  (let [controls (normalize-work-controls controls)
+        decisions (capped (:decision-queue graph-report)
+                          (:max-decisions controls))
+        infra-reviews (capped (:infra-review-queue graph-report)
+                              (:max-infra-reviews controls))
+        dependency-reviews (capped (:dependency-review-queue graph-report)
+                                   (:max-dependency-reviews controls))
+        work (vec
+              (concat
+               (map decision-batch-work
+                    (partition-all (:decision-batch-size controls) decisions))
+               (map infra-review-work
+                    (partition-all (:review-batch-size controls) infra-reviews))
+               (map dependency-review-work
+                    (partition-all (:review-batch-size controls) dependency-reviews))))]
+    {:work work
+     :counts {:items (count work)
+              :decisions (count decisions)
+              :infra-reviews (count infra-reviews)
+              :dependency-reviews (count dependency-reviews)
+              :decisions-omitted (omitted (:decision-queue graph-report) decisions)
+              :infra-reviews-omitted (omitted (:infra-review-queue graph-report)
+                                              infra-reviews)
+              :dependency-reviews-omitted (omitted (:dependency-review-queue graph-report)
+                                                   dependency-reviews)}}))
 
 (defn from-graph-report
   "Wrap the existing graph maintenance report as the first index-maintenance lane."
-  [graph-report]
-  (let [lane {:schema lane-schema
-              :lane graph-lane
-              :producer "ygg.system"
-              :project-id (:project-id graph-report)
-              :counts (:counts graph-report)
-              :report graph-report}
-        work (graph-work graph-report)]
-    {:schema schema
-     :project-id (:project-id graph-report)
-     :counts (:counts graph-report)
-     :lanes {:graph lane}
-     :work work}))
+  ([graph-report] (from-graph-report graph-report {}))
+  ([graph-report controls]
+   (let [controls (normalize-work-controls controls)
+         lane {:schema lane-schema
+               :lane graph-lane
+               :producer "ygg.system"
+               :project-id (:project-id graph-report)
+               :counts (:counts graph-report)
+               :report graph-report}
+         graph-work-result (graph-work graph-report controls)]
+     {:schema schema
+      :project-id (:project-id graph-report)
+      :counts (:counts graph-report)
+      :work-controls controls
+      :work-counts (:counts graph-work-result)
+      :lanes {:graph lane}
+      :work (:work graph-work-result)})))
 
 (defn graph-report
   "Return the graph lane report from an index-maintenance report."

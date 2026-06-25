@@ -806,6 +806,14 @@
   (println "- schedules" (count (:schedules status)))
   (doseq [schedule (:schedules status)]
     (println "  schedule" (schedule-label schedule)))
+  (when-let [work (:work status)]
+    (println "- work"
+             (str "decisions=" (:max-decisions work))
+             (str "per-kind=" (:max-decisions-per-kind work))
+             (str "infra=" (:max-infra-reviews work))
+             (str "dependency=" (:max-dependency-reviews work))
+             (str "decision-batch=" (:decision-batch-size work))
+             (str "review-batch=" (:review-batch-size work))))
   (println "- worker" (cond
                         (not (get-in status [:worker :configured])) "not-configured"
                         (get-in status [:worker :enabled]) "enabled"

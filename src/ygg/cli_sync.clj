@@ -244,12 +244,15 @@
      (sync-index-project-with-options! xtdb project args opts))))
 (defn maintenance-report
   ([xtdb project args]
-   (index-maintenance/from-graph-report
-    (project/maintain-project
-     xtdb
-     project
-     {:low-confidence-threshold (parse-double-option args "--min-confidence" 0.60)
-      :correction-overlay (correction-overlay xtdb (:id project))})))
+   (let [graph-report (project/maintain-project
+                       xtdb
+                       project
+                       {:low-confidence-threshold (parse-double-option args
+                                                                       "--min-confidence"
+                                                                       0.60)
+                        :correction-overlay (correction-overlay xtdb (:id project))})]
+     (index-maintenance/from-graph-report graph-report
+                                          (get-in project [:maintenance :work]))))
   ([xtdb project args deps]
    (binding [*deps* deps]
      (maintenance-report xtdb project args))))
@@ -300,12 +303,53 @@
                   [identity (queue/item-summary found)])))
         (queue/list-items root {:project-id project-id})))
 
-(defn- enqueue-work-items!
+(def superseded-queue-statuses
+  #{"ready" "failed"})
+
+(defn- index-maintenance-work?
+  [item]
+  (let [source (:source item)]
+    (and (= index-maintenance/source-schema (:schema source))
+         (= index-maintenance/producer (:producer source))
+         (= index-maintenance/graph-lane (:lane source)))))
+
+(defn- current-identities-by-scope
   [args work-items]
-  (let [scopes (->> work-items
-                    (map (fn [{:keys [project-id]}]
-                           [(project-queue-root args project-id) project-id]))
-                    distinct)
+  (reduce (fn [out {:keys [payload project-id]}]
+            (if-let [identity (work-identity payload)]
+              (update out
+                      [(project-queue-root args project-id) project-id]
+                      (fnil conj #{})
+                      identity)
+              out))
+          {}
+          work-items))
+
+(defn- supersede-stale-work!
+  [root project-id current-identities]
+  (let [ids (into []
+                  (keep (fn [{:keys [item]}]
+                          (let [identity (work-identity (:payload item))]
+                            (when (and identity
+                                       (not (contains? current-identities identity))
+                                       (contains? superseded-queue-statuses (:status item))
+                                       (index-maintenance-work? item))
+                              (:id item)))))
+                  (queue/list-items root {:project-id project-id}))]
+    (queue/reject-many! root
+                        ids
+                        "Superseded by newer index maintenance report.")))
+
+(defn- enqueue-work-items!
+  [args report work-items]
+  (let [identities-by-scope (current-identities-by-scope args work-items)
+        scopes (or (seq (keys identities-by-scope))
+                   [[(project-queue-root args (:project-id report))
+                     (:project-id report)]])
+        _ (doseq [[root project-id :as scope] scopes]
+            (supersede-stale-work! root
+                                   project-id
+                                   (get identities-by-scope scope #{})))
         existing* (atom
                    (into {}
                          (map (fn [[root project-id :as scope]]
@@ -335,7 +379,7 @@
 
 (defn enqueue-sync-work!
   ([args report]
-   (enqueue-work-items! args (index-maintenance/work-items report)))
+   (enqueue-work-items! args report (index-maintenance/work-items report)))
   ([args report deps]
    (binding [*deps* deps]
      (enqueue-sync-work! args report))))

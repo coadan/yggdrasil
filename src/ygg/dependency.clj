@@ -573,6 +573,10 @@
            alias-nodes (filterv import-common/module-path-alias-node? nodes)
            module-nodes (dependency-imports/module-nodes nodes)
            local-namespace-targets (import-common/local-namespace-targets nodes)
+           python-local-targets (dependency-imports/local-import-targets
+                                 :python
+                                 files-by-path
+                                 local-namespace-targets)
            packages (->> nodes (filter package-node?) sorted-values)
            packages-by-id (into {} (map (juxt :xt/id identity)) packages)
            versions (->> nodes
@@ -590,6 +594,7 @@
                                              :module-nodes module-nodes
                                              :nodes-by-id nodes-by-id
                                              :local-namespace-targets local-namespace-targets
+                                             :python-local-targets python-local-targets
                                              :edge %})
                                           source-edges)
            report-imports (vec (concat imports

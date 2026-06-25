@@ -195,8 +195,13 @@
             maintenance (:maintenance config)
             executor (get-in maintenance [:worker :executors 0])]
         (is (= true (:enabled maintenance)))
-        (is (= 24 (:max-queued-decisions maintenance)))
-        (is (= 8 (:max-queued-decisions-per-kind maintenance)))
+        (is (= {:max-decisions 24
+                :max-decisions-per-kind 8
+                :max-infra-reviews 32
+                :max-dependency-reviews 32
+                :decision-batch-size 12
+                :review-batch-size 16}
+               (:work maintenance)))
         (is (= true (get-in maintenance [:worker :enabled])))
         (is (= ["scripts/ygg-maintenance-codex.sh"] (:command executor)))
         (is (= :command-harness (:type executor)))

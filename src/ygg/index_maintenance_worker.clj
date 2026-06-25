@@ -110,9 +110,7 @@
      :configured (boolean maintenance)
      :enabled (boolean (:enabled maintenance))
      :schedules (vec (:schedules maintenance))
-     :limits (select-keys maintenance
-                          [:max-queued-decisions
-                           :max-queued-decisions-per-kind])
+     :work (:work maintenance)
      :queueRoot (:queue-dir maintenance)
      :reportDir (:report-dir maintenance)
      :worker {:configured (boolean config)

@@ -78,6 +78,12 @@
          (mapcat #(package-suffixes init-paths %))
          set)))
 
+(defn local-targets
+  "Return repo-local Python import targets for repeated candidate checks."
+  [files-by-path local-namespace-targets]
+  (into (local-package-targets files-by-path)
+        local-namespace-targets))
+
 (defn- same-directory-module?
   [files-by-path source-path target]
   (let [dir (import-common/dirname source-path)
@@ -100,8 +106,8 @@
   (not (contains? stdlib-roots (import-common/dotted-root target))))
 
 (defn local-import?
-  [{:keys [files-by-path edge local-namespace-targets target]}]
-  (let [targets (into (local-package-targets files-by-path)
-                      local-namespace-targets)]
+  [{:keys [files-by-path edge local-namespace-targets python-local-targets target]}]
+  (let [targets (or python-local-targets
+                    (local-targets files-by-path local-namespace-targets))]
     (or (some #(import-prefix-match? target %) targets)
         (same-directory-module? files-by-path (:path edge) target))))

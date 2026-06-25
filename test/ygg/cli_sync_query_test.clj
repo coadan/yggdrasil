@@ -366,6 +366,88 @@
                (sort (mapv :enqueue-status (:enqueued parsed)))))
         (is (= 2 (count (queue/list-items root))))))))
 
+(deftest sync-check-supersedes-stale-maintenance-work
+  (let [root (temp-dir "ygg-cli-stale-maintenance-queue")
+        stale-packet {:schema decision-classifier/batch-packet-schema
+                      :batchId "maintenance-decision-batch:stale"
+                      :project-id "fixture"
+                      :items []
+                      :expectedResultSchema decision-classifier/batch-result-schema}
+        stale-source {:schema index-maintenance/source-schema
+                      :producer index-maintenance/producer
+                      :lane index-maintenance/graph-lane}
+        stale-ready-id (get-in (queue/enqueue! stale-packet
+                                               {:root root
+                                                :kind "maintenance-decision"
+                                                :project-id "fixture"
+                                                :source stale-source})
+                               [:item :id])
+        stale-failed-id (get-in (queue/fail!
+                                 root
+                                 (get-in (queue/enqueue!
+                                          (assoc stale-packet
+                                                 :batchId
+                                                 "maintenance-decision-batch:failed")
+                                          {:root root
+                                           :kind "maintenance-decision"
+                                           :project-id "fixture"
+                                           :source stale-source})
+                                         [:item :id])
+                                 "old failure")
+                                [:item :id])
+        unrelated-id (get-in (queue/enqueue!
+                              {:schema "custom.packet/v1"
+                               :id "custom"}
+                              {:root root
+                               :kind "custom"
+                               :project-id "fixture"})
+                             [:item :id])
+        current-decision {:id "maintenance-decision:current"
+                          :project-id "fixture"
+                          :kind :unclustered-system
+                          :status :open
+                          :severity :medium
+                          :target "system:fixture:api"
+                          :reason "Needs review."
+                          :evidence-ids []
+                          :recommended-actions [:accept-system]
+                          :basis {:schema "ygg.graph-basis/v1"
+                                  :project-id "fixture"
+                                  :hash "basis"}
+                          :data {}}]
+    (with-redefs [project/read-project (constantly project-fixture)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  project/index-project! (fn [_ project _]
+                                           {:project-id (:id project)
+                                            :status :completed
+                                            :repos []})
+                  project/infer-project! (fn [_ project]
+                                           {:project-id (:id project)
+                                            :status :completed})
+                  project/maintain-project (fn [_ _ _]
+                                             {:project-id "fixture"
+                                              :counts {:maintenance-decisions 1}
+                                              :decision-queue [current-decision]})]
+      (let [out (with-out-str
+                  (cli/dispatch "sync"
+                                ["project.edn"
+                                 "--check"
+                                 "--enqueue"
+                                 "--json"
+                                 "--queue-dir" root]))
+            parsed (read-json-output out)]
+        (is (= ["enqueued"] (mapv :enqueue-status (:enqueued parsed))))
+        (is (= "rejected" (get-in (queue/find-item root stale-ready-id)
+                                  [:item :status])))
+        (is (= "rejected" (get-in (queue/find-item root stale-failed-id)
+                                  [:item :status])))
+        (is (= "Superseded by newer index maintenance report."
+               (get-in (queue/find-item root stale-ready-id) [:item :reason])))
+        (is (= "ready" (get-in (queue/find-item root unrelated-id)
+                               [:item :status])))
+        (is (= 1 (count (queue/list-items root {:status "ready"
+                                                :kind "maintenance-decision"}))))))))
+
 (deftest sync-coverage-returns-source-coverage-report
   (with-redefs [project/read-project (constantly project-fixture)
                 store/with-node (fn [_ f] (f :xtdb))

@@ -23,8 +23,12 @@
                             :ignore-paths ["reports/**" "tmp/**"]}]
                    :maintenance
                    {:enabled true
-                    :max-queued-decisions 12
-                    :max-queued-decisions-per-kind 4
+                    :work {:max-decisions 12
+                           :max-decisions-per-kind 4
+                           :max-infra-reviews 20
+                           :max-dependency-reviews 16
+                           :decision-batch-size 6
+                           :review-batch-size 8}
                     :queue-dir "queue"
                     :report-dir "reports"
                     :schedules [{:id "sync"
@@ -52,8 +56,13 @@
     (let [maintenance (:maintenance (project/read-project (.getPath project-edn)))
           worker (:worker maintenance)]
       (is (= true (:enabled maintenance)))
-      (is (= 12 (:max-queued-decisions maintenance)))
-      (is (= 4 (:max-queued-decisions-per-kind maintenance)))
+      (is (= {:max-decisions 12
+              :max-decisions-per-kind 4
+              :max-infra-reviews 20
+              :max-dependency-reviews 16
+              :decision-batch-size 6
+              :review-batch-size 8}
+             (:work maintenance)))
       (is (= ["reports/**" "tmp/**"]
              (get-in (project/read-project (.getPath project-edn))
                      [:repos 0 :ignore-paths])))
@@ -79,6 +88,7 @@
                :run-on-start false}]
              (:schedules maintenance)))
       (is (= :complete-only (get-in worker [:apply :mode])))
+      (is (= 3 (:max-items-per-run worker)))
       (is (= 3 (:max-failures-per-run worker)))
       (is (= #{"maintenance-decision"}
              (get-in worker [:executors 0 :kinds])))
@@ -109,8 +119,13 @@
              (:queue-dir maintenance)))
       (is (= (store/project-data-path "demo" "reports" "maintenance")
              (:report-dir maintenance)))
-      (is (= 24 (:max-queued-decisions maintenance)))
-      (is (= 8 (:max-queued-decisions-per-kind maintenance)))
+      (is (= {:max-decisions 24
+              :max-decisions-per-kind 8
+              :max-infra-reviews 32
+              :max-dependency-reviews 32
+              :decision-batch-size 12
+              :review-batch-size 16}
+             (:work maintenance)))
       (is (= (:queue-dir maintenance) (:queue-dir worker))))))
 
 (deftest project-config-rejects-legacy-sync-check-schedule-task

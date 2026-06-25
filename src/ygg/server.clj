@@ -4,8 +4,14 @@
                                      json-output?
                                      option-value
                                      positional-args]]
+            [ygg.cli :as cli]
+            [ygg.cli-project :as cli-project]
+            [ygg.cli-query :as cli-query]
+            [ygg.cli-start :as cli-start]
+            [ygg.cli-sync :as cli-sync]
             [ygg.daemon-contract :as daemon-contract]
             [ygg.index-maintenance-worker :as index-maintenance-worker]
+            [ygg.mcp :as mcp]
             [ygg.progress :as progress]
             [ygg.project :as project]
             [ygg.project-registry :as registry]
@@ -69,9 +75,9 @@
          "-h" "help"))
 
 (def ^:private cli-query-command-handlers
-  {"query" 'ygg.cli-query/query!
-   "view" 'ygg.cli-query/view!
-   "report" 'ygg.cli-query/report!})
+  {"query" cli-query/query!
+   "view" cli-query/view!
+   "report" cli-query/report!})
 
 (def ^:private logged-ops
   (set (concat ["sync" "init"]
@@ -82,20 +88,13 @@
   []
   (.reset (LogManager/getLogManager)))
 
-(defn- call-var
-  [symbol & args]
-  (apply (or (requiring-resolve symbol)
-             (throw (ex-info "Unable to load server command dependency."
-                             {:symbol symbol})))
-         args))
-
 (defn- cli-sync-deps
   []
-  (call-var 'ygg.cli/sync-deps))
+  (cli/sync-deps))
 
 (defn- run-command-handler!
   [command args]
-  (call-var 'ygg.cli/dispatch command args))
+  (cli/dispatch command args))
 
 (defn- pid
   []
@@ -440,12 +439,12 @@
         args (sync-options->args opts)
         sync-deps (cli-sync-deps)
         run-index! (fn [index-xtdb]
-                     (call-var 'ygg.cli-sync/sync-index-project!
-                               index-xtdb
-                               project
-                               args
-                               sync-deps
-                               opts))
+                     (cli-sync/sync-index-project!
+                      index-xtdb
+                      project
+                      args
+                      sync-deps
+                      opts))
         check? (or check? enqueue?)]
     (if dry-run?
       (let [index-summary (run-index! nil)]
@@ -458,16 +457,16 @@
                              (skipped-system-summary (:id project))
                              (project/infer-project! xtdb project))
             report (when check?
-                     (call-var 'ygg.cli-sync/maintenance-report
-                               xtdb
-                               project
-                               args
-                               sync-deps))
+                     (cli-sync/maintenance-report
+                      xtdb
+                      project
+                      args
+                      sync-deps))
             enqueued (when (and report enqueue?)
-                       (call-var 'ygg.cli-sync/enqueue-sync-work!
-                                 args
-                                 report
-                                 sync-deps))
+                       (cli-sync/enqueue-sync-work!
+                        args
+                        report
+                        sync-deps))
             worker-run (run-index-maintenance-worker project opts enqueued)]
         (cond-> {:schema "ygg.sync/v1"
                  :project-id (:id project)
@@ -482,7 +481,7 @@
   [args result]
   (if (json-output? args)
     (println (json/write-json-str result))
-    (call-var 'ygg.cli-project/print-sync-summary result)))
+    (cli-project/print-sync-summary result)))
 
 (def scheduler-poll-ms
   5000)
@@ -754,9 +753,9 @@
                (get-in status [:maintenance :projectCount])
                "enabled")
       (println "- schedules" (get-in status [:maintenance :scheduleCount]))
-      (doseq [{:keys [project-id enabled schedules worker error]} (get-in status
-                                                                          [:maintenance
-                                                                           :projects])]
+      (doseq [{:keys [project-id enabled schedules worker work error]} (get-in status
+                                                                               [:maintenance
+                                                                                :projects])]
         (println "-"
                  project-id
                  (if enabled "enabled" "disabled")
@@ -771,6 +770,14 @@
                       (:availableExecutorCount worker)
                       "/"
                       (:executorCount worker)))
+        (when work
+          (println "  work"
+                   (str "decisions=" (:max-decisions work))
+                   (str "per-kind=" (:max-decisions-per-kind work))
+                   (str "infra=" (:max-infra-reviews work))
+                   (str "dependency=" (:max-dependency-reviews work))
+                   (str "decision-batch=" (:decision-batch-size work))
+                   (str "review-batch=" (:review-batch-size work))))
         (doseq [{:keys [id task enabled every-minutes enqueue check query-index]} schedules]
           (println "  schedule"
                    id
@@ -876,17 +883,16 @@
      #(run-command-handler! command args))))
 
 (defn- cli-query-response
-  [ctx request command handler-symbol]
+  [ctx request command handler]
   (let [args (absolutize-path-options (:cwd request) (vec (:args request)))
-        cli-args (into [command] args)
-        query-deps-var (requiring-resolve 'ygg.cli-query/*deps*)]
+        cli-args (into [command] args)]
     (captured-request-storage-response
      ctx
      request
      cli-args
      #(with-cli-operation ctx cli-args %)
-     #(with-bindings {query-deps-var (call-var 'ygg.cli/query-deps)}
-        (call-var handler-symbol args)))))
+     #(with-bindings {#'cli-query/*deps* (cli/query-deps)}
+        (handler args)))))
 
 (defn- sync-subcommand-response
   [ctx request subcommand args]
@@ -932,11 +938,11 @@
            (with-cli-operation
              ctx
              cli-args
-             #(call-var 'ygg.cli-start/init!
-                        args
-                        {:print-json server-print-json!
-                         :dispatch (partial init-sync-dispatch! ctx request)
-                         :query-index? server-query-index?}))))))))
+             #(cli-start/init!
+               args
+               {:print-json server-print-json!
+                :dispatch (partial init-sync-dispatch! ctx request)
+                :query-index? server-query-index?}))))))))
 
 (defn- stop-response
   [{:keys [running server]}]
@@ -960,7 +966,7 @@
 
 (defn- read-only-mcp-tool-call?
   [message]
-  (call-var 'ygg.mcp/read-only-tool? (mcp-tool-name message)))
+  (mcp/read-only-tool? (mcp-tool-name message)))
 
 (defn- without-operation-lock
   [f]
@@ -974,9 +980,9 @@
 
 (defn- handle-mcp-message
   [args message]
-  (call-var 'ygg.mcp/handle-message
-            (call-var 'ygg.mcp/server-context args)
-            message))
+  (mcp/handle-message
+   (mcp/server-context args)
+   message))
 
 (defn- mcp-response
   [ctx request]

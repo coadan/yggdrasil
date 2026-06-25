@@ -3,6 +3,7 @@
   (:require [ygg.fs :as fs]
             [ygg.extractor-plugin :as extractor-plugin]
             [ygg.index :as index]
+            [ygg.index-maintenance :as index-maintenance]
             [ygg.plugin-package :as plugin-package]
             [ygg.report-plugin :as report-plugin]
             [ygg.system :as system]
@@ -210,12 +211,6 @@
 (def ^:private maintenance-schedule-tasks
   #{:sync})
 
-(def ^:private default-max-queued-maintenance-decisions
-  24)
-
-(def ^:private default-max-queued-maintenance-decisions-per-kind
-  8)
-
 (defn- deepseek-v4+-model?
   [model]
   (boolean
@@ -357,7 +352,7 @@
              :queue-dir (:queue-dir maintenance)
              :report-dir (:report-dir maintenance)
              :lease-minutes (long (or (:lease-minutes worker) 10))
-             :max-items-per-run (long (or (:max-items-per-run worker) 25))
+             :max-items-per-run (long (or (:max-items-per-run worker) 3))
              :max-failures-per-run (long (or (:max-failures-per-run worker) 3))
              :apply (normalize-index-maintenance-apply (:apply worker))
              :executors (mapv normalize-index-maintenance-executor executors)
@@ -368,11 +363,8 @@
   (when-let [maintenance (:maintenance data)]
     (let [maintenance (assoc maintenance
                              :enabled (boolean (:enabled maintenance))
-                             :max-queued-decisions (long (or (:max-queued-decisions maintenance)
-                                                             default-max-queued-maintenance-decisions))
-                             :max-queued-decisions-per-kind
-                             (long (or (:max-queued-decisions-per-kind maintenance)
-                                       default-max-queued-maintenance-decisions-per-kind))
+                             :work (index-maintenance/normalize-work-controls
+                                    (:work maintenance))
                              :queue-dir (if (:queue-dir maintenance)
                                           (resolve-root base (:queue-dir maintenance))
                                           (store/project-sqlite-path project-id))
@@ -699,10 +691,10 @@
 (defn maintain-project
   "Return read-only maintenance findings for project."
   [xtdb project opts]
-  (system/maintenance-report
-   xtdb
-   (:id project)
-   (merge (select-keys (:maintenance project)
-                       [:max-queued-decisions
-                        :max-queued-decisions-per-kind])
-          opts)))
+  (let [work (get-in project [:maintenance :work])]
+    (system/maintenance-report
+     xtdb
+     (:id project)
+     (merge {:max-queued-decisions (:max-decisions work)
+             :max-queued-decisions-per-kind (:max-decisions-per-kind work)}
+            opts))))

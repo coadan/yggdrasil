@@ -120,6 +120,48 @@
     (is (= index-maintenance/review-batch-size
            (count (get-in dependency-work [0 :payload :items]))))))
 
+(deftest maintenance-work-controls-cap-and-batch-review-lanes
+  (let [infra-packets (mapv (fn [idx]
+                              {:schema infra-review/packet-schema
+                               :reviewId (str "infra-review:" idx)
+                               :project-id "demo"
+                               :expectedOutput {:schema infra-review/result-schema
+                                                :reviewId (str "infra-review:" idx)}})
+                            (range 5))
+        dependency-packets (mapv (fn [idx]
+                                   {:schema dependency-review/packet-schema
+                                    :reviewId (str "dependency-review:" idx)
+                                    :project-id "demo"
+                                    :expectedOutput {:schema dependency-review/result-schema
+                                                     :reviewId (str "dependency-review:" idx)}})
+                                 (range 5))
+        report (index-maintenance/from-graph-report
+                {:project-id "demo"
+                 :counts {:infra-review-items (count infra-packets)
+                          :dependency-review-items (count dependency-packets)}
+                 :infra-review-queue infra-packets
+                 :dependency-review-queue dependency-packets}
+                {:max-infra-reviews 3
+                 :max-dependency-reviews 2
+                 :review-batch-size 3})
+        work (index-maintenance/work-items report)
+        infra-work (filterv #(= infra-review/work-kind (:kind %)) work)
+        dependency-work (filterv #(= dependency-review/work-kind (:kind %)) work)]
+    (is (= {:items 2
+            :decisions 0
+            :infra-reviews 3
+            :dependency-reviews 2
+            :decisions-omitted 0
+            :infra-reviews-omitted 2
+            :dependency-reviews-omitted 3}
+           (:work-counts report)))
+    (is (= [infra-review/batch-packet-schema]
+           (mapv (comp :schema :payload) infra-work)))
+    (is (= [dependency-review/batch-packet-schema]
+           (mapv (comp :schema :payload) dependency-work)))
+    (is (= 3 (count (get-in infra-work [0 :payload :items]))))
+    (is (= 2 (count (get-in dependency-work [0 :payload :items]))))))
+
 (deftest maintenance-work-packets-include-clear-bounded-instructions
   (let [decision-packet
         (decision-classifier/decision-packet

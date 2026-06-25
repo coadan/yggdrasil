@@ -630,6 +630,35 @@
                  :rejected-at-ms (now-ms)
                  :lease nil})))
 
+(defn reject-many!
+  "Reject queue item ids with one direct SQLite update pass. Return count updated."
+  [root ids reason]
+  (let [ids (vec (remove str/blank? (map str ids)))
+        root (or root default-root)
+        now (now-ms)]
+    (if-not (seq ids)
+      0
+      (with-db root
+        (fn [conn]
+          (with-open [statement (.prepareStatement
+                                 conn
+                                 (str "update ygg_queue_items "
+                                      "set status = ?, "
+                                      "updated_at_ms = ?, "
+                                      "reason = ?, "
+                                      "rejected_at_ms = ?, "
+                                      "lease_json = null "
+                                      "where id = ?"))]
+            (reduce (fn [count id]
+                      (.setString statement 1 "rejected")
+                      (.setLong statement 2 now)
+                      (.setString statement 3 reason)
+                      (.setLong statement 4 now)
+                      (.setString statement 5 id)
+                      (+ count (.executeUpdate statement)))
+                    0
+                    ids)))))))
+
 (defn fail!
   "Mark a queue item failed with a human-readable reason."
   [root id reason]

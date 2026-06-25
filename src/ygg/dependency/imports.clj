@@ -64,12 +64,19 @@
   [nodes]
   (go/module-nodes nodes))
 
+(defn local-import-targets
+  [kind files-by-path local-namespace-targets]
+  (case kind
+    :python (python/local-targets files-by-path local-namespace-targets)
+    nil))
+
 (defn package-import-candidate?
   [{:keys [files-by-path
            alias-nodes
            module-nodes
            nodes-by-id
            local-namespace-targets
+           python-local-targets
            edge]}]
   (let [target (import-common/namespace-target (:target-id edge))
         kind (source-kind files-by-path (:path edge))
@@ -78,6 +85,7 @@
                  :module-nodes module-nodes
                  :nodes-by-id nodes-by-id
                  :local-namespace-targets local-namespace-targets
+                 :python-local-targets python-local-targets
                  :edge edge
                  :kind kind
                  :target target}]
