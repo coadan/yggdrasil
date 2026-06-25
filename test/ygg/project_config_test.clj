@@ -23,6 +23,8 @@
                             :ignore-paths ["reports/**" "tmp/**"]}]
                    :maintenance
                    {:enabled true
+                    :max-queued-decisions 12
+                    :max-queued-decisions-per-kind 4
                     :queue-dir "queue"
                     :report-dir "reports"
                     :schedules [{:id "sync"
@@ -50,6 +52,8 @@
     (let [maintenance (:maintenance (project/read-project (.getPath project-edn)))
           worker (:worker maintenance)]
       (is (= true (:enabled maintenance)))
+      (is (= 12 (:max-queued-decisions maintenance)))
+      (is (= 4 (:max-queued-decisions-per-kind maintenance)))
       (is (= ["reports/**" "tmp/**"]
              (get-in (project/read-project (.getPath project-edn))
                      [:repos 0 :ignore-paths])))
@@ -105,6 +109,8 @@
              (:queue-dir maintenance)))
       (is (= (store/project-data-path "demo" "reports" "maintenance")
              (:report-dir maintenance)))
+      (is (= 24 (:max-queued-decisions maintenance)))
+      (is (= 8 (:max-queued-decisions-per-kind maintenance)))
       (is (= (:queue-dir maintenance) (:queue-dir worker))))))
 
 (deftest project-config-rejects-legacy-sync-check-schedule-task

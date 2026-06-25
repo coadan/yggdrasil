@@ -210,6 +210,12 @@
 (def ^:private maintenance-schedule-tasks
   #{:sync})
 
+(def ^:private default-max-queued-maintenance-decisions
+  24)
+
+(def ^:private default-max-queued-maintenance-decisions-per-kind
+  8)
+
 (defn- deepseek-v4+-model?
   [model]
   (boolean
@@ -362,6 +368,11 @@
   (when-let [maintenance (:maintenance data)]
     (let [maintenance (assoc maintenance
                              :enabled (boolean (:enabled maintenance))
+                             :max-queued-decisions (long (or (:max-queued-decisions maintenance)
+                                                             default-max-queued-maintenance-decisions))
+                             :max-queued-decisions-per-kind
+                             (long (or (:max-queued-decisions-per-kind maintenance)
+                                       default-max-queued-maintenance-decisions-per-kind))
                              :queue-dir (if (:queue-dir maintenance)
                                           (resolve-root base (:queue-dir maintenance))
                                           (store/project-sqlite-path project-id))
@@ -634,4 +645,10 @@
 (defn maintain-project
   "Return read-only maintenance findings for project."
   [xtdb project opts]
-  (system/maintenance-report xtdb (:id project) opts))
+  (system/maintenance-report
+   xtdb
+   (:id project)
+   (merge (select-keys (:maintenance project)
+                       [:max-queued-decisions
+                        :max-queued-decisions-per-kind])
+          opts)))

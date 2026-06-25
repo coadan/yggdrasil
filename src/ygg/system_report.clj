@@ -196,6 +196,10 @@
   3)
 (def max-fanout-decision-edges
   50)
+(def default-max-queued-decisions
+  24)
+(def default-max-queued-decisions-per-kind
+  8)
 (def max-maintenance-decisions-per-kind
   100)
 (def max-external-api-review-groups
@@ -525,7 +529,40 @@
 (defn- severity-rank
   [severity]
   ({:high 0 :medium 1 :low 2} severity 3))
-(defn- maintenance-decision-queue
+(defn- non-negative-long
+  [value default]
+  (let [value (if (nil? value) default value)]
+    (max 0 (long value))))
+(defn- decision-rank
+  [decision]
+  [(severity-rank (:severity decision))
+   (:kind decision)
+   (:target decision)])
+(defn- cap-decision-frontier
+  [decisions {:keys [max-queued-decisions max-queued-decisions-per-kind]}]
+  (let [max-total (non-negative-long max-queued-decisions default-max-queued-decisions)
+        max-per-kind (non-negative-long max-queued-decisions-per-kind
+                                        default-max-queued-decisions-per-kind)]
+    (loop [remaining (sort-by decision-rank decisions)
+           by-kind {}
+           out []]
+      (cond
+        (or (empty? remaining) (<= max-total (count out)))
+        out
+
+        (zero? max-per-kind)
+        out
+
+        :else
+        (let [decision (first remaining)
+              kind (:kind decision)
+              kind-count (long (get by-kind kind 0))]
+          (if (< kind-count max-per-kind)
+            (recur (rest remaining)
+                   (update by-kind kind (fnil inc 0))
+                   (conj out decision))
+            (recur (rest remaining) by-kind out)))))))
+(defn- maintenance-decision-candidates
   [project-id basis system-by-id semantic-edges orphaned clusters external-api-review]
   (let [grouped-external-api-ids (covered-external-api-ids external-api-review)]
     (->> (concat (ambiguous-edge-decisions project-id basis system-by-id semantic-edges)
@@ -595,23 +632,36 @@
                          " --project "
                          (command/shell-token project-id))})))
 (defn decision-queue-summary
-  [project-id decision-queue]
-  (cond-> {:total (count decision-queue)
-           :bySeverity (grouped-decision-counts decision-queue
-                                                :severity
-                                                (fn [row]
-                                                  [(severity-rank (:severity row))
-                                                   (or (some-> (:severity row) name)
-                                                       "")]))
-           :byKind (grouped-decision-counts decision-queue
-                                            :kind
-                                            (fn [row]
-                                              [(or (some-> (:kind row) name)
-                                                   "")]))
-           :byRecommendedAction (grouped-decision-action-counts decision-queue)
-           :nextActions (decision-summary-actions project-id decision-queue)}
-    (seq decision-queue)
-    (assoc :next (decision-preview (first decision-queue)))))
+  ([project-id decision-queue]
+   (decision-queue-summary project-id decision-queue {}))
+  ([project-id decision-queue {:keys [candidate-count max-queued-decisions
+                                      max-queued-decisions-per-kind]}]
+   (cond-> {:total (count decision-queue)
+            :bySeverity (grouped-decision-counts decision-queue
+                                                 :severity
+                                                 (fn [row]
+                                                   [(severity-rank (:severity row))
+                                                    (or (some-> (:severity row) name)
+                                                        "")]))
+            :byKind (grouped-decision-counts decision-queue
+                                             :kind
+                                             (fn [row]
+                                               [(or (some-> (:kind row) name)
+                                                    "")]))
+            :byRecommendedAction (grouped-decision-action-counts decision-queue)
+            :nextActions (decision-summary-actions project-id decision-queue)}
+     candidate-count
+     (assoc :candidates candidate-count
+            :omitted (max 0 (- (long candidate-count) (count decision-queue)))
+            :limits {:max-queued-decisions (non-negative-long
+                                            max-queued-decisions
+                                            default-max-queued-decisions)
+                     :max-queued-decisions-per-kind (non-negative-long
+                                                     max-queued-decisions-per-kind
+                                                     default-max-queued-decisions-per-kind)})
+
+     (seq decision-queue)
+     (assoc :next (decision-preview (first decision-queue))))))
 (defn- ratio
   [numerator denominator]
   (if (pos? denominator)
@@ -776,7 +826,8 @@
      :actions actions}))
 (defn maintenance-report
   "Return read-only maintenance findings for a project's current system graph."
-  [xtdb project-id {:keys [low-confidence-threshold correction-overlay]
+  [xtdb project-id {:keys [low-confidence-threshold correction-overlay
+                           max-queued-decisions max-queued-decisions-per-kind]
                     :or {low-confidence-threshold 0.60}}]
   (let [raw-systems (vec (store/constrained-rows xtdb
                                                  (:system-nodes store/tables)
@@ -827,13 +878,16 @@
         external-api-review (external-api-review-groups project-id
                                                         system-by-id
                                                         semantic-edges)
-        decision-queue (maintenance-decision-queue project-id
-                                                   basis
-                                                   system-by-id
-                                                   semantic-edges
-                                                   orphaned
-                                                   clusters
-                                                   external-api-review)
+        decision-candidates (maintenance-decision-candidates project-id
+                                                             basis
+                                                             system-by-id
+                                                             semantic-edges
+                                                             orphaned
+                                                             clusters
+                                                             external-api-review)
+        decision-queue (cap-decision-frontier decision-candidates
+                                              {:max-queued-decisions max-queued-decisions
+                                               :max-queued-decisions-per-kind max-queued-decisions-per-kind})
         infra-review-queue (infra-review/review-packets
                             {:project-id project-id
                              :basis basis
@@ -868,13 +922,22 @@
               :visible-connections (count visible-edges)
               :clusters (count clusters)
               :maintenance-decisions (count decision-queue)
+              :maintenance-decision-candidates (count decision-candidates)
+              :maintenance-decisions-omitted (max 0
+                                                  (- (count decision-candidates)
+                                                     (count decision-queue)))
               :infra-review-items (count infra-review-queue)
               :dependency-review-items (count dependency-review-queue)}
      :scale scale
      :external-api-review external-api-review
      :graph-health graph-health
      :fold-in (fold-in-report project-id scale decision-queue)
-     :decision-summary (decision-queue-summary project-id decision-queue)
+     :decision-summary (decision-queue-summary
+                        project-id
+                        decision-queue
+                        {:candidate-count (count decision-candidates)
+                         :max-queued-decisions max-queued-decisions
+                         :max-queued-decisions-per-kind max-queued-decisions-per-kind})
      :orphaned-systems orphaned
      :dangling-edges dangling-edges
      :evidence-with-missing-system missing-evidence-systems

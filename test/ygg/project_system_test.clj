@@ -408,6 +408,44 @@
           (is (contains? (set (:recommended-actions sparse-decision))
                          :reject-external-api)))))))
 
+(deftest maintenance-decision-frontier-is-capped-before-enqueue
+  (let [xtdb-path (temp-dir "ygg-maintenance-frontier-cap-xtdb")
+        orphan-nodes (mapv (fn [idx]
+                             (assoc (test-system-node
+                                     (str "system:noise:app:orphan-" idx)
+                                     (str "orphan-" idx)
+                                     :candidate-system)
+                                    :metrics {:node-count 1
+                                              :file-count 1}))
+                           (range 12))]
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (store/commit-system-graph!
+         xtdb
+         "noise"
+         {:nodes orphan-nodes
+          :edges []
+          :evidence []
+          :search-docs []})
+        (let [maintenance (project/maintain-project
+                           xtdb
+                           {:id "noise"
+                            :repos [{:id "app" :root "/tmp/app"}]
+                            :maintenance {:max-queued-decisions 10
+                                          :max-queued-decisions-per-kind 3}}
+                           {})]
+          (is (= 12 (get-in maintenance [:counts :maintenance-decision-candidates])))
+          (is (= 3 (get-in maintenance [:counts :maintenance-decisions])))
+          (is (= 9 (get-in maintenance [:counts :maintenance-decisions-omitted])))
+          (is (= 3 (count (:decision-queue maintenance))))
+          (is (= #{:unclustered-system}
+                 (set (map :kind (:decision-queue maintenance)))))
+          (is (= 12 (get-in maintenance [:decision-summary :candidates])))
+          (is (= 9 (get-in maintenance [:decision-summary :omitted])))
+          (is (= {:max-queued-decisions 10
+                  :max-queued-decisions-per-kind 3}
+                 (get-in maintenance [:decision-summary :limits]))))))))
+
 (deftest maintenance-decision-summary-actions-quote-project-id
   (let [summary (system-report/decision-queue-summary
                  "demo project"

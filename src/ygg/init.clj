@@ -161,6 +161,8 @@
   (let [mode (maintenance-mode opts)]
     (when (and mode (not (#{"none" "off" "false"} mode)))
       {:enabled true
+       :max-queued-decisions 24
+       :max-queued-decisions-per-kind 8
        :schedules (maintenance-schedules)
        :worker {:enabled true
                 :agent-id "ygg-auto"
