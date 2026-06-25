@@ -1,5 +1,6 @@
 (ns ygg.context-budget
   (:require [charred.api :as json]
+            [ygg.system.candidate :as system-candidate]
             [clojure.string :as str]))
 
 (defn estimate-tokens
@@ -547,6 +548,7 @@
   (select-keys candidate
                [:path
                 :repo
+                :kind
                 :rank
                 :score
                 :targetKind
@@ -555,17 +557,107 @@
                 :sourceLine
                 :resultKind
                 :scoreComponents]))
-(defn- fitting-candidate-prefix
-  [packet candidates budget]
+(def ^:private candidate-file-source-reserve-limit
+  8)
+
+(defn- source-file-base-kind
+  [kind]
+  (when kind
+    (let [kind-name (name kind)
+          suffix "-file"]
+      (when (str/ends-with? kind-name suffix)
+        (keyword (subs kind-name
+                       0
+                       (- (count kind-name) (count suffix))))))))
+
+(defn- source-file-kind?
+  [kind]
+  (boolean
+   (some->> kind
+            source-file-base-kind
+            (contains? system-candidate/source-like-kinds))))
+
+(defn- source-file-candidate-evidence?
+  [candidate]
+  (let [score-components (:scoreComponents candidate)]
+    (pos? (+ (double (or (:grep score-components) 0.0))
+             (double (or (:lexical score-components) 0.0))
+             (double (or (:exact score-components) 0.0))))))
+
+(defn- source-file-candidate?
+  [candidate]
+  (and (source-file-kind? (:kind candidate))
+       (source-file-candidate-evidence? candidate)))
+
+(defn- candidate-file-key
+  [candidate]
+  [(or (:repo candidate) (:repo-id candidate)) (:path candidate)])
+
+(defn- candidate-source-reserve-sort-key
+  [candidate]
+  (let [score-components (:scoreComponents candidate)]
+    [(- (double (or (:grep score-components) 0.0)))
+     (- (double (or (:lexical score-components) 0.0)))
+     (- (double (or (:semantic score-components) 0.0)))
+     (- (double (or (:score candidate) 0.0)))
+     (:rank candidate)
+     (:path candidate)]))
+
+(defn- candidate-source-reserve
+  [candidates]
+  (letfn [(take-source-candidates [rows selected-keys n]
+            (loop [remaining (seq rows)
+                   seen selected-keys
+                   selected []]
+              (if (or (nil? remaining)
+                      (<= n (count selected)))
+                selected
+                (let [candidate (first remaining)
+                      k (candidate-file-key candidate)]
+                  (if (or (contains? seen k)
+                          (not (source-file-candidate? candidate)))
+                    (recur (next remaining) seen selected)
+                    (recur (next remaining)
+                           (conj seen k)
+                           (conj selected candidate)))))))]
+    (let [ranked-head (vec (take-source-candidates
+                            candidates
+                            #{}
+                            candidate-file-source-reserve-limit))
+          selected-keys (set (map candidate-file-key ranked-head))
+          remaining (max 0
+                         (- candidate-file-source-reserve-limit
+                            (count ranked-head)))]
+      (vec (concat ranked-head
+                   (take-source-candidates
+                    (sort-by candidate-source-reserve-sort-key candidates)
+                    selected-keys
+                    remaining))))))
+
+(defn- candidate-selection
+  [candidates prefix-count reserve]
+  (let [prefix (subvec candidates 0 prefix-count)
+        prefix-keys (set (map candidate-file-key prefix))
+        selected (concat prefix
+                         (remove #(contains? prefix-keys
+                                             (candidate-file-key %))
+                                 reserve))]
+    (->> selected
+         (sort-by #(or (:rank %) Long/MAX_VALUE))
+         vec)))
+
+(defn- fitting-candidate-selection
+  [packet candidates reserve budget]
   (loop [lo 0
          hi (count candidates)
-         best 0]
+         best []]
     (if (> lo hi)
       best
       (let [mid (quot (+ lo hi) 2)
-            trimmed (assoc packet :candidateFiles (subvec candidates 0 mid))]
+            selected (candidate-selection candidates mid reserve)
+            trimmed (assoc packet :candidateFiles selected)]
         (if (<= (estimate-tokens trimmed) budget)
-          (recur (inc mid) hi mid)
+          (recur (inc mid) hi selected)
           (recur lo (dec mid) best))))))
 (def ^:private candidate-file-reserve-fraction
   0.25)
@@ -593,14 +685,18 @@
                        (trim-optional-context-metadata candidate-context-budget)
                        (assoc :candidateFiles candidates))
             compact-candidates (mapv compact-candidate-file candidates)
-            keep-count (fitting-candidate-prefix packet compact-candidates budget)]
-        (if (pos? keep-count)
+            selected-candidates (fitting-candidate-selection
+                                 packet
+                                 compact-candidates
+                                 (candidate-source-reserve compact-candidates)
+                                 budget)]
+        (if (seq selected-candidates)
           (-> packet
-              (assoc :candidateFiles (subvec compact-candidates 0 keep-count))
+              (assoc :candidateFiles selected-candidates)
               (add-warning-with-budget
-               (if (< keep-count total)
+               (if (< (count selected-candidates) total)
                  (str "candidate files trimmed to "
-                      keep-count
+                      (count selected-candidates)
                       " of "
                       total
                       " to fit context budget")

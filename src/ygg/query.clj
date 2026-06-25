@@ -2,6 +2,7 @@
   "Graph query helpers."
   (:require [ygg.hash :as hash]
             [ygg.ripgrep :as ripgrep]
+            [ygg.system.candidate :as system-candidate]
             [ygg.text :as text]
             [ygg.vector-store :as vector-store]
             [ygg.xtdb :as store]
@@ -21,6 +22,7 @@
 (def default-grep-max-stdout-bytes 200000)
 (def default-transient-file-candidates 80)
 (def default-grep-reserve-candidates 12)
+(def default-source-file-reserve-candidates 12)
 (def default-result-kind-reserve-candidates 1)
 (def lexical-graph-weight 0.25)
 (def hybrid-graph-weight 0.20)
@@ -1642,6 +1644,38 @@
    (:path row)
    (:label row)])
 
+(defn- source-file-base-kind
+  [kind]
+  (when kind
+    (let [kind-name (name kind)
+          suffix "-file"]
+      (when (str/ends-with? kind-name suffix)
+        (keyword (subs kind-name
+                       0
+                       (- (count kind-name) (count suffix))))))))
+
+(defn- source-file-kind-row?
+  [row]
+  (boolean
+   (some->> (:kind row)
+            source-file-base-kind
+            (contains? system-candidate/source-like-kinds))))
+
+(defn- source-file-reserve-evidence?
+  [row]
+  (pos? (+ (double (get-in row [:score-components :grep] 0.0))
+           (double (get-in row [:score-components :lexical] 0.0))
+           (double (get-in row [:score-components :exact] 0.0)))))
+
+(defn- source-file-reserve-sort-key
+  [row]
+  [(- (double (get-in row [:score-components :grep] 0.0)))
+   (- (double (get-in row [:score-components :lexical] 0.0)))
+   (- (double (get-in row [:score-components :semantic] 0.0)))
+   (- (double (or (:score row) 0.0)))
+   (:path row)
+   (:label row)])
+
 (defn- path-key
   [row]
   [(or (:repo-id row) (:repo row)) (:path row)])
@@ -1664,6 +1698,41 @@
           (recur (next remaining)
                  (conj seen-paths path-key)
                  (conj selected row)))))))
+
+(defn- source-file-reserve-row?
+  [row]
+  (and (source-file-kind-row? row)
+       (source-file-reserve-evidence? row)))
+
+(defn- take-source-file-reserve-rows
+  [rows selected-ids n]
+  (loop [remaining (seq rows)
+         seen-paths #{}
+         selected []]
+    (if (or (nil? remaining)
+            (<= n (count selected)))
+      selected
+      (let [row (first remaining)
+            row-id (:target-id row)
+            path-key (path-key row)]
+        (if (or (contains? selected-ids row-id)
+                (contains? seen-paths path-key)
+                (not (source-file-reserve-row? row)))
+          (recur (next remaining) seen-paths selected)
+          (recur (next remaining)
+                 (conj seen-paths path-key)
+                 (conj selected row)))))))
+
+(defn- ranked-source-file-reserve-rows
+  [rows selected-ids n]
+  (let [ranked-head (vec (take-source-file-reserve-rows rows selected-ids n))
+        selected-ids (into selected-ids (map :target-id ranked-head))
+        remaining (max 0 (- n (count ranked-head)))]
+    (vec (concat ranked-head
+                 (take-source-file-reserve-rows
+                  (sort-by source-file-reserve-sort-key rows)
+                  selected-ids
+                  remaining)))))
 
 (defn- ranked-result-kind-reserve-rows
   [rows selected-ids selected-kinds n]
@@ -1692,29 +1761,47 @@
       (vec rows)
       (let [reserve-limit (min default-grep-reserve-candidates
                                (max 0 (quot limit 4)))
+            source-reserve-limit (min default-source-file-reserve-candidates
+                                      (max 0 (quot limit 8)))
             kind-reserve-limit (if (<= limit default-limit)
                                  (min default-result-kind-reserve-candidates
-                                      (max 0 (- limit reserve-limit)))
+                                      (max 0 (- limit
+                                                reserve-limit
+                                                source-reserve-limit)))
                                  0)
-            primary-limit (max 0 (- limit reserve-limit kind-reserve-limit))
+            primary-limit (max 0 (- limit
+                                    reserve-limit
+                                    source-reserve-limit
+                                    kind-reserve-limit))
             primary (vec (take primary-limit rows))
             primary-ids (set (map :target-id primary))
             reserve (ranked-grep-reserve-rows rows primary-ids reserve-limit)
             selected-ids (set (map :target-id (concat primary reserve)))
+            source-reserve (ranked-source-file-reserve-rows
+                            rows
+                            selected-ids
+                            source-reserve-limit)
+            selected-ids (set (map :target-id
+                                   (concat primary reserve source-reserve)))
             kind-reserve (ranked-result-kind-reserve-rows
                           rows
                           selected-ids
-                          (set (keep :result-kind (concat primary reserve)))
+                          (set (keep :result-kind
+                                     (concat primary reserve source-reserve)))
                           kind-reserve-limit)
             selected-ids (set (map :target-id
-                                   (concat primary reserve kind-reserve)))
+                                   (concat primary
+                                           reserve
+                                           source-reserve
+                                           kind-reserve)))
             fill (->> rows
                       (remove #(contains? selected-ids (:target-id %)))
                       (take (max 0 (- limit
                                       (count primary)
                                       (count reserve)
+                                      (count source-reserve)
                                       (count kind-reserve)))))]
-        (->> (concat primary reserve kind-reserve fill)
+        (->> (concat primary reserve source-reserve kind-reserve fill)
              (sort-by ranked-result-sort-key)
              vec)))))
 

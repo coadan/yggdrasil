@@ -4242,6 +4242,71 @@
     (is (not-any? #{"src/noise-5.clj"} (map :path (:files result))))
     (is (= 5 (:candidateFileOnlySelected result)))))
 
+(deftest limited-agent-result-score-elbow-keeps-candidate-only-quota
+  (let [select-limited @#'benchmark-prediction/select-limited-suspected-files
+        doc-row (fn [path rank rank-score]
+                  {:path path
+                   :rank rank
+                   :metrics {:rankScore rank-score
+                             :docCount 1
+                             :candidateFileCount 0
+                             :entityCount 0}})
+        candidate-row (fn [path rank source-rank rank-score]
+                        {:path path
+                         :rank rank
+                         :metrics {:rankScore rank-score
+                                   :candidateFileCount 1
+                                   :docCount 0
+                                   :entityCount 0
+                                   :candidateSourceRank source-rank}})
+        rows [(doc-row "src/high_a.clj" 1 10.0)
+              (doc-row "src/high_b.clj" 2 9.0)
+              (candidate-row "src/source_1.clj" 3 1 3.0)
+              (candidate-row "src/source_2.clj" 4 2 2.0)
+              (candidate-row "src/source_3.clj" 5 3 1.8)
+              (candidate-row "src/query_dispatch.clj" 6 4 1.6)
+              (candidate-row "src/source_5.clj" 7 5 1.4)
+              (doc-row "docs/tail.md" 8 0.5)]
+        result (select-limited rows 20)]
+    (is (contains? (set (map :path (:files result)))
+                   "src/query_dispatch.clj"))
+    (is (= 5 (:candidateFileOnlySelected result)))
+    (is (<= 7 (count (:files result))))))
+
+(deftest compact-output-prune-preserves-query-evidence-source-rows
+  (let [prune @#'benchmark-prediction/compact-output-prune-score-tail
+        row (fn [path rank rank-score metrics]
+              {:path path
+               :rank rank
+               :metrics (merge {:rankScore rank-score
+                                :candidateFileCount 0
+                                :docCount 0
+                                :entityCount 0}
+                               metrics)})
+        query-source (row "src/query_dispatch.py"
+                          4
+                          2.0
+                          {:candidateFileCount 1
+                           :candidateSourceRank 293
+                           :matchedTokenCount 2
+                           :sourceGraphCandidateEvidenceScore 4.0
+                           :candidateGrepScore 0.1})
+        selected [(row "src/high_a.py" 1 10.0 {})
+                  (row "src/high_b.py" 2 9.0 {})
+                  (row "src/mid.py" 3 3.0 {})
+                  query-source
+                  (row "src/tail_a.py" 5 1.5 {})
+                  (row "src/tail_b.py" 6 1.0 {})]
+        result (prune selected 7 nil [] {})]
+    (is (contains? (set (map :path result))
+                   "src/query_dispatch.py"))
+    (is (< (count result) (count selected)))
+    (is (= ["src/high_a.py"
+            "src/high_b.py"
+            "src/mid.py"
+            "src/query_dispatch.py"]
+           (mapv :path result)))))
+
 (deftest limited-agent-result-reserves-dense-candidate-only-file-identity
   (let [select-limited @#'benchmark-prediction/select-limited-suspected-files
         candidate-row (fn [path rank source-rank metrics]

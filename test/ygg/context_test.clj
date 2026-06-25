@@ -4215,6 +4215,57 @@
     (is (< (count (:candidateFiles fitted)) 25))
     (is (<= (context/estimate-tokens fitted) 900))))
 
+(deftest fit-budget-preserves-source-file-candidate-reserve
+  (let [fit-budget @#'context/fit-budget
+        packet {:schema context/schema
+                :query "find query dispatch"
+                :graph {:basis {}
+                        :counts {:nodes 0
+                                 :edges 0
+                                 :clusters 0}}
+                :budget {:requested 1200}
+                :entities []
+                :edges []
+                :activity []
+                :warnings []
+                :drilldowns []
+                :candidateFiles (vec
+                                 (concat
+                                  (map (fn [idx]
+                                         {:path (str "docs/candidate_" idx ".md")
+                                          :rank (inc idx)
+                                          :kind :markdown
+                                          :score 2.0
+                                          :targetKind "chunk"
+                                          :label (apply str
+                                                        "verbose docs "
+                                                        (repeat 60
+                                                                (str "token" idx " ")))
+                                          :scoreComponents {:lexical 1.0}})
+                                       (range 25))
+                                  [{:path "docs/reference.md"
+                                    :rank 26
+                                    :kind :doc-file
+                                    :score 0.2
+                                    :targetKind "chunk"
+                                    :label "reference doc"
+                                    :scoreComponents {:lexical 1.0}}
+                                   {:path "src/query.py"
+                                    :rank 27
+                                    :kind :python-file
+                                    :score 0.1
+                                    :targetKind "chunk"
+                                    :label "query source"
+                                    :scoreComponents {:lexical 0.5}}]))
+                :docs []}
+        fitted (fit-budget packet [] 1200)
+        paths (set (map :path (:candidateFiles fitted)))]
+    (is (contains? paths "src/query.py"))
+    (is (not (contains? paths "docs/reference.md")))
+    (is (< (count (:candidateFiles fitted))
+           (count (:candidateFiles packet))))
+    (is (<= (context/estimate-tokens fitted) 1200))))
+
 (deftest fit-budget-groups-retained-doc-snippets-by-file
   (let [fit-budget @#'context/fit-budget
         packet {:schema context/schema

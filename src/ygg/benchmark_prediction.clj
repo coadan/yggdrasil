@@ -2601,26 +2601,39 @@
           {:files selected}))
       {:files selected})))
 
+(defn- score-elbow-protected-keys
+  [selected]
+  (->> selected
+       (filter candidate-file-only-row?)
+       (sort-by row-source-order-key)
+       (take default-agent-baseline-candidate-file-only-quota)
+       (map file-row-key)
+       set))
+
 (defn- score-elbow-tail-cut
   [selected]
   (let [selected (vec selected)]
     (when (and (<= score-elbow-tail-min-files (count selected))
                (not-any? prediction-rank-protected? selected))
-      (some (fn [prefix-size]
-              (let [prefix (subvec selected 0 prefix-size)
-                    next-row (nth selected prefix-size nil)
-                    score-floor (apply min (map row-rank-score prefix))
-                    next-score (row-rank-score next-row)]
-                (when (and next-row
-                           (pos? score-floor)
-                           (<= next-score
-                               (* score-elbow-tail-score-ratio
-                                  score-floor)))
-                  {:prefix-size prefix-size
-                   :score-floor score-floor})))
-            (range score-elbow-tail-prefix-min-files
-                   (inc (min score-elbow-tail-prefix-max-files
-                             (dec (count selected)))))))))
+      (let [protected-keys (score-elbow-protected-keys selected)]
+        (some (fn [prefix-size]
+                (let [prefix (subvec selected 0 prefix-size)
+                      prefix-keys (set (map file-row-key prefix))
+                      next-row (nth selected prefix-size nil)
+                      score-floor (apply min (map row-rank-score prefix))
+                      next-score (row-rank-score next-row)]
+                  (when (and next-row
+                             (pos? score-floor)
+                             (<= next-score
+                                 (* score-elbow-tail-score-ratio
+                                    score-floor))
+                             (set/subset? protected-keys prefix-keys))
+                    {:prefix-size prefix-size
+                     :score-floor score-floor})))
+              (range score-elbow-tail-prefix-min-files
+                     (inc (min (max score-elbow-tail-prefix-max-files
+                                    (count protected-keys))
+                               (dec (count selected))))))))))
 
 (defn- compact-score-elbow-tail
   [{:keys [files] :as selection} limit source-kinds kind-by-path]
@@ -3045,7 +3058,9 @@
 (defn- compact-output-prune-protected-row?
   [row]
   (or (compact-output-retrieved-label-doc-row? row)
-      (compact-output-retrieved-label-source-row? row)))
+      (compact-output-retrieved-label-source-row? row)
+      (query-evidence-source-candidate-row? row)
+      (candidate-file-only-row? row)))
 
 (defn- compact-output-score-tail-cut
   [selected source-kinds kind-by-path]
