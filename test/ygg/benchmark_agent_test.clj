@@ -4672,6 +4672,47 @@
             "lib/adapters/http.js"]
            (mapv :path selected)))))
 
+(deftest compact-output-core-prune-preserves-query-evidence-source-row
+  (let [prune @#'benchmark-prediction/compact-output-prune-score-tail
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        selected [(row "tests/unit/adapters/http.test.js" 1
+                       {:candidateFileCount 2
+                        :docCount 0
+                        :directFileCandidateCount 1
+                        :fileIdentitySupportLabelCount 4
+                        :architectureSupportBoost 5.0
+                        :matchedTokenCount 8
+                        :rankScore 14.6})
+                  (row "lib/adapters/http.js" 2
+                       {:candidateFileCount 1
+                        :docCount 2
+                        :matchedTokenCount 2
+                        :retrievedSourceCount 2
+                        :repeatedRetrievedSourceBoost 2.4
+                        :rankScore 20.9})
+                  (row "src/query_dispatch.py" 3
+                       {:candidateFileCount 1
+                        :docCount 0
+                        :entityCount 0
+                        :candidateSourceRank 182
+                        :matchedTokenCount 2
+                        :sourceGraphCandidateEvidenceScore 4.0
+                        :candidateGrepScore 0.2
+                        :rankScore 2.0})
+                  (row "src/filler.py" 4
+                       {:candidateFileCount 1
+                        :docCount 0
+                        :matchedTokenCount 4
+                        :rankScore 8.3})]
+        result (prune selected 7 nil [] {})]
+    (is (= ["tests/unit/adapters/http.test.js"
+            "lib/adapters/http.js"
+            "src/query_dispatch.py"]
+           (mapv :path result)))))
+
 (deftest compact-output-caps-all-candidate-only-surface
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank score]

@@ -741,6 +741,36 @@
     (is (some #(= "chunk:source-file" (:target-id %)) selected))
     (is (not-any? #(= "chunk:doc-file" (:target-id %)) selected))))
 
+(deftest ranked-result-selection-reserves-direct-source-kind-graph-rows
+  (let [rows (concat
+              (mapv (fn [idx]
+                      {:target-id (str "chunk:" idx)
+                       :result-kind :chunk
+                       :kind :markdown
+                       :score (- 2.0 (* idx 0.01))
+                       :label (str "doc chunk " idx)
+                       :path (str "docs/chunk_" idx ".md")
+                       :score-components {:lexical 1.0}})
+                    (range 20))
+              [{:target-id "file:doc"
+                :result-kind :file
+                :kind :doc-file
+                :score 0.2
+                :label "reference doc"
+                :path "docs/reference.md"
+                :score-components {:sourceGraph 0.6}}
+               {:target-id "file:source"
+                :result-kind :file
+                :kind :python
+                :score 0.1
+                :label "source file"
+                :path "src/app.py"
+                :score-components {:sourceGraph 0.6}}])
+        selected (#'query/select-ranked-results rows 12)]
+    (is (= 12 (count selected)))
+    (is (some #(= "file:source" (:target-id %)) selected))
+    (is (not-any? #(= "file:doc" (:target-id %)) selected))))
+
 (deftest search-report-includes-instrumentation-and-persists-query-run
   (store/with-node (temp-dir "ygg-query-report-xtdb")
     (fn [xtdb]

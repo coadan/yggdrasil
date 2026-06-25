@@ -19,7 +19,7 @@
 (def ^:private candidate-file-only-query-evidence-token-min
   2)
 (def ^:private candidate-file-only-query-evidence-score-min
-  4.0)
+  0.4)
 (def ^:private rank-score-token-cap
   5)
 (def ^:private rank-score-ordered-pair-cap
@@ -3107,10 +3107,15 @@
 
 (defn- compact-output-core-evidence-rows
   [selected source-kinds kind-by-path]
-  (let [core (ordered-row-union
-              (filter compact-output-direct-identity-row? selected)
-              (filter compact-output-repeated-retrieved-row? selected))]
-    (when (and (< 1 (count core))
+  (let [base-core (ordered-row-union
+                   (filter compact-output-direct-identity-row? selected)
+                   (filter compact-output-repeated-retrieved-row? selected))
+        core (ordered-row-union
+              base-core
+              (filter query-evidence-source-candidate-row? selected)
+              (filter compact-output-retrieved-label-source-row? selected))]
+    (when (and (< 1 (count base-core))
+               (< 1 (count core))
                (< (count core) (count selected))
                (covers-source-kinds? source-kinds kind-by-path core))
       (renumber-file-ranks core))))

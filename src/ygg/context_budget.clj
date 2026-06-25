@@ -558,7 +558,7 @@
                 :resultKind
                 :scoreComponents]))
 (def ^:private candidate-file-source-reserve-limit
-  8)
+  16)
 
 (defn- source-file-base-kind
   [kind]
@@ -570,23 +570,55 @@
                        0
                        (- (count kind-name) (count suffix))))))))
 
+(defn- source-like-kind?
+  [kind]
+  (when kind
+    (contains? system-candidate/source-like-kinds
+               (keyword (name kind)))))
+
 (defn- source-file-kind?
   [kind]
   (boolean
-   (some->> kind
-            source-file-base-kind
-            (contains? system-candidate/source-like-kinds))))
+   (or (source-like-kind? kind)
+       (some->> kind
+                source-file-base-kind
+                (contains? system-candidate/source-like-kinds)))))
+
+(defn- value-name
+  [value]
+  (cond
+    (keyword? value) (name value)
+    (nil? value) nil
+    :else (str value)))
+
+(def ^:private non-source-graph-node-kinds
+  #{"doc-file"
+    "doc-heading"
+    "doc-link"
+    "markdown"})
+
+(defn- source-graph-node-candidate?
+  [candidate]
+  (and (= "node" (value-name (:targetKind candidate)))
+       (= "node" (value-name (:resultKind candidate)))
+       (:sourceLine candidate)
+       (not (contains? non-source-graph-node-kinds
+                       (value-name (:kind candidate))))
+       (pos? (double (or (get-in candidate [:scoreComponents :sourceGraph])
+                         0.0)))))
 
 (defn- source-file-candidate-evidence?
   [candidate]
   (let [score-components (:scoreComponents candidate)]
     (pos? (+ (double (or (:grep score-components) 0.0))
              (double (or (:lexical score-components) 0.0))
-             (double (or (:exact score-components) 0.0))))))
+             (double (or (:exact score-components) 0.0))
+             (double (or (:sourceGraph score-components) 0.0))))))
 
 (defn- source-file-candidate?
   [candidate]
-  (and (source-file-kind? (:kind candidate))
+  (and (or (source-file-kind? (:kind candidate))
+           (source-graph-node-candidate? candidate))
        (source-file-candidate-evidence? candidate)))
 
 (defn- candidate-file-key
@@ -598,6 +630,7 @@
   (let [score-components (:scoreComponents candidate)]
     [(- (double (or (:grep score-components) 0.0)))
      (- (double (or (:lexical score-components) 0.0)))
+     (- (double (or (:sourceGraph score-components) 0.0)))
      (- (double (or (:semantic score-components) 0.0)))
      (- (double (or (:score candidate) 0.0)))
      (:rank candidate)

@@ -4223,7 +4223,7 @@
                         :counts {:nodes 0
                                  :edges 0
                                  :clusters 0}}
-                :budget {:requested 1200}
+                :budget {:requested 1250}
                 :entities []
                 :edges []
                 :activity []
@@ -4256,15 +4256,43 @@
                                     :score 0.1
                                     :targetKind "chunk"
                                     :label "query source"
-                                    :scoreComponents {:lexical 0.5}}]))
+                                    :scoreComponents {:lexical 0.5}}
+                                   {:path "src/source_graph.py"
+                                    :rank 28
+                                    :kind :python
+                                    :score 0.1
+                                    :targetKind "file"
+                                    :label "source graph file"
+                                    :scoreComponents {:sourceGraph 0.6}}
+                                   {:path "src/source_graph_node.py"
+                                    :rank 29
+                                    :kind :namespace
+                                    :score 0.1
+                                    :targetKind "node"
+                                    :resultKind "node"
+                                    :label "source.graph.node"
+                                    :sourceLine 1
+                                    :scoreComponents {:sourceGraph 0.6}}
+                                   {:path "docs/source_graph_doc.md"
+                                    :rank 30
+                                    :kind :doc-heading
+                                    :score 0.1
+                                    :targetKind "node"
+                                    :resultKind "node"
+                                    :label "source graph doc"
+                                    :sourceLine 1
+                                    :scoreComponents {:sourceGraph 0.6}}]))
                 :docs []}
-        fitted (fit-budget packet [] 1200)
+        fitted (fit-budget packet [] 1250)
         paths (set (map :path (:candidateFiles fitted)))]
     (is (contains? paths "src/query.py"))
+    (is (contains? paths "src/source_graph.py"))
+    (is (contains? paths "src/source_graph_node.py"))
     (is (not (contains? paths "docs/reference.md")))
+    (is (not (contains? paths "docs/source_graph_doc.md")))
     (is (< (count (:candidateFiles fitted))
            (count (:candidateFiles packet))))
-    (is (<= (context/estimate-tokens fitted) 1200))))
+    (is (<= (context/estimate-tokens fitted) 1250))))
 
 (deftest fit-budget-groups-retained-doc-snippets-by-file
   (let [fit-budget @#'context/fit-budget

@@ -1654,23 +1654,33 @@
                        0
                        (- (count kind-name) (count suffix))))))))
 
+(defn- source-like-kind?
+  [kind]
+  (when kind
+    (contains? system-candidate/source-like-kinds
+               (keyword (name kind)))))
+
 (defn- source-file-kind-row?
   [row]
   (boolean
-   (some->> (:kind row)
-            source-file-base-kind
-            (contains? system-candidate/source-like-kinds))))
+   (let [kind (:kind row)]
+     (or (source-like-kind? kind)
+         (some->> kind
+                  source-file-base-kind
+                  (contains? system-candidate/source-like-kinds))))))
 
 (defn- source-file-reserve-evidence?
   [row]
   (pos? (+ (double (get-in row [:score-components :grep] 0.0))
            (double (get-in row [:score-components :lexical] 0.0))
-           (double (get-in row [:score-components :exact] 0.0)))))
+           (double (get-in row [:score-components :exact] 0.0))
+           (double (get-in row [:score-components :sourceGraph] 0.0)))))
 
 (defn- source-file-reserve-sort-key
   [row]
   [(- (double (get-in row [:score-components :grep] 0.0)))
    (- (double (get-in row [:score-components :lexical] 0.0)))
+   (- (double (get-in row [:score-components :sourceGraph] 0.0)))
    (- (double (get-in row [:score-components :semantic] 0.0)))
    (- (double (or (:score row) 0.0)))
    (:path row)
