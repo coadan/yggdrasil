@@ -149,8 +149,7 @@ def option_value(args, flag):
     return args[idx + 1]
 
 
-def request(op, args, cleanup_stale=False, extra=None):
-    del cleanup_stale
+def request(op, args, extra=None):
     payload = {
         "op": op,
         "args": args,
@@ -240,7 +239,7 @@ def mcp_proxy(args):
             ))
             exit_code = 1
             continue
-        response = request("mcp", args, cleanup_stale=True, extra={"message": message})
+        response = request("mcp", args, extra={"message": message})
         if response is None:
             sys.stderr.write(UNAVAILABLE_MESSAGE)
             write_json_line(jsonrpc_error(
@@ -282,7 +281,7 @@ def print_response(response):
 
 
 def control_request(op, args):
-    response = request(op, args, cleanup_stale=True)
+    response = request(op, args)
     if response is None:
         sys.stderr.write(UNAVAILABLE_MESSAGE)
         return UNAVAILABLE
@@ -290,7 +289,7 @@ def control_request(op, args):
 
 
 def reject_removed_command(command):
-    response = request("status", [], cleanup_stale=True)
+    response = request("status", [])
     if response is None:
         sys.stderr.write(UNAVAILABLE_MESSAGE)
         return UNAVAILABLE
