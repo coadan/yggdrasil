@@ -309,7 +309,7 @@
   "Index root into XTDB. Returns run summary."
   [xtdb root {:keys [dry-run? project-id repo-id repo-role index-profile correction-overlay
                      index-timeout-ms index-deadline-ns extractors
-                     progress-fn progress-interval]
+                     progress-fn progress-interval ignore-paths]
               :or {dry-run? false
                    project-id default-project-id
                    repo-id default-repo-id
@@ -334,7 +334,8 @@
                             :repo-id repo-id})
         [files timings] (timed timings
                                :scan-ms
-                               #(let [core-files (fs/scan-files root-path)
+                               #(let [scan-opts {:ignore-paths ignore-paths}
+                                      core-files (fs/scan-files root-path scan-opts)
                                       core-supported-paths (->> core-files
                                                                 (remove (fn [file]
                                                                           (= :unknown
@@ -344,7 +345,8 @@
                                                     root-path
                                                     (extractor-plugin/scan-specs
                                                      extractors)
-                                                    core-supported-paths)
+                                                    core-supported-paths
+                                                    scan-opts)
                                       plugin-paths (set (map :path plugin-files))]
                                   (->> (concat (remove (fn [file]
                                                          (contains? plugin-paths

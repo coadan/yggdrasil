@@ -95,3 +95,26 @@
                   {:backend :git
                    :status :unavailable}]
                  (:fallbacks discovery))))))))
+
+(deftest scan-files-applies-configured-ignore-paths
+  (let [root (temp-dir "ygg-fs-ignore-paths")]
+    (spit-file! root "src/kept.clj" "(ns kept)\n")
+    (spit-file! root "reports/generated.md" "# generated\n")
+    (spit-file! root "tmp/generated.py" "def generated():\n    pass\n")
+    (with-redefs [ripgrep/files (fn [_root opts]
+                                  (is (some #{"reports/**"} (:ignore-globs opts)))
+                                  (is (some #{"tmp/**"} (:ignore-globs opts)))
+                                  {:exit 0
+                                   :elapsed-ms 7
+                                   :paths ["src/kept.clj"
+                                           "reports/generated.md"
+                                           "tmp/generated.py"]
+                                   :diagnostics []})
+                  shell/sh (fn [& args]
+                             (throw (ex-info "git fallback should not run after ripgrep succeeds"
+                                             {:args args})))]
+      (let [opts {:ignore-paths ["reports/**" "tmp/**"]}
+            files (fs/scan-files root opts)
+            coverage (fs/scan-file-coverage root opts)]
+        (is (= ["src/kept.clj"] (mapv :path files)))
+        (is (= ["src/kept.clj"] (mapv :path (:files coverage))))))))

@@ -101,7 +101,8 @@
       (throw (ex-info "Project repo is missing :root." {:repo repo})))
     {:id repo-id
      :root (resolve-root base (:root repo))
-     :role (keyword (or (:role repo) :repository))}))
+     :role (keyword (or (:role repo) :repository))
+     :ignore-paths (mapv str (:ignore-paths repo))}))
 
 (defn- duplicate-values
   [f rows]
@@ -548,26 +549,28 @@
     (if dry-run?
       {:project-id (:id project)
        :status :dry-run
-       :repos (mapv (fn [{:keys [id root role]}]
+       :repos (mapv (fn [{:keys [id root role ignore-paths]}]
                       (index/index-repo! nil
                                          root
                                          (assoc index-opts
                                                 :dry-run? true
                                                 :project-id (:id project)
                                                 :repo-id id
-                                                :repo-role role)))
+                                                :repo-role role
+                                                :ignore-paths ignore-paths)))
                     (:repos project))}
       (do
         (persist-project! xtdb project)
         {:project-id (:id project)
          :status :completed
-         :repos (mapv (fn [{:keys [id root role]}]
+         :repos (mapv (fn [{:keys [id root role ignore-paths]}]
                         (index/index-repo! xtdb
                                            root
                                            (assoc index-opts
                                                   :project-id (:id project)
                                                   :repo-id id
-                                                  :repo-role role)))
+                                                  :repo-role role
+                                                  :ignore-paths ignore-paths)))
                       (:repos project))}))))
 
 (defn index-project-repo!
@@ -595,7 +598,8 @@
                                 :dry-run? true
                                 :project-id (:id project)
                                 :repo-id (:id repo)
-                                :repo-role (:role repo)))
+                                :repo-role (:role repo)
+                                :ignore-paths (:ignore-paths repo)))
       (do
         (persist-project! xtdb project)
         (index/index-repo! xtdb
@@ -603,7 +607,8 @@
                            (assoc index-opts
                                   :project-id (:id project)
                                   :repo-id (:id repo)
-                                  :repo-role (:role repo)))))))
+                                  :repo-role (:role repo)
+                                  :ignore-paths (:ignore-paths repo)))))))
 
 (defn infer-project!
   "Infer and persist a derived system graph for project."

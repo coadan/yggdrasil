@@ -497,6 +497,10 @@
      (catch Exception _
        false))))
 
+(defn- ignored-by-globs?
+  [ignore-globs rel-path]
+  (some #(path-glob-matches? % rel-path) ignore-globs))
+
 (defn- shebang-kind
   [file]
   (when (str/blank? (extension file))
@@ -887,11 +891,13 @@
         (re-find #"(^|/)\.woodpecker\.ya?ml$" path-lower))))
 
 (defn- ignored-path?
-  [rel-path]
-  (let [parts (str/split rel-path #"/")]
-    (or (some ignored-dirs parts)
-        (and (some #(str/starts-with? % ".") parts)
-             (not (allowed-hidden-supported-path? rel-path))))))
+  ([rel-path] (ignored-path? rel-path []))
+  ([rel-path ignore-globs]
+   (let [parts (str/split rel-path #"/")]
+     (or (some ignored-dirs parts)
+         (ignored-by-globs? ignore-globs rel-path)
+         (and (some #(str/starts-with? % ".") parts)
+              (not (allowed-hidden-supported-path? rel-path)))))))
 
 (def ^:private allowed-hidden-dir-prefixes
   #{".buildkite"
@@ -920,7 +926,7 @@
         (str/ends-with? path-lower "/.vitepress"))))
 
 (defn- candidate-walk-file-paths
-  [root {:keys [hidden-only?]}]
+  [root {:keys [hidden-only? ignore-globs]}]
   (let [root-path (.toPath (.getCanonicalFile (io/file root)))
         paths (atom [])]
     (Files/walkFileTree
@@ -933,6 +939,7 @@
            (cond
              (nil? rel) FileVisitResult/CONTINUE
              (contains? ignored-dirs name) FileVisitResult/SKIP_SUBTREE
+             (ignored-by-globs? ignore-globs rel) FileVisitResult/SKIP_SUBTREE
              (and (hidden-path? rel)
                   (not (allowed-hidden-directory? rel))) FileVisitResult/SKIP_SUBTREE
              :else FileVisitResult/CONTINUE)))
@@ -946,8 +953,9 @@
     @paths))
 
 (defn- supported-hidden-candidate-paths
-  [root]
-  (candidate-walk-file-paths root {:hidden-only? true}))
+  ([root] (supported-hidden-candidate-paths root {}))
+  ([root opts]
+   (candidate-walk-file-paths root (assoc opts :hidden-only? true))))
 
 (defn- now-ns
   []
@@ -968,14 +976,15 @@
       (str/replace #"^\./" "")))
 
 (defn- candidate-file-paths
-  [root paths]
-  (->> paths
-       (map normalize-candidate-path)
-       (remove str/blank?)
-       (remove ignored-path?)
-       (filter #(.isFile (io/file root %)))
-       distinct
-       vec))
+  ([root paths] (candidate-file-paths root paths {}))
+  ([root paths {:keys [ignore-globs]}]
+   (->> paths
+        (map normalize-candidate-path)
+        (remove str/blank?)
+        (remove #(ignored-path? % ignore-globs))
+        (filter #(.isFile (io/file root %)))
+        distinct
+        vec)))
 
 (def ^:private ripgrep-ignore-globs
   (vec (mapcat (fn [dir]
@@ -995,49 +1004,54 @@
        (not-any? severe-ripgrep-diagnostic? (:diagnostics result))))
 
 (defn- ripgrep-candidate-path-report
-  [root]
-  (let [result (ripgrep/files root {:hidden? false
-                                    :ignore-globs ripgrep-ignore-globs})]
-    (when (usable-ripgrep-discovery? result)
-      {:backend :ripgrep
-       :elapsed-ms (:elapsed-ms result)
-       :paths (candidate-file-paths
-               root
-               (concat (:paths result)
-                       (supported-hidden-candidate-paths root)))
-       :path-count (count (:paths result))
-       :diagnostics (:diagnostics result)})))
+  ([root] (ripgrep-candidate-path-report root {}))
+  ([root {:keys [ignore-globs] :as opts}]
+   (let [result (ripgrep/files root {:hidden? false
+                                     :ignore-globs (vec (concat ripgrep-ignore-globs
+                                                                ignore-globs))})]
+     (when (usable-ripgrep-discovery? result)
+       {:backend :ripgrep
+        :elapsed-ms (:elapsed-ms result)
+        :paths (candidate-file-paths
+                root
+                (concat (:paths result)
+                        (supported-hidden-candidate-paths root opts))
+                opts)
+        :path-count (count (:paths result))
+        :diagnostics (:diagnostics result)}))))
 
 (defn- git-candidate-path-report
-  [root]
-  (let [started (now-ns)
-        {:keys [exit out err]} (shell/sh "git"
-                                         "-C"
-                                         (.getPath root)
-                                         "ls-files"
-                                         "--cached"
-                                         "--others"
-                                         "--exclude-standard")]
-    (when (zero? exit)
-      (let [paths (candidate-file-paths root (str/split-lines out))]
-        {:backend :git
-         :elapsed-ms (elapsed-ms started)
-         :paths paths
-         :path-count (count paths)
-         :diagnostics (cond-> []
-                        (seq (str/trim (str err)))
-                        (conj {:kind :stderr
-                               :message (str/trim err)}))}))))
+  ([root] (git-candidate-path-report root {}))
+  ([root opts]
+   (let [started (now-ns)
+         {:keys [exit out err]} (shell/sh "git"
+                                          "-C"
+                                          (.getPath root)
+                                          "ls-files"
+                                          "--cached"
+                                          "--others"
+                                          "--exclude-standard")]
+     (when (zero? exit)
+       (let [paths (candidate-file-paths root (str/split-lines out) opts)]
+         {:backend :git
+          :elapsed-ms (elapsed-ms started)
+          :paths paths
+          :path-count (count paths)
+          :diagnostics (cond-> []
+                         (seq (str/trim (str err)))
+                         (conj {:kind :stderr
+                                :message (str/trim err)}))})))))
 
 (defn- filesystem-candidate-path-report
-  [root]
-  (let [started (now-ns)
-        paths (candidate-file-paths root (candidate-walk-file-paths root {}))]
-    {:backend :filesystem
-     :elapsed-ms (elapsed-ms started)
-     :paths paths
-     :path-count (count paths)
-     :diagnostics []}))
+  ([root] (filesystem-candidate-path-report root {}))
+  ([root opts]
+   (let [started (now-ns)
+         paths (candidate-file-paths root (candidate-walk-file-paths root opts) opts)]
+     {:backend :filesystem
+      :elapsed-ms (elapsed-ms started)
+      :paths paths
+      :path-count (count paths)
+      :diagnostics []})))
 
 (defn- unavailable-fallback
   [backend]
@@ -1049,23 +1063,25 @@
 
   `rg --files` is preferred when available. Yggdrasil still applies its own
   ignored-path, file-kind, and file-record rules after discovery."
-  [root]
-  (let [root-file (.getCanonicalFile (io/file root))]
-    (if-let [report (ripgrep-candidate-path-report root-file)]
-      (assoc report
-             :path-count (count (:paths report))
-             :fallbacks [])
-      (if-let [report (git-candidate-path-report root-file)]
-        (assoc report
-               :path-count (count (:paths report))
-               :fallbacks [(unavailable-fallback :ripgrep)])
-        (assoc (filesystem-candidate-path-report root-file)
-               :fallbacks [(unavailable-fallback :ripgrep)
-                           (unavailable-fallback :git)])))))
+  ([root] (scan-candidate-paths root {}))
+  ([root {:keys [ignore-paths] :as _opts}]
+   (let [root-file (.getCanonicalFile (io/file root))]
+     (if-let [report (ripgrep-candidate-path-report root-file {:ignore-globs ignore-paths})]
+       (assoc report
+              :path-count (count (:paths report))
+              :fallbacks [])
+       (if-let [report (git-candidate-path-report root-file {:ignore-globs ignore-paths})]
+         (assoc report
+                :path-count (count (:paths report))
+                :fallbacks [(unavailable-fallback :ripgrep)])
+         (assoc (filesystem-candidate-path-report root-file {:ignore-globs ignore-paths})
+                :fallbacks [(unavailable-fallback :ripgrep)
+                            (unavailable-fallback :git)]))))))
 
 (defn- candidate-paths
-  [root]
-  (:paths (scan-candidate-paths root)))
+  ([root] (candidate-paths root {}))
+  ([root opts]
+   (:paths (scan-candidate-paths root opts))))
 
 (defn- file-coverage-row
   [root rel]
@@ -1089,32 +1105,34 @@
   Rows do not include file contents. Supported rows use the same path support
   rules as `scan-files`; skipped rows explain unsupported or intentionally
   ignored filenames."
-  [root]
-  (let [root-file (.getCanonicalFile (io/file root))]
-    (when-not (.isDirectory root-file)
-      (throw (ex-info "Index root is not a directory." {:root root})))
-    (let [discovery (scan-candidate-paths root-file)]
-      {:root (.getPath root-file)
-       :discovery (discovery-summary discovery)
-       :files (->> (:paths discovery)
-                   (mapv #(file-coverage-row root-file %))
-                   (sort-by :path)
-                   vec)})))
+  ([root] (scan-file-coverage root {}))
+  ([root opts]
+   (let [root-file (.getCanonicalFile (io/file root))]
+     (when-not (.isDirectory root-file)
+       (throw (ex-info "Index root is not a directory." {:root root})))
+     (let [discovery (scan-candidate-paths root-file opts)]
+       {:root (.getPath root-file)
+        :discovery (discovery-summary discovery)
+        :files (->> (:paths discovery)
+                    (mapv #(file-coverage-row root-file %))
+                    (sort-by :path)
+                    vec)}))))
 
 (defn scan-files
   "Return supported files under root with content metadata."
-  [root]
-  (let [root-file (.getCanonicalFile (io/file root))]
-    (when-not (.isDirectory root-file)
-      (throw (ex-info "Index root is not a directory." {:root root})))
-    (let [discovery (scan-candidate-paths root-file)]
-      (with-meta
-        (->> (:paths discovery)
-             (filter #(supported-file? (io/file root-file %)))
-             (map #(file-record-for-relative-path root-file %))
-             (sort-by :path)
-             vec)
-        {:discovery (discovery-summary discovery)}))))
+  ([root] (scan-files root {}))
+  ([root opts]
+   (let [root-file (.getCanonicalFile (io/file root))]
+     (when-not (.isDirectory root-file)
+       (throw (ex-info "Index root is not a directory." {:root root})))
+     (let [discovery (scan-candidate-paths root-file opts)]
+       (with-meta
+         (->> (:paths discovery)
+              (filter #(supported-file? (io/file root-file %)))
+              (map #(file-record-for-relative-path root-file %))
+              (sort-by :path)
+              vec)
+         {:discovery (discovery-summary discovery)})))))
 
 (defn scan-plugin-files
   "Return explicitly plugin-scanned files under root.
@@ -1122,29 +1140,30 @@
   `scan-specs` are maps with `:path-globs`, `:file-kind`, and `:plugin-id`.
   Paths already covered by core scanning are skipped so plugins enhance those
   files through the post-core pass instead of producing duplicate file rows."
-  [root scan-specs existing-paths]
-  (let [root-file (.getCanonicalFile (io/file root))
-        existing-paths (set existing-paths)
-        spec-matches (fn [rel]
-                       (->> scan-specs
-                            (filter (fn [{:keys [path-globs]}]
-                                      (some #(path-glob-matches? % rel)
-                                            path-globs)))
-                            vec))]
-    (when-not (.isDirectory root-file)
-      (throw (ex-info "Index root is not a directory." {:root root})))
-    (if (seq scan-specs)
-      (->> (candidate-paths root-file)
-           (remove existing-paths)
-           (remove #(ignored-filename? (io/file root-file %)))
-           (keep (fn [rel]
-                   (when-let [matches (seq (spec-matches rel))]
-                     (let [file-kind (:file-kind (first matches))]
-                       (plugin-file-record
-                        root-file
-                        rel
-                        {:file-kind file-kind
-                         :plugin-ids (map :plugin-id matches)})))))
-           (sort-by :path)
-           vec)
-      [])))
+  ([root scan-specs existing-paths]
+   (scan-plugin-files root scan-specs existing-paths {}))
+  ([root scan-specs existing-paths opts]
+   (let [root-file (.getCanonicalFile (io/file root))
+         existing-paths (set existing-paths)
+         spec-matches (fn [rel]
+                        (->> scan-specs
+                             (filter (fn [{:keys [path-globs]}]
+                                       (ignored-by-globs? path-globs rel)))
+                             vec))]
+     (when-not (.isDirectory root-file)
+       (throw (ex-info "Index root is not a directory." {:root root})))
+     (if (seq scan-specs)
+       (->> (candidate-paths root-file opts)
+            (remove existing-paths)
+            (remove #(ignored-filename? (io/file root-file %)))
+            (keep (fn [rel]
+                    (when-let [matches (seq (spec-matches rel))]
+                      (let [file-kind (:file-kind (first matches))]
+                        (plugin-file-record
+                         root-file
+                         rel
+                         {:file-kind file-kind
+                          :plugin-ids (map :plugin-id matches)})))))
+            (sort-by :path)
+            vec)
+       []))))

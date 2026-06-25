@@ -17,7 +17,10 @@
     (.mkdirs repo)
     (spit project-edn
           (pr-str {:id "demo"
-                   :repos [{:id "app" :root "repo" :role :application}]
+                   :repos [{:id "app"
+                            :root "repo"
+                            :role :application
+                            :ignore-paths ["reports/**" "tmp/**"]}]
                    :maintenance
                    {:enabled true
                     :queue-dir "queue"
@@ -46,6 +49,9 @@
     (let [maintenance (:maintenance (project/read-project (.getPath project-edn)))
           worker (:worker maintenance)]
       (is (= true (:enabled maintenance)))
+      (is (= ["reports/**" "tmp/**"]
+             (get-in (project/read-project (.getPath project-edn))
+                     [:repos 0 :ignore-paths])))
       (is (= true (:enabled worker)))
       (is (= (.getCanonicalPath (io/file root "queue")) (:queue-dir maintenance)))
       (is (= (.getCanonicalPath (io/file root "reports")) (:report-dir maintenance)))

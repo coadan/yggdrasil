@@ -173,9 +173,9 @@
             packet (get-in claimed [:item :payload])
             evidence-id (get-in packet [:facts :evidence 0 :id])
             package (get-in packet [:facts :packages 0])]
-        (is (= "ygg.sync.check/v1" (:schema check-result)))
+        (is (= "ygg.sync/v1" (:schema check-result)))
         (is (= 1 (get-in check-result
-                         [:report :counts :dependency-review-items])))
+                         [:check-report :counts :dependency-review-items])))
         (is (= 1 (count queued-items)))
         (is (= dependency-review/packet-schema (:schema packet)))
         (is (= "left_pad" (get-in packet [:facts :unresolvedImport :import])))
