@@ -14,11 +14,19 @@
             ["--project" project-id "--check" "--no-progress"])
     query-index? (conj "--query-index")))
 
+(defn- sync-output
+  [args deps result]
+  (let [dispatch (dep deps :dispatch)
+        query-index? (dep deps :query-index?)]
+    (with-out-str
+      (dispatch "sync"
+                (init-sync-args (:project-id result)
+                                (:config result)
+                                (query-index? args))))))
+
 (defn init!
   [args deps]
   (let [print-json (dep deps :print-json)
-        dispatch (dep deps :dispatch)
-        query-index? (dep deps :query-index?)
         workbench-root (option-value args "--workbench")
         root (or workbench-root (first (positional-args args)) ".")
         result (init/init! root
@@ -31,9 +39,4 @@
     (print-json
      (cond-> result
        (some #{"--sync"} args)
-       (assoc :sync-output
-              (with-out-str
-                (dispatch "sync"
-                          (init-sync-args (:project-id result)
-                                          (:config result)
-                                          (query-index? args)))))))))
+       (assoc :sync-output (sync-output args deps result))))))

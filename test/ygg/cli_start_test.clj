@@ -48,6 +48,24 @@
     (is (= ["sync" ["--project" "registered" "--check" "--no-progress"]]
            @dispatched))))
 
+(deftest plain-init-only-requires-json-printer
+  (let [printed (atom nil)]
+    (with-redefs [init/init! (fn [root opts]
+                               (is (= "repo" root))
+                               (is (= {:out nil
+                                       :force? false
+                                       :project-id nil
+                                       :name nil
+                                       :workbench? false
+                                       :task nil}
+                                      opts))
+                               {:schema "ygg.init/v1"
+                                :project-id "demo"})]
+      (cli-start/init! ["repo"] {:print-json #(reset! printed %)}))
+    (is (= {:schema "ygg.init/v1"
+            :project-id "demo"}
+           @printed))))
+
 (deftest init-reports-missing-dependency-key
   (try
     (cli-start/init! ["repo"] {})
