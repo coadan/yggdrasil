@@ -13,30 +13,6 @@ DEFAULT_SERVER_PORT = 62121
 DEFAULT_CONNECT_TIMEOUT_MS = 30000
 CONNECT_RETRY_INTERVAL_SECONDS = 5.0
 DEFAULT_REQUEST_TIMEOUT_MS = 600000
-SERVER_COMMAND_OPS = {
-    "affected",
-    "agent",
-    "audit-scope",
-    "bench",
-    "corrections",
-    "current",
-    "embed",
-    "help",
-    "hook",
-    "init",
-    "maintenance",
-    "memory",
-    "packages",
-    "plugin",
-    "projects",
-    "query",
-    "report",
-    "status",
-    "stop",
-    "use",
-    "view",
-    "watch",
-}
 SYNC_SUBCOMMAND_OPS = {
     "activity": "sync.activity",
     "add-repo": "sync.add-repo",
@@ -281,11 +257,6 @@ def sync_request(args):
     return server_request("sync", args)
 
 
-def reject_unknown_command(command):
-    sys.stderr.write(f"Unknown command: {command}\n")
-    return 2
-
-
 def main(argv):
     if len(argv) < 2:
         return UNAVAILABLE
@@ -294,9 +265,7 @@ def main(argv):
         return mcp_proxy(argv[2:])
     if command == "sync":
         return sync_request(argv[2:])
-    if command in SERVER_COMMAND_OPS:
-        return server_request(command, argv[2:])
-    return reject_unknown_command(command)
+    return server_request(command, argv[2:])
 
 
 if __name__ == "__main__":
