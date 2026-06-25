@@ -769,18 +769,36 @@
                   (fn [xtdb opts]
                     (swap! calls conj {:xtdb xtdb
                                        :opts opts})
-                    {:schema "ygg.sync/v1"})]
-      (is (= {:schema "ygg.sync/v1"}
+                    {:schema "ygg.sync/v1"
+                     :enqueued [{:id "work-1"}]
+                     :maintenance-worker {:schema "ygg.index-maintenance-worker.run/v1"
+                                          :status "completed"
+                                          :counts {:claimed 1
+                                                   :completed 1
+                                                   :failed 0
+                                                   :executor-failures 0
+                                                   :validated 1}}})]
+      (is (= {:schema "ygg.sync/v1"
+              :enqueued [{:id "work-1"}]
+              :maintenance-worker {:schema "ygg.index-maintenance-worker.run/v1"
+                                   :status "completed"
+                                   :counts {:claimed 1
+                                            :completed 1
+                                            :failed 0
+                                            :executor-failures 0
+                                            :validated 1}}}
              (#'server/run-maintenance-schedule!
               {:xtdb :xtdb}
-              {:id "demo"}
+              {:id "demo"
+               :maintenance {:worker {:enabled true}}}
               {:id "check"
                :task :sync
                :enabled true
                :check true
                :enqueue true})))
       (is (= [{:xtdb :xtdb
-               :opts {:project {:id "demo"}
+               :opts {:project {:id "demo"
+                                :maintenance {:worker {:enabled true}}}
                       :project-id "demo"
                       :repo-id nil
                       :check? true
@@ -849,3 +867,74 @@
       (is (= 1 (get-in response [:data :id])))
       (is (contains? tools "ygg_query"))
       (is (contains? tools "ygg_status")))))
+
+(deftest mcp-tools-list-runs-while-operation-lock-is-busy
+  (let [lock (java.util.concurrent.locks.ReentrantLock.)
+        locked (promise)
+        release (promise)
+        holder (future
+                 (.lock lock)
+                 (try
+                   (deliver locked true)
+                   @release
+                   (finally
+                     (.unlock lock))))]
+    @locked
+    (try
+      (with-redefs [store/storage-path
+                    (fn [& _]
+                      (throw (ex-info "tools/list should not resolve storage" {})))]
+        (let [response (server/handle-request
+                        {:xtdb :xtdb
+                         :token "token"
+                         :running (atom true)
+                         :operation-lock lock}
+                        {:op "mcp"
+                         :token "token"
+                         :args []
+                         :message {:jsonrpc "2.0"
+                                   :id 1
+                                   :method "tools/list"
+                                   :params {}}})]
+          (is (= true (:ok response)))
+          (is (contains? (set (map :name (get-in response [:data :result :tools])))
+                         "ygg_query"))))
+      (finally
+        (deliver release true)
+        @holder))))
+
+(deftest mcp-tool-call-returns-busy-without-storage-resolution
+  (let [lock (java.util.concurrent.locks.ReentrantLock.)
+        locked (promise)
+        release (promise)
+        holder (future
+                 (.lock lock)
+                 (try
+                   (deliver locked true)
+                   @release
+                   (finally
+                     (.unlock lock))))]
+    @locked
+    (try
+      (with-redefs [store/storage-path
+                    (fn [& _]
+                      (throw (ex-info "tools/call should not resolve storage while busy" {})))]
+        (let [response (server/handle-request
+                        {:xtdb :xtdb
+                         :token "token"
+                         :running (atom true)
+                         :operation-lock lock}
+                        {:op "mcp"
+                         :token "token"
+                         :args []
+                         :message {:jsonrpc "2.0"
+                                   :id 1
+                                   :method "tools/call"
+                                   :params {:name "ygg_status"
+                                            :arguments {}}}})]
+          (is (= false (:ok response)))
+          (is (= daemon-contract/unavailable-exit (:exit response)))
+          (is (= "operation-lock-busy" (get-in response [:data :reason])))))
+      (finally
+        (deliver release true)
+        @holder))))

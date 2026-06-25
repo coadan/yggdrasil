@@ -683,44 +683,46 @@
 
 (defn balanced-curly-block
   [^String content ^long start]
-  (let [content (or content "")
-        length (count content)
-        open-idx (str/index-of content "{" start)]
-    (when open-idx
-      (loop [idx open-idx
-             depth 0
+  (let [^String content (or content "")
+        length (.length content)
+        open-idx (.indexOf content "{" (int start))]
+    (when-not (neg? open-idx)
+      (loop [idx (long open-idx)
+             depth (long 0)
              in-string? false
-             string-delim nil
+             string-delim \u0000
              escaped? false]
         (when (< idx length)
           (let [ch (.charAt content (int idx))
                 escaped-next? (and in-string?
                                    (not escaped?)
-                                   (= \\ ch)
-                                   (not= \` string-delim))
+                                   (== (int \\) (int ch))
+                                   (not (== (int \`) (int string-delim))))
                 closing-string? (and in-string?
                                      (not escaped?)
                                      (not escaped-next?)
-                                     (= ch string-delim))
+                                     (== (int ch) (int string-delim)))
                 opening-string? (and (not in-string?)
-                                     (or (= \" ch) (= \' ch) (= \` ch)))
+                                     (or (== (int \") (int ch))
+                                         (== (int \') (int ch))
+                                         (== (int \`) (int ch))))
                 in-string-next? (cond
                                   closing-string? false
                                   escaped-next? true
                                   opening-string? true
                                   :else in-string?)
                 string-delim-next (cond
-                                    closing-string? nil
+                                    closing-string? \u0000
                                     opening-string? ch
                                     :else string-delim)
                 depth-next (cond
                              in-string-next? depth
-                             (= \{ ch) (inc depth)
-                             (= \} ch) (dec depth)
+                             (== (int \{) (int ch)) (unchecked-inc depth)
+                             (== (int \}) (int ch)) (unchecked-dec depth)
                              :else depth)]
             (if (and (not in-string-next?) (zero? depth-next) (pos? depth))
               (subs content start (inc idx))
-              (recur (inc idx)
+              (recur (unchecked-inc idx)
                      depth-next
                      in-string-next?
                      string-delim-next

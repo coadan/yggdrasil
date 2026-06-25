@@ -637,12 +637,15 @@
                             :scheduleId (:id schedule)
                             :task (:task schedule)
                             :reason "operator-command-running"}
-                           {:status "completed"
-                            :ranAtMs now-ms
-                            :projectId (:id project)
-                            :scheduleId (:id schedule)
-                            :task (:task schedule)
-                            :resultSchema (:schema result)})))
+                           (cond-> {:status "completed"
+                                    :ranAtMs now-ms
+                                    :projectId (:id project)
+                                    :scheduleId (:id schedule)
+                                    :task (:task schedule)
+                                    :resultSchema (:schema result)}
+                             (:maintenance-worker result)
+                             (assoc :workerStatus (get-in result [:maintenance-worker :status])
+                                    :workerCounts (get-in result [:maintenance-worker :counts]))))))
                       (catch Exception e
                         (record-schedule-run!
                          state
@@ -896,18 +899,31 @@
    :out "stopping\n"
    :err ""})
 
+(defn- mcp-tool-call?
+  [message]
+  (= "tools/call" (:method message)))
+
+(defn- handle-mcp-message
+  [args message]
+  (call-var 'ygg.mcp/handle-message
+            (call-var 'ygg.mcp/server-context args)
+            message))
+
 (defn- mcp-response
   [ctx request]
   (let [args (vec (:args request))
         message (:message request)]
-    (captured-request-storage-response
-     ctx
-     request
-     args
-     #(with-operation-lock ctx %)
-     #(call-var 'ygg.mcp/handle-message
-                (call-var 'ygg.mcp/server-context args)
-                message))))
+    (if (mcp-tool-call? message)
+      (captured-request-storage-response
+       ctx
+       request
+       args
+       #(with-operation-lock ctx %)
+       #(handle-mcp-message args message))
+      (capture-response
+       #(with-user-dir (:cwd request)
+          (fn []
+            (handle-mcp-message args message)))))))
 
 (defn- handle-authorized-request
   [{:keys [running server] :as ctx} request]

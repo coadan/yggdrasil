@@ -47,28 +47,28 @@
 
 (defn- leading-form-symbol
   [line]
-  (let [line (str line)
-        length (count line)]
-    (when (<= length max-definition-scan-line-chars)
-      (loop [idx 0]
-        (when (< idx length)
-          (let [ch (.charAt line idx)]
-            (cond
-              (Character/isWhitespace ch)
-              (recur (inc idx))
+  (let [^String line (str line)
+        length (.length line)
+        scan-limit (min length max-definition-scan-line-chars)]
+    (loop [idx 0]
+      (when (< idx scan-limit)
+        (let [ch (.charAt line idx)]
+          (cond
+            (Character/isWhitespace ch)
+            (recur (inc idx))
 
-              (= \( ch)
-              (let [start (inc idx)
-                    end (loop [idx start]
-                          (if (or (>= idx length)
-                                  (Character/isWhitespace (.charAt line idx)))
-                            idx
-                            (recur (inc idx))))]
-                (when (< start end)
-                  (subs line start end)))
+            (= \( ch)
+            (let [start (inc idx)
+                  end (loop [idx start]
+                        (if (or (>= idx scan-limit)
+                                (Character/isWhitespace (.charAt line idx)))
+                          idx
+                          (recur (inc idx))))]
+              (when (< start end)
+                (subs line start end)))
 
-              :else
-              nil)))))))
+            :else
+            nil))))))
 
 (defn- definition-line?
   [line]
