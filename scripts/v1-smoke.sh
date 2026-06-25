@@ -199,6 +199,9 @@ PY
   --config "$PROJECT_EDN" \
   --retriever lexical \
   --json > "$WORK_DIR/memory-query.json"
+printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ygg_query","arguments":{"query":"v1 smoke release memory normal query packets","retriever":"lexical","budget":20000}}}\n' \
+  | "$PREFIX/bin/ygg-mcp" --config "$PROJECT_EDN" \
+  > "$WORK_DIR/mcp-memory-query.jsonl"
 "$PREFIX/bin/ygg" sync activity "$PROJECT_EDN" \
   --json > "$WORK_DIR/activity.json"
 printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' \
@@ -243,6 +246,7 @@ work_apply = load_json("work-apply.json")
 packages_after_apply = load_json("packages-after-apply.json")
 memory_add = load_json("memory-add.json")
 memory_query = load_json("memory-query.json")
+mcp_memory_query = load_jsonl("mcp-memory-query.jsonl")
 activity = load_json("activity.json")
 mcp_tools_bin = load_jsonl("mcp-tools-list-bin.jsonl")
 mcp_tools_cli = load_jsonl("mcp-tools-list-cli.jsonl")
@@ -325,6 +329,13 @@ require(any(row.get("id") == added_memory.get("id") for row in memories),
         "normal query did not include reviewed memory")
 require(any("normal query packets" in row.get("text", "") for row in memories),
         "query memory payload did not include expected memory text")
+mcp_packet = mcp_memory_query.get("result", {}).get("structuredContent", {})
+require(mcp_memory_query.get("jsonrpc") == "2.0", "MCP memory query jsonrpc mismatch")
+require(mcp_memory_query.get("id") == 2, "MCP memory query id mismatch")
+require(mcp_packet.get("schema") == "ygg.context/v1", "MCP memory query schema mismatch")
+mcp_memories = mcp_packet.get("memories", [])
+require(any(row.get("id") == added_memory.get("id") for row in mcp_memories),
+        "MCP ygg_query did not include reviewed memory")
 require(activity.get("schema") == "ygg.activity.sync/v1", "activity sync schema mismatch")
 require(activity.get("counts", {}).get("items", 0) > 0, "activity sync did not import queue items")
 
