@@ -59,7 +59,6 @@
    "packages"
    "plugin"
    "agent"
-   "watch"
    "hook"
    "bench"
    "embed"])

@@ -311,6 +311,7 @@
                      "queue"
                      "sync-inspect"
                      "systems"
+                     "watch"
                      "views"]]
       (is (= {:ok false
               :exit 1
