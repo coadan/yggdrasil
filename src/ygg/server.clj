@@ -788,14 +788,34 @@
                  (print-sync-result! args result)
                  result)))))))))
 
-(defn- command-response
-  [ctx request command args]
-  (let [args (absolutize-path-options (:cwd request) (vec args))
-        cli-args (into [command] args)
-        request-project-id (project-id-from-cli request cli-args nil)
+(defn- with-request-storage
+  [ctx request cli-args f]
+  (let [request-project-id (project-id-from-cli request cli-args nil)
         warm-path (request-storage-path request cli-args nil)
         original-storage-path store/storage-path
         original-with-node store/with-node]
+    (with-redefs [store/storage-path
+                  (fn
+                    ([] warm-path)
+                    ([project-id]
+                     (if (or (nil? project-id)
+                             (= (str project-id) (str request-project-id)))
+                       warm-path
+                       (original-storage-path project-id))))
+                  store/with-node
+                  (fn [path f]
+                    (let [requested-path (or path warm-path)]
+                      (if (same-path? warm-path requested-path)
+                        (f (node-for! ctx warm-path))
+                        (if (:node-pool ctx)
+                          (f (node-for! ctx requested-path))
+                          (original-with-node path f)))))]
+      (f))))
+
+(defn- command-response
+  [ctx request command args]
+  (let [args (absolutize-path-options (:cwd request) (vec args))
+        cli-args (into [command] args)]
     (capture-response
      (fn []
        (with-user-dir (:cwd request)
@@ -804,25 +824,35 @@
              ctx
              cli-args
              (fn []
-               (with-redefs [store/storage-path
-                             (fn
-                               ([] warm-path)
-                               ([project-id]
-                                (if (or (nil? project-id)
-                                        (= (str project-id) (str request-project-id)))
-                                  warm-path
-                                  (original-storage-path project-id))))
-                             store/with-node
-                             (fn [path f]
-                               (let [requested-path (or path warm-path)]
-                                 (if (same-path? warm-path requested-path)
-                                   (f (node-for! ctx warm-path))
-                                   (if (:node-pool ctx)
-                                     (f (node-for! ctx requested-path))
-                                     (original-with-node path f)))))]
-                 (if command
-                   (run-command-handler! command args)
-                   (println (command-usage))))))))))))
+               (with-request-storage
+                 ctx
+                 request
+                 cli-args
+                 (fn []
+                   (if command
+                     (run-command-handler! command args)
+                     (println (command-usage)))))))))))))
+
+(defn- query-response
+  [ctx request]
+  (let [args (absolutize-path-options (:cwd request) (vec (:args request)))
+        cli-args (into ["query"] args)
+        query-deps-var (requiring-resolve 'ygg.cli-query/*deps*)]
+    (capture-response
+     (fn []
+       (with-user-dir (:cwd request)
+         (fn []
+           (with-cli-operation
+             ctx
+             cli-args
+             (fn []
+               (with-request-storage
+                 ctx
+                 request
+                 cli-args
+                 (fn []
+                   (with-bindings {query-deps-var (call-var 'ygg.cli/query-deps)}
+                     (call-var 'ygg.cli-query/query! args))))))))))))
 
 (defn- sync-subcommand-response
   [ctx request subcommand]
@@ -843,11 +873,7 @@
 (defn- mcp-response
   [ctx request]
   (let [args (vec (:args request))
-        message (:message request)
-        request-project-id (project-id-from-cli request args nil)
-        warm-path (request-storage-path request args nil)
-        original-storage-path store/storage-path
-        original-with-node store/with-node]
+        message (:message request)]
     (capture-response
      (fn []
        (with-user-dir (:cwd request)
@@ -855,25 +881,14 @@
            (with-operation-lock
              ctx
              (fn []
-               (with-redefs [store/storage-path
-                             (fn
-                               ([] warm-path)
-                               ([project-id]
-                                (if (or (nil? project-id)
-                                        (= (str project-id) (str request-project-id)))
-                                  warm-path
-                                  (original-storage-path project-id))))
-                             store/with-node
-                             (fn [path f]
-                               (let [requested-path (or path warm-path)]
-                                 (if (same-path? warm-path requested-path)
-                                   (f (node-for! ctx warm-path))
-                                   (if (:node-pool ctx)
-                                     (f (node-for! ctx requested-path))
-                                     (original-with-node path f)))))]
-                 (call-var 'ygg.mcp/handle-message
-                           (call-var 'ygg.mcp/server-context args)
-                           message))))))))))
+               (with-request-storage
+                 ctx
+                 request
+                 args
+                 (fn []
+                   (call-var 'ygg.mcp/handle-message
+                             (call-var 'ygg.mcp/server-context args)
+                             message)))))))))))
 
 (defn- handle-authorized-request
   [{:keys [running server] :as ctx} request]
@@ -893,6 +908,9 @@
 
       (contains? sync-op->subcommand op)
       (sync-subcommand-response ctx request (get sync-op->subcommand op))
+
+      (= "query" op)
+      (query-response ctx request)
 
       (contains? cli-command-ops op)
       (command-response ctx request op (:args request))

@@ -273,7 +273,10 @@
                                    :args ["project.edn" "--json"]})))))
 
 (deftest query-request-returns-command-output
-  (with-redefs [cli-query/query-with-node!
+  (with-redefs [cli/dispatch
+                (fn [& _]
+                  (throw (ex-info "query should not use generic CLI dispatch" {})))
+                cli-query/query-with-node!
                 (fn [xtdb args]
                   (println (str "xtdb=" xtdb " args=" (pr-str args)))
                   (binding [*out* *err*]
