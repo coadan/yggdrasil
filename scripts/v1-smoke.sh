@@ -122,14 +122,12 @@ pushd "$FIXTURE_REPO" >/dev/null
   --out ygg-out \
   --force > "$WORK_DIR/report-output.json"
 "$PREFIX/bin/ygg" sync inspect "$PROJECT_EDN" \
-  --map ygg.map.json \
   --json > "$WORK_DIR/inspect.json"
 "$PREFIX/bin/ygg" packages \
   --project v1-smoke \
   --json > "$WORK_DIR/packages.json"
 "$PREFIX/bin/ygg" sync "$PROJECT_EDN" \
   --check \
-  --map ygg.map.json \
   --enqueue \
   --json > "$WORK_DIR/sync-check.json"
 "$PREFIX/bin/ygg" sync work pull \
@@ -166,7 +164,7 @@ result = {
     "recommendation": "add-package-import",
     "confidence": 0.95,
     "reason": "The import prefix is provided by the declared PyPI package.",
-    "mapPatch": [{
+    "correctionPatch": [{
         "op": "add-package-import",
         "import": "google.cloud",
         "ecosystem": "pypi",
@@ -185,8 +183,7 @@ PY
 "$PREFIX/bin/ygg" sync work validate "$WORK_ID" \
   --project v1-smoke > "$WORK_DIR/work-validate.json"
 "$PREFIX/bin/ygg" sync work apply "$WORK_ID" \
-  --project v1-smoke \
-  --map ygg.map.json > "$WORK_DIR/work-apply.json"
+  --project v1-smoke > "$WORK_DIR/work-apply.json"
 "$PREFIX/bin/ygg" packages \
   --project v1-smoke \
   --json > "$WORK_DIR/packages-after-apply.json"
@@ -312,14 +309,6 @@ require(work_apply.get("patchesApplied") == 1, "work apply did not apply exactly
 require(work_apply.get("validation", {}).get("status") == "valid",
         "work apply did not revalidate before applying")
 
-map_data = json.loads((repo / "ygg.map.json").read_text())
-package_imports = map_data.get("packageImports", [])
-require(any(row.get("import") == "google.cloud"
-            and row.get("ecosystem") == "pypi"
-            and row.get("package") == "google-cloud-storage"
-            and row.get("status") == "accepted"
-            for row in package_imports),
-        "applied work did not persist accepted package import correction")
 package_by_name = {row.get("package-name"): row
                    for row in packages_after_apply.get("packages", [])}
 storage_package = package_by_name.get("google-cloud-storage")
@@ -330,7 +319,7 @@ require(memory_add.get("schema") == "ygg.memory.write/v1", "memory add schema mi
 require(memory_add.get("action") == "add", "memory add action mismatch")
 added_memory = memory_add.get("memory", {})
 require(added_memory.get("status") == "reviewed", "reviewed memory was not stored")
-require(memory_query.get("schema") == "ygg.context/v1", "memory query schema mismatch")
+require(memory_query.get("schema") == "ygg.query/v2", "memory query schema mismatch")
 memories = memory_query.get("memories", [])
 require(any(row.get("id") == added_memory.get("id") for row in memories),
         "normal query did not include reviewed memory")
@@ -341,7 +330,6 @@ require(activity.get("counts", {}).get("items", 0) > 0, "activity sync did not i
 
 for relative in (
     "project.edn",
-    "ygg.map.json",
     "ygg-out/index.html",
     "ygg-out/report.json",
     "ygg-out/graph.json",
