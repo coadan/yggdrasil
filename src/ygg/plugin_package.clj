@@ -2045,14 +2045,14 @@
          :diagnostics diagnostics
          :inputs inputs}))))
 
-(defn- gap-shell-token
-  [value]
-  (pr-str (str value)))
-
-(defn- plugin-option
+(defn- plugin-args
   [plugin-id]
   (when (present? plugin-id)
-    (str " --plugin " (gap-shell-token plugin-id))))
+    ["--plugin" (str plugin-id)]))
+
+(defn- plugin-command
+  [& tokens]
+  (apply command/command "bb" "plugin" tokens))
 
 (defn- public-claim-requirements
   []
@@ -2063,27 +2063,19 @@
 (defn- extractor-gap-proof
   [package-dir root file plugin-id]
   {:local-checks [{:id :validate
-                   :command (str "bb plugin validate " (gap-shell-token package-dir))}
+                   :command (plugin-command "validate" package-dir)}
                   {:id :diagnose
-                   :command (str "bb plugin diagnose " (gap-shell-token package-dir))}
+                   :command (plugin-command "diagnose" package-dir)}
                   {:id :input
-                   :command (str "bb plugin input extractor "
-                                 (gap-shell-token package-dir)
-                                 " "
-                                 (gap-shell-token root)
-                                 " "
-                                 (gap-shell-token file)
-                                 (plugin-option plugin-id)
-                                 " --json")}
+                   :command (apply plugin-command
+                                   (concat ["input" "extractor" package-dir root file]
+                                           (plugin-args plugin-id)
+                                           ["--json"]))}
                   {:id :dry-run
-                   :command (str "bb plugin dry-run extractor "
-                                 (gap-shell-token package-dir)
-                                 " "
-                                 (gap-shell-token root)
-                                 " "
-                                 (gap-shell-token file)
-                                 (plugin-option plugin-id)
-                                 " --json")}]
+                   :command (apply plugin-command
+                                   (concat ["dry-run" "extractor" package-dir root file]
+                                           (plugin-args plugin-id)
+                                           ["--json"]))}]
    :public-claim-requirements (public-claim-requirements)
    :core-promotion-requirements ["Remove project-specific helper names, path semantics, host names, and product vocabulary."
                                  "Add project-agnostic fixtures and extractor tests."
@@ -2093,19 +2085,19 @@
 (defn- report-gap-proof
   [package-dir plugin-id]
   {:local-checks [{:id :validate
-                   :command (str "bb plugin validate " (gap-shell-token package-dir))}
+                   :command (plugin-command "validate" package-dir)}
                   {:id :diagnose
-                   :command (str "bb plugin diagnose " (gap-shell-token package-dir))}
+                   :command (plugin-command "diagnose" package-dir)}
                   {:id :input
-                   :command (str "bb plugin input report "
-                                 (gap-shell-token package-dir)
-                                 (plugin-option plugin-id)
-                                 " --json")}
+                   :command (apply plugin-command
+                                   (concat ["input" "report" package-dir]
+                                           (plugin-args plugin-id)
+                                           ["--json"]))}
                   {:id :dry-run
-                   :command (str "bb plugin dry-run report "
-                                 (gap-shell-token package-dir)
-                                 (plugin-option plugin-id)
-                                 " --json")}]
+                   :command (apply plugin-command
+                                   (concat ["dry-run" "report" package-dir]
+                                           (plugin-args plugin-id)
+                                           ["--json"]))}]
    :public-claim-requirements (public-claim-requirements)
    :core-promotion-requirements ["Remove project-specific dashboards, product vocabulary, local quality gates, and team-specific policy."
                                  "Keep report panels useful across projects or documented ecosystem scopes."
