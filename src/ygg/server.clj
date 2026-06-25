@@ -889,8 +889,11 @@
   [ctx request command args]
   (if (= "sync" command)
     (let [args (vec args)
+          progress-fn (sync-server-progress-fn ctx args)
           opts (merge (sync-args->options args)
-                      {:cwd (:cwd request)})
+                      {:cwd (:cwd request)}
+                      (when progress-fn
+                        {:progress-fn progress-fn}))
           xtdb (node-for! ctx (request-storage-path request args opts))
           result (run-sync! xtdb opts)]
       (print-sync-result! args result))

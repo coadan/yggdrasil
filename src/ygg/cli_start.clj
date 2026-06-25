@@ -10,8 +10,8 @@
 (defn- init-sync-args
   [project-id config-path query-index?]
   (cond-> (if config-path
-            [config-path "--check" "--no-progress"]
-            ["--project" project-id "--check" "--no-progress"])
+            [config-path "--check"]
+            ["--project" project-id "--check"])
     query-index? (conj "--query-index")))
 
 (defn- sync-output

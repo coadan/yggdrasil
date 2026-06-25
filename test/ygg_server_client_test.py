@@ -204,6 +204,90 @@ class ServerClientRoutingTest(unittest.TestCase):
         body = json.loads(out.getvalue())
         self.assertEqual({"status": "started", "log": "/tmp/ygg.log"}, body["service"])
 
+    def test_init_sync_requests_streamed_progress(self):
+        client = load_client()
+        calls = []
+
+        def fake_request(op, args, **kwargs):
+            calls.append((op, args, kwargs))
+            return {"exit": 0, "out": json.dumps({
+                "schema": "ygg.init/v1",
+                "project-id": "demo",
+            }) + "\n", "err": ""}
+
+        client.request = fake_request
+        with contextlib.redirect_stdout(io.StringIO()):
+            exit_code = client.main(["ygg", "init", "repo", "--project", "demo", "--sync"])
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("init", calls[0][0])
+        self.assertEqual(["repo", "--project", "demo", "--sync"], calls[0][1])
+        self.assertTrue(calls[0][2]["stream"])
+        self.assertTrue(calls[0][2]["render_progress"])
+
+    def test_guided_init_translates_answers_to_noninteractive_flags(self):
+        client = load_client()
+        calls = []
+        old_stdin = client.sys.stdin
+
+        def fake_request(op, args, **kwargs):
+            calls.append((op, args, kwargs))
+            return {"exit": 0, "out": json.dumps({
+                "schema": "ygg.init/v1",
+                "project-id": "demo",
+            }) + "\n", "err": ""}
+
+        client.request = fake_request
+        client.start_at_login = lambda args, emit=True: {"status": "enabled"}
+        os.environ["YGG_INIT_INTERACTIVE"] = "1"
+        client.sys.stdin = io.StringIO("\ncodex\ny\nopenrouter\ny\n")
+        try:
+            out = io.StringIO()
+            err = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                exit_code = client.main(["ygg", "init", "--project", "demo"])
+        finally:
+            client.sys.stdin = old_stdin
+
+        self.assertEqual(0, exit_code)
+        self.assertIn("Use the current directory", err.getvalue())
+        self.assertEqual([
+            ".",
+            "--project", "demo",
+            "--harness", "codex",
+            "--hooks",
+            "--skill",
+            "--mcp",
+            "--maintenance", "openrouter",
+            "--sync",
+        ], calls[0][1])
+        self.assertTrue(calls[0][2]["stream"])
+        body = json.loads(out.getvalue())
+        self.assertEqual({"status": "enabled"}, body["startup"])
+        self.assertEqual("ygg.init.guided/v1", body["guided"]["schema"])
+        self.assertEqual("interactive", body["guided"]["mode"])
+
+    def test_init_no_input_suppresses_guided_prompts(self):
+        client = load_client()
+        calls = []
+        old_stdin = client.sys.stdin
+
+        def fake_request(op, args, **kwargs):
+            calls.append((op, args, kwargs))
+            return {"exit": 0, "out": "{}\n", "err": ""}
+
+        client.request = fake_request
+        os.environ["YGG_INIT_INTERACTIVE"] = "1"
+        client.sys.stdin = io.StringIO("codex\ny\nopenrouter\ny\n")
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                exit_code = client.main(["ygg", "init", "repo", "--no-input"])
+        finally:
+            client.sys.stdin = old_stdin
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual(["repo"], calls[0][1])
+
     def test_init_no_start_server_keeps_unavailable_contract(self):
         client = load_client()
         calls = []

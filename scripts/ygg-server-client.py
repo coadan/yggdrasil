@@ -19,6 +19,34 @@ DEFAULT_REQUEST_TIMEOUT_MS = 600000
 SERVER_FRAME_SCHEMA = "ygg.server.frame/v1"
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 YGG_BIN = ROOT / "bin" / "ygg"
+INIT_LOCAL_FLAGS = {
+    "--no-start-server",
+    "--start-at-login",
+    "--no-start-at-login",
+    "--no-input",
+    "--non-interactive",
+    "--yes",
+}
+INIT_VALUE_OPTIONS = {
+    "--project",
+    "--name",
+    "--out",
+    "--harness",
+    "--maintenance",
+    "--maintenance-model",
+    "--maintenance-reasoning",
+    "--maintenance-command",
+    "--workbench",
+    "--task",
+}
+INIT_BOOLEAN_OPTIONS = {
+    "--force",
+    "--sync",
+    "--hooks",
+    "--skill",
+    "--mcp",
+    "--force-agent",
+}
 
 def server_host():
     return os.environ.get("YGG_SERVER_HOST", DEFAULT_SERVER_HOST).strip() or DEFAULT_SERVER_HOST
@@ -102,6 +130,38 @@ def option_value(args, flag):
     if idx + 1 >= len(args):
         return None
     return args[idx + 1]
+
+
+def has_flag(args, flag):
+    return flag in args
+
+
+def has_any(args, flags):
+    return any(flag in args for flag in flags)
+
+
+def init_positional_args(args):
+    out = []
+    skip = False
+    for arg in args:
+        if skip:
+            skip = False
+            continue
+        if arg in INIT_VALUE_OPTIONS:
+            skip = True
+            continue
+        if arg in INIT_BOOLEAN_OPTIONS or arg in INIT_LOCAL_FLAGS:
+            continue
+        if arg.startswith("--"):
+            continue
+        out.append(arg)
+    return out
+
+
+def insert_init_root(args, root):
+    if not root:
+        return args
+    return [root, *args]
 
 
 def progress_output(args):
@@ -314,6 +374,191 @@ def start_server_for_init():
     return {"status": "timeout", "log": str(log_path)}
 
 
+def init_interactive_enabled(args):
+    if has_any(args, {"--no-input", "--non-interactive"}):
+        return False
+    raw = os.environ.get("YGG_INIT_INTERACTIVE", "").strip().lower()
+    if raw in {"1", "true", "yes"}:
+        return True
+    if raw in {"0", "false", "no"}:
+        return False
+    if has_flag(args, "--yes"):
+        return False
+    return sys.stdin.isatty()
+
+
+def prompt_input(prompt):
+    sys.stderr.write(prompt)
+    sys.stderr.flush()
+    line = sys.stdin.readline()
+    if line == "":
+        return ""
+    return line.strip()
+
+
+def prompt_yes_no(prompt, default=True):
+    suffix = " [Y/n] " if default else " [y/N] "
+    while True:
+        value = prompt_input(prompt + suffix).lower()
+        if not value:
+            return default
+        if value in {"y", "yes"}:
+            return True
+        if value in {"n", "no"}:
+            return False
+        sys.stderr.write("Please answer yes or no.\n")
+
+
+def prompt_choice(prompt, choices, default):
+    normalized = {choice: choice for choice in choices}
+    while True:
+        value = prompt_input(f"{prompt} ({default}): ").lower()
+        if not value:
+            return default
+        if value in normalized:
+            return normalized[value]
+        sys.stderr.write(f"Choose one of: {', '.join(choices)}.\n")
+
+
+def detect_init_harnesses(root):
+    root_path = pathlib.Path(root or os.getcwd()).expanduser()
+    markers = []
+    if (root_path / "AGENTS.md").exists():
+        markers.append("AGENTS.md")
+    if (root_path / ".codex").exists():
+        markers.append(".codex")
+    if markers:
+        return [{"id": "codex", "reason": "project-marker", "markers": markers}]
+    return []
+
+
+def init_root_for_detection(args):
+    if option_value(args, "--workbench"):
+        return option_value(args, "--workbench")
+    positionals = init_positional_args(args)
+    return positionals[0] if positionals else os.getcwd()
+
+
+def guided_project_root_args(args, yes):
+    if option_value(args, "--workbench") or init_positional_args(args):
+        return args, None
+    if yes:
+        return insert_init_root(args, "."), {"kind": "project-root", "value": os.getcwd(), "source": "default-current-directory"}
+    sys.stderr.write(
+        "Yggdrasil projects can include multiple repos. "
+        "Add more later with `ygg sync add-repo project.edn <repo-path>`.\n"
+    )
+    value = prompt_input("Use the current directory as the first repo? [Y/n/path] ").strip()
+    if not value or value.lower() in {"y", "yes"}:
+        return insert_init_root(args, "."), {"kind": "project-root", "value": os.getcwd(), "source": "current-directory"}
+    if value.lower() in {"n", "no"}:
+        path = prompt_input("First repo path: ").strip()
+        if path:
+            return insert_init_root(args, path), {"kind": "project-root", "value": path, "source": "entered-path"}
+        return insert_init_root(args, "."), {"kind": "project-root", "value": os.getcwd(), "source": "empty-path-current-directory"}
+    return insert_init_root(args, value), {"kind": "project-root", "value": value, "source": "inline-path"}
+
+
+def guided_harness_args(args, yes):
+    harness = option_value(args, "--harness")
+    artifact_flags = {"--hooks", "--skill", "--mcp"}
+    if harness or has_any(args, artifact_flags):
+        if harness == "codex" and not has_any(args, artifact_flags):
+            install = yes or prompt_yes_no(
+                "Install Codex guidance, the Ygg skill, and MCP command output?",
+                True,
+            )
+            if install:
+                return [*args, "--hooks", "--skill", "--mcp"], {
+                    "kind": "harness",
+                    "value": "codex",
+                    "artifacts": ["hooks", "skill", "mcp"],
+                }
+        return args, None
+    detected = detect_init_harnesses(init_root_for_detection(args))
+    default = "codex" if detected else "none"
+    if yes:
+        choice = default
+    else:
+        if detected:
+            sys.stderr.write("Detected assistant harness: codex.\n")
+        sys.stderr.write("Harness setup can write AGENTS.md, .codex hooks, a reusable Ygg skill, and MCP command info.\n")
+        choice = prompt_choice("Install assistant harness integration? choices: codex, none", ["codex", "none"], default)
+    if choice == "codex":
+        return [*args, "--harness", "codex", "--hooks", "--skill", "--mcp"], {
+            "kind": "harness",
+            "value": "codex",
+            "detected": detected,
+            "artifacts": ["hooks", "skill", "mcp"],
+        }
+    return [*args, "--harness", "none"], {
+        "kind": "harness",
+        "value": "none",
+        "detected": detected,
+    }
+
+
+def guided_startup_args(args, yes):
+    if has_any(args, {"--start-at-login", "--no-start-at-login"}):
+        return args, None
+    enable = yes or prompt_yes_no(
+        "Start the Yggdrasil service when you log in so queries are warm?",
+        True,
+    )
+    if enable:
+        return [*args, "--start-at-login"], {"kind": "start-at-login", "value": True}
+    return [*args, "--no-start-at-login"], {"kind": "start-at-login", "value": False}
+
+
+def guided_maintenance_args(args, yes):
+    if option_value(args, "--maintenance"):
+        return args, None
+    if yes:
+        choice = "none"
+    else:
+        sys.stderr.write(
+            "Auto maintenance can use your assistant harness or a DeepSeek/OpenRouter-compatible API model.\n"
+        )
+        choice = prompt_choice(
+            "Auto maintenance executor? choices: none, harness, deepseek, openrouter",
+            ["none", "harness", "deepseek", "openrouter"],
+            "none",
+        )
+    if choice == "none":
+        return [*args, "--maintenance", "none"], {"kind": "maintenance", "value": "none"}
+    return [*args, "--maintenance", choice], {"kind": "maintenance", "value": choice}
+
+
+def guided_sync_args(args, yes):
+    if has_flag(args, "--sync"):
+        return args, None
+    sync = yes or prompt_yes_no("Index this project now?", True)
+    if sync:
+        return [*args, "--sync"], {"kind": "sync", "value": True}
+    return args, {"kind": "sync", "value": False}
+
+
+def guided_init_args(args):
+    yes = has_flag(args, "--yes")
+    if not (yes or init_interactive_enabled(args)):
+        return args, None
+    decisions = []
+    guided = {
+        "schema": "ygg.init.guided/v1",
+        "mode": "defaults" if yes else "interactive",
+    }
+    for step in (guided_project_root_args,
+                 guided_harness_args,
+                 guided_startup_args,
+                 guided_maintenance_args,
+                 guided_sync_args):
+        args, decision = step(args, yes)
+        if decision:
+            decisions.append(decision)
+    guided["decisions"] = decisions
+    return args, guided
+
+
 def remove_flags(args, flags):
     out = []
     skip = False
@@ -335,14 +580,34 @@ def init_start_server_enabled(args):
 
 
 def init_server_request(args):
-    local_flags = {"--no-start-server", "--start-at-login", "--no-start-at-login"}
+    args, guided = guided_init_args(list(args))
+    local_flags = {
+        "--no-start-server",
+        "--start-at-login",
+        "--no-start-at-login",
+        "--no-input",
+        "--non-interactive",
+        "--yes",
+    }
     server_args = remove_flags(args, local_flags)
-    response = request("init", server_args, connect_timeout_override_ms=0)
+    stream = has_flag(server_args, "--sync")
+    response = request(
+        "init",
+        server_args,
+        stream=stream,
+        render_progress=progress_output(server_args),
+        connect_timeout_override_ms=0,
+    )
     service = None
     if response is None and init_start_server_enabled(args):
         service = start_server_for_init()
         if service.get("status") == "started":
-            response = request("init", server_args)
+            response = request(
+                "init",
+                server_args,
+                stream=stream,
+                render_progress=progress_output(server_args),
+            )
     if response is None:
         sys.stderr.write(UNAVAILABLE_MESSAGE)
         return UNAVAILABLE
@@ -351,6 +616,8 @@ def init_server_request(args):
     if "--start-at-login" in args:
         startup = start_at_login(["enable", "--json"], emit=False)
         response = attach_init_startup_result(response, startup)
+    if guided:
+        response = attach_init_guided_result(response, guided)
     return print_response(response)
 
 
@@ -372,6 +639,10 @@ def attach_init_service_result(response, service):
 
 def attach_init_startup_result(response, startup):
     return attach_json_out(response, "startup", startup)
+
+
+def attach_init_guided_result(response, guided):
+    return attach_json_out(response, "guided", guided)
 
 
 def launch_agent_dir():

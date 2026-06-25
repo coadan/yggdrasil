@@ -34,8 +34,10 @@ macOS:
 ygg service start-at-login enable
 ```
 
-For non-interactive assistant setup, pass the harness and maintenance choices to
-`init`:
+In an interactive terminal, `init` guides the first setup: current directory or
+another repo path, assistant harness/MCP/skill setup, start-at-login, auto
+maintenance, and whether to index immediately. For non-interactive assistant
+setup, pass those choices to `init`:
 
 ```sh
 bin/ygg init . --project my-project --out project.edn \
@@ -44,7 +46,8 @@ bin/ygg init . --project my-project --out project.edn \
 ```
 
 Use `--maintenance deepseek` or `--maintenance openrouter` to configure a
-DeepSeek V4-compatible API executor instead of the harness command.
+DeepSeek V4-compatible API executor instead of the harness command. Use
+`--no-input` to force non-interactive behavior.
 
 Verify the entrypoints:
 

@@ -123,7 +123,7 @@
     "--skip-existing" "--with-conflicts" "--without-import-evidence"
     "--no-progress" "--extractor" "--report" "--tests" "--proof-commands"
     "--changed-only" "--reviewed" "--skill" "--mcp" "--force-agent" "--start-at-login"
-    "--no-start-at-login" "--no-start-server"})
+    "--no-start-at-login" "--no-start-server" "--yes" "--no-input" "--non-interactive"})
 
 (defn positional-args
   [args]

@@ -49,8 +49,10 @@ To start the server automatically when you log in on macOS:
 ygg service start-at-login enable
 ```
 
-`init` can also set up assistant harness files and auto maintenance without
-prompts:
+In an interactive terminal, `init` guides the first setup: current directory or
+another repo path, assistant harness/MCP/skill setup, start-at-login, auto
+maintenance, and whether to index immediately. Agents and scripts can pass the
+same choices without prompts:
 
 ```sh
 bin/ygg init . --project my-project --out project.edn \
@@ -60,6 +62,7 @@ bin/ygg init . --project my-project --out project.edn \
 
 Use `--maintenance deepseek` or `--maintenance openrouter` to run maintenance
 with a DeepSeek V4-compatible API executor instead of the assistant harness.
+Use `--no-input` to force non-interactive behavior.
 
 Default repo-local Yggdrasil data lives under `.ygg/`. Project-shared state,
 including XTDB, lives under the central Yggdrasil storage root by project id.

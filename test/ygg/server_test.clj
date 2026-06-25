@@ -167,7 +167,7 @@
                         :project-id nil
                         :check? true
                         :query-index? true
-                        :no-progress? true
+                        :no-progress? false
                         :cwd nil}}]
                @sync-calls))))))
 

@@ -36,7 +36,7 @@
               :maintenance-reasoning nil
               :maintenance-command nil}]
             [:query-index ["repo" "--project" "demo" "--sync" "--query-index"]]
-            [:dispatch "sync" ["project.edn" "--check" "--no-progress" "--query-index"]]]
+            [:dispatch "sync" ["project.edn" "--check" "--query-index"]]]
            @calls))
     (is (= {:schema "ygg.init/v1"
             :project-id "demo"
@@ -54,7 +54,7 @@
                         :dispatch (fn [command args]
                                     (reset! dispatched [command args]))
                         :query-index? (constantly false)}))
-    (is (= ["sync" ["--project" "registered" "--check" "--no-progress"]]
+    (is (= ["sync" ["--project" "registered" "--check"]]
            @dispatched))))
 
 (deftest plain-init-only-requires-json-printer

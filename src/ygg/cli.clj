@@ -963,7 +963,7 @@
    ["Usage:"
     ""
     "Setup:"
-    "  init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force] [--sync] [--harness codex|auto|none] [--hooks] [--skill] [--mcp] [--maintenance none|harness|deepseek|openrouter] [--maintenance-model MODEL] [--maintenance-reasoning low|medium|high|xhigh] [--maintenance-command CMD]"
+    "  init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force] [--sync] [--harness codex|auto|none] [--hooks] [--skill] [--mcp] [--maintenance none|harness|deepseek|openrouter] [--maintenance-model MODEL] [--maintenance-reasoning low|medium|high|xhigh] [--maintenance-command CMD] [--yes|--no-input]"
     "  init --workbench <root> [--task TASK] [--project ID] [--name NAME] [--out project.edn] [--force]"
     "  current [--project ID] [--json]"
     "  use <project-id> [--json]"
