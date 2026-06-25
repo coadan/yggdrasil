@@ -40,6 +40,9 @@
   [stats]
   (when-let [total-ms (get-in stats [:timings-ms :total-ms])]
     (str ", " total-ms "ms total")))
+(defn- files-reused
+  [stats]
+  (or (:files-reused stats) (:files-skipped stats)))
 (defn print-project-index-summary
   [{:keys [project-id status repos]}]
   (println "# Project Index")
@@ -54,8 +57,8 @@
              "scanned,"
              (:files-indexed stats)
              "indexed,"
-             (:files-skipped stats)
-             (str "skipped" (or (timing-total-text stats) "")))))
+             (files-reused stats)
+             (str "reused unchanged" (or (timing-total-text stats) "")))))
 (defn print-project-add-repo-summary
   [{:keys [project repo index-summary system-summary next]}]
   (println "# Project Repo Added")
@@ -258,8 +261,8 @@
                "scanned,"
                (:files-indexed stats)
                "indexed,"
-               (:files-skipped stats)
-               (str "skipped" (or (timing-total-text stats) "")))))
+               (files-reused stats)
+               (str "reused unchanged" (or (timing-total-text stats) "")))))
   (when system-summary
     (println "- system-evidence" (:system-evidence system-summary))
     (println "- system-nodes" (:system-nodes system-summary))

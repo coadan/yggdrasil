@@ -1,10 +1,18 @@
 (ns ygg.cli-progress-test
-  (:require [ygg.cli-sync :as cli]
+  (:require [ygg.cli-project :as cli-project]
+            [ygg.cli-sync :as cli]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (deftest sync-progress-line-renders-human-counts
-  (is (= "- app plan 1 changed file, 2 skipped files, 0 deleted files"
+  (is (= "- app plan 1 changed file, 2 reused unchanged files, 0 deleted files"
+         (#'cli/sync-progress-line
+          {:phase :plan-complete
+           :repo-id "app"
+           :files-changed 1
+           :files-reused 2
+           :files-deleted 0})))
+  (is (= "- app plan 1 changed file, 2 reused unchanged files, 0 deleted files"
          (#'cli/sync-progress-line
           {:phase :plan-complete
            :repo-id "app"
@@ -32,3 +40,22 @@
     (let [out (str writer)]
       (is (str/includes? out "# Sync Progress"))
       (is (str/includes? out "- app scanned 2 files")))))
+
+(deftest sync-summaries-render-reused-unchanged-files
+  (let [summary {:project-id "fixture"
+                 :status :completed
+                 :repos [{:repo-id "app"
+                          :status :completed
+                          :index-profile :query
+                          :stats {:files-scanned 3
+                                  :files-indexed 1
+                                  :files-reused 2
+                                  :files-skipped 2}}]}]
+    (is (str/includes? (with-out-str
+                         (cli-project/print-project-index-summary summary))
+                       "app completed profile=query 3 scanned, 1 indexed, 2 reused unchanged"))
+    (is (str/includes? (with-out-str
+                         (cli-project/print-sync-summary
+                          {:project-id "fixture"
+                           :index-summary summary}))
+                       "app completed profile=query 3 scanned, 1 indexed, 2 reused unchanged"))))

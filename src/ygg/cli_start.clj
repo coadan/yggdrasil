@@ -200,6 +200,9 @@
         activity-counts (:counts activity-result)]
     {:files {:scanned (:files-scanned repo-stats 0)
              :indexed (:files-indexed repo-stats 0)
+             :reused (or (:files-reused repo-stats)
+                         (:files-skipped repo-stats)
+                         0)
              :skipped (:files-skipped repo-stats 0)
              :deleted (:files-deleted repo-stats 0)
              :diagnostics (:diagnostics repo-stats 0)}

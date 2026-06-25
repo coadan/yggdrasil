@@ -212,6 +212,7 @@
                (:readiness parsed)))
         (is (= {:scanned 0
                 :indexed 0
+                :reused 0
                 :skipped 0
                 :deleted 0
                 :diagnostics 0}

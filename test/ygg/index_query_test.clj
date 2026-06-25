@@ -1732,6 +1732,7 @@
             (is (= 1 (:files code-extraction)))
             (is (not (neg? (:elapsed-ms code-extraction)))))
           (is (= 1 (get-in second-summary [:stats :files-skipped])))
+          (is (= 1 (get-in second-summary [:stats :files-reused])))
           (is (string? (:extractor-fingerprint row)))
           (with-redefs [index/extractor-fingerprint (fn [& _]
                                                       "extractor:test-changed")]
@@ -1752,6 +1753,7 @@
               second-summary (index/index-repo! xtdb (.getPath repo) {})]
           (is (= 1 (get-in first-summary [:stats :files-indexed])))
           (is (= 1 (get-in second-summary [:stats :files-skipped])))
+          (is (= 1 (get-in second-summary [:stats :files-reused])))
           (with-redefs [file-facts/facts-contract-version "ygg.file-facts/test-changed"]
             (let [third-summary (index/index-repo! xtdb (.getPath repo) {})
                   changed-row (store/file-row xtdb ".env")]

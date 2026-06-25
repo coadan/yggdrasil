@@ -200,10 +200,13 @@
 (defn- count-text
   [n singular plural]
   (str (long (or n 0)) " " (if (= 1 (long (or n 0))) singular plural)))
+(defn- reused-files
+  [event]
+  (or (:files-reused event) (:files-skipped event)))
 (defn- sync-progress-line
-  [{:keys [phase repo-id index-profile files-scanned files-changed files-skipped
+  [{:keys [phase repo-id index-profile files-scanned files-changed
            files-deleted files-extracted files-indexed dependency-edges
-           chunks search-docs diagnostics total-ms path]}]
+           chunks search-docs diagnostics total-ms path] :as event}]
   (case phase
     :repo-start
     (str "- " repo-id " start profile=" (name (or index-profile index/default-index-profile)))
@@ -215,7 +218,7 @@
     (str "- " repo-id " plan "
          (count-text files-changed "changed file" "changed files")
          ", "
-         (count-text files-skipped "skipped file" "skipped files")
+         (count-text (reused-files event) "reused unchanged file" "reused unchanged files")
          ", "
          (count-text files-deleted "deleted file" "deleted files"))
 
@@ -259,7 +262,7 @@
          ", "
          (count-text files-indexed "indexed file" "indexed files")
          ", "
-         (count-text files-skipped "skipped file" "skipped files")
+         (count-text (reused-files event) "reused unchanged file" "reused unchanged files")
          (when total-ms
            (str ", " total-ms "ms")))
 

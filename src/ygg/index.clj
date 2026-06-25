@@ -392,6 +392,7 @@
                  :stats {:files-scanned (count files)
                          :files-indexed 0
                          :files-skipped 0
+                         :files-reused 0
                          :nodes 0
                          :edges 0
                          :chunks 0
@@ -469,6 +470,7 @@
                             :files-scanned (count files)
                             :files-changed (count (:changed planned-files))
                             :files-skipped (:skipped planned-files)
+                            :files-reused (:skipped planned-files)
                             :files-deleted (count removed-files)})
               _ (check-deadline! index-deadline-ns
                                  :plan-changes
@@ -476,7 +478,8 @@
                                   :repo-id repo-id
                                   :files-scanned (count files)
                                   :files-changed (count (:changed planned-files))
-                                  :files-skipped (:skipped planned-files)})
+                                  :files-skipped (:skipped planned-files)
+                                  :files-reused (:skipped planned-files)})
               [parser-worker-facts timings] (timed
                                              timings
                                              :parser-worker-ms
@@ -637,6 +640,7 @@
               finished-at (now-ms)
               summary (-> (:stats initial)
                           (assoc :files-skipped (:skipped planned)
+                                 :files-reused (:skipped planned)
                                  :files-indexed (count (:changed planned))
                                  :files-deleted (:files-deleted deletes)
                                  :extraction {:by-kind (extraction-kind-stats
@@ -666,6 +670,7 @@
                       :files-scanned (:files-scanned summary)
                       :files-indexed (:files-indexed summary)
                       :files-skipped (:files-skipped summary)
+                      :files-reused (:files-reused summary)
                       :files-deleted (:files-deleted summary)
                       :total-ms (get-in summary [:timings-ms :total-ms])})
           finished)))))
