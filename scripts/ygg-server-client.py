@@ -288,16 +288,9 @@ def control_request(op, args):
     return print_response(response)
 
 
-def reject_removed_command(command):
-    response = request("status", [])
-    if response is None:
-        sys.stderr.write(UNAVAILABLE_MESSAGE)
-        return UNAVAILABLE
-    return print_response({
-        "exit": 2,
-        "out": "",
-        "err": f"Unknown command: {command}\n",
-    })
+def reject_unknown_command(command):
+    sys.stderr.write(f"Unknown command: {command}\n")
+    return 2
 
 
 def main(argv):
@@ -311,7 +304,7 @@ def main(argv):
     if command == "stop":
         return control_request("stop", argv[2:])
     if command in REMOVED_PUBLIC_COMMANDS:
-        return reject_removed_command(command)
+        return reject_unknown_command(command)
     if command == "sync":
         args = argv[2:]
         op = SYNC_SUBCOMMAND_OPS.get(args[0]) if args else None
@@ -320,7 +313,7 @@ def main(argv):
         return control_request("sync", args)
     if command in PUBLIC_COMMAND_OPS:
         return control_request(command, argv[2:])
-    return reject_removed_command(command)
+    return reject_unknown_command(command)
 
 
 if __name__ == "__main__":
