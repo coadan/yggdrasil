@@ -17,22 +17,29 @@ def load_client():
 
 
 class ServerClientRoutingTest(unittest.TestCase):
-    def test_control_command_routes_to_matching_server_op(self):
+    def test_server_command_routes_to_matching_server_op(self):
         client = load_client()
-        requests = []
+        cases = [
+            (["ygg", "status", "--json"], ("status", ["--json"])),
+            (["ygg", "query", "needle"], ("query", ["needle"])),
+        ]
 
-        def capture_request(op, args):
-            requests.append((op, args))
-            return {"exit": 0, "out": "ok\n", "err": ""}
+        for argv, expected_request in cases:
+            with self.subTest(argv=argv):
+                requests = []
 
-        client.request = capture_request
-        out = io.StringIO()
-        with contextlib.redirect_stdout(out):
-            exit_code = client.main(["ygg", "status", "--json"])
+                def capture_request(op, args):
+                    requests.append((op, args))
+                    return {"exit": 0, "out": "ok\n", "err": ""}
 
-        self.assertEqual(0, exit_code)
-        self.assertEqual("ok\n", out.getvalue())
-        self.assertEqual([("status", ["--json"])], requests)
+                client.request = capture_request
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    exit_code = client.main(argv)
+
+                self.assertEqual(0, exit_code)
+                self.assertEqual("ok\n", out.getvalue())
+                self.assertEqual([expected_request], requests)
 
     def test_removed_command_is_rejected_without_server_request(self):
         client = load_client()

@@ -13,8 +13,7 @@ DEFAULT_SERVER_PORT = 62121
 DEFAULT_CONNECT_TIMEOUT_MS = 30000
 CONNECT_RETRY_INTERVAL_SECONDS = 5.0
 DEFAULT_REQUEST_TIMEOUT_MS = 600000
-CONTROL_COMMAND_OPS = {"status", "stop"}
-PUBLIC_COMMAND_OPS = {
+SERVER_COMMAND_OPS = {
     "affected",
     "agent",
     "audit-scope",
@@ -32,6 +31,8 @@ PUBLIC_COMMAND_OPS = {
     "projects",
     "query",
     "report",
+    "status",
+    "stop",
     "use",
     "view",
     "watch",
@@ -284,15 +285,13 @@ def main(argv):
     command = argv[1]
     if command == "mcp":
         return mcp_proxy(argv[2:])
-    if command in CONTROL_COMMAND_OPS:
-        return control_request(command, argv[2:])
     if command == "sync":
         args = argv[2:]
         op = SYNC_SUBCOMMAND_OPS.get(args[0]) if args else None
         if op:
             return control_request(op, args[1:])
         return control_request("sync", args)
-    if command in PUBLIC_COMMAND_OPS:
+    if command in SERVER_COMMAND_OPS:
         return control_request(command, argv[2:])
     return reject_unknown_command(command)
 
