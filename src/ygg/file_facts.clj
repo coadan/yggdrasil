@@ -12,7 +12,6 @@
   #{:url
     :env-var
     :sql-security
-    :auth-reference
     :port
     :route
     :container-image-producer
@@ -86,155 +85,6 @@
          (map first)
          (map str/upper-case)
          distinct)))
-
-(def service-account-type-pattern
-  #"(?i)(?:^|[{\s,])['\"]?type['\"]?\s*:\s*['\"]service_account['\"]")
-
-(defn- normalize-identifier
-  [value]
-  (-> (str value)
-      (str/replace #"([a-z0-9])([A-Z])" "$1-$2")
-      normalize-token))
-
-(defn- identifier-tokens
-  [value]
-  (->> (str/split (normalize-identifier value) #"-")
-       (remove str/blank?)
-       vec))
-
-(defn- edit-distance
-  [a b]
-  (let [a (str a)
-        b (str b)
-        alen (count a)
-        blen (count b)]
-    (loop [i 0
-           previous (vec (range (inc blen)))]
-      (if (= i alen)
-        (previous blen)
-        (let [ca (.charAt a i)
-              current (reduce
-                       (fn [row j]
-                         (let [cb (.charAt b (dec j))
-                               insert-cost (inc (peek row))
-                               delete-cost (inc (previous j))
-                               replace-cost (+ (previous (dec j))
-                                               (if (= ca cb) 0 1))]
-                           (conj row (min insert-cost
-                                          delete-cost
-                                          replace-cost))))
-                       [(inc i)]
-                       (range 1 (inc blen)))]
-          (recur (inc i) current))))))
-
-(defn- close-token?
-  [expected token]
-  (let [token (str token)]
-    (and (<= 3 (count token))
-         (or (<= (edit-distance expected token) 1)
-             (and (= (count expected) (count token))
-                  (some (fn [idx]
-                          (= token
-                             (str (subs expected 0 idx)
-                                  (.charAt expected (inc idx))
-                                  (.charAt expected idx)
-                                  (subs expected (+ idx 2)))))
-                        (range (dec (count expected)))))))))
-
-(defn- has-close-token?
-  [tokens expected]
-  (some #(close-token? expected %) tokens))
-
-(defn- has-auth-pair?
-  [tokens left right]
-  (and (has-close-token? tokens left)
-       (has-close-token? tokens right)))
-
-(defn- auth-context
-  [identifier]
-  (let [normalized (normalize-identifier identifier)
-        tokens (identifier-tokens identifier)]
-    (cond
-      (or (str/includes? normalized "service-account")
-          (str/includes? normalized "service-acct")
-          (str/includes? normalized "svc-account")
-          (str/includes? normalized "svc-acct")
-          (= "google-application-credentials" normalized)
-          (= "type-service-account" normalized)
-          (has-auth-pair? tokens "service" "account")
-          (has-auth-pair? tokens "service" "acct")
-          (has-auth-pair? tokens "svc" "account")
-          (has-auth-pair? tokens "svc" "acct")
-          (and (some #{"client"} tokens)
-               (some #{"email"} tokens)))
-      :service-account
-
-      (or (str/includes? normalized "private-key")
-          (has-auth-pair? tokens "private" "key"))
-      :private-key
-
-      (or (str/includes? normalized "secret")
-          (str/includes? normalized "credentials")
-          (str/includes? normalized "credential")
-          (str/includes? normalized "creds")
-          (has-close-token? tokens "secret")
-          (has-close-token? tokens "credential")
-          (has-close-token? tokens "creds"))
-      :secret
-
-      (or (str/includes? normalized "token")
-          (has-close-token? tokens "token"))
-      :token
-
-      (or (str/includes? normalized "api-key")
-          (str/includes? normalized "apikey")
-          (has-auth-pair? tokens "api" "key")
-          (has-auth-pair? tokens "access" "key"))
-      :api-key
-
-      :else :auth)))
-
-(defn- auth-identifier?
-  [identifier]
-  (not= :auth (auth-context identifier)))
-
-(defn- line-assignment-identifier
-  [line]
-  (some->> line
-           (re-matches #"^\s*(?:export\s+)?['\"]?([A-Za-z_][A-Za-z0-9_.-]*)['\"]?\s*(?:=|:|=>).*$")
-           second))
-
-(defn- env-access-identifiers
-  [line]
-  (->> (concat
-        (map second (re-seq #"(?:^|[{\s,])['\"]([A-Za-z_][A-Za-z0-9_.-]*)['\"]\s*:" line))
-        (map second (re-seq #"process\.env\.([A-Za-z_][A-Za-z0-9_]*)" line))
-        (map second (re-seq #"\b(?:getenv|System\.getenv)\(\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]" line))
-        (map second (re-seq #"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::[-=][^}]*)?\}" line))
-        (map second (re-seq #"(?i)^\s*-?\s*(?:name|key):\s*([A-Z][A-Z0-9_]{2,})\s*(?:#.*)?$" line)))
-       distinct))
-
-(defn- auth-identifier-candidates
-  [line]
-  (->> (concat
-        (when-let [identifier (line-assignment-identifier line)]
-          [identifier])
-        (env-access-identifiers line)
-        (when (re-find service-account-type-pattern line)
-          ["type=service_account"]))
-       (remove str/blank?)
-       distinct))
-
-(defn- auth-values
-  [line]
-  (let [identifiers (auth-identifier-candidates line)]
-    (->> identifiers
-         (filter auth-identifier?)
-         distinct
-         (map (fn [identifier]
-                {:label identifier
-                 :normalized-value (str "auth:" (normalize-identifier identifier))
-                 :auth-context (auth-context identifier)})))))
 
 (defn- port-values
   [line]
@@ -437,17 +287,6 @@
             (env-values line))
        (map #(fact-row run-id project-id repo-id file :sql-security line-no % (normalize-token %) 0.68)
             (sql-security-values file line))
-       (map #(fact-row run-id
-                       project-id
-                       repo-id
-                       file
-                       :auth-reference
-                       line-no
-                       (:label %)
-                       (:normalized-value %)
-                       0.68
-                       {:auth-context (:auth-context %)})
-            (auth-values line))
        (map #(fact-row run-id project-id repo-id file :port line-no (str "port " %) % 0.55)
             (port-values line))
        (map #(fact-row run-id project-id repo-id file :route line-no % (normalize-token %) 0.55)

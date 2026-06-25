@@ -61,7 +61,6 @@
    :importKind :import-kind
    :resolutionSource :resolution-source
    :urlContext :url-context
-   :authContext :auth-context
    :pluginId :plugin-id
    :pluginVersion :plugin-version
    :pluginFingerprint :plugin-fingerprint
@@ -476,7 +475,7 @@
                       plugin
                       (-> row
                           canonical-row
-                          (keyword-values [:kind :file-kind :url-context :auth-context])))]
+                          (keyword-values [:kind :file-kind :url-context])))]
     (cond-> row
       (not (:xt/id row)) (assoc :xt/id (generated-id "file-fact" plugin file row))
       (not (:file-kind row)) (assoc :file-kind (:kind file))

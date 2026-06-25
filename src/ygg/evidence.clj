@@ -174,7 +174,6 @@
    :source-graph
    :dependencies
    :runtime-config
-   :auth
    :docs
    :embeddings
    :system-evidence
@@ -195,11 +194,6 @@
                   :package-conflicts
                   :unresolved-imports]
    :runtime-config [:runtime-config-evidence]
-   :auth [:auth-references
-          :service-account-references
-          :secret-references
-          :private-key-references
-          :api-key-references]
    :docs [:chunks :search-docs]
    :embeddings [:embeddings]
    :system-evidence [:system-evidence]
@@ -226,7 +220,7 @@
 
 (defn- available
   [{:keys [files file-facts nodes edges chunks search-docs embeddings system-evidence
-           runtime-config-evidence auth-references system-nodes system-edges
+           runtime-config-evidence system-nodes system-edges
            memories activity-items activity-events packages corrections]
     :as counts}]
   (cond-> []
@@ -236,7 +230,6 @@
     (pos? (+ chunks search-docs)) (conj :docs)
     (pos? embeddings) (conj :embeddings)
     (pos? runtime-config-evidence) (conj :runtime-config)
-    (pos? auth-references) (conj :auth)
     (pos? system-evidence) (conj :system-evidence)
     (pos? (+ system-nodes system-edges)) (conj :system-graph)
     (pos? memories) (conj :memory)
@@ -341,8 +334,7 @@
       (positive-count? (:result-schema-unexpected-result-items counts))))
 
 (def ^:private runtime-config-evidence-kinds
-  #{"auth-reference"
-    "container-image-consumer"
+  #{"container-image-consumer"
     "container-image-producer"
     "env-var"
     "k8s-config"
@@ -362,17 +354,6 @@
       context-counts
       #(and (= "url" (field-count-value-name % :kind))
             (= "runtime-config" (field-count-value-name % :url-context))))))
-
-(defn- auth-reference-count
-  [kind-counts]
-  (grouped-count-total kind-counts #(= "auth-reference" (value-count-name %))))
-
-(defn- auth-context-count
-  [context-counts context]
-  (grouped-count-total
-   context-counts
-   #(and (= "auth-reference" (field-count-value-name % :kind))
-         (= context (field-count-value-name % :auth-context)))))
 
 (defn- family-status
   [counts available-families family]
@@ -944,13 +925,12 @@
         system-evidence-context-counts (store/active-row-counts-by-fields
                                         xtdb
                                         (:system-evidence store/tables)
-                                        [:kind :url-context :auth-context]
+                                        [:kind :url-context]
                                         (scope-constraints read-scope)
                                         (store/read-context read-context))
         runtime-config-evidence-count (runtime-config-evidence-count
                                        system-evidence-kind-counts
                                        system-evidence-context-counts)
-        auth-reference-count (auth-reference-count system-evidence-kind-counts)
         system-node-count (active-row-total xtdb (:system-nodes store/tables) project-scope)
         system-edge-count (active-row-total xtdb (:system-edges store/tables) project-scope)
         activity-summary-counts (activity-counts xtdb (:id project) read-context)
@@ -965,15 +945,6 @@
                        :embeddings embedding-count
                        :system-evidence system-evidence-count
                        :runtime-config-evidence runtime-config-evidence-count
-                       :auth-references auth-reference-count
-                       :service-account-references (auth-context-count system-evidence-context-counts
-                                                                       "service-account")
-                       :secret-references (auth-context-count system-evidence-context-counts
-                                                              "secret")
-                       :private-key-references (auth-context-count system-evidence-context-counts
-                                                                   "private-key")
-                       :api-key-references (auth-context-count system-evidence-context-counts
-                                                               "api-key")
                        :system-nodes system-node-count
                        :system-edges system-edge-count
                        :packages (get-in package-report [:counts :packages] 0)

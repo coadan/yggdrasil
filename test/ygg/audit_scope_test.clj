@@ -54,7 +54,7 @@
     (is (= ["source-structure"
             "map-corrections"
             "dependencies"
-            "dependency-auth-runtime"
+            "dependency-runtime"
             "runtime-config"
             "containers"
             "docs"]
@@ -120,7 +120,7 @@
                         :target "package:npm:next"
                         :source "system:billing"
                         :section "dependencyEvidence"}]}
-            {:kind "dependency-auth-runtime"
+            {:kind "dependency-runtime"
              :basis "selected-architecture-evidence"
              :facts 2
              :files 1
@@ -217,8 +217,8 @@
                                                         :samples [{:repo-id "app"
                                                                    :path "assets/app.wasm"}]}]}
                  :correction-overlay {:docs [{:target "system:billing"
-                                       :role "overview"
-                                       :source {:path "docs/billing.md"}}]}
+                                              :role "overview"
+                                              :source {:path "docs/billing.md"}}]}
                  :rows {:files [{:xt/id "file:src"
                                  :project-id "fixture"
                                  :repo-id "app"
@@ -289,18 +289,6 @@
                                       :label "DATABASE_URL"
                                       :normalized-value "database-url"
                                       :source-line 1
-                                      :active? true}
-                                     {:xt/id "fact:auth"
-                                      :project-id "fixture"
-                                      :repo-id "app"
-                                      :file-id "file:env"
-                                      :path ".env"
-                                      :file-kind :env
-                                      :kind :auth-reference
-                                      :label "OPENAI_API_KEY"
-                                      :normalized-value "auth:openai-api-key"
-                                      :auth-context :api-key
-                                      :source-line 2
                                       :active? true}]
                         :system-evidence [{:xt/id "evidence:image"
                                            :project-id "fixture"
@@ -326,7 +314,7 @@
     (is (= ["source"
             "docs"
             "dependencies"
-            "dependency-auth-runtime"
+            "dependency-runtime"
             "runtime-config"
             "containers"
             "assets"
@@ -346,14 +334,8 @@
             {:kind "manifest"
              :files 1}]
            (get-in scopes-by-kind ["dependencies" :topFileKinds])))
-    (is (= 3 (get-in scopes-by-kind ["dependency-auth-runtime" :facts])))
-    (is (= [{:kind "api-key"
-             :count 1}]
-           (get-in scopes-by-kind ["dependency-auth-runtime" :authContexts])))
-    (is (= 2 (get-in scopes-by-kind ["runtime-config" :facts])))
-    (is (= [{:kind "api-key"
-             :count 1}]
-           (get-in scopes-by-kind ["runtime-config" :authContexts])))
+    (is (= 2 (get-in scopes-by-kind ["dependency-runtime" :facts])))
+    (is (= 1 (get-in scopes-by-kind ["runtime-config" :facts])))
     (is (= [{:kind "env"
              :files 1}]
            (get-in scopes-by-kind ["runtime-config" :topFileKinds])))

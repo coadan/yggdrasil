@@ -430,7 +430,7 @@
 (defn- compact-evidence-row
   [evidence]
   (select-keys evidence [:xt/id :project-id :repo-id :system-id :file-id :path
-                         :file-kind :kind :url-context :auth-context :label
+                         :file-kind :kind :url-context :label
                          :normalized-value :source-line :confidence :run-id]))
 
 (defn- compact-system-row

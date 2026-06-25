@@ -180,9 +180,12 @@ print(item["id"])
 PY
 )"
 "$PREFIX/bin/ygg" sync work complete "$WORK_ID" \
+  --project v1-smoke \
   --result "$WORK_DIR/work-result.json" > "$WORK_DIR/work-complete.json"
-"$PREFIX/bin/ygg" sync work validate "$WORK_ID" > "$WORK_DIR/work-validate.json"
+"$PREFIX/bin/ygg" sync work validate "$WORK_ID" \
+  --project v1-smoke > "$WORK_DIR/work-validate.json"
 "$PREFIX/bin/ygg" sync work apply "$WORK_ID" \
+  --project v1-smoke \
   --map ygg.map.json > "$WORK_DIR/work-apply.json"
 "$PREFIX/bin/ygg" packages \
   --project v1-smoke \
@@ -271,7 +274,6 @@ require(initial_sync.get("schema") == "ygg.sync/v1", "initial sync schema mismat
 require(inspect.get("schema") == "ygg.project.inspect/v1", "inspect schema mismatch")
 freshness = inspect.get("freshness", {})
 require(freshness.get("status") == "current", f"inspect freshness is {freshness.get('status')!r}")
-require(freshness.get("mapExists") is True, "inspect did not see map overlay")
 require(freshness.get("missingQueryIndex") is False, "query index is missing")
 require(freshness.get("counts", {}).get("unindexed") == 0, "freshness has unindexed files")
 

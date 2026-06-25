@@ -188,20 +188,56 @@
   (or (str/blank? token)
       (= token (:token request))))
 
+(defn- canonical-path
+  [file]
+  (try
+    (.getCanonicalPath (io/file file))
+    (catch Exception _
+      (.getAbsolutePath (io/file file)))))
+
 (defn- same-path?
   [left right]
   (and left
        right
-       (= (.getAbsolutePath (io/file left))
-          (.getAbsolutePath (io/file right)))))
+       (= (canonical-path (io/file left))
+          (canonical-path (io/file right)))))
 
 (defn- absolute-path
   [cwd path]
   (let [file (io/file path)]
-    (.getAbsolutePath
+    (canonical-path
      (if (.isAbsolute file)
        file
        (io/file (or cwd (System/getProperty "user.dir")) path)))))
+
+(def ^:private path-value-options
+  #{"--config" "--out" "--map" "--result" "--queue-dir" "--fixture"
+    "--report-out" "--python" "--venv" "--cache-dir" "--shell-report"
+    "--ygg-report" "--agent-report" "--baseline-report" "--candidate-report"
+    "--markdown-out" "--output-schema"})
+
+(defn- path-like-value?
+  [value]
+  (and (string? value)
+       (not (str/blank? value))
+       (not (str/includes? value "://"))))
+
+(defn- absolutize-path-options
+  [cwd args]
+  (if (str/blank? (str cwd))
+    args
+    (loop [remaining (seq args)
+           out []]
+      (if-not remaining
+        out
+        (let [arg (first remaining)
+              value (second remaining)]
+          (if (and (path-value-options arg)
+                   (path-like-value? value))
+            (recur (nnext remaining)
+                   (conj out arg (absolute-path cwd value)))
+            (recur (next remaining)
+                   (conj out arg))))))))
 
 (defn- explicit-storage-path
   [request]
@@ -754,7 +790,8 @@
 
 (defn- command-response
   [ctx request command args]
-  (let [cli-args (into [command] args)
+  (let [args (absolutize-path-options (:cwd request) (vec args))
+        cli-args (into [command] args)
         request-project-id (project-id-from-cli request cli-args nil)
         warm-path (request-storage-path request cli-args nil)
         original-storage-path store/storage-path
@@ -1090,47 +1127,23 @@
           :out ""
           :err unavailable-message})))))
 
-(defn- print-response!
-  [{:keys [exit out err]}]
-  (when (seq out)
-    (print out))
-  (when (seq err)
-    (binding [*out* *err*]
-      (print err)))
-  (flush)
+(defn- print-main-usage!
+  []
   (binding [*out* *err*]
-    (flush))
-  (shutdown-agents)
-  (System/exit (int (or exit 1))))
+    (println "Usage: ygg.server start")))
 
 (defn -main
   [& args]
   (try
     (silence-jul!)
     (let [[command & command-args] args]
-      (cond
-        (= "start" command)
+      (if (and (= "start" command)
+               (empty? command-args))
         (serve!)
-
-        (= "status" command)
-        (print-response! (request "status" command-args))
-
-        (= "stop" command)
-        (print-response! (request "stop" command-args))
-
-        (= "sync" command)
-        (let [[subcommand & subcommand-args] command-args]
-          (if-let [op (get sync-subcommand->op subcommand)]
-            (print-response! (request op subcommand-args))
-            (print-response! (request "sync" command-args))))
-
-        (contains? cli-command-ops command)
-        (print-response! (request command command-args))
-
-        :else
-        (print-response! {:exit 2
-                          :out ""
-                          :err (str "Unknown command: " command "\n")})))
+        (do
+          (print-main-usage!)
+          (shutdown-agents)
+          (System/exit 2))))
     (shutdown-agents)
     (catch Exception e
       (binding [*out* *err*]

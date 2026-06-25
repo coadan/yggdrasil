@@ -85,7 +85,7 @@
   (let [out (temp-dir "ygg-agent-report")
         suite {:id "suite"
                :cases [{:id "case-1"
-                        :tags [:runtime-config :auth]}
+                        :tags [:runtime-config]}
                        {:id "case-2"
                         :tags [:dependency]}]}]
     (spit-json! out
@@ -94,10 +94,10 @@
                  :suite-id "suite"
                  :case-id "case-1"
                  :repo-id "repo"
-                 :tags ["auth" "runtime-config"]
+                 :tags ["runtime-config"]
                  :parserWorker {:mode "all"
                                 :source "option"}
-                 :expectations {:evidence [{:kind "auth-reference"
+                 :expectations {:evidence [{:kind "env-var"
                                             :path "src/app.clj"}]
                                 :forbidden-edges ["shares-config"]}
                  :graphExpectations {:schema benchmark/graph-expectations-schema
@@ -529,11 +529,8 @@
               :unsupportedGroundTruthCaseIds []
               :unsupportedGroundTruthFiles 0}
              (:coverageDiagnostics report)))
-      (is (= {:tags ["auth" "dependency" "runtime-config"]
-              :casesByTag [{:tag "auth"
-                            :cases 1
-                            :caseIds ["case-1"]}
-                           {:tag "dependency"
+      (is (= {:tags ["dependency" "runtime-config"]
+              :casesByTag [{:tag "dependency"
                             :cases 1
                             :caseIds ["case-2"]}
                            {:tag "runtime-config"
@@ -624,7 +621,7 @@
               :rankedOutsideTop10Blockers []
               :rankedOutsideTop20Blockers []}
              (get-in report [:results 0 :localization])))
-      (is (= ["auth" "runtime-config"]
+      (is (= ["runtime-config"]
              (get-in report [:results 0 :tags])))
       (is (= {:mode "all"
               :source "option"}
@@ -764,7 +761,7 @@
       (is (= 1.0
              (get-in (first (:byParserWorker report))
                      [:scores :fileRecallAt10])))
-      (is (= ["auth" "runtime-config"] (mapv :key (:byTag report))))
+      (is (= ["runtime-config"] (mapv :key (:byTag report))))
       (is (= 1
              (get-in (first (:byTag report))
                      [:graphExpectationDiagnostics :failedRuns]))))

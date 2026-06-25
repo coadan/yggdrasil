@@ -121,10 +121,8 @@
                                 :project-id "fixture"
                                 :basis "indexed-graph"
                                 :coverage {:files 2}
-                                :scopes [{:kind "dependency-auth-runtime"
-                                          :facts 3
-                                          :authContexts [{:kind "api-key"
-                                                          :count 1}]}]
+                                :scopes [{:kind "dependency-runtime"
+                                          :facts 3}]
                                 :nextActions [{:kind :dependencies
                                                :command "ygg packages --project fixture --json"}]}
                  :artifacts {}})]
@@ -151,7 +149,7 @@
            (get-in packet [:packages :version-conflicts])))
     (is (= "ygg.report.atlas/v1" (get-in packet [:atlas :schema])))
     (is (= "ygg.audit-scopes.report/v1" (get-in packet [:audit :schema])))
-    (is (= "dependency-auth-runtime" (get-in packet [:audit :scopes 0 :kind])))
+    (is (= "dependency-runtime" (get-in packet [:audit :scopes 0 :kind])))
     (is (= "ygg.report.operator/v1" (get-in packet [:operator :schema])))
     (is (= [{:family :dependencies
              :status :weak}]

@@ -838,9 +838,9 @@
            (benchmark-prepare/agent-input-fingerprint suite changed-expectations)))))
 
 (deftest matches-graph-expectation-rows-with-explicit-fields
-  (let [evidence [{:kind :auth-reference
+  (let [evidence [{:kind :url
                    :path "config/app.yml"
-                   :auth-context :bearer}]
+                   :url-context :runtime-config}]
         chunks [{:kind :code-definition
                  :path "scripts/nvm.sh"
                  :definition-kind :function
@@ -850,13 +850,13 @@
                 :target-id "external-api:auth.example.test"}]
         expected (#'benchmark/expected-row-results
                   evidence
-                  [{:kind "auth-reference"
+                  [{:kind "url"
                     :path "config/app.yml"
-                    :authContext "bearer"}]
+                    :urlContext "runtime-config"}]
                   identity)
         unsupported (#'benchmark/expected-row-results
                      evidence
-                     [{:semantic-label "auth config"}]
+                     [{:semantic-label "runtime config"}]
                      identity)
         expected-chunk (#'benchmark/expected-row-results
                         chunks
@@ -870,9 +870,9 @@
                    [:calls-external-api]
                    identity)]
     (is (= true (get-in expected [0 :found?])))
-    (is (= {:auth-context "bearer"
-            :kind "auth-reference"
-            :path "config/app.yml"}
+    (is (= {:kind "url"
+            :path "config/app.yml"
+            :url-context "runtime-config"}
            (get-in expected [0 :expectation])))
     (is (= false (get-in unsupported [0 :found?])))
     (is (= true (get-in expected-chunk [0 :found?])))
@@ -1009,8 +1009,8 @@
                                 :root root}]
                        :cases [{:id "case-1"
                                 :repo-id "repo"
-                                :tags [:runtime-config :auth]
-                                :expectations {:evidence [{:kind :auth-reference
+                                :tags [:runtime-config]
+                                :expectations {:evidence [{:kind :env-var
                                                            :path "src/app.clj"}]
                                                :forbidden-edges [:shares-config]}
                                 :coverage {:source-kinds [:code :python]}
@@ -1034,8 +1034,8 @@
           (is (str/starts-with? (:agentInputFingerprint prepared) "sha256:"))
           (is (not= (:caseFingerprint prepared)
                     (:agentInputFingerprint prepared)))
-          (is (= ["auth" "runtime-config"] (:tags prepared)))
-          (is (= {:evidence [{:kind :auth-reference
+          (is (= ["runtime-config"] (:tags prepared)))
+          (is (= {:evidence [{:kind :env-var
                               :path "src/app.clj"}]
                   :forbidden-edges [:shares-config]}
                  (:expectations prepared)))
@@ -1426,9 +1426,9 @@
                                                                {:kind :dependency-review
                                                                 :label "Queue unresolved import review"
                                                                 :command "ygg sync project.edn --check --enqueue"}]}]
-	                               :nextActions [{:kind :inspect
-	                                              :target "system:repo:path/src"
-	                                              :command "ygg corrections explain system:repo:path/src --project project"}]}
+                               :nextActions [{:kind :inspect
+                                              :target "system:repo:path/src"
+                                              :command "ygg corrections explain system:repo:path/src --project project"}]}
                 :auditScopes [{:kind "source-structure"
                                :basis "selected-architecture-evidence"
                                :facts 1
@@ -1559,11 +1559,11 @@
                                   :host "api.example.test"}]
              :metrics {:file-count 2}}]
            (:candidateSystems hints)))
-	    (is (= ["ygg query 'broken app' --project project"
-	            "ygg packages --project project --json"
-	            "ygg corrections explain system:repo:path/src --project project"
-	            "ygg sync project.edn --check --enqueue"]
-	           (:commands hints)))
+    (is (= ["ygg query 'broken app' --project project"
+            "ygg packages --project project --json"
+            "ygg corrections explain system:repo:path/src --project project"
+            "ygg sync project.edn --check --enqueue"]
+           (:commands hints)))
     (is (= {:rawCandidateFiles 1
             :candidateFiles 1
             :coverageFilteredCandidateFiles 0
@@ -1627,10 +1627,10 @@
                                              :label "Queue unresolved import review"
                                              :command "ygg sync project.edn --check --enqueue"}]}]
             :warnings []
-	            :nextActions [{:kind :inspect
-	                           :target "system:repo:path/src"
-	                           :command "ygg corrections explain system:repo:path/src --project project"}]}
-	           (:architecture hints)))
+            :nextActions [{:kind :inspect
+                           :target "system:repo:path/src"
+                           :command "ygg corrections explain system:repo:path/src --project project"}]}
+           (:architecture hints)))
     (is (= [{:kind "source-structure"
              :basis "selected-architecture-evidence"
              :facts 1
@@ -2574,15 +2574,15 @@
         suite {:id "suite"}
         case {:id "case-1"
               :correction-overlay {:packageImports [{:repo "repo"
-                                              :import "LinqToDB"
-                                              :ecosystem :nuget
-                                              :package "linq2db.SqlServer"
-                                              :reason "Reviewed package import mapping."}
-                                             {:repo "repo"
-                                              :import "LinqToDB"
-                                              :ecosystem :nuget
-                                              :package "linq2db.SqlServer"
-                                              :reason "Duplicate should be ignored."}]}}
+                                                     :import "LinqToDB"
+                                                     :ecosystem :nuget
+                                                     :package "linq2db.SqlServer"
+                                                     :reason "Reviewed package import mapping."}
+                                                    {:repo "repo"
+                                                     :import "LinqToDB"
+                                                     :ecosystem :nuget
+                                                     :package "linq2db.SqlServer"
+                                                     :reason "Duplicate should be ignored."}]}}
         opts {:out root}
         prepared {:project-id "suite-case-1"}]
     (store/with-node (benchmark-paths/xtdb-dir suite case opts)
@@ -2606,9 +2606,9 @@
         suite {:id "suite"}
         case {:id "case-1"
               :correction-overlay {:packageImports [{:repo "repo"
-                                              :import "LinqToDB"
-                                              :ecosystem :nuget
-                                              :reason "Missing package should fail."}]}}
+                                                     :import "LinqToDB"
+                                                     :ecosystem :nuget
+                                                     :reason "Missing package should fail."}]}}
         opts {:out root}
         prepared {:project-id "suite-case-1"}]
     (store/with-node (benchmark-paths/xtdb-dir suite case opts)
@@ -2621,10 +2621,10 @@
                     :required-fields [:import :ecosystem :package]}
                    (select-keys (ex-data e) [:missing-fields :required-fields])))))
         (is (= [] (:packageImports (benchmark-maintenance/prepare-agent-overlay!
-                                     xtdb
-                                     {:id "empty"}
-                                     prepared
-                                     opts))))))))
+                                    xtdb
+                                    {:id "empty"}
+                                    prepared
+                                    opts))))))))
 
 (deftest context-ground-truth-ranks-show-context-misses-separately
   (let [root (temp-dir "ygg-bench-context-ground-truth")

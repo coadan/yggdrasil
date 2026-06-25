@@ -10,7 +10,6 @@
     :path
     :file-kind
     :url-context
-    :auth-context
     :label
     :normalized-value
     :source-line
@@ -28,8 +27,6 @@
    :file-kind :file-kind
    :urlContext :url-context
    :url-context :url-context
-   :authContext :auth-context
-   :auth-context :auth-context
    :normalizedValue :normalized-value
    :normalized-value :normalized-value
    :sourceLine :source-line
@@ -106,7 +103,6 @@
                     :path
                     :file-kind
                     :url-context
-                    :auth-context
                     :label
                     :normalized-value
                     :source-line

@@ -171,7 +171,6 @@
    :file-kind
    :kind
    :url-context
-   :auth-context
    :label
    :normalized-value
    :source-line

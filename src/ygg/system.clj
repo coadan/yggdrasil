@@ -201,8 +201,7 @@
            :active? true
            :run-id run-id}
     (:file-kind fact) (assoc :file-kind (:file-kind fact))
-    (:url-context fact) (assoc :url-context (:url-context fact))
-    (:auth-context fact) (assoc :auth-context (:auth-context fact))))
+    (:url-context fact) (assoc :url-context (:url-context fact))))
 
 (defn- url-host
   [value]
@@ -241,7 +240,7 @@
   #{:container-image-producer :container-image-consumer})
 
 (def evidence-only-kinds
-  #{:auth-reference})
+  #{})
 
 (defn- system-id-for-row
   [project-id repo-by-id candidate-index-by-repo row]

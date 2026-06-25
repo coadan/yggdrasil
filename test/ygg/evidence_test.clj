@@ -434,15 +434,6 @@
                                                      :kind :url
                                                      :label "https://api.example.test"
                                                      :normalized-value "api-example-test"
-                                                     :active? true}
-                                                    {:xt/id "fact:auth"
-                                                     :project-id "fixture"
-                                                     :repo-id "app"
-                                                     :file-id "file:app"
-                                                     :path "config/runtime.env"
-                                                     :kind :auth-reference
-                                                     :label "OPENAI_API_KEY"
-                                                     :normalized-value "openai-api-key"
                                                      :active? true}]
                                    :ygg/system-evidence [{:xt/id "evidence:database-url"
                                                           :project-id "fixture"
@@ -455,20 +446,6 @@
                                                           :normalized-value "database-url"
                                                           :source-line 1
                                                           :confidence 1.0
-                                                          :active? true
-                                                          :run-id "run:system"}
-                                                         {:xt/id "evidence:service-account"
-                                                          :project-id "fixture"
-                                                          :repo-id "app"
-                                                          :system-id "system:billing"
-                                                          :file-id "file:app"
-                                                          :path "config/runtime.env"
-                                                          :kind :auth-reference
-                                                          :label "GOOGLE_APPLICATION_CREDENTIALS"
-                                                          :normalized-value "google-application-credentials"
-                                                          :source-line 2
-                                                          :confidence 1.0
-                                                          :auth-context :service-account
                                                           :active? true
                                                           :run-id "run:system"}]
                                    []))
@@ -489,42 +466,28 @@
       (is (contains? (set (:available summary)) :file-facts))
       (is (contains? (set (:available summary)) :system-evidence))
       (is (contains? (set (:available summary)) :runtime-config))
-      (is (contains? (set (:available summary)) :auth))
       (is (= {:family :file-facts
               :status :available
-              :counts {:file-facts 2}}
+              :counts {:file-facts 1}}
              (some #(when (= :file-facts (:family %)) %)
                    (:families summary))))
       (is (= {:family :runtime-config
               :status :available
-              :counts {:runtime-config-evidence 2}}
+              :counts {:runtime-config-evidence 1}}
              (some #(when (= :runtime-config (:family %)) %)
-                   (:families summary))))
-      (is (= {:family :auth
-              :status :available
-              :counts {:auth-references 1
-                       :service-account-references 1
-                       :secret-references 0
-                       :private-key-references 0
-                       :api-key-references 0}}
-             (some #(when (= :auth (:family %)) %)
                    (:families summary))))
       (is (= {:family :system-evidence
               :status :available
-              :counts {:system-evidence 2}}
+              :counts {:system-evidence 1}}
              (some #(when (= :system-evidence (:family %)) %)
                    (:families summary))))
-      (is (= [{:kind :auth-reference :count 1}
-              {:kind :url :count 1}]
+      (is (= [{:kind :url :count 1}]
              (get-in summary [:kinds :file-facts])))
-      (is (= [{:kind :auth-reference :count 1}
-              {:kind :env-var :count 1}]
+      (is (= [{:kind :env-var :count 1}]
              (get-in summary [:kinds :system-evidence])))
-      (is (= 2 (get-in summary [:counts :file-facts])))
-      (is (= 2 (get-in summary [:counts :system-evidence])))
-      (is (= 2 (get-in summary [:counts :runtime-config-evidence])))
-      (is (= 1 (get-in summary [:counts :auth-references])))
-      (is (= 1 (get-in summary [:counts :service-account-references]))))))
+      (is (= 1 (get-in summary [:counts :file-facts])))
+      (is (= 1 (get-in summary [:counts :system-evidence])))
+      (is (= 1 (get-in summary [:counts :runtime-config-evidence]))))))
 
 (deftest summarize-next-actions-quote-shell-paths
   (with-redefs [coverage/project-coverage (fn [& _]

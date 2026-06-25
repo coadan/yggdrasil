@@ -1514,15 +1514,15 @@
                   {:project-id "fixture"
                    :retriever :lexical
                    :correction-overlay {:systems [{:id "system:billing"
-                                            :label "Billing"
-                                            :kind "service"
-                                            :repo "app"
-                                            :includes [{:repo "app"
-                                                        :path "src/billing"}]}]
-                                 :reject [{:match {:repo "app"
-                                                   :path "src/worker"
-                                                   :kind "candidate-system"}
-                                           :reason "worker boundary was rejected"}]}})
+                                                   :label "Billing"
+                                                   :kind "service"
+                                                   :repo "app"
+                                                   :includes [{:repo "app"
+                                                               :path "src/billing"}]}]
+                                        :reject [{:match {:repo "app"
+                                                          :path "src/worker"
+                                                          :kind "candidate-system"}
+                                                  :reason "worker boundary was rejected"}]}})
           architecture (:architecture packet)]
       (is (= "mechanical-plus-map" (:basis architecture)))
       (is (= {:basis "mechanical-plus-map"
@@ -1648,7 +1648,7 @@
                                    :count 1}
                                   {:kind "unresolved-import"
                                    :count 1}]}
-              {:kind "dependency-auth-runtime"
+              {:kind "dependency-runtime"
                :basis "selected-architecture-evidence"
                :facts 3
                :files 2
@@ -1840,20 +1840,20 @@
                   {:project-id "fixture"
                    :retriever :lexical
                    :correction-overlay {:systems [{:id "system:billing"
-                                            :label "Billing"
-                                            :repo "app"
-                                            :includes [{:repo "app"
-                                                        :path "src/billing"}]}
-                                           {:id "system:other"
-                                            :label "Other"
-                                            :repo "app"
-                                            :includes [{:repo "app"
-                                                        :path "src/other"}]}]
-                                 :docs [{:target "system:billing"
-                                         :role "contract"
-                                         :status "accepted"
-                                         :source {:repo "app"
-                                                  :path "docs/billing.md"}}]}})]
+                                                   :label "Billing"
+                                                   :repo "app"
+                                                   :includes [{:repo "app"
+                                                               :path "src/billing"}]}
+                                                  {:id "system:other"
+                                                   :label "Other"
+                                                   :repo "app"
+                                                   :includes [{:repo "app"
+                                                               :path "src/other"}]}]
+                                        :docs [{:target "system:billing"
+                                                :role "contract"
+                                                :status "accepted"
+                                                :source {:repo "app"
+                                                         :path "docs/billing.md"}}]}})]
       (is (= ["system:billing"]
              (mapv :id (get-in packet [:architecture :acceptedSystems]))))
       (is (= ["docs/billing.md"]
@@ -1931,10 +1931,10 @@
                      :repo-id "app"
                      :retriever :lexical
                      :correction-overlay {:systems [{:id "system:billing"
-                                              :label "Billing"
-                                              :repo "app"
-                                              :includes [{:repo "app"
-                                                          :path "src/billing"}]}]}})]
+                                                     :label "Billing"
+                                                     :repo "app"
+                                                     :includes [{:repo "app"
+                                                                 :path "src/billing"}]}]}})]
         (is (= [[:system-ids ["system:billing"]]
                 [:paths ["src/billing/api.clj"]]]
                (mapv (fn [[kind values _opts]] [kind values]) @calls)))

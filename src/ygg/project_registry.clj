@@ -78,7 +78,7 @@
      (project-entry project-id data))))
 
 (defn- normalize-project-entry
-  [registry project-id data]
+  [_registry project-id data]
   (if-let [config-path (:config-path data)]
     (let [project (project/read-project config-path)]
       (when-not (= (str project-id) (:id project))
@@ -293,16 +293,17 @@
        :source (if project-id :project-option :project-env)
        :registry (registry-path)}
 
+      config-path
+      (let [project (project/read-project config-path)]
+        {:project-id (:id project)
+         :project project
+         :config-path config-path
+         :source :config-path})
+
       :else
       (or (referenced-project registry cwd)
           (project-for-cwd registry cwd)
           (active-project registry cwd)
-          (when config-path
-            (let [project (project/read-project config-path)]
-              {:project-id (:id project)
-               :project project
-               :config-path config-path
-               :source :config-path}))
           (throw (ex-info "Could not resolve Yggdrasil project."
                           {:cwd (canonical-dir cwd)
                            :registry (registry-path)

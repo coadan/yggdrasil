@@ -1001,40 +1001,40 @@
                   (fn [_ query ctx]
                     (swap! calls conj {:query query
                                        :ctx ctx})
-                    [{:value0 :auth-reference
-                      :value1 :service-account
-                      :row_count 2}
-                     {:value0 :url
+                    [{:value0 :url
                       :value1 :runtime-config
+                      :row_count 2}
+                     {:value0 :env-var
+                      :value1 nil
                       :row_count 1}])
                   store/all-rows
                   (fn [& _]
                     (throw (ex-info "all-rows should not be used for grouped row counts"
                                     {})))]
-      (is (= [{:values {:kind :auth-reference
-                        :auth-context :service-account}
+      (is (= [{:values {:kind :url
+                        :url-context :runtime-config}
                :count 2}
-              {:values {:kind :url
-                        :auth-context :runtime-config}
+              {:values {:kind :env-var
+                        :url-context nil}
                :count 1}]
              (store/active-row-counts-by-fields
               {:node :stub}
               (:system-evidence store/tables)
-              [:kind :auth-context]
+              [:kind :url-context]
               {:project-id "project-a"
                :repo-id "app"}
               {:valid-at #inst "2026-01-01T00:00:00Z"}))))
     (is (= 1 (count @calls)))
     (let [{:keys [query ctx]} (first @calls)]
       (is (string? query))
-      (is (str/includes? query "SELECT \"kind\" AS value0, \"auth_context\" AS value1"))
+      (is (str/includes? query "SELECT \"kind\" AS value0, \"url_context\" AS value1"))
       (is (str/includes? query "COUNT(*) AS row_count"))
       (is (str/includes? query "FROM ygg.system_evidence"))
       (is (str/includes? query "\"project_id\" = ?"))
       (is (str/includes? query "\"repo_id\" = ?"))
       (is (str/includes? query "\"active?\" IS NULL"))
       (is (str/includes? query "\"active?\" <> FALSE"))
-      (is (str/includes? query "GROUP BY \"kind\", \"auth_context\""))
+      (is (str/includes? query "GROUP BY \"kind\", \"url_context\""))
       (is (= {:valid-at #inst "2026-01-01T00:00:00Z"
               :args ["project-a" "app"]}
              ctx)))))
@@ -1308,6 +1308,10 @@
                             :repo-id "app"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
              {:table :ygg/index-diagnostics
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/memories
               :constraints {:project-id "project-a"
                             :repo-id "app"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}}
@@ -1596,6 +1600,10 @@
                             :repo-id "app"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
              {:table :ygg/index-diagnostics
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/memories
               :constraints {:project-id "project-a"
                             :repo-id "app"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}}
@@ -2722,9 +2730,9 @@
                       [:ygg/embeddings {:project-id "project-a"
                                         :repo-id "app"}] 5
                       [:ygg/file-facts {:project-id "project-a"
-                                        :repo-id "app"}] 2
+                                        :repo-id "app"}] 1
                       [:ygg/system-evidence {:project-id "project-a"
-                                             :repo-id "app"}] 4
+                                             :repo-id "app"}] 2
                       [:ygg/system-nodes {:project-id "project-a"}] 2
                       [:ygg/system-edges {:project-id "project-a"}] 1}
         exact-count-values {[:ygg/activity-items {:project-id "project-a"
@@ -2804,13 +2812,9 @@
                                                :count 8}
                                               {:value :uses
                                                :count 1}]
-                      [:ygg/file-facts :kind] [{:value :auth-reference
-                                                :count 1}
-                                               {:value :url
+                      [:ygg/file-facts :kind] [{:value :url
                                                 :count 1}]
-                      [:ygg/system-evidence :kind] [{:value :auth-reference
-                                                     :count 2}
-                                                    {:value :env-var
+                      [:ygg/system-evidence :kind] [{:value :env-var
                                                      :count 1}
                                                     {:value :url
                                                      :count 1}]
@@ -2822,14 +2826,8 @@
                                                        :constraints constraints
                                                        :ctx ctx})
                     (case [table fields]
-                      [:ygg/system-evidence [:kind :url-context :auth-context]]
-                      [{:values {:kind :auth-reference
-                                 :auth-context :service-account}
-                        :count 1}
-                       {:values {:kind :auth-reference
-                                 :auth-context :api-key}
-                        :count 1}
-                       {:values {:kind :env-var}
+                      [:ygg/system-evidence [:kind :url-context]]
+                      [{:values {:kind :env-var}
                         :count 1}
                        {:values {:kind :url
                                  :url-context :runtime-config}
@@ -2870,12 +2868,9 @@
                 :chunks 3
                 :search-docs 4
                 :embeddings 5
-                :file-facts 2
-                :system-evidence 4
-                :runtime-config-evidence 4
-                :auth-references 2
-                :service-account-references 1
-                :api-key-references 1
+                :file-facts 1
+                :system-evidence 2
+                :runtime-config-evidence 2
                 :system-nodes 2
                 :system-edges 1
                 :activity-items 5
@@ -2896,9 +2891,6 @@
                              :file-facts
                              :system-evidence
                              :runtime-config-evidence
-                             :auth-references
-                             :service-account-references
-                             :api-key-references
                              :system-nodes
                              :system-edges
                              :activity-items
@@ -2926,14 +2918,10 @@
                         {:value "uses"
                          :count 1}]}
                (get-in summary [:kinds :source-graph])))
-        (is (= [{:kind :auth-reference
-                 :count 1}
-                {:kind :url
+        (is (= [{:kind :url
                  :count 1}]
                (get-in summary [:kinds :file-facts])))
-        (is (= [{:kind :auth-reference
-                 :count 2}
-                {:kind :env-var
+        (is (= [{:kind :env-var
                  :count 1}
                 {:kind :url
                  :count 1}]
@@ -2957,10 +2945,15 @@
               :field :kind
               :constraints {:project-id "project-a"
                             :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/memories
+              :field :status
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}}
            (set @grouped-count-calls)))
     (is (= [{:table :ygg/system-evidence
-             :fields [:kind :url-context :auth-context]
+             :fields [:kind :url-context]
              :constraints {:project-id "project-a"
                            :repo-id "app"}
              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
@@ -2995,6 +2988,10 @@
                             :repo-id "app"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
              {:table :ygg/system-evidence
+              :constraints {:project-id "project-a"
+                            :repo-id "app"}
+              :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}
+             {:table :ygg/memories
               :constraints {:project-id "project-a"
                             :repo-id "app"}
               :ctx {:valid-at #inst "2026-01-01T00:00:00Z"}}

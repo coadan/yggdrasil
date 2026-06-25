@@ -7,7 +7,8 @@
             [clojure.string :as str])
   (:import [java.nio ByteBuffer]
            [java.nio.charset CodingErrorAction StandardCharsets]
-           [java.nio.file FileSystems Files Paths]))
+           [java.nio.file FileSystems FileVisitResult Files Path Paths SimpleFileVisitor]
+           [java.nio.file.attribute BasicFileAttributes]))
 
 (def supported-extensions
   #{".adoc" ".asciidoc" ".astro" ".avdl" ".avsc" ".bzl" ".c" ".cc" ".cjs" ".class" ".clj" ".cljc" ".cljs" ".cmake" ".cpp" ".cs" ".cts"
@@ -892,6 +893,62 @@
         (and (some #(str/starts-with? % ".") parts)
              (not (allowed-hidden-supported-path? rel-path))))))
 
+(def ^:private allowed-hidden-dir-prefixes
+  #{".buildkite"
+    ".changeset"
+    ".circleci"
+    ".devcontainer"
+    ".github"
+    ".github/issue_template"
+    ".github/pull_request_template"
+    ".github/workflows"
+    ".storybook"
+    ".vscode"})
+
+(defn- hidden-path-part?
+  [part]
+  (str/starts-with? part "."))
+
+(defn- hidden-path?
+  [rel-path]
+  (some hidden-path-part? (str/split (str rel-path) #"/")))
+
+(defn- allowed-hidden-directory?
+  [rel-path]
+  (let [path-lower (str/replace (str/lower-case (str rel-path)) "\\" "/")]
+    (or (contains? allowed-hidden-dir-prefixes path-lower)
+        (str/ends-with? path-lower "/.vitepress"))))
+
+(defn- candidate-walk-file-paths
+  [root {:keys [hidden-only?]}]
+  (let [root-path (.toPath (.getCanonicalFile (io/file root)))
+        paths (atom [])]
+    (Files/walkFileTree
+     root-path
+     (proxy [SimpleFileVisitor] []
+       (preVisitDirectory [^Path dir ^BasicFileAttributes _attrs]
+         (let [rel (when-not (= root-path dir)
+                     (str/replace (str (.relativize root-path dir)) "\\" "/"))
+               name (some-> dir .getFileName str)]
+           (cond
+             (nil? rel) FileVisitResult/CONTINUE
+             (contains? ignored-dirs name) FileVisitResult/SKIP_SUBTREE
+             (and (hidden-path? rel)
+                  (not (allowed-hidden-directory? rel))) FileVisitResult/SKIP_SUBTREE
+             :else FileVisitResult/CONTINUE)))
+       (visitFile [^Path file ^BasicFileAttributes _attrs]
+         (let [rel (str/replace (str (.relativize root-path file)) "\\" "/")]
+           (when (or (not hidden-only?)
+                     (and (hidden-path? rel)
+                          (allowed-hidden-supported-path? rel)))
+             (swap! paths conj rel))
+           FileVisitResult/CONTINUE))))
+    @paths))
+
+(defn- supported-hidden-candidate-paths
+  [root]
+  (candidate-walk-file-paths root {:hidden-only? true}))
+
 (defn- now-ns
   []
   (System/nanoTime))
@@ -939,11 +996,15 @@
 
 (defn- ripgrep-candidate-path-report
   [root]
-  (let [result (ripgrep/files root {:ignore-globs ripgrep-ignore-globs})]
+  (let [result (ripgrep/files root {:hidden? false
+                                    :ignore-globs ripgrep-ignore-globs})]
     (when (usable-ripgrep-discovery? result)
       {:backend :ripgrep
        :elapsed-ms (:elapsed-ms result)
-       :paths (candidate-file-paths root (:paths result))
+       :paths (candidate-file-paths
+               root
+               (concat (:paths result)
+                       (supported-hidden-candidate-paths root)))
        :path-count (count (:paths result))
        :diagnostics (:diagnostics result)})))
 
@@ -971,10 +1032,7 @@
 (defn- filesystem-candidate-path-report
   [root]
   (let [started (now-ns)
-        paths (->> (file-seq root)
-                   (filter #(.isFile %))
-                   (map #(relative-path root %))
-                   (candidate-file-paths root))]
+        paths (candidate-file-paths root (candidate-walk-file-paths root {}))]
     {:backend :filesystem
      :elapsed-ms (elapsed-ms started)
      :paths paths

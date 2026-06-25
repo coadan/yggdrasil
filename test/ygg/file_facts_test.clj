@@ -48,35 +48,6 @@
     (is (= "https://docs.example.com/sdk" (:label url-row)))
     (is (= :reference (:url-context url-row)))))
 
-(deftest facts-for-file-extracts-auth-references-without-secret-values
-  (let [rows (facts (str "OPENAI_API_KEY=sk-live-secret\n"
-                         "clientSecret = \"super-secret-value\"\n"
-                         "STRIPE_API_KYE=typo-still-evidence\n"
-                         "- name: GOOGLE_APPLICATION_CREDENTIALS\n"
-                         "process.env.SERVICE_ACCT\n"
-                         "\"type\": \"service_account\"\n"
-                         "\"client_email\": \"svc@example.iam.gserviceaccount.com\"\n"
-                         "\"private_key\": \"-----BEGIN PRIVATE KEY-----\"\n")
-                    :env)
-        auth-rows (filter #(= :auth-reference (:kind %)) rows)
-        labels (set (map :label auth-rows))
-        contexts (set (map :auth-context auth-rows))
-        stored-text (pr-str (map #(select-keys % [:label :normalized-value]) auth-rows))]
-    (is (contains? labels "OPENAI_API_KEY"))
-    (is (contains? labels "clientSecret"))
-    (is (contains? labels "STRIPE_API_KYE"))
-    (is (contains? labels "GOOGLE_APPLICATION_CREDENTIALS"))
-    (is (contains? labels "SERVICE_ACCT"))
-    (is (contains? labels "type=service_account"))
-    (is (contains? labels "client_email"))
-    (is (contains? labels "private_key"))
-    (is (contains? contexts :api-key))
-    (is (contains? contexts :secret))
-    (is (contains? contexts :service-account))
-    (is (contains? contexts :private-key))
-    (is (not (re-find #"sk-live-secret|super-secret-value|typo-still-evidence|BEGIN PRIVATE KEY|svc@example"
-                      stored-text)))))
-
 (deftest facts-for-file-skips-pathologically-long-lines
   (let [rows (facts (str "API_URL=https://example.test/api\n"
                          "OPENAI_API_KEY=" (str/join "" (repeat 10000 "x")) "\n"

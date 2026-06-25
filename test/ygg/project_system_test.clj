@@ -206,12 +206,12 @@
                                   xtdb
                                   project
                                   {:correction-overlay {:schema correction-overlay/schema
-                                                 :project "fixture"
-                                                 :systems []
-                                                 :reject [{:match {:kind "external-api"
-                                                                   :host "api.stripe.com"}}]
-                                                 :edges []
-                                                 :docs []}})
+                                                        :project "fixture"
+                                                        :systems []
+                                                        :reject [{:match {:kind "external-api"
+                                                                          :host "api.stripe.com"}}]
+                                                        :edges []
+                                                        :docs []}})
               search (query/semantic-query xtdb
                                            "services api depends on core"
                                            {:project-id "fixture"
@@ -544,36 +544,6 @@
           (is (contains? values "container-image:indexed-runtime"))
           (is (not (contains? values "container-image:live-runtime"))))))))
 
-(deftest auth-reference-facts-remain-supporting-evidence
-  (let [xtdb-path (temp-dir "ygg-auth-evidence-xtdb")
-        repo-root (temp-dir "ygg-auth-evidence-repo")
-        project {:id "auth-evidence"
-                 :name "Auth Evidence"
-                 :repos [{:id "app" :root repo-root :role :application}]}]
-    (spit-file! repo-root
-                "services/a/config.json"
-                "{\"OPENAI_API_KEY\":\"sk-a\"}\n")
-    (spit-file! repo-root
-                "services/b/config.json"
-                "{\"OPENAI_API_KEY\":\"sk-b\"}\n")
-    (store/with-node xtdb-path
-      (fn [xtdb]
-        (project/index-project! xtdb project {})
-        (project/infer-project! xtdb project)
-        (let [evidence (store/rows-by-field xtdb
-                                            (:system-evidence store/tables)
-                                            :project-id
-                                            "auth-evidence")
-              auth-evidence (filter #(= :auth-reference (:kind %)) evidence)
-              edges (store/rows-by-field xtdb
-                                         (:system-edges store/tables)
-                                         :project-id
-                                         "auth-evidence")]
-          (is (= 2 (count auth-evidence)))
-          (is (= 2 (count (set (map :system-id auth-evidence)))))
-          (is (= #{:api-key} (set (map :auth-context auth-evidence))))
-          (is (not-any? #(= :shares-config (:relation %)) edges)))))))
-
 (deftest maintenance-graph-health-reports-cross-cluster-bridges
   (store/with-node (temp-dir "ygg-health-xtdb")
     (fn [xtdb]
@@ -693,42 +663,42 @@
                          :reject []
                          :edges []
                          :docs []}
-	                        "Fixture API"
-	                        {:repo "app" :path "docs/api.md"}
-	                        {:role "runbook" :heading "Fixture API"})]
-	          (is (= accepted-id (get-in map-data [:docs 0 :target])))
-	        (let [packet (context/context-packet xtdb
-	                                             "fixture api runtime"
-	                                             {:project-id "fixture"
-	                                              :correction-overlay map-data
-	                                              :retriever :lexical
-                                              :budget 1300
-                                              :entity-limit 4
-                                              :edge-limit 6
-                                              :doc-limit 4
-                                              :snippet-chars 100})
-              labels (set (map :label (:entities packet)))
-              doc (first (:docs packet))]
-          (is (= context/schema (:schema packet)))
-          (is (= "primary" (get-in packet [:graph :defaultDetail])))
-          (is (pos? (get-in packet [:graph :counts :nodes])))
-          (is (= :ready (get-in packet [:evidence :status])))
-          (is (contains? (set (get-in packet [:evidence :available])) :docs))
-          (is (contains? (set (get-in packet [:evidence :available])) :system-graph))
-          (is (contains? (set (get-in packet [:evidence :missing])) :embeddings))
-          (is (contains? (set (get-in packet [:evidence :missing])) :activity))
-          (is (<= (context/estimate-tokens packet) 1300))
-          (is (contains? labels "Fixture API"))
-          (is (= "runbook" (:role doc)))
-          (is (= "accepted" (:status doc)))
-          (is (= "docs/api.md" (get-in doc [:source :path])))
-          (is (= 1
-                 (count (filter #(= ["app" "docs/api.md" [1 5]]
-                                    [(get-in % [:source :repo])
-                                     (get-in % [:source :path])
-                                     (get-in % [:source :lines])])
-                                (:docs packet)))))
-          (is (str/includes? (:snippet doc) "Fixture API service"))))))))
+                        "Fixture API"
+                        {:repo "app" :path "docs/api.md"}
+                        {:role "runbook" :heading "Fixture API"})]
+          (is (= accepted-id (get-in map-data [:docs 0 :target])))
+          (let [packet (context/context-packet xtdb
+                                               "fixture api runtime"
+                                               {:project-id "fixture"
+                                                :correction-overlay map-data
+                                                :retriever :lexical
+                                                :budget 1300
+                                                :entity-limit 4
+                                                :edge-limit 6
+                                                :doc-limit 4
+                                                :snippet-chars 100})
+                labels (set (map :label (:entities packet)))
+                doc (first (:docs packet))]
+            (is (= context/schema (:schema packet)))
+            (is (= "primary" (get-in packet [:graph :defaultDetail])))
+            (is (pos? (get-in packet [:graph :counts :nodes])))
+            (is (= :ready (get-in packet [:evidence :status])))
+            (is (contains? (set (get-in packet [:evidence :available])) :docs))
+            (is (contains? (set (get-in packet [:evidence :available])) :system-graph))
+            (is (contains? (set (get-in packet [:evidence :missing])) :embeddings))
+            (is (contains? (set (get-in packet [:evidence :missing])) :activity))
+            (is (<= (context/estimate-tokens packet) 1300))
+            (is (contains? labels "Fixture API"))
+            (is (= "runbook" (:role doc)))
+            (is (= "accepted" (:status doc)))
+            (is (= "docs/api.md" (get-in doc [:source :path])))
+            (is (= 1
+                   (count (filter #(= ["app" "docs/api.md" [1 5]]
+                                      [(get-in % [:source :repo])
+                                       (get-in % [:source :path])
+                                       (get-in % [:source :lines])])
+                                  (:docs packet)))))
+            (is (str/includes? (:snippet doc) "Fixture API service"))))))))
 
 (deftest context-packet-includes-retrieved-source-chunks
   (store/with-node (temp-dir "ygg-context-source-chunk-xtdb")

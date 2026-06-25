@@ -625,8 +625,7 @@
     (pos? (double rare-fact-token-score)) (assoc ::rare-fact-token-score
                                                  rare-fact-token-score)
     (:file-kind row) (assoc :fileKind (display-name (:file-kind row)))
-    (:url-context row) (assoc :urlContext (display-name (:url-context row)))
-    (:auth-context row) (assoc :authContext (display-name (:auth-context row)))))
+    (:url-context row) (assoc :urlContext (display-name (:url-context row)))))
 (def ^:private runtime-evidence-path-limit
   2)
 (def ^:private runtime-evidence-system-limit
@@ -1220,13 +1219,13 @@
   [section source-key]
   (case source-key
     :correctionEdges (count (filter #(= "correction-edge" (:kind %))
-                             (:boundaryEvidence section)))
+                                    (:boundaryEvidence section)))
     (count (get section source-key))))
 (defn- architecture-source-rows
   [section source-key]
   (case source-key
     :correctionEdges (filter #(= "correction-edge" (:kind %))
-                      (:boundaryEvidence section))
+                             (:boundaryEvidence section))
     (get section source-key)))
 (defn- architecture-source-counts
   [section source-keys]
