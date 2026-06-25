@@ -801,6 +801,52 @@
                                  :reason "The packet evidence is insufficient."
                                  :correctionPatch []
                                  :findings ["Needs a human call."]}))))))
+
+(deftest infra-review-batch-result-requires-one-result-per-review
+  (let [first-packet {:schema infra-review/packet-schema
+                      :reviewId "infra-review:first"
+                      :project-id "fixture"
+                      :facts {:systems []
+                              :evidence []}
+                      :allowedActions ["none"]
+                      :expectedOutput {:schema infra-review/result-schema
+                                       :reviewId "infra-review:first"}}
+        second-packet {:schema infra-review/packet-schema
+                       :reviewId "infra-review:second"
+                       :project-id "fixture"
+                       :facts {:systems []
+                               :evidence []}
+                       :allowedActions ["none"]
+                       :expectedOutput {:schema infra-review/result-schema
+                                        :reviewId "infra-review:second"}}
+        packet (infra-review/batch-packet [first-packet second-packet])
+        valid-result {:schema infra-review/batch-result-schema
+                      :batchId (:batchId packet)
+                      :results [{:schema infra-review/result-schema
+                                 :reviewId "infra-review:first"
+                                 :recommendation "no-change"
+                                 :confidence 0.5
+                                 :reason "Evidence is insufficient."
+                                 :correctionPatch []}
+                                {:schema infra-review/result-schema
+                                 :reviewId "infra-review:second"
+                                 :recommendation "needs-scanner"
+                                 :confidence 0.5
+                                 :reason "A scanner should provide more evidence."
+                                 :correctionPatch []}]}
+        missing-result (update valid-result :results subvec 0 1)]
+    (is (empty? (infra-review/validate-result
+                 {:status :done
+                  :payload packet
+                  :result valid-result})))
+    (is (= [{:path [:result :results]
+             :error "Batch result is missing infra review results."
+             :value ["infra-review:second"]}]
+           (infra-review/validate-result
+            {:status :done
+             :payload packet
+             :result missing-result})))))
+
 (deftest maintenance-decision-result-requires-supported-recommendation-and-reasons
   (let [target-id "system:fixture:app:cmd-api"
         packet (decision-classifier/decision-packet

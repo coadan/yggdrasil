@@ -272,6 +272,53 @@
                      :package "org.slf4j:slf4j-api"}}]
            errors))))
 
+(deftest dependency-review-batch-result-requires-one-result-per-review
+  (let [first-packet {:schema dependency-review/packet-schema
+                      :reviewId "dependency-review:first"
+                      :project-id "fixture"
+                      :facts {:unresolvedImport {:import "left_pad"}
+                              :packages []
+                              :evidence []}
+                      :allowedActions ["none"]
+                      :expectedOutput {:schema dependency-review/result-schema
+                                       :reviewId "dependency-review:first"}}
+        second-packet {:schema dependency-review/packet-schema
+                       :reviewId "dependency-review:second"
+                       :project-id "fixture"
+                       :facts {:unresolvedImport {:import "right_pad"}
+                               :packages []
+                               :evidence []}
+                       :allowedActions ["none"]
+                       :expectedOutput {:schema dependency-review/result-schema
+                                        :reviewId "dependency-review:second"}}
+        packet (dependency-review/batch-packet [first-packet second-packet])
+        valid-result {:schema dependency-review/batch-result-schema
+                      :batchId (:batchId packet)
+                      :results [{:schema dependency-review/result-schema
+                                 :reviewId "dependency-review:first"
+                                 :recommendation "no-change"
+                                 :confidence 0.5
+                                 :reason "Evidence is insufficient."
+                                 :correctionPatch []}
+                                {:schema dependency-review/result-schema
+                                 :reviewId "dependency-review:second"
+                                 :recommendation "needs-scanner"
+                                 :confidence 0.5
+                                 :reason "A scanner should provide more evidence."
+                                 :correctionPatch []}]}
+        missing-result (update valid-result :results subvec 0 1)]
+    (is (empty? (dependency-review/validate-result
+                 {:status :done
+                  :payload packet
+                  :result valid-result})))
+    (is (= [{:path [:result :results]
+             :error "Batch result is missing dependency review results."
+             :value ["dependency-review:second"]}]
+           (dependency-review/validate-result
+            {:status :done
+             :payload packet
+             :result missing-result})))))
+
 (deftest dependency-review-packet-reports-truncated-package-selection
   (let [packages (mapv (fn [idx]
                          {:id (str "package:npm:pkg-" idx)

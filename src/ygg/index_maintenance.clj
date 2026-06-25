@@ -25,6 +25,9 @@
 (def decision-batch-size
   8)
 
+(def review-batch-size
+  4)
+
 (defn- severity-priority
   [severity]
   ({:high 90 :medium 60 :low 30
@@ -56,21 +59,28 @@
         (apply max (map (comp severity-priority :severity) decisions))
         (decision-classifier/decision-batch-packet decisions)))
 
+(defn- batched-payload
+  [packets batch-fn]
+  (let [packets (vec packets)]
+    (if (= 1 (count packets))
+      (first packets)
+      (batch-fn packets))))
+
 (defn- infra-review-work
-  [packet]
+  [packets]
   (work graph-lane
         infra-review/work-kind
-        (:project-id packet)
+        (:project-id (first packets))
         50
-        packet))
+        (batched-payload packets infra-review/batch-packet)))
 
 (defn- dependency-review-work
-  [packet]
+  [packets]
   (work graph-lane
         dependency-review/work-kind
-        (:project-id packet)
+        (:project-id (first packets))
         45
-        packet))
+        (batched-payload packets dependency-review/batch-packet)))
 
 (defn- graph-work
   [graph-report]
@@ -78,8 +88,10 @@
    (concat
     (map decision-batch-work
          (partition-all decision-batch-size (:decision-queue graph-report)))
-    (map infra-review-work (:infra-review-queue graph-report))
-    (map dependency-review-work (:dependency-review-queue graph-report)))))
+    (map infra-review-work
+         (partition-all review-batch-size (:infra-review-queue graph-report)))
+    (map dependency-review-work
+         (partition-all review-batch-size (:dependency-review-queue graph-report))))))
 
 (defn from-graph-report
   "Wrap the existing graph maintenance report as the first index-maintenance lane."

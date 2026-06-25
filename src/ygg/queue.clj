@@ -161,9 +161,13 @@
     "ygg.index-maintenance.classification/v1" "index-maintenance-classification"
     "ygg.index-maintenance.classification-batch/v1" "index-maintenance-classification"
     "ygg.infra.review-packet/v1" "infra-review"
+    "ygg.infra.review-batch-packet/v1" "infra-review"
     "ygg.infra.review-result/v1" "infra-review-result"
+    "ygg.infra.review-batch-result/v1" "infra-review-result"
     "ygg.dependency.review-packet/v1" "dependency-review"
+    "ygg.dependency.review-batch-packet/v1" "dependency-review"
     "ygg.dependency.review-result/v1" "dependency-review-result"
+    "ygg.dependency.review-batch-result/v1" "dependency-review-result"
     "ygg.index-maintenance.report/v1" "index-maintenance-report"
     nil))
 
@@ -491,12 +495,37 @@
                            :kind (:kind payload)
                            :artifact (:artifact payload)}
 
+                          "ygg.infra.review-batch-packet/v1"
+                          (let [items (vec (:items payload))
+                                preview (take 8 items)]
+                            (cond-> {:id (:batchId payload)
+                                     :reviewCount (count items)
+                                     :reviewIds (mapv :reviewId preview)
+                                     :artifacts (mapv :artifact preview)}
+                              (< (count preview) (count items))
+                              (assoc :truncated true
+                                     :omitted (- (count items)
+                                                 (count preview)))))
+
                           "ygg.dependency.review-packet/v1"
                           {:id (:reviewId payload)
                            :kind (:kind payload)
                            :import (get-in payload [:facts :unresolvedImport :import])
                            :path (get-in payload [:facts :unresolvedImport :path])
                            :line (get-in payload [:facts :unresolvedImport :line])}
+
+                          "ygg.dependency.review-batch-packet/v1"
+                          (let [items (vec (:items payload))
+                                preview (take 8 items)]
+                            (cond-> {:id (:batchId payload)
+                                     :reviewCount (count items)
+                                     :reviewIds (mapv :reviewId preview)
+                                     :imports (mapv #(get-in % [:facts :unresolvedImport :import])
+                                                    preview)}
+                              (< (count preview) (count items))
+                              (assoc :truncated true
+                                     :omitted (- (count items)
+                                                 (count preview)))))
 
                           "ygg.frontier.decision/v1"
                           (cond-> {:id (:decisionId payload)

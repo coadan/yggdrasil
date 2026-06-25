@@ -13,6 +13,12 @@
 (def result-schema
   "ygg.infra.review-result/v1")
 
+(def batch-packet-schema
+  "ygg.infra.review-batch-packet/v1")
+
+(def batch-result-schema
+  "ygg.infra.review-batch-result/v1")
+
 (def apply-schema
   "ygg.sync.work.apply/v1")
 
@@ -45,6 +51,14 @@
    "Choose source and target only from facts.systems[].id, and cite evidence only from facts.evidence[].id."
    "Do not classify the repository, infer broad architecture, edit files, update queue state, or invent ids."
    "Return exactly one JSON object matching expectedResultSchema. If unsure, use no-change, needs-human, or needs-scanner with correctionPatch []."])
+
+(def ^:private batch-instructions
+  ["Resolve each infrastructure review packet independently."
+   "Return exactly one result per reviewId in the packet."
+   "Each result must match the single infra-review result shape."
+   "Use only ids from each packet and bounded source facts from attached project repo roots when needed."
+   "Do not edit files, update queue state, infer broad architecture, or invent ids."
+   "Prefer no-change, needs-human, or needs-scanner with correctionPatch [] when evidence is insufficient."])
 
 (defn- instructions-text
   [instructions]
@@ -121,6 +135,11 @@
   [project-id basis kind artifact evidence-ids]
   (str "infra-review:"
        (hash/short-hash [project-id kind artifact evidence-ids (:hash basis)])))
+
+(defn- batch-id
+  [packets]
+  (str "infra-review-batch:"
+       (hash/short-hash (mapv :reviewId packets))))
 
 (defn- unmatched-kind
   [producers consumers]
@@ -203,6 +222,41 @@
                                      :consumers consumers})))))
          (sort-by (juxt :kind :artifact :reviewId))
          vec)))
+
+(defn batch-packet
+  "Return one provider-agnostic packet for a bounded batch of infra reviews."
+  [packets]
+  (let [packets (vec packets)]
+    (when-not (seq packets)
+      (throw (ex-info "Missing infra review packets." {})))
+    (let [id (batch-id packets)
+          expected-output {:schema batch-result-schema
+                           :batchId id
+                           :results (mapv :expectedOutput packets)}]
+      {:schema batch-packet-schema
+       :batchId id
+       :project-id (:project-id (first packets))
+       :goal "Resolve a bounded batch of infrastructure review packets without classifying the whole project."
+       :items packets
+       :instructions batch-instructions
+       :expectedResultSchema batch-result-schema
+       :expectedOutput expected-output
+       :messages [{:role "system"
+                   :content (str "You review a bounded batch of Yggdrasil "
+                                 "infrastructure packets. Return JSON only. "
+                                 "Treat packets independently and do not "
+                                 "classify a whole repository.")}
+                  {:role "user"
+                   :content (str (instructions-text batch-instructions)
+                                 "\n\nReturn this JSON shape:\n"
+                                 (json/write-json-str expected-output
+                                                      {:indent-str "  "})
+                                 "\n\n"
+                                 (json/write-json-str
+                                  {:batchId id
+                                   :instructions batch-instructions
+                                   :items packets}
+                                  {:indent-str "  "}))}]})))
 
 (defn- payload
   [item]
@@ -295,7 +349,7 @@
                  :error "Patch evidence must come from facts.evidence[].id."
                  :value (vec missing)})]))))
 
-(defn validate-result
+(defn- validate-single-result
   "Return validation errors for applying item result, or an empty vector."
   [item]
   (let [packet (payload item)
@@ -336,6 +390,98 @@
                 (patch-errors packet patch idx))
               (map-indexed vector (correction-patch result)))))))
 
+(defn- result-review-id
+  [result]
+  (s (:reviewId result)))
+
+(defn- index-by
+  [f xs]
+  (into {}
+        (keep (fn [x]
+                (when-let [k (f x)]
+                  [k x])))
+        xs))
+
+(defn- duplicate-values
+  [values]
+  (->> values
+       frequencies
+       (keep (fn [[value n]]
+               (when (< 1 n) value)))
+       vec))
+
+(defn- nested-result-error
+  [idx error]
+  (let [path (:path error)
+        path (if (= :result (first path))
+               (rest path)
+               path)]
+    (assoc error :path (into [:result :results idx] path))))
+
+(defn- validate-batch-result
+  [item]
+  (let [packet (payload item)
+        result (result item)
+        packets (vec (:items packet))
+        results (vec (:results result))
+        packet-ids (mapv (comp s :reviewId) packets)
+        result-ids (mapv result-review-id results)
+        packets-by-id (index-by (comp s :reviewId) packets)
+        missing (vec (remove (set result-ids) packet-ids))
+        extra (vec (remove (set packet-ids) result-ids))
+        duplicates (duplicate-values result-ids)]
+    (vec
+     (concat
+      (remove nil?
+              [(when-not (= "done" (queue/status-name (:status item)))
+                 {:path [:status]
+                  :error "Only done queue items can be applied."
+                  :value (:status item)})
+               (when-not (= batch-packet-schema (:schema packet))
+                 {:path [:payload :schema]
+                  :error "Work item payload is not an infra-review batch packet."
+                  :value (:schema packet)})
+               (when-not (= batch-result-schema (:schema result))
+                 {:path [:result :schema]
+                  :error "Result is not an infra-review batch result."
+                  :value (:schema result)})
+               (when-not (= (:batchId packet) (:batchId result))
+                 {:path [:result :batchId]
+                  :error "Result batchId does not match the packet."
+                  :value (:batchId result)})
+               (when-not (vector? (:results result))
+                 {:path [:result :results]
+                  :error "Batch result must include a results vector."
+                  :value (:results result)})
+               (when (seq missing)
+                 {:path [:result :results]
+                  :error "Batch result is missing infra review results."
+                  :value missing})
+               (when (seq extra)
+                 {:path [:result :results]
+                  :error "Batch result includes unknown infra review ids."
+                  :value extra})
+               (when (seq duplicates)
+                 {:path [:result :results]
+                  :error "Batch result includes duplicate infra review ids."
+                  :value duplicates})])
+      (mapcat (fn [[idx result]]
+                (if-let [packet (get packets-by-id (result-review-id result))]
+                  (map #(nested-result-error idx %)
+                       (validate-single-result
+                        {:status (:status item)
+                         :payload packet
+                         :result result}))
+                  []))
+              (map-indexed vector results))))))
+
+(defn validate-result
+  "Return validation errors for applying item result, or an empty vector."
+  [item]
+  (case (get-in item [:payload :schema])
+    "ygg.infra.review-batch-packet/v1" (validate-batch-result item)
+    (validate-single-result item)))
+
 (defn- patch->edge
   [packet patch]
   (let [op (s (:op patch))]
@@ -365,6 +511,20 @@
           overlay
           (correction-patch result)))
 
+(defn- batch-results-by-id
+  [result]
+  (index-by result-review-id (:results result)))
+
+(defn- apply-batch-patches
+  [overlay packet result]
+  (let [results-by-id (batch-results-by-id result)]
+    (reduce (fn [overlay review-packet]
+              (apply-patches overlay
+                             review-packet
+                             (get results-by-id (:reviewId review-packet))))
+            overlay
+            (:items packet))))
+
 (defn apply-work-result!
   "Validate and apply a completed infra-review queue item as correction facts."
   [xtdb root id]
@@ -383,16 +543,23 @@
          :item (queue/item-summary failed)})
       (let [packet (payload item)
             result (result item)
+            batch? (= batch-packet-schema (:schema packet))
             write-result (corrections-api/apply-overlay!
                           xtdb
                           (:project-id packet)
-                          #(apply-patches % packet result)
-                          {:source (:reviewId packet)})]
-        {:schema apply-schema
-         :status "applied"
-         :workId (:id item)
-         :reviewId (:reviewId packet)
-         :projectId (:project-id packet)
-         :correctionFacts (count (:rows write-result))
-         :patchesApplied (max 0 (- (get-in write-result [:after :edges] 0)
-                                   (get-in write-result [:before :edges] 0)))}))))
+                          (if batch?
+                            #(apply-batch-patches % packet result)
+                            #(apply-patches % packet result))
+                          {:source (if batch?
+                                     (:batchId packet)
+                                     (:reviewId packet))})]
+        (cond-> {:schema apply-schema
+                 :status "applied"
+                 :workId (:id item)
+                 :projectId (:project-id packet)
+                 :correctionFacts (count (:rows write-result))
+                 :patchesApplied (max 0 (- (get-in write-result [:after :edges] 0)
+                                           (get-in write-result [:before :edges] 0)))}
+          batch? (assoc :batchId (:batchId packet)
+                        :reviewCount (count (:items packet)))
+          (not batch?) (assoc :reviewId (:reviewId packet)))))))

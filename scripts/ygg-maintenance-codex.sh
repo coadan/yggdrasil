@@ -45,11 +45,13 @@ add_codex_dir() {
   fi
 
   canonical="$(cd "${dir}" && pwd)"
-  for existing in "${CODEX_ADD_DIRS[@]}"; do
-    if [[ "${existing}" == "${canonical}" ]]; then
-      return
-    fi
-  done
+  if ((${#CODEX_ADD_DIRS[@]})); then
+    for existing in "${CODEX_ADD_DIRS[@]}"; do
+      if [[ "${existing}" == "${canonical}" ]]; then
+        return
+      fi
+    done
+  fi
   CODEX_ADD_DIRS+=("${canonical}")
 }
 
@@ -58,9 +60,11 @@ add_codex_dir "$(dirname "${RESULT_PATH}")"
 
 if [[ -n "${YGG_CODEX_MAINTENANCE_ADD_DIRS:-}" ]]; then
   IFS=':' read -r -a EXTRA_DIRS <<< "${YGG_CODEX_MAINTENANCE_ADD_DIRS}"
-  for dir in "${EXTRA_DIRS[@]}"; do
-    add_codex_dir "${dir}"
-  done
+  if ((${#EXTRA_DIRS[@]})); then
+    for dir in "${EXTRA_DIRS[@]}"; do
+      add_codex_dir "${dir}"
+    done
+  fi
 fi
 
 while IFS= read -r dir; do
@@ -83,9 +87,11 @@ PY
 )
 
 ADD_DIR_ARGS=()
-for dir in "${CODEX_ADD_DIRS[@]}"; do
-  ADD_DIR_ARGS+=(--add-dir "${dir}")
-done
+if ((${#CODEX_ADD_DIRS[@]})); then
+  for dir in "${CODEX_ADD_DIRS[@]}"; do
+    ADD_DIR_ARGS+=(--add-dir "${dir}")
+  done
+fi
 
 CODEX_ARGS=(
   -C "${ROOT_DIR}"

@@ -18,7 +18,13 @@
     "ygg.infra.review-packet/v1"
     (infra-review/apply-work-result! xtdb root id)
 
+    "ygg.infra.review-batch-packet/v1"
+    (infra-review/apply-work-result! xtdb root id)
+
     "ygg.dependency.review-packet/v1"
+    (dependency-review/apply-work-result! xtdb root id)
+
+    "ygg.dependency.review-batch-packet/v1"
     (dependency-review/apply-work-result! xtdb root id)
 
     "ygg.frontier.decision/v1"
@@ -37,7 +43,9 @@
   [payload-schema]
   (case payload-schema
     "ygg.infra.review-packet/v1" infra-review/apply-schema
+    "ygg.infra.review-batch-packet/v1" infra-review/apply-schema
     "ygg.dependency.review-packet/v1" dependency-review/apply-schema
+    "ygg.dependency.review-batch-packet/v1" dependency-review/apply-schema
     "ygg.frontier.decision/v1" decision-classifier/apply-schema
     "ygg.frontier.decision-batch/v1" decision-classifier/apply-schema
     apply-schema))
@@ -56,7 +64,13 @@
                      "ygg.infra.review-packet/v1"
                      (infra-review/validate-result item)
 
+                     "ygg.infra.review-batch-packet/v1"
+                     (infra-review/validate-result item)
+
                      "ygg.dependency.review-packet/v1"
+                     (dependency-review/validate-result item)
+
+                     "ygg.dependency.review-batch-packet/v1"
                      (dependency-review/validate-result item)
 
                      "ygg.frontier.decision/v1"

@@ -7,6 +7,7 @@
             [ygg.system.decision-classifier :as decision-classifier]
             [charred.api :as json]
             [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
             [clojure.test :refer [deftest is]]))
 
 (defn- temp-dir
@@ -133,6 +134,14 @@
    :correctionPatch []
    :findings []})
 
+(defn- valid-review-batch-result
+  [payload]
+  (let [items (or (:items payload)
+                  (get-in payload [:reviews :items]))]
+    {:schema (:expectedResultSchema payload)
+     :batchId (:batchId payload)
+     :results (mapv valid-review-result items)}))
+
 (deftest disabled-worker-does-not-claim-ready-work
   (let [root (temp-dir "ygg-index-maintenance-worker-disabled")
         queue-root (.getPath (io/file root "queue"))
@@ -254,6 +263,37 @@
         (is (nil? (get-in work-input [:payload :messages])))
         (is (= "done" (get-in (queue/find-item queue-root work-id)
                               [:item :status])))))))
+
+(deftest codex-maintenance-script-supports-empty-bash-arrays
+  (let [root (temp-dir "ygg-codex-maintenance-script")
+        bin-dir (io/file root "bin")
+        work-path (.getPath (io/file root "work.json"))
+        result-path (.getPath (io/file root "result.json"))
+        codex-path (io/file bin-dir "codex")]
+    (.mkdirs bin-dir)
+    (spit work-path
+          (json/write-json-str {:schema "test"
+                                :project {:repos []}}))
+    (spit codex-path
+          (str "#!/usr/bin/env bash\n"
+               "set -euo pipefail\n"
+               "prompt=\"$(cat)\"\n"
+               "result=\"$(printf '%s\\n' \"$prompt\" | awk '/^Required result JSON path:$/ { getline; print; exit }')\"\n"
+               "if [[ -z \"$result\" ]]; then echo 'missing result path' >&2; exit 2; fi\n"
+               "cat > \"$result\" <<'JSON'\n"
+               "{\"schema\":\"fake.result/v1\"}\n"
+               "JSON\n"))
+    (.setExecutable codex-path true)
+    (let [result (shell/sh "env"
+                           (str "PATH=" (.getPath bin-dir) ":" (System/getenv "PATH"))
+                           "bash"
+                           "scripts/ygg-maintenance-codex.sh"
+                           "--work"
+                           work-path
+                           "--result"
+                           result-path)]
+      (is (= 0 (:exit result)) (:err result))
+      (is (= {:schema "fake.result/v1"} (read-json result-path))))))
 
 (deftest command-harness-work-input-compacts-large-frontier-decisions
   (let [root (temp-dir "ygg-index-maintenance-worker-command-compact")
@@ -392,6 +432,53 @@
                (get-in by-kind [infra-review/work-kind :payload :schema])))
         (is (= dependency-review/packet-schema
                (get-in by-kind [dependency-review/work-kind :payload :schema])))))))
+
+(deftest command-harness-work-input-compacts-review-batches
+  (let [root (temp-dir "ygg-index-maintenance-worker-command-review-batch")
+        queue-root (.getPath (io/file root "queue"))
+        project (project-config
+                 root
+                 {:enabled true
+                  :queue-dir "queue"
+                  :report-dir "reports"
+                  :executors [{:id "codex"
+                               :type :command-harness
+                               :command ["codex-maintenance"]
+                               :kinds #{:infra-review}}]})
+        packet (infra-review/batch-packet
+                [(assoc (infra-packet)
+                        :reviewId "infra-review:first"
+                        :expectedOutput {:schema infra-review/result-schema
+                                         :reviewId "infra-review:first"})
+                 (assoc (infra-packet)
+                        :reviewId "infra-review:second"
+                        :expectedOutput {:schema infra-review/result-schema
+                                         :reviewId "infra-review:second"})])
+        work-id (get-in (queue/enqueue! packet
+                                        {:root queue-root
+                                         :kind infra-review/work-kind
+                                         :project-id "demo"})
+                        [:item :id])]
+    (binding [index-maintenance-worker/*deps*
+              {:command-runner (fn [{:keys [argv]}]
+                                 (let [work-input (read-json (nth argv (- (count argv) 3)))
+                                       result-path (last argv)]
+                                   (spit result-path
+                                         (json/write-json-str
+                                          (valid-review-batch-result
+                                           (:payload work-input)))))
+                                 {:exit 0 :out "" :err ""})}]
+      (let [result (index-maintenance-worker/run! project)
+            work-input (read-json (get-in result [:items 0 :artifacts :work]))]
+        (is (= "done" (get-in (queue/find-item queue-root work-id)
+                              [:item :status])))
+        (is (= infra-review/batch-packet-schema
+               (get-in work-input [:payload :schema])))
+        (is (= 2 (get-in work-input [:payload :reviews :count])))
+        (is (= 2 (count (get-in work-input [:payload :reviews :items]))))
+        (is (nil? (get-in work-input [:payload :items])))
+        (is (nil? (get-in work-input [:payload :messages])))
+        (is (= 2 (get-in work-input [:payload :omitted :messages])))))))
 
 (deftest command-harness-work-input-compacts-decision-batches
   (let [root (temp-dir "ygg-index-maintenance-worker-command-batch-compact")

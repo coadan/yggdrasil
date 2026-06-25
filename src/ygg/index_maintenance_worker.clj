@@ -199,6 +199,80 @@
     (:decision item)
     (assoc :decision (compact-decision (:decision item)))))
 
+(defn- compact-infra-system
+  [system]
+  (cond-> (select-keys system [:id :label :kind :repo :path :repoRole])
+    (:metrics system)
+    (assoc :metrics (select-keys (:metrics system)
+                                 [:file-count
+                                  :node-count
+                                  :incoming-code-edge-count
+                                  :outgoing-code-edge-count]))))
+
+(defn- compact-infra-evidence
+  [evidence]
+  (select-keys evidence [:id :kind :systemId :repo :path :line :label
+                         :normalizedValue :confidence]))
+
+(defn- compact-infra-facts
+  [facts]
+  (cond-> (select-keys facts [:artifact :producerSystemIds :consumerSystemIds])
+    (:systems facts)
+    (assoc :systems (update (bounded-vec 12 (map compact-infra-system
+                                                 (:systems facts)))
+                            :items vec))
+
+    (:evidence facts)
+    (assoc :evidence (update (bounded-vec 16 (map compact-infra-evidence
+                                                  (:evidence facts)))
+                             :items vec))))
+
+(defn- compact-infra-packet
+  [packet]
+  (cond-> (select-keys packet [:schema :reviewId :project-id :goal :kind
+                               :question :artifact :allowedActions
+                               :instructions :expectedResultSchema
+                               :expectedOutput])
+    (:basis packet)
+    (assoc :basis (select-keys (:basis packet) [:schema :project-id :hash :counts]))
+
+    (:facts packet)
+    (assoc :facts (compact-infra-facts (:facts packet)))))
+
+(defn- compact-dependency-package
+  [package]
+  (select-keys package [:id :label :ecosystem :package-name :candidateScore
+                        :candidateSignals]))
+
+(defn- compact-dependency-evidence
+  [evidence]
+  (select-keys evidence [:id :kind :repo :sourceId :sourceLabel :targetId
+                         :import :path :line :fileKind]))
+
+(defn- compact-dependency-facts
+  [facts]
+  (cond-> (select-keys facts [:unresolvedImport :packageSelection])
+    (:packages facts)
+    (assoc :packages (update (bounded-vec 12 (map compact-dependency-package
+                                                  (:packages facts)))
+                             :items vec))
+
+    (:evidence facts)
+    (assoc :evidence (update (bounded-vec 8 (map compact-dependency-evidence
+                                                 (:evidence facts)))
+                             :items vec))))
+
+(defn- compact-dependency-packet
+  [packet]
+  (cond-> (select-keys packet [:schema :reviewId :project-id :goal :kind
+                               :question :allowedActions :instructions
+                               :expectedResultSchema :expectedOutput])
+    (:basis packet)
+    (assoc :basis (select-keys (:basis packet) [:schema :project-id :hash :counts]))
+
+    (:facts packet)
+    (assoc :facts (compact-dependency-facts (:facts packet)))))
+
 (defn- mark-messages-omitted
   [out payload]
   (if-let [messages (seq (:messages payload))]
@@ -232,6 +306,39 @@
       :expectedOutput (:expectedOutput payload)
       :decisions (update (bounded-vec 12 (map compact-decision-item (:items payload)))
                          :items vec)}
+     payload)
+
+    "ygg.infra.review-packet/v1"
+    (mark-messages-omitted (compact-infra-packet payload) payload)
+
+    "ygg.infra.review-batch-packet/v1"
+    (mark-messages-omitted
+     {:schema (:schema payload)
+      :batchId (:batchId payload)
+      :project-id (:project-id payload)
+      :goal (:goal payload)
+      :instructions (:instructions payload)
+      :expectedResultSchema (:expectedResultSchema payload)
+      :expectedOutput (:expectedOutput payload)
+      :reviews (update (bounded-vec 8 (map compact-infra-packet (:items payload)))
+                       :items vec)}
+     payload)
+
+    "ygg.dependency.review-packet/v1"
+    (mark-messages-omitted (compact-dependency-packet payload) payload)
+
+    "ygg.dependency.review-batch-packet/v1"
+    (mark-messages-omitted
+     {:schema (:schema payload)
+      :batchId (:batchId payload)
+      :project-id (:project-id payload)
+      :goal (:goal payload)
+      :instructions (:instructions payload)
+      :expectedResultSchema (:expectedResultSchema payload)
+      :expectedOutput (:expectedOutput payload)
+      :reviews (update (bounded-vec 8 (map compact-dependency-packet
+                                           (:items payload)))
+                       :items vec)}
      payload)
 
     (mark-messages-omitted (dissoc payload :messages) payload)))
