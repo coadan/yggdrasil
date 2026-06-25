@@ -494,31 +494,31 @@
   [ctx]
   (:operation-lock ctx))
 
-(defn- with-operation-lock
-  [ctx f]
+(defn- locked-operation
+  [ctx on-busy f]
   (if-let [^ReentrantLock lock (operation-lock ctx)]
     (if (.tryLock lock)
       (try
         (f)
         (finally
           (.unlock lock)))
-      (throw (ex-info "Yggdrasil server is busy running another operation."
-                      {:exit daemon-contract/unavailable-exit
-                       :reason "operation-lock-busy"})))
+      (on-busy))
     (locking ctx
       (f))))
 
+(defn- operation-lock-busy!
+  []
+  (throw (ex-info "Yggdrasil server is busy running another operation."
+                  {:exit daemon-contract/unavailable-exit
+                   :reason "operation-lock-busy"})))
+
+(defn- with-operation-lock
+  [ctx f]
+  (locked-operation ctx operation-lock-busy! f))
+
 (defn- try-operation-lock
   [ctx f]
-  (if-let [^ReentrantLock lock (operation-lock ctx)]
-    (if (.tryLock lock)
-      (try
-        (f)
-        (finally
-          (.unlock lock)))
-      scheduler-busy)
-    (locking ctx
-      (f))))
+  (locked-operation ctx (constantly scheduler-busy) f))
 
 (defn- with-cli-operation
   [ctx cli-args f]
