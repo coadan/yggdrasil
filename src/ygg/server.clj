@@ -56,7 +56,6 @@
 
 (def ^:private cli-command-ops
   #{"help"
-    "query"
     "init"
     "current"
     "use"
@@ -66,9 +65,7 @@
     "corrections"
     "memory"
     "affected"
-    "view"
     "packages"
-    "report"
     "plugin"
     "agent"
     "watch"
@@ -76,8 +73,16 @@
     "bench"
     "embed"})
 
+(def ^:private cli-query-command-handlers
+  {"query" 'ygg.cli-query/query!
+   "view" 'ygg.cli-query/view!
+   "report" 'ygg.cli-query/report!})
+
 (def ^:private logged-ops
-  (set (concat ["sync"] (vals sync-subcommand->op) cli-command-ops)))
+  (set (concat ["sync"]
+               (vals sync-subcommand->op)
+               (keys cli-query-command-handlers)
+               cli-command-ops)))
 
 (defn- silence-jul!
   []
@@ -414,6 +419,21 @@
              (get-in project [:maintenance :worker]))
     (index-maintenance-worker/run! project (worker-run-options opts))))
 
+(defn- sync-index-project!
+  [xtdb project args sync-deps {:keys [progress-fn]}]
+  (if progress-fn
+    (call-var 'ygg.cli-sync/sync-index-project!
+              xtdb
+              project
+              args
+              sync-deps
+              {:progress-fn progress-fn})
+    (call-var 'ygg.cli-sync/sync-index-project!
+              xtdb
+              project
+              args
+              sync-deps)))
+
 (defn run-sync!
   "Run a regular project sync inside the server JVM and return the result map.
 
@@ -424,50 +444,27 @@
   (let [project (sync-project opts)
         opts (default-worker-queue-dir project opts)
         args (sync-options->args opts)
+        sync-deps (cli-sync-deps)
         check? (or check? enqueue?)]
     (if dry-run?
-      (let [sync-deps (cli-sync-deps)
-            index-summary (if-let [progress-fn (:progress-fn opts)]
-                            (call-var 'ygg.cli-sync/sync-index-project!
-                                      nil
-                                      project
-                                      args
-                                      sync-deps
-                                      {:progress-fn progress-fn})
-                            (call-var 'ygg.cli-sync/sync-index-project!
-                                      nil
-                                      project
-                                      args
-                                      sync-deps))]
+      (let [index-summary (sync-index-project! nil project args sync-deps opts)]
         {:schema "ygg.sync/v1"
          :project-id (:id project)
          :repo-id repo-id
          :index-summary index-summary})
-      (let [sync-deps (cli-sync-deps)
-            index-summary (if-let [progress-fn (:progress-fn opts)]
-                            (call-var 'ygg.cli-sync/sync-index-project!
-                                      xtdb
-                                      project
-                                      args
-                                      sync-deps
-                                      {:progress-fn progress-fn})
-                            (call-var 'ygg.cli-sync/sync-index-project!
-                                      xtdb
-                                      project
-                                      args
-                                      sync-deps))
+      (let [index-summary (sync-index-project! xtdb project args sync-deps opts)
             system-summary (project/infer-project! xtdb project)
             report (when check?
                      (call-var 'ygg.cli-sync/maintenance-report
                                xtdb
                                project
                                args
-                               (cli-sync-deps)))
+                               sync-deps))
             enqueued (when (and report enqueue?)
                        (call-var 'ygg.cli-sync/enqueue-sync-work!
                                  args
                                  report
-                                 (cli-sync-deps)))
+                                 sync-deps))
             worker-run (run-index-maintenance-worker project opts enqueued)]
         (cond-> {:schema "ygg.sync/v1"
                  :project-id (:id project)
@@ -950,14 +947,8 @@
       (contains? sync-op->subcommand op)
       (sync-subcommand-response ctx request (get sync-op->subcommand op))
 
-      (= "query" op)
-      (cli-query-response ctx request "query" 'ygg.cli-query/query!)
-
-      (= "view" op)
-      (cli-query-response ctx request "view" 'ygg.cli-query/view!)
-
-      (= "report" op)
-      (cli-query-response ctx request "report" 'ygg.cli-query/report!)
+      (contains? cli-query-command-handlers op)
+      (cli-query-response ctx request op (get cli-query-command-handlers op))
 
       (contains? cli-command-ops op)
       (command-response ctx request op (:args request))
