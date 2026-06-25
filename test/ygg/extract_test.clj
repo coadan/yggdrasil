@@ -968,6 +968,32 @@
       (is (str/includes? (:text fragment) ":openPage"))
       (is (str/includes? (:text fragment) ":createBoard")))))
 
+(deftest caps-clojure-continuation-chunks-for-huge-definitions
+  (let [root (doto (java.io.File/createTempFile "ygg-huge-cljs" "")
+               (.delete)
+               (.mkdirs)
+               (.deleteOnExit))
+        source (io/file root "src/demo/huge.cljs")
+        body-lines (mapv (fn [idx]
+                           (cond
+                             (= idx 1800) "  :middle-marker"
+                             :else (str "  :f" idx)))
+                         (range 3300))
+        content (str "(ns demo.huge)\n\n"
+                     "(defn generated []\n"
+                     (str/join "\n" body-lines)
+                     "\n  :tail-marker)\n")]
+    (.mkdirs (.getParentFile source))
+    (spit source content)
+    (let [result (extract/extract-file "run/test"
+                                       (fs/file-record (.getPath root)
+                                                       (.getPath source)))
+          fragments (filter #(= :code-definition-fragment (:kind %))
+                            (:chunks result))]
+      (is (<= (count fragments) 24))
+      (is (some #(str/includes? (:text %) ":tail-marker") fragments))
+      (is (not-any? #(str/includes? (:text %) ":middle-marker") fragments)))))
+
 (deftest extracts-typescript-modules-definitions-and-imports
   (let [file (fs/file-record "test/fixtures/sample-repo"
                              "test/fixtures/sample-repo/src/web/app.ts")

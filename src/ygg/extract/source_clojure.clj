@@ -17,6 +17,30 @@
   "(?:\\^(?:\\{[^}]*\\}|\\S+)\\s+)*")
 (def ^:private code-file-chunk-lines 80)
 (def ^:private code-definition-chunk-lines 120)
+(def ^:private code-definition-token-chars 50000)
+(def ^:private code-definition-fragment-token-chars 20000)
+(def ^:private max-code-definition-fragments 24)
+
+(defn- tokenize-definition-text
+  [value max-chars]
+  (binding [text/*max-tokenize-chars* (min (long text/*max-tokenize-chars*)
+                                           (long max-chars))]
+    (text/tokenize value)))
+
+(defn- bounded-definition-fragments
+  [lines]
+  (let [fragments (->> lines
+                       (drop code-definition-chunk-lines)
+                       (partition-all code-definition-chunk-lines)
+                       (map-indexed vector)
+                       vec)]
+    (if (<= (count fragments) max-code-definition-fragments)
+      fragments
+      (let [head-count (quot max-code-definition-fragments 2)
+            tail-count (- max-code-definition-fragments head-count)]
+        (vec (concat (take head-count fragments)
+                     (take-last tail-count fragments)))))))
+
 (defn- ns-form-text
   [content]
   (when-let [match (re-find #"(?m)\(ns\s+" content)]
@@ -118,7 +142,8 @@
              :definition-kind (definition-kind def-sym)
              :label full-name
              :text chunk-text
-             :tokens (text/tokenize (str full-name "\n" chunk-text))
+             :tokens (tokenize-definition-text (str full-name "\n" chunk-text)
+                                               code-definition-token-chars)
              :source-line (or line 1)
              :active? true
              :run-id run-id}
@@ -130,30 +155,30 @@
         def-sym (symbol def-sym)
         source-line (or line 1)
         lines (vec (str/split-lines (or text "")))]
-    (->> lines
-         (drop code-definition-chunk-lines)
-         (partition-all code-definition-chunk-lines)
-         (map-indexed
-          (fn [idx part]
-            (let [offset (* (inc idx) code-definition-chunk-lines)
-                  part (vec part)
-                  fragment-line (+ source-line offset)
-                  end-line (+ fragment-line (count part) -1)
-                  label (str full-name "#lines-" fragment-line "-" end-line)
-                  chunk-text (str/join "\n" part)]
-              (cond-> {:xt/id (common/chunk-id id-scope path label fragment-line)
-                       :file-id file-id
-                       :path path
-                       :kind :code-definition-fragment
-                       :definition-kind (definition-kind def-sym)
-                       :label label
-                       :text chunk-text
-                       :tokens (text/tokenize (str full-name "\n" label "\n" chunk-text))
-                       :source-line fragment-line
-                       :end-line end-line
-                       :active? true
-                       :run-id run-id}
-                (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))))))
+    (mapv
+     (fn [[idx part]]
+       (let [offset (* (inc idx) code-definition-chunk-lines)
+             part (vec part)
+             fragment-line (+ source-line offset)
+             end-line (+ fragment-line (count part) -1)
+             label (str full-name "#lines-" fragment-line "-" end-line)
+             chunk-text (str/join "\n" part)]
+         (cond-> {:xt/id (common/chunk-id id-scope path label fragment-line)
+                  :file-id file-id
+                  :path path
+                  :kind :code-definition-fragment
+                  :definition-kind (definition-kind def-sym)
+                  :label label
+                  :text chunk-text
+                  :tokens (tokenize-definition-text
+                           (str full-name "\n" label "\n" chunk-text)
+                           code-definition-fragment-token-chars)
+                  :source-line fragment-line
+                  :end-line end-line
+                  :active? true
+                  :run-id run-id}
+           (seq chunk-text) (assoc :content-sha (hash/sha256-hex chunk-text)))))
+     (bounded-definition-fragments lines))))
 (defn extract-code
   "Extract graph rows from a Clojure source file record."
   [run-id {:keys [id-scope file-id path content]}]
