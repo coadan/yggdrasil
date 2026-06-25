@@ -119,7 +119,7 @@
 (defn- normalize-visibility
   [visibility scope]
   (normalize-keyword visibility
-                     (if (= :project scope) :project :private)
+                     (if (= :developer scope) :private :project)
                      visibilities
                      :visibility))
 
@@ -216,7 +216,7 @@
 
 (defn memory-row
   "Return a validated memory row. Developer memories are private by default;
-  project-scope memories default to project visibility."
+  repo- and project-scope memories default to project visibility."
   [project-id attrs]
   (let [scope (normalize-scope (:scope attrs))
         visibility (normalize-visibility (:visibility attrs) scope)
@@ -226,7 +226,9 @@
         tags (normalize-strings (:tags attrs))
         supersedes (normalize-strings (:supersedes attrs))
         owner (or (:owner attrs)
-                  (when (= :developer scope) (default-owner)))
+                  (when (or (= :developer scope)
+                            (= :private visibility))
+                    (default-owner)))
         text (some-> (:text attrs) str)
         summary (or (some-> (:summary attrs) str)
                     (some-> text str/trim))]

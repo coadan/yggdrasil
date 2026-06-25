@@ -994,6 +994,31 @@
       (is (some #(str/includes? (:text %) ":tail-marker") fragments))
       (is (not-any? #(str/includes? (:text %) ":middle-marker") fragments)))))
 
+(deftest caps-clojure-continuation-chunks-per-file
+  (let [root (doto (java.io.File/createTempFile "ygg-many-huge-cljs" "")
+               (.delete)
+               (.mkdirs)
+               (.deleteOnExit))
+        source (io/file root "src/demo/many_huge.cljs")
+        body (str/join "\n" (map #(str "  :f" %) (range 3300)))
+        definition (fn [idx]
+                     (str "(defn generated-" idx " []\n"
+                          body
+                          "\n  :tail-marker-" idx ")\n"))
+        content (str "(ns demo.many-huge)\n\n"
+                     (str/join "\n" (map definition (range 4))))]
+    (.mkdirs (.getParentFile source))
+    (spit source content)
+    (let [result (extract/extract-file "run/test"
+                                       (fs/file-record (.getPath root)
+                                                       (.getPath source)))
+          fragments (filter #(= :code-definition-fragment (:kind %))
+                            (:chunks result))
+          labels (set (map :label (:nodes result)))]
+      (is (<= (count fragments) 72))
+      (is (= 72 (count fragments)))
+      (is (contains? labels "demo.many-huge/generated-3")))))
+
 (deftest skips-huge-clojure-lines-before-definition-regex
   (let [file {:file-id "file:src/demo/huge_line.clj"
               :id-scope "fixture"

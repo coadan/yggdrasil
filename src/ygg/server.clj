@@ -46,24 +46,29 @@
     "view"
     "work"})
 
-(def ^:private cli-command-ops
-  #{"help"
-    "init"
-    "current"
-    "use"
-    "projects"
-    "audit-scope"
-    "maintenance"
-    "corrections"
-    "memory"
-    "affected"
-    "packages"
-    "plugin"
-    "agent"
-    "watch"
-    "hook"
-    "bench"
-    "embed"})
+(def ^:private cli-command-names
+  ["help"
+   "init"
+   "current"
+   "use"
+   "projects"
+   "audit-scope"
+   "maintenance"
+   "corrections"
+   "memory"
+   "affected"
+   "packages"
+   "plugin"
+   "agent"
+   "watch"
+   "hook"
+   "bench"
+   "embed"])
+
+(def ^:private cli-command-dispatch
+  (assoc (zipmap cli-command-names cli-command-names)
+         "--help" "help"
+         "-h" "help"))
 
 (def ^:private cli-query-command-handlers
   {"query" 'ygg.cli-query/query!
@@ -73,7 +78,7 @@
 (def ^:private logged-ops
   (set (concat ["sync"]
                (keys cli-query-command-handlers)
-               cli-command-ops)))
+               (keys cli-command-dispatch))))
 
 (defn- silence-jul!
   []
@@ -477,9 +482,7 @@
 (def ^:private unlocked-cli-commands
   #{"current"
     "query"
-    "help"
-    "--help"
-    "-h"})
+    "help"})
 
 (defn- unlocked-cli-operation?
   [cli-args]
@@ -925,8 +928,8 @@
       (contains? cli-query-command-handlers op)
       (cli-query-response ctx request op (get cli-query-command-handlers op))
 
-      (contains? cli-command-ops op)
-      (command-response ctx request op (:args request))
+      (contains? cli-command-dispatch op)
+      (command-response ctx request (get cli-command-dispatch op) (:args request))
 
       (= "mcp" op)
       (mcp-response ctx request)

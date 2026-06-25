@@ -64,11 +64,22 @@
                (ex-message ex))))))
   (testing "project-scope memory can describe project-wide recall"
     (is (= :project
-           (:visibility (memory/memory-row
-                         "fixture"
-                         {:text "Project-wide preference."
-                          :scope :project
-                          :now 1800000000000}))))))
+           (:visibility
+            (memory/memory-row
+             "fixture"
+             {:text "Project-wide preference."
+              :scope :project
+              :now 1800000000000})))))
+  (testing "repo-scope memory defaults to project visibility"
+    (is (= :project
+           (:visibility
+            (memory/memory-row
+             "fixture"
+             {:text "Repo-specific preference."
+              :target-ids ["node:repo"]
+              :scope :repo
+              :repo-id "app"
+              :now 1800000000000}))))))
 
 (deftest reviewed-memory-is-query-visible-but-private-memory-stays-owner-scoped
   (store/with-node
@@ -110,6 +121,28 @@
                (mapv :text (:memories alice-result))))
         (is (= [] (:memories bob-result)))
         (is (= [] (:memories public-only-result)))))))
+
+(deftest repo-scoped-memory-is-filtered-by-repo
+  (store/with-node
+    (temp-dir "ygg-memory-repo-scope")
+    (fn [xtdb]
+      (memory/add! xtdb
+                   "fixture"
+                   {:text "The app repo uses the release smoke memory path."
+                    :target-ids ["node:app-release"]
+                    :scope :repo
+                    :repo-id "app"
+                    :status :reviewed
+                    :now 1800000000000})
+      (is (= ["The app repo uses the release smoke memory path."]
+             (mapv :text
+                   (memory/rows xtdb
+                                {:project-id "fixture"
+                                 :repo-id "app"}))))
+      (is (= []
+             (memory/rows xtdb
+                          {:project-id "fixture"
+                           :repo-id "docs"}))))))
 
 (deftest suggested-memory-enters-query-only-through-direct-graph-attachment
   (store/with-node

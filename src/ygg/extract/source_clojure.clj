@@ -20,6 +20,7 @@
 (def ^:private code-definition-token-chars 50000)
 (def ^:private code-definition-fragment-token-chars 20000)
 (def ^:private max-code-definition-fragments 24)
+(def ^:private max-code-definition-fragments-per-file 72)
 (def ^:private max-definition-scan-line-chars 4000)
 (def ^:private definition-symbol-names
   (set (map name (conj definition-symbols 'defc))))
@@ -254,13 +255,16 @@
                                                           ns-name
                                                           %)
                                   def-forms)
-          definition-fragment-chunks (mapcat #(code-definition-fragment-chunks run-id
-                                                                               id-scope
-                                                                               file-id
-                                                                               path
-                                                                               ns-name
-                                                                               %)
-                                             def-forms)]
+          definition-fragment-chunks (into []
+                                           (comp
+                                            (mapcat #(code-definition-fragment-chunks run-id
+                                                                                      id-scope
+                                                                                      file-id
+                                                                                      path
+                                                                                      ns-name
+                                                                                      %))
+                                            (take max-code-definition-fragments-per-file))
+                                           def-forms)]
       {:nodes (into [ns-node] defs)
        :edges (vec (concat contains-edges require-edges))
        :chunks (vec (concat [chunk] definition-chunks definition-fragment-chunks))

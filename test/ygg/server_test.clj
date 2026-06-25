@@ -13,7 +13,7 @@
             [charred.api :as json]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is]]))
+            [clojure.test :refer [are deftest is]]))
 
 (defn- temp-dir
   [prefix]
@@ -64,20 +64,23 @@
                                    :token "token"
                                    :args ["--project" "demo"]})))))
 
-(deftest named-command-op-dispatches-help-through-server
+(deftest help-command-ops-dispatch-canonical-help-through-server
   (with-redefs [cli/dispatch
                 (fn [command args]
                   (println (str "command=" command " args=" (pr-str args))))]
-    (is (= {:ok true
-            :exit 0
-            :out "command=help args=[]\n"
-            :err ""}
-           (server/handle-request {:xtdb :xtdb
-                                   :token "token"
-                                   :running (atom true)}
-                                  {:op "help"
-                                   :token "token"
-                                   :args []})))))
+    (are [op] (= {:ok true
+                  :exit 0
+                  :out "command=help args=[]\n"
+                  :err ""}
+                 (server/handle-request {:xtdb :xtdb
+                                         :token "token"
+                                         :running (atom true)}
+                                        {:op op
+                                         :token "token"
+                                         :args []}))
+      "help"
+      "--help"
+      "-h")))
 
 (deftest named-command-op-preserves-non-server-storage-paths
   (with-redefs [store/with-node
