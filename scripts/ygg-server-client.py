@@ -37,6 +37,7 @@ PUBLIC_COMMAND_OPS = {
     "corrections",
     "current",
     "embed",
+    "help",
     "hook",
     "init",
     "maintenance",

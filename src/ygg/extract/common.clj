@@ -195,30 +195,39 @@
      :chunks (:chunks chunk-result)
      :diagnostics []}))
 
+(def ^:private max-balanced-form-chars 65536)
+
 (defn balanced-form
-  [content start]
-  (let [length (count content)]
-    (loop [idx start
-           depth 0
-           in-string? false
-           escaped? false]
-      (when (< idx length)
-        (let [ch (.charAt content idx)
-              escaped-next? (and in-string? (not escaped?) (= \\ ch))
-              in-string-next? (if (or escaped? escaped-next?)
-                                in-string?
-                                (if (= \" ch) (not in-string?) in-string?))
-              depth-next (cond
-                           in-string-next? depth
-                           (= \( ch) (inc depth)
-                           (= \) ch) (dec depth)
-                           :else depth)]
-          (if (and (not in-string-next?) (zero? depth-next) (pos? depth))
-            (subs content start (inc idx))
-            (recur (inc idx)
-                   depth-next
-                   in-string-next?
-                   escaped-next?)))))))
+  ([content start]
+   (balanced-form content start max-balanced-form-chars))
+  ([content start max-chars]
+   (let [^String content (or content "")
+         length (count content)
+         start (long (or start 0))
+         end-limit (min length (+ start (long max-chars)))]
+     (when (< start length)
+       (loop [idx start
+              depth 0
+              in-string? false
+              escaped? false]
+         (if (>= idx end-limit)
+           (subs content start end-limit)
+           (let [ch (.charAt content (int idx))
+                 escaped-next? (and in-string? (not escaped?) (= \\ ch))
+                 in-string-next? (if (or escaped? escaped-next?)
+                                   in-string?
+                                   (if (= \" ch) (not in-string?) in-string?))
+                 depth-next (cond
+                              in-string-next? depth
+                              (= \( ch) (inc depth)
+                              (= \) ch) (dec depth)
+                              :else depth)]
+             (if (and (not in-string-next?) (zero? depth-next) (pos? depth))
+               (subs content start (inc idx))
+               (recur (inc idx)
+                      depth-next
+                      in-string-next?
+                      escaped-next?)))))))))
 
 (defn read-json-map
   [content]

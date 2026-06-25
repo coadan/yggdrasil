@@ -6,6 +6,8 @@
 (def facts-contract-version
   "ygg.file-facts/v2")
 
+(def ^:private max-fact-line-length 8192)
+
 (def fact-kinds
   #{:url
     :env-var
@@ -417,44 +419,45 @@
 
 (defn- line-facts
   [run-id project-id repo-id file idx line]
-  (let [line-no (inc idx)]
-    (concat
-     (map #(fact-row run-id
-                     project-id
-                     repo-id
-                     file
-                     :url
-                     line-no
-                     %
-                     (normalize-token %)
-                     0.70
-                     {:url-context (url-context file line)})
-          (url-values line))
-     (map #(fact-row run-id project-id repo-id file :env-var line-no % (normalize-token %) 0.65)
-          (env-values line))
-     (map #(fact-row run-id project-id repo-id file :sql-security line-no % (normalize-token %) 0.68)
-          (sql-security-values file line))
-     (map #(fact-row run-id
-                     project-id
-                     repo-id
-                     file
-                     :auth-reference
-                     line-no
-                     (:label %)
-                     (:normalized-value %)
-                     0.68
-                     {:auth-context (:auth-context %)})
-          (auth-values line))
-     (map #(fact-row run-id project-id repo-id file :port line-no (str "port " %) % 0.55)
-          (port-values line))
-     (map #(fact-row run-id project-id repo-id file :route line-no % (normalize-token %) 0.55)
-          (route-values line))
-     (container-image-consumer-facts run-id
-                                     project-id
-                                     repo-id
-                                     file
-                                     idx
-                                     line))))
+  (when (<= (count line) max-fact-line-length)
+    (let [line-no (inc idx)]
+      (concat
+       (map #(fact-row run-id
+                       project-id
+                       repo-id
+                       file
+                       :url
+                       line-no
+                       %
+                       (normalize-token %)
+                       0.70
+                       {:url-context (url-context file line)})
+            (url-values line))
+       (map #(fact-row run-id project-id repo-id file :env-var line-no % (normalize-token %) 0.65)
+            (env-values line))
+       (map #(fact-row run-id project-id repo-id file :sql-security line-no % (normalize-token %) 0.68)
+            (sql-security-values file line))
+       (map #(fact-row run-id
+                       project-id
+                       repo-id
+                       file
+                       :auth-reference
+                       line-no
+                       (:label %)
+                       (:normalized-value %)
+                       0.68
+                       {:auth-context (:auth-context %)})
+            (auth-values line))
+       (map #(fact-row run-id project-id repo-id file :port line-no (str "port " %) % 0.55)
+            (port-values line))
+       (map #(fact-row run-id project-id repo-id file :route line-no % (normalize-token %) 0.55)
+            (route-values line))
+       (container-image-consumer-facts run-id
+                                       project-id
+                                       repo-id
+                                       file
+                                       idx
+                                       line)))))
 
 (defn- yaml-docs
   [content]

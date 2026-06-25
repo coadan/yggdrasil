@@ -63,6 +63,21 @@
                                    :token "token"
                                    :args ["systems" "--project" "demo"]})))))
 
+(deftest named-command-op-dispatches-help-through-server
+  (with-redefs [cli/dispatch
+                (fn [command args]
+                  (println (str "command=" command " args=" (pr-str args))))]
+    (is (= {:ok true
+            :exit 0
+            :out "command=help args=[]\n"
+            :err ""}
+           (server/handle-request {:xtdb :xtdb
+                                   :token "token"
+                                   :running (atom true)}
+                                  {:op "help"
+                                   :token "token"
+                                   :args []})))))
+
 (deftest named-command-op-preserves-non-server-storage-paths
   (with-redefs [store/with-node
                 (fn [path f]
@@ -189,30 +204,45 @@
         (is (contains? @node-pool "/store/projects/new-project/xtdb"))))))
 
 (deftest removed-public-command-ops-are-not-server-handled
-  (doseq [command ["classify"
-                   "context"
-                   "daemon"
-                   "deps"
-                   "docs"
-                   "graph"
-                   "index"
-                   "meta"
-                   "path"
-                   "project"
-                   "queue"
-                   "sync-inspect"
-                   "systems"
-                   "views"]]
-    (is (= {:ok false
-            :exit 1
-            :out ""
-            :err (str "Unknown server op: " command "\n")}
-           (server/handle-request {:xtdb :xtdb
-                                   :token "token"
-                                   :running (atom true)}
-                                  {:op command
-                                   :token "token"
-                                   :args []})))))
+  (with-redefs [cli/dispatch
+                (fn [& _]
+                  (throw (ex-info "removed command should not dispatch" {})))]
+    (doseq [command ["classify"
+                     "context"
+                     "daemon"
+                     "deps"
+                     "docs"
+                     "graph"
+                     "index"
+                     "meta"
+                     "path"
+                     "project"
+                     "queue"
+                     "sync-inspect"
+                     "systems"
+                     "views"]]
+      (is (= {:ok false
+              :exit 1
+              :out ""
+              :err (str "Unknown server op: " command "\n")}
+             (server/handle-request {:xtdb :xtdb
+                                     :token "token"
+                                     :running (atom true)}
+                                    {:op command
+                                     :token "token"
+                                     :args []}))))))
+
+(deftest generic-cli-op-is-not-server-handled
+  (is (= {:ok false
+          :exit 1
+          :out ""
+          :err "Unknown server op: cli\n"}
+         (server/handle-request {:xtdb :xtdb
+                                 :token "token"
+                                 :running (atom true)}
+                                {:op "cli"
+                                 :token "token"
+                                 :args ["query" "hello"]}))))
 
 (deftest generic-command-op-is-not-server-handled
   (is (= {:ok false
@@ -227,7 +257,7 @@
                                  :token "token"
                                  :args []}))))
 
-(deftest sync-inspect-request-is-named-server-operation
+(deftest sync-subcommand-op-routes-sync-command
   (with-redefs [cli/dispatch
                 (fn [command args]
                   (println (str "command=" command " args=" (pr-str args))))]
@@ -294,11 +324,7 @@
                                            :running (atom true)}
                                           {:op "sync"
                                            :token "token"
-                                           :args ["project.edn"
-                                                  "--repo"
-                                                  "app"
-                                                  "--check"
-                                                  "--json"]})]
+                                           :args ["project.edn" "--repo" "app" "--check" "--json"]})]
       (is (= true (:ok response)))
       (is (= 0 (:exit response)))
       (is (= "" (:err response)))
@@ -354,10 +380,7 @@
                                            :running (atom true)}
                                           {:op "sync"
                                            :token "token"
-                                           :args ["project.edn"
-                                                  "--check"
-                                                  "--enqueue"
-                                                  "--json"]})]
+                                           :args ["project.edn" "--check" "--enqueue" "--json"]})]
       (is (= true (:ok response)))
       (is (= 0 (:exit response)))
       (is (= "" (:err response)))

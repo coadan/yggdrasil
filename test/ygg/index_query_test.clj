@@ -25,6 +25,34 @@
     (spit file content)
     file))
 
+(deftest indexable-extraction-drops-nil-optional-values
+  (let [result (#'index/indexable-extraction
+                "run:test"
+                "project"
+                "repo"
+                :query
+                []
+                {:file-id "file:src/app.clj"
+                 :path "src/app.clj"
+                 :kind :source
+                 :content ""}
+                {:nodes [{:xt/id "node:app"
+                          :file-id "file:src/app.clj"
+                          :path "src/app.clj"
+                          :kind :namespace
+                          :label "app"
+                          :public? nil
+                          :active? true
+                          :run-id "run:test"}]
+                 :edges []
+                 :chunks []
+                 :file-facts []
+                 :diagnostics []})
+        node (first (:nodes result))]
+    (is (= "project" (:project-id node)))
+    (is (= "repo" (:repo-id node)))
+    (is (not (contains? node :public?)))))
+
 (deftest query-scoped-reads-use-constrained-store-queries
   (let [calls (atom [])
         chunk-calls (atom [])]
@@ -1746,15 +1774,15 @@
                                                      :repo-id "app"}
                                                     {})
               correction-overlay {:schema "ygg.correction-overlay/v1"
-                           :project "jvm-dep-test"
-                           :systems []
-                           :reject []
-                           :edges []
-                           :docs []
-                           :packageImports [{:import "org.slf4j"
-                                             :ecosystem "maven"
-                                             :package "org.slf4j:slf4j-api"
-                                             :status "accepted"}]}
+                                  :project "jvm-dep-test"
+                                  :systems []
+                                  :reject []
+                                  :edges []
+                                  :docs []
+                                  :packageImports [{:import "org.slf4j"
+                                                    :ecosystem "maven"
+                                                    :package "org.slf4j:slf4j-api"
+                                                    :status "accepted"}]}
               mapped-report-before-sync (dependency/package-report xtdb
                                                                    {:project-id "jvm-dep-test"
                                                                     :repo-id "app"}

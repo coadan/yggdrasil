@@ -59,6 +59,23 @@
         diagnostic (first (:diagnostics result))]
     (is (= :parse (:stage diagnostic)))
     (is (str/includes? (:message diagnostic) "unbalanced curly braces"))))
+
+(deftest clojure-definition-forms-are-bounded
+  (let [payload (str/join "" (repeat 70000 "x"))
+        result (extract/extract-file
+                "run/test"
+                {:file-id "file:huge.clj"
+                 :path "src/demo/huge.clj"
+                 :kind :code
+                 :content (str "(ns demo.huge)\n"
+                               "(def huge \"" payload "\")\n"
+                               "(defn after [] :ok)\n")})
+        labels (set (map :label (:nodes result)))
+        chunks-by-label (into {} (map (juxt :label identity)) (:chunks result))]
+    (is (contains? labels "demo.huge/huge"))
+    (is (contains? labels "demo.huge/after"))
+    (is (<= (count (:text (get chunks-by-label "demo.huge/huge"))) 65536))))
+
 (deftest extracts-protobuf-packages-messages-services-and-references
   (let [file (fs/file-record "test/fixtures/extractor-repo"
                              "test/fixtures/extractor-repo/contracts/panels.proto")

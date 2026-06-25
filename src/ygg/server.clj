@@ -51,7 +51,8 @@
   (into {} (map (fn [[subcommand op]] [op subcommand]) sync-subcommand->op)))
 
 (def ^:private cli-command-ops
-  #{"query"
+  #{"help"
+    "query"
     "init"
     "current"
     "use"
@@ -171,10 +172,8 @@
                      :event event)))))
 
 (defn- loggable-request
-  [{:keys [op command args cwd projectId project-id storagePath storage-path]}]
-  (cond-> {:op (if (= "command" op)
-                 (or command op)
-                 op)
+  [{:keys [op args cwd projectId project-id storagePath storage-path]}]
+  (cond-> {:op op
            :args (vec args)}
     cwd (assoc :cwd cwd)
     (or projectId project-id) (assoc :projectId (or projectId project-id))

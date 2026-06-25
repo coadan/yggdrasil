@@ -1,5 +1,6 @@
 (ns ygg.file-facts-test
   (:require [ygg.file-facts :as file-facts]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (defn- facts
@@ -75,6 +76,18 @@
     (is (contains? contexts :private-key))
     (is (not (re-find #"sk-live-secret|super-secret-value|typo-still-evidence|BEGIN PRIVATE KEY|svc@example"
                       stored-text)))))
+
+(deftest facts-for-file-skips-pathologically-long-lines
+  (let [rows (facts (str "API_URL=https://example.test/api\n"
+                         "OPENAI_API_KEY=" (str/join "" (repeat 10000 "x")) "\n"
+                         "WORKER_ENDPOINT=https://worker.example.test/jobs\n")
+                    :env)
+        labels (set (map :label rows))
+        urls (filter #(= :url (:kind %)) rows)]
+    (is (contains? labels "https://example.test/api"))
+    (is (contains? labels "https://worker.example.test/jobs"))
+    (is (not (contains? labels "OPENAI_API_KEY")))
+    (is (= [1 3] (mapv :source-line urls)))))
 
 (deftest facts-for-file-streams-shell-container-image-lines
   (let [rows (facts (str "IMAGE=registry.example.test/team/api:1\n"

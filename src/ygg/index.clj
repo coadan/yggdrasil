@@ -258,6 +258,12 @@
   (and (= :plugin (:provenance chunk))
        (contains? search-plugin-ids (:plugin-id chunk))))
 
+(defn- compact-row
+  [row]
+  (->> row
+       (remove (comp nil? val))
+       (into {})))
+
 (defn- profile-extraction
   [extraction index-profile extractors]
   (case (normalize-index-profile index-profile)
@@ -271,7 +277,7 @@
 
 (defn- indexable-extraction
   [run-id project-id repo-id index-profile extractors file extraction]
-  (let [annotate #(assoc % :project-id project-id :repo-id repo-id)
+  (let [annotate #(compact-row (assoc % :project-id project-id :repo-id repo-id))
         plugin-edge? #(= :plugin (:provenance %))
         filtered (-> extraction
                      (profile-extraction index-profile extractors)
