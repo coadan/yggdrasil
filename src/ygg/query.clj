@@ -21,6 +21,7 @@
 (def default-grep-max-stdout-bytes 200000)
 (def default-transient-file-candidates 80)
 (def default-grep-reserve-candidates 12)
+(def default-result-kind-reserve-candidates 1)
 (def lexical-graph-weight 0.25)
 (def hybrid-graph-weight 0.20)
 (def lexical-same-label-weight 0.25)
@@ -1665,6 +1666,25 @@
                  (conj seen-paths path-key)
                  (conj selected row)))))))
 
+(defn- ranked-result-kind-reserve-rows
+  [rows selected-ids selected-kinds n]
+  (loop [remaining (seq rows)
+         selected-kinds selected-kinds
+         selected []]
+    (if (or (nil? remaining)
+            (<= n (count selected)))
+      selected
+      (let [row (first remaining)
+            row-id (:target-id row)
+            result-kind (:result-kind row)]
+        (if (or (nil? result-kind)
+                (contains? selected-ids row-id)
+                (contains? selected-kinds result-kind))
+          (recur (next remaining) selected-kinds selected)
+          (recur (next remaining)
+                 (conj selected-kinds result-kind)
+                 (conj selected row)))))))
+
 (defn- select-ranked-results
   [rows limit]
   (let [rows (sort-by ranked-result-sort-key rows)]
@@ -1673,15 +1693,29 @@
       (vec rows)
       (let [reserve-limit (min default-grep-reserve-candidates
                                (max 0 (quot limit 4)))
-            primary-limit (max 0 (- limit reserve-limit))
+            kind-reserve-limit (if (<= limit default-limit)
+                                 (min default-result-kind-reserve-candidates
+                                      (max 0 (- limit reserve-limit)))
+                                 0)
+            primary-limit (max 0 (- limit reserve-limit kind-reserve-limit))
             primary (vec (take primary-limit rows))
             primary-ids (set (map :target-id primary))
             reserve (ranked-grep-reserve-rows rows primary-ids reserve-limit)
             selected-ids (set (map :target-id (concat primary reserve)))
+            kind-reserve (ranked-result-kind-reserve-rows
+                          rows
+                          selected-ids
+                          (set (keep :result-kind (concat primary reserve)))
+                          kind-reserve-limit)
+            selected-ids (set (map :target-id
+                                   (concat primary reserve kind-reserve)))
             fill (->> rows
                       (remove #(contains? selected-ids (:target-id %)))
-                      (take (max 0 (- limit (count primary) (count reserve)))))]
-        (->> (concat primary reserve fill)
+                      (take (max 0 (- limit
+                                      (count primary)
+                                      (count reserve)
+                                      (count kind-reserve)))))]
+        (->> (concat primary reserve kind-reserve fill)
              (sort-by ranked-result-sort-key)
              vec)))))
 

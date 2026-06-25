@@ -663,6 +663,26 @@
         (is (= 1 (count (filter #{"other/other.go"} @tokenize-calls))))
         (is (not-any? #(contains? % internal-path-match-key) ranked))))))
 
+(deftest ranked-result-selection-reserves-missing-result-kind
+  (let [rows (concat
+              (mapv (fn [idx]
+                      {:target-id (str "chunk:" idx)
+                       :result-kind :chunk
+                       :score (- 2.0 (* idx 0.01))
+                       :label (str "chunk " idx)
+                       :path (str "docs/chunk_" idx ".md")
+                       :score-components {:lexical 1.0}})
+                    (range 12))
+              [{:target-id "system:api"
+                :result-kind :system-node
+                :score 0.1
+                :label "services/api"
+                :path "services/api"
+                :score-components {:lexical 0.1}}])
+        selected (#'query/select-ranked-results rows 10)]
+    (is (= 10 (count selected)))
+    (is (some #(= :system-node (:result-kind %)) selected))))
+
 (deftest search-report-includes-instrumentation-and-persists-query-run
   (store/with-node (temp-dir "ygg-query-report-xtdb")
     (fn [xtdb]

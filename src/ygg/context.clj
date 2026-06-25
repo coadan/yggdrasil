@@ -46,13 +46,22 @@
   :full)
 
 (def compact-result-limit
-  10)
+  11)
 
 (def compact-evidence-limit
   10)
 
 (def ^:private compact-grep-result-reserve-limit
-  3)
+  4)
+
+(def ^:private compact-path-token-result-reserve-limit
+  1)
+
+(def ^:private compact-label-token-result-reserve-limit
+  2)
+
+(def ^:private compact-exact-label-result-reserve-limit
+  1)
 
 (def proof-command-path-limit
   8)
@@ -1153,6 +1162,7 @@
                 (:end-line result) (assoc :endLine (:end-line result))
                 (:result-kind result) (assoc :resultKind (name (:result-kind result)))
                 (:reason result) (assoc :reason (:reason result))
+                (:supportLabels result) (assoc :supportLabels (:supportLabels result))
                 (:score-components result) (assoc :scoreComponents
                                                   (:score-components result))))))
          (keep identity)
@@ -1981,27 +1991,186 @@
    (or (:path row) "")
    (or (:label row) "")])
 
+(defn- matching-query-token-count
+  [query-token-set text]
+  (if (empty? query-token-set)
+    0
+    (count (set/intersection query-token-set
+                             (set (text/tokenize text))))))
+
+(defn- query-shaped-tokens
+  [query-token-set]
+  (->> query-token-set
+       (filter #(re-find #"[._/-]" (str %)))
+       set))
+
+(defn- earliest-query-token-index
+  [query-tokens text]
+  (let [tokens (set (text/tokenize text))]
+    (or (first (keep-indexed (fn [idx token]
+                               (when (contains? tokens token)
+                                 idx))
+                             query-tokens))
+        Long/MAX_VALUE)))
+
+(defn- path-file-name
+  [path]
+  (last (str/split (str path) #"/")))
+
+(defn- matching-path-basename-token-count
+  [query-token-set row]
+  (matching-query-token-count query-token-set
+                              (path-file-name (:path row))))
+
+(defn- matching-label-shaped-token-count
+  [query-token-set row]
+  (let [label (str/lower-case
+               (str/join "\n"
+                         (remove str/blank?
+                                 (cons (:label row)
+                                       (:supportLabels row)))))]
+    (count (filter #(str/includes? label (str/lower-case (str %)))
+                   (query-shaped-tokens query-token-set)))))
+
+(defn- exact-label-query-token-index
+  [query-tokens row]
+  (let [label (str/lower-case (str (:label row)))]
+    (or (first (keep-indexed (fn [idx token]
+                               (when (= label (str/lower-case (str token)))
+                                 idx))
+                             query-tokens))
+        Long/MAX_VALUE)))
+
+(defn- compact-path-token-result-sort-key
+  [query-tokens query-token-set row]
+  [(- (double (matching-path-basename-token-count query-token-set row)))
+   (earliest-query-token-index query-tokens (path-file-name (:path row)))
+   (count (str (:path row)))
+   (- (double (or (:score row) 0.0)))
+   (long (or (:rank row) Long/MAX_VALUE))
+   (or (:repo row) "")
+   (or (:path row) "")
+   (or (:label row) "")])
+
+(defn- query-matched-path-token-row?
+  [query-token-set row]
+  (pos? (matching-path-basename-token-count query-token-set row)))
+
+(defn- compact-label-token-result-sort-key
+  [query-tokens query-token-set row]
+  [(- (double (matching-label-shaped-token-count query-token-set row)))
+   (earliest-query-token-index query-tokens
+                               (str/join "\n"
+                                         (remove str/blank?
+                                                 (cons (:label row)
+                                                       (:supportLabels row)))))
+   (count (str (:label row)))
+   (count (str (:path row)))
+   (- (double (or (:score row) 0.0)))
+   (long (or (:rank row) Long/MAX_VALUE))
+   (or (:repo row) "")
+   (or (:path row) "")])
+
+(defn- query-matched-label-token-row?
+  [query-token-set row]
+  (pos? (matching-label-shaped-token-count query-token-set row)))
+
+(defn- compact-exact-label-result-sort-key
+  [query-tokens row]
+  [(long (or (:rank row) Long/MAX_VALUE))
+   (exact-label-query-token-index query-tokens row)
+   (- (double (or (:score row) 0.0)))
+   (or (:repo row) "")
+   (or (:path row) "")
+   (or (:label row) "")])
+
+(defn- query-matched-exact-label-row?
+  [query-tokens row]
+  (not= Long/MAX_VALUE (exact-label-query-token-index query-tokens row)))
+
 (defn- compact-result-rows
   [packet]
   (let [sorted (sort-by compact-result-sort-key (:candidateFiles packet))
-        reserve-limit (min compact-grep-result-reserve-limit
-                           compact-result-limit)
-        primary-limit (max 0 (- compact-result-limit reserve-limit))
+        query-tokens (text/tokenize (:query packet))
+        query-token-set (set query-tokens)
+        grep-reserve-limit (min compact-grep-result-reserve-limit
+                                compact-result-limit)
+        path-reserve-limit (min compact-path-token-result-reserve-limit
+                                (max 0 (- compact-result-limit
+                                          grep-reserve-limit)))
+        label-reserve-limit (min compact-label-token-result-reserve-limit
+                                 (max 0 (- compact-result-limit
+                                           grep-reserve-limit
+                                           path-reserve-limit)))
+        exact-label-reserve-limit (min compact-exact-label-result-reserve-limit
+                                       (max 0 (- compact-result-limit
+                                                 grep-reserve-limit
+                                                 path-reserve-limit
+                                                 label-reserve-limit)))
+        primary-limit (max 0 (- compact-result-limit
+                                grep-reserve-limit
+                                path-reserve-limit
+                                label-reserve-limit
+                                exact-label-reserve-limit))
         primary (vec (take primary-limit sorted))
         primary-keys (set (map (juxt :repo :path) primary))
-        reserve (->> sorted
-                     (remove #(contains? primary-keys [(:repo %) (:path %)]))
-                     (filter #(pos? (double (get-in % [:scoreComponents :grep] 0.0))))
-                     (sort-by compact-grep-result-sort-key)
-                     (take reserve-limit)
-                     vec)
-        selected-keys (set (map (juxt :repo :path) (concat primary reserve)))
+        grep-reserve (->> sorted
+                          (remove #(contains? primary-keys [(:repo %) (:path %)]))
+                          (filter #(pos? (double (get-in % [:scoreComponents :grep] 0.0))))
+                          (sort-by compact-grep-result-sort-key)
+                          (take grep-reserve-limit)
+                          vec)
+        grep-reserve-keys (set (map (juxt :repo :path) (concat primary grep-reserve)))
+        path-reserve (->> sorted
+                          (remove #(contains? grep-reserve-keys [(:repo %) (:path %)]))
+                          (filter #(query-matched-path-token-row? query-token-set %))
+                          (sort-by (partial compact-path-token-result-sort-key
+                                            query-tokens
+                                            query-token-set))
+                          (take path-reserve-limit)
+                          vec)
+        path-reserve-keys (set (map (juxt :repo :path)
+                                    (concat primary grep-reserve path-reserve)))
+        label-reserve (->> sorted
+                           (remove #(contains? path-reserve-keys [(:repo %) (:path %)]))
+                           (filter #(query-matched-label-token-row? query-token-set %))
+                           (sort-by (partial compact-label-token-result-sort-key
+                                             query-tokens
+                                             query-token-set))
+                           (take label-reserve-limit)
+                           vec)
+        label-reserve-keys (set (map (juxt :repo :path)
+                                     (concat primary
+                                             grep-reserve
+                                             path-reserve
+                                             label-reserve)))
+        exact-label-reserve (->> sorted
+                                 (remove #(contains? label-reserve-keys [(:repo %) (:path %)]))
+                                 (filter #(query-matched-exact-label-row? query-tokens %))
+                                 (sort-by (partial compact-exact-label-result-sort-key
+                                                   query-tokens))
+                                 (take exact-label-reserve-limit)
+                                 vec)
+        selected-keys (set (map (juxt :repo :path)
+                                (concat primary
+                                        grep-reserve
+                                        path-reserve
+                                        label-reserve
+                                        exact-label-reserve)))
         fill (->> sorted
                   (remove #(contains? selected-keys [(:repo %) (:path %)]))
                   (take (max 0 (- compact-result-limit
                                   (count primary)
-                                  (count reserve)))))
-        selected (->> (concat primary reserve fill)
+                                  (count grep-reserve)
+                                  (count path-reserve)
+                                  (count label-reserve)
+                                  (count exact-label-reserve)))))
+        selected (->> (concat primary
+                              grep-reserve
+                              path-reserve
+                              label-reserve
+                              exact-label-reserve
+                              fill)
                       (sort-by compact-result-sort-key))]
     (->> selected
          (map-indexed (fn [idx row]

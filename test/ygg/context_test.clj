@@ -2761,6 +2761,189 @@
       (is (= (sort > (map :score (:results packet)))
              (map :score (:results packet)))))))
 
+(deftest context-packet-compact-output-reserves-lower-ranked-grep-backed-results
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :retriever-requested :auto
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 16
+                                                         :returned-count 16}
+                                       :results (concat
+                                                 (mapv (fn [idx]
+                                                         {:path (format "docs/noise_%02d.md" idx)
+                                                          :score (- 2.0 (* idx 0.01))
+                                                          :target-kind :chunk
+                                                          :target-id (str "chunk:noise:" idx)
+                                                          :label (str "noise " idx)
+                                                          :score-components {:lexical 1.0}})
+                                                       (range 12))
+                                                 (mapv (fn [idx]
+                                                         {:path (format "src/literal_%02d.clj" idx)
+                                                          :score (- 0.4 (* idx 0.05))
+                                                          :target-kind :chunk
+                                                          :target-id (str "chunk:literal:" idx)
+                                                          :label (str "literal " idx)
+                                                          :score-components {:grep (- 1.0 (* idx 0.1))}})
+                                                       (range 4)))})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/query-evidence (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "literal"
+                                         {:project-id "fixture"
+                                          :retriever :lexical
+                                          :output :compact})]
+      (is (some #{"src/literal_03.clj"} (map :resolvedPath (:results packet))))
+      (is (= (sort > (map :score (:results packet)))
+             (map :score (:results packet)))))))
+
+(deftest context-packet-compact-output-reserves-query-matched-path-results
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :retriever-requested :auto
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 12
+                                                         :returned-count 12}
+                                       :results (concat
+                                                 (mapv (fn [idx]
+                                                         {:path (format "docs/noise_%02d.md" idx)
+                                                          :score (- 2.0 (* idx 0.01))
+                                                          :target-kind :chunk
+                                                          :target-id (str "chunk:noise:" idx)
+                                                          :label (str "noise " idx)
+                                                          :score-components {:lexical 1.0}})
+                                                       (range 12))
+                                                 [{:path "src/login.html"
+                                                   :score 0.4
+                                                   :target-kind :chunk
+                                                   :target-id "chunk:login"
+                                                   :label "login template"
+                                                   :score-components {:sourceGraph 0.4}}])})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/query-evidence (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "login view styles"
+                                         {:project-id "fixture"
+                                          :retriever :lexical
+                                          :output :compact})]
+      (is (some #{"src/login.html"} (map :resolvedPath (:results packet))))
+      (is (= (sort > (map :score (:results packet)))
+             (map :score (:results packet)))))))
+
+(deftest context-packet-compact-output-reserves-shaped-label-token-results
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :retriever-requested :auto
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 12
+                                                         :returned-count 12}
+                                       :results (concat
+                                                 (mapv (fn [idx]
+                                                         {:path (format "docs/noise_%02d.md" idx)
+                                                          :score (- 2.0 (* idx 0.01))
+                                                          :target-kind :chunk
+                                                          :target-id (str "chunk:noise:" idx)
+                                                          :label (str "noise " idx)
+                                                          :score-components {:lexical 1.0}})
+                                                       (range 12))
+                                                 [{:path "src/homology.py"
+                                                   :score 0.4
+                                                   :target-kind :node
+                                                   :target-id "node:betti"
+                                                   :label "pytop.homology"
+                                                   :supportLabels ["pytop.homology/betti_numbers"]
+                                                   :score-components {:sourceGraph 0.4}}])})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/query-evidence (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "betti_numbers return type"
+                                         {:project-id "fixture"
+                                          :retriever :lexical
+                                          :output :compact})]
+      (is (some #{"src/homology.py"} (map :resolvedPath (:results packet))))
+      (is (= (sort > (map :score (:results packet)))
+             (map :score (:results packet)))))))
+
+(deftest context-packet-compact-output-reserves-exact-label-token-results
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :retriever-requested :auto
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 12
+                                                         :returned-count 12}
+                                       :results (concat
+                                                 (mapv (fn [idx]
+                                                         {:path (format "docs/noise_%02d.md" idx)
+                                                          :score (- 2.0 (* idx 0.01))
+                                                          :target-kind :chunk
+                                                          :target-id (str "chunk:noise:" idx)
+                                                          :label (str "noise " idx)
+                                                          :score-components {:lexical 1.0}})
+                                                       (range 12))
+                                                 [{:path "src/pytop/__init__.py"
+                                                   :score 0.4
+                                                   :target-kind :node
+                                                   :target-id "node:pytop"
+                                                   :label "pytop"
+                                                   :score-components {:sourceGraph 0.4}}])})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/query-evidence (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "python -m pytop --version"
+                                         {:project-id "fixture"
+                                          :retriever :lexical
+                                          :output :compact})]
+      (is (some #{"src/pytop/__init__.py"} (map :resolvedPath (:results packet))))
+      (is (= (sort > (map :score (:results packet)))
+             (map :score (:results packet)))))))
+
 (deftest context-packet-compact-output-preserves-results-before-full-budget-trimming
   (with-redefs [query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema
