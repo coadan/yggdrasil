@@ -6,6 +6,7 @@
             [ygg.project :as project]
             [ygg.project-registry :as registry]
             [ygg.queue :as queue]
+            [ygg.daemon-contract :as daemon-contract]
             [ygg.server :as server]
             [ygg.system.decision-classifier :as decision-classifier]
             [ygg.xtdb :as store]
@@ -669,7 +670,7 @@
                                                :token "token"
                                                :args ["systems" "--project" "demo"]})]
           (is (= false (:ok response)))
-          (is (= server/unavailable-exit (:exit response)))
+          (is (= daemon-contract/unavailable-exit (:exit response)))
           (is (= "operation-lock-busy" (get-in response [:data :reason])))
           (is (= "Yggdrasil server is busy running another operation.\n"
                  (:err response)))))

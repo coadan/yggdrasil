@@ -27,9 +27,6 @@
 (def schema
   "ygg.server/v1")
 
-(def unavailable-exit
-  daemon-contract/unavailable-exit)
-
 (def server-frame-schema
   "ygg.server.frame/v1")
 
@@ -507,7 +504,7 @@
         (finally
           (.unlock lock)))
       (throw (ex-info "Yggdrasil server is busy running another operation."
-                      {:exit unavailable-exit
+                      {:exit daemon-contract/unavailable-exit
                        :reason "operation-lock-busy"})))
     (locking ctx
       (f))))
