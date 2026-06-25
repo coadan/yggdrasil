@@ -1,6 +1,7 @@
 (ns ygg.plugin-package
   "Git-shareable plugin packages for extractor and report plugins."
-  (:require [ygg.extractor-plugin :as extractor-plugin]
+  (:require [ygg.command :as command]
+            [ygg.extractor-plugin :as extractor-plugin]
             [ygg.fs :as fs]
             [ygg.hash :as hash]
             [ygg.plugin-package-scaffold :as plugin-package-scaffold]
@@ -913,23 +914,12 @@
            (str/includes? (installed-package-search-text package)
                           (str/lower-case (str query))))))
 
-(defn- shell-token
-  [value]
-  (let [s (str value)]
-    (if (re-matches #"[A-Za-z0-9_./:@%+=,-]+" s)
-      s
-      (str "'" (str/replace s #"'" "'\"'\"'") "'"))))
-
-(defn- command
-  [parts]
-  (str/join " " (map shell-token parts)))
-
 (defn- plugin-registry-list-command
   [{:keys [kind query]}]
-  (command
-   (cond-> ["bb" "plugin" "registry" "list" "<registry.edn>"]
-     (present? kind) (conj "--kind" (str kind))
-     (present? query) (conj "--query" (str query)))))
+  (apply command/command
+         (cond-> ["bb" "plugin" "registry" "list" "<registry.edn>"]
+           (present? kind) (conj "--kind" (str kind))
+           (present? query) (conj "--query" (str query)))))
 
 (defn- plugin-list-no-match-next-actions
   [filters]
@@ -947,22 +937,22 @@
         (when extractor?
           [{:id :scaffold-extractor
             :reason "Create a local extractor package for the missing file family or architecture evidence gap."
-            :command (command ["bb" "plugin" "new" "<package-dir>"
-                               "--extractor"
-                               "--file-kind" "<file-kind>"
-                               "--path-glob" "<glob>"
-                               "--fixture" "<file>"])}
+            :command (command/command "bb" "plugin" "new" "<package-dir>"
+                                      "--extractor"
+                                      "--file-kind" "<file-kind>"
+                                      "--path-glob" "<glob>"
+                                      "--fixture" "<file>")}
            {:id :author-extractor-gap
             :reason "Generate the extractor authoring packet after scaffolding or selecting a package."
-            :command (command ["bb" "plugin" "gap" "extractor"
-                               "<package-dir>" "<repo-root>" "<file>" "--json"])}])
+            :command (command/command "bb" "plugin" "gap" "extractor"
+                                      "<package-dir>" "<repo-root>" "<file>" "--json")}])
         (when report?
           [{:id :scaffold-report
             :reason "Create a local report package when the missing capability is report rendering, diagnostics, or artifacts."
-            :command (command ["bb" "plugin" "new" "<package-dir>" "--report"])}
+            :command (command/command "bb" "plugin" "new" "<package-dir>" "--report")}
            {:id :author-report-gap
             :reason "Generate the report plugin authoring packet after scaffolding or selecting a package."
-            :command (command ["bb" "plugin" "gap" "report" "<package-dir>" "--json"])}]))))))
+            :command (command/command "bb" "plugin" "gap" "report" "<package-dir>" "--json")}]))))))
 
 (defn list-installed
   ([config-path]
@@ -1428,7 +1418,7 @@
                               :subdir (:subdir entry)})]
       {:source (dissoc source :rev)
        :args args
-       :command (str "bb " (str/join " " (map shell-token args)))})))
+       :command (apply command/command "bb" args)})))
 
 (defn- registry-kind
   [value]

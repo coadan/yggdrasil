@@ -201,11 +201,11 @@
       (is (empty? (:packages missing-filter)))
       (is (= [:search-registry :scaffold-report :author-report-gap]
              (mapv :id (:next-actions missing-filter))))
-      (is (= "bb plugin registry list '<registry.edn>' --kind report --query missing"
+      (is (= "bb plugin registry list <registry.edn> --kind report --query missing"
              (get-in missing-filter [:next-actions 0 :command])))
-      (is (= "bb plugin new '<package-dir>' --report"
+      (is (= "bb plugin new <package-dir> --report"
              (get-in missing-filter [:next-actions 1 :command])))
-      (is (= "bb plugin gap report '<package-dir>' --json"
+      (is (= "bb plugin gap report <package-dir> --json"
              (get-in missing-filter [:next-actions 2 :command])))
       (is (not (contains? loaded :plugin-packages)))
       (is (not (contains? loaded :extractor-plugins)))
@@ -1776,7 +1776,7 @@
               :ref "v0.1.0"
               :subdir "packages/datastar-hiccup"}
              (get-in by-id ["datastar-hiccup" :registry-entry])))
-      (is (= "bb plugin install '<project.edn>' https://github.com/org/ygg-plugins.git --ref v0.1.0 --subdir packages/datastar-hiccup"
+      (is (= "bb plugin install <project.edn> https://github.com/org/ygg-plugins.git --ref v0.1.0 --subdir packages/datastar-hiccup"
              (get-in by-id ["datastar-hiccup" :install :command])))
       (is (= [:registry-ref-missing]
              (mapv :code (get-in by-id ["dashboard-panels" :errors]))))
@@ -1926,7 +1926,7 @@
       (is (= ["plugin" "install" "<project.edn>" "https://github.com/org/ygg-plugins.git"
               "--ref" "v0.1.0" "--subdir" "packages/base-plugin"]
              (get-in by-id ["base-plugin" :install :args])))
-      (is (= "bb plugin install '<project.edn>' https://github.com/org/ygg-plugins.git --ref v0.1.0 --subdir packages/base-plugin"
+      (is (= "bb plugin install <project.edn> https://github.com/org/ygg-plugins.git --ref v0.1.0 --subdir packages/base-plugin"
              (get-in by-id ["base-plugin" :install :command])))
       (is (= {:id "base-plugin"
               :kinds [:extractor]
