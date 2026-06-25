@@ -47,18 +47,20 @@ if [[ -n "${YGG_CODEX_MAINTENANCE_ADD_DIRS:-}" ]]; then
   done
 fi
 
-MODEL_ARGS=()
+CODEX_ARGS=(
+  -C "${ROOT_DIR}"
+  --skip-git-repo-check
+  -s workspace-write
+  -c 'approval_policy="never"'
+  "${ADD_DIR_ARGS[@]}"
+)
+
 if [[ -n "${YGG_CODEX_MAINTENANCE_MODEL:-}" ]]; then
-  MODEL_ARGS=(-m "${YGG_CODEX_MAINTENANCE_MODEL}")
+  CODEX_ARGS+=(-m "${YGG_CODEX_MAINTENANCE_MODEL}")
 fi
 
 codex exec \
-  -C "${ROOT_DIR}" \
-  --skip-git-repo-check \
-  -s workspace-write \
-  -a never \
-  "${ADD_DIR_ARGS[@]}" \
-  "${MODEL_ARGS[@]}" \
+  "${CODEX_ARGS[@]}" \
   - <<EOF
 You are completing one Yggdrasil index maintenance queue item.
 
