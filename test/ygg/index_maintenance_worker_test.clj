@@ -31,23 +31,25 @@
      {:path (.getPath (io/file root "project.edn"))})))
 
 (defn- decision-packet
-  []
-  (decision-classifier/decision-packet
-   {:id "maintenance-decision:test"
-    :project-id "demo"
-    :kind :orphaned-candidate
-    :severity :low
-    :target "system:demo:app"
-    :reason "Needs review."
-    :recommended-actions [:none]}))
+  ([] (decision-packet "test"))
+  ([suffix]
+   (decision-classifier/decision-packet
+    {:id (str "maintenance-decision:" suffix)
+     :project-id "demo"
+     :kind :orphaned-candidate
+     :severity :low
+     :target "system:demo:app"
+     :reason "Needs review."
+     :recommended-actions [:none]})))
 
 (defn- enqueue-decision!
-  [queue-root]
-  (get-in (queue/enqueue! (decision-packet)
-                          {:root queue-root
-                           :kind "maintenance-decision"
-                           :project-id "demo"})
-          [:item :id]))
+  ([queue-root] (enqueue-decision! queue-root "test"))
+  ([queue-root suffix]
+   (get-in (queue/enqueue! (decision-packet suffix)
+                           {:root queue-root
+                            :kind "maintenance-decision"
+                            :project-id "demo"})
+           [:item :id])))
 
 (defn- valid-result
   []
@@ -100,7 +102,11 @@
                                                   (valid-result))})}]
       (let [result (index-maintenance-worker/run! project)]
         (is (= "completed" (:status result)))
-        (is (= {:claimed 1 :completed 1 :failed 0 :validated 1}
+        (is (= {:claimed 1
+                :completed 1
+                :failed 0
+                :executor-failures 0
+                :validated 1}
                (:counts result)))
         (is (seq @messages*))
         (is (= "done" (get-in (queue/find-item queue-root work-id)
@@ -192,11 +198,87 @@
                                                    :mapPatch []})})}]
       (let [result (index-maintenance-worker/run! project)]
         (is (= "completed" (:status result)))
-        (is (= {:claimed 1 :completed 0 :failed 1 :validated 1}
+        (is (= {:claimed 1
+                :completed 0
+                :failed 1
+                :executor-failures 0
+                :validated 1}
                (:counts result)))
         (is (= "failed" (get-in (queue/find-item queue-root work-id)
                                 [:item :status])))
         (is (= "invalid" (get-in result [:items 0 :validation :status])))))))
+
+(deftest worker-backs-off-after-repeated-executor-failures
+  (let [root (temp-dir "ygg-index-maintenance-worker-backoff")
+        queue-root (.getPath (io/file root "queue"))
+        project (project-config
+                 root
+                 {:enabled true
+                  :queue-dir "queue"
+                  :report-dir "reports"
+                  :max-items-per-run 5
+                  :max-failures-per-run 1
+                  :executors [{:id "codex"
+                               :type :command-harness
+                               :command ["codex-maintenance"]
+                               :kinds #{:maintenance-decision}}]})
+        first-id (enqueue-decision! queue-root "first")
+        second-id (enqueue-decision! queue-root "second")]
+    (binding [index-maintenance-worker/*deps*
+              {:command-runner (fn [_]
+                                 {:exit 1
+                                  :out ""
+                                  :err "executor failed"})}]
+      (let [result (index-maintenance-worker/run! project)]
+        (is (= "backoff" (:status result)))
+        (is (= {:claimed 1
+                :completed 0
+                :failed 1
+                :executor-failures 1
+                :validated 0}
+               (:counts result)))
+        (is (= {:reason "executor-failures"
+                :max-failures-per-run 1}
+               (:backoff result)))
+        (is (= "failed" (get-in (queue/find-item queue-root first-id)
+                                [:item :status])))
+        (is (= "ready" (get-in (queue/find-item queue-root second-id)
+                               [:item :status])))))))
+
+(deftest worker-respects-per-run-item-cap
+  (let [root (temp-dir "ygg-index-maintenance-worker-cap")
+        queue-root (.getPath (io/file root "queue"))
+        project (project-config
+                 root
+                 {:enabled true
+                  :queue-dir "queue"
+                  :report-dir "reports"
+                  :max-items-per-run 1
+                  :executors [{:id "deepseek"
+                               :type :openai-compatible
+                               :provider :deepseek
+                               :model "deepseek-v4-flash"
+                               :env "YGG_DEEPSEEK_API_KEY"
+                               :kinds #{:maintenance-decision}}]})
+        first-id (enqueue-decision! queue-root)
+        second-id (enqueue-decision! queue-root "second")]
+    (binding [index-maintenance-worker/*deps*
+              {:get-env (constantly "test-key")
+               :openai-client (fn [_opts]
+                                {:complete-json (fn [_messages]
+                                                  (valid-result))})}]
+      (let [result (index-maintenance-worker/run! project)]
+        (is (= "limit-reached" (:status result)))
+        (is (= {:claimed 1
+                :completed 1
+                :failed 0
+                :executor-failures 0
+                :validated 1}
+               (:counts result)))
+        (is (= "done" (get-in (queue/find-item queue-root first-id)
+                              [:item :status])))
+        (is (= "ready" (get-in (queue/find-item queue-root second-id)
+                               [:item :status])))))))
 
 (deftest missing-api-key-leaves-ready-work-unclaimed
   (let [root (temp-dir "ygg-index-maintenance-worker-no-key")

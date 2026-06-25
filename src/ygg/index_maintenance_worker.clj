@@ -199,6 +199,7 @@
               (complete-with-command! config executor input-path result-path))]
         (if error
           (failure! root work-id error {:executor (:id executor)
+                                        :failure-kind "executor"
                                         :artifacts {:work input-path
                                                     :result result-path}
                                         :process process})
@@ -221,6 +222,7 @@
                   (str "Index maintenance executor failed: "
                        (or (ex-message e) (.getMessage e)))
                   {:executor (:id executor)
+                   :failure-kind "executor"
                    :artifacts {:work input-path
                                :result result-path}
                    :error-data (ex-data e)})))))
@@ -256,7 +258,18 @@
     {:claimed (count results)
      :completed (long (or (get by-status "completed") 0))
      :failed (long (or (get by-status "failed") 0))
+     :executor-failures (count (filter #(= "executor" (:failure-kind %)) results))
      :validated (count (filter :validation results))}))
+
+(defn- backoff-reached?
+  [config executor-failures]
+  (let [max-failures (long (or (:max-failures-per-run config) 0))]
+    (and (pos? max-failures)
+         (<= max-failures (long executor-failures)))))
+
+(defn- executor-failure?
+  [result]
+  (= "executor" (:failure-kind result)))
 
 (defn run!
   "Run the project-configured index maintenance worker for up to max-items-per-run items."
@@ -269,21 +282,41 @@
         :project-id (:id project)
         :status "disabled"
         :counts (result-counts [])}
-       (let [results (loop [remaining max-items
-                            out []]
-                       (if (not (pos? remaining))
-                         out
-                         (if-let [result (process-next! project config)]
-                           (recur (dec remaining) (conj out result))
-                           out)))
+       (let [{:keys [results stop-reason]}
+             (loop [remaining max-items
+                    executor-failures 0
+                    out []]
+               (cond
+                 (backoff-reached? config executor-failures)
+                 {:results out
+                  :stop-reason :backoff}
+
+                 (not (pos? remaining))
+                 {:results out
+                  :stop-reason :limit-reached}
+
+                 :else
+                 (if-let [result (process-next! project config)]
+                   (recur (dec remaining)
+                          (cond-> executor-failures
+                            (executor-failure? result) inc)
+                          (conj out result))
+                   {:results out})))
              exhausted? (and (pos? max-items)
-                             (= max-items (count results)))]
-         {:schema schema
-          :project-id (:id project)
-          :status (run-status config results exhausted?)
-          :queue-root (:queue-dir config)
-          :report-dir (:report-dir config)
-          :counts (result-counts results)
-          :items (mapv #(select-keys % [:status :executor :item :validation :failure
-                                        :artifacts :process])
-                       results)})))))
+                             (= max-items (count results)))
+             backoff? (= :backoff stop-reason)]
+         (cond-> {:schema schema
+                  :project-id (:id project)
+                  :status (cond
+                            backoff? "backoff"
+                            exhausted? "limit-reached"
+                            :else (run-status config results exhausted?))
+                  :queue-root (:queue-dir config)
+                  :report-dir (:report-dir config)
+                  :counts (result-counts results)
+                  :items (mapv #(select-keys % [:status :executor :item :validation :failure
+                                                :failure-kind :artifacts :process])
+                               results)}
+           backoff?
+           (assoc :backoff {:reason "executor-failures"
+                            :max-failures-per-run (:max-failures-per-run config)})))))))

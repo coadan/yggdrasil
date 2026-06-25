@@ -302,6 +302,7 @@
                                                         ".dev/reports/index-maintenance"))
                      :lease-minutes (long (or (:lease-minutes worker) 10))
                      :max-items-per-run (long (or (:max-items-per-run worker) 25))
+                     :max-failures-per-run (long (or (:max-failures-per-run worker) 3))
                      :apply (normalize-index-maintenance-apply (:apply worker))
                      :executors (mapv normalize-index-maintenance-executor executors)
                      :base-dir (fs/canonical-path base))

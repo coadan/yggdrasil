@@ -8,6 +8,7 @@
             [ygg.cli-project :as cli-project]
             [ygg.cli-query :as cli-query]
             [ygg.cli-sync :as cli-sync]
+            [ygg.index-maintenance-worker :as index-maintenance-worker]
             [ygg.project :as project]
             [ygg.project-registry :as registry]
             [ygg.xtdb :as store]
@@ -204,7 +205,7 @@
 
    This keeps scheduled/system-event sync calls on the same option semantics as
    the CLI without requiring those callers to shell out."
-  [{:keys [config-path project-id repo-id map-path check? enqueue? query-index? dry-run?
+  [{:keys [config-path project-id repo-id map-path queue-dir check? enqueue? query-index? dry-run?
            json? no-progress? min-confidence]}]
   (cond-> (cond
             config-path [config-path]
@@ -212,6 +213,7 @@
             :else [])
     repo-id (option-flag "--repo" repo-id)
     map-path (option-flag "--map" map-path)
+    queue-dir (option-flag "--queue-dir" queue-dir)
     min-confidence (option-flag "--min-confidence" min-confidence)
     check? (present-flag "--check" true)
     enqueue? (present-flag "--enqueue" true)
@@ -227,6 +229,7 @@
      :project-id (option-value args "--project")
      :repo-id (option-value args "--repo")
      :map-path (option-value args "--map")
+     :queue-dir (option-value args "--queue-dir")
      :check? (boolean (some #{"--check"} args))
      :enqueue? (boolean (some #{"--enqueue"} args))
      :query-index? (boolean (some #{"--query-index"} args))
@@ -242,6 +245,24 @@
     (:project (registry/resolve-project {:project-id project-id
                                          :cwd cwd}))))
 
+(defn- default-worker-queue-dir
+  [project opts]
+  (cond-> opts
+    (and (:enqueue? opts)
+         (not (:queue-dir opts))
+         (get-in project [:index-maintenance-worker :queue-dir]))
+    (assoc :queue-dir (get-in project [:index-maintenance-worker :queue-dir]))))
+
+(defn- worker-run-options
+  [opts]
+  (select-keys opts [:queue-dir]))
+
+(defn- run-index-maintenance-worker
+  [project opts enqueued]
+  (when (and (seq enqueued)
+             (:index-maintenance-worker project))
+    (index-maintenance-worker/run! project (worker-run-options opts))))
+
 (defn run-sync!
   "Run a regular project sync inside the daemon JVM and return the result map.
 
@@ -249,8 +270,9 @@
    intended for both daemon protocol requests and future in-process schedule or
    system-event handlers."
   [xtdb {:keys [repo-id check? enqueue? dry-run?] :as opts}]
-  (let [args (sync-options->args opts)
-        project (sync-project opts)
+  (let [project (sync-project opts)
+        opts (default-worker-queue-dir project opts)
+        args (sync-options->args opts)
         check? (or check? enqueue?)]
     (if dry-run?
       (let [index-summary (cli-sync/sync-index-project! nil project args (cli/sync-deps))]
@@ -263,26 +285,31 @@
             report (when check?
                      (cli-sync/maintenance-report xtdb project args (cli/sync-deps)))
             enqueued (when (and report enqueue?)
-                       (cli-sync/enqueue-sync-work! args report (cli/sync-deps)))]
+                       (cli-sync/enqueue-sync-work! args report (cli/sync-deps)))
+            worker-run (run-index-maintenance-worker project opts enqueued)]
         (cond-> {:schema "ygg.sync/v1"
                  :project-id (:id project)
                  :repo-id repo-id
                  :index-summary index-summary
                  :system-summary system-summary}
           report (assoc :check-report report)
-          enqueued (assoc :enqueued enqueued))))))
+          enqueued (assoc :enqueued enqueued)
+          worker-run (assoc :index-maintenance-worker worker-run))))))
 
 (defn run-sync-check!
   "Run maintenance checks inside the daemon JVM and return the result map."
   [xtdb {:keys [enqueue?] :as opts}]
-  (let [args (sync-options->args opts)
-        project (sync-project opts)
+  (let [project (sync-project opts)
+        opts (default-worker-queue-dir project opts)
+        args (sync-options->args opts)
         report (cli-sync/maintenance-report xtdb project args (cli/sync-deps))
         enqueued (when enqueue?
-                   (cli-sync/enqueue-sync-work! args report (cli/sync-deps)))]
+                   (cli-sync/enqueue-sync-work! args report (cli/sync-deps)))
+        worker-run (run-index-maintenance-worker project opts enqueued)]
     (cond-> {:schema "ygg.sync.check/v1"
              :report report}
-      enqueued (assoc :enqueued enqueued))))
+      enqueued (assoc :enqueued enqueued)
+      worker-run (assoc :index-maintenance-worker worker-run))))
 
 (defn- print-sync-result!
   [args result]
@@ -301,6 +328,41 @@
         (println "## Enqueued")
         (doseq [item enqueued]
           (println "-" (:id item) (:kind item) (:status item)))))))
+
+(declare capture-response)
+
+(defn- daemon-status
+  [ctx]
+  {:schema "ygg.daemon.status/v1"
+   :status "running"
+   :pid (pid)
+   :storagePath (:storage-path ctx)
+   :startedAtMs (:started-at-ms ctx)
+   :openNodes (if-let [node-pool (:node-pool ctx)]
+                (count @node-pool)
+                0)})
+
+(defn- print-daemon-status
+  [args status]
+  (if (json-output? args)
+    (println (json/write-json-str status))
+    (do
+      (println "# Daemon")
+      (println "- status" (:status status))
+      (println "- pid" (:pid status))
+      (when (:storagePath status)
+        (println "- storage-path" (:storagePath status)))
+      (when (:startedAtMs status)
+        (println "- started-at-ms" (:startedAtMs status)))
+      (println "- open-nodes" (:openNodes status)))))
+
+(defn- status-response
+  [ctx request]
+  (capture-response
+   (fn []
+     (let [status (daemon-status ctx)]
+       (print-daemon-status (vec (:args request)) status)
+       status))))
 
 (defn- capture-response
   [f]
@@ -394,6 +456,9 @@
        :out "ok\n"
        :err ""}
 
+      "status"
+      (status-response ctx request)
+
       "sync-inspect"
       (cli-response ctx request (into ["sync" "inspect"] (:args request)))
 
@@ -435,12 +500,14 @@
     (write-json-line! writer (handle-request ctx (read-json-line reader)))))
 
 (defn- serve-requests!
-  [server token node-pool]
+  [server token node-pool descriptor]
   (let [running (atom true)
         ctx {:token token
              :running running
              :server server
-             :node-pool node-pool}]
+             :node-pool node-pool
+             :storage-path (:storagePath descriptor)
+             :started-at-ms (:startedAtMs descriptor)}]
     (while @running
       (try
         (handle-socket! ctx (.accept ^ServerSocket server))
@@ -462,7 +529,7 @@
                           (:host descriptor)
                           ":"
                           (:port descriptor))))
-          (serve-requests! server token node-pool))
+          (serve-requests! server token node-pool descriptor))
         (finally
           (delete-descriptors!)
           (close-node-pool! node-pool))))))
@@ -526,7 +593,7 @@
         (serve!)
 
         "status"
-        (print-response! (request "ping" command-args))
+        (print-response! (request "status" command-args))
 
         "stop"
         (print-response! (request "stop" command-args))

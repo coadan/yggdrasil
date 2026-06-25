@@ -36,6 +36,7 @@
       (is (= (.getCanonicalPath (io/file root "queue")) (:queue-dir worker)))
       (is (= (.getCanonicalPath (io/file root "reports")) (:report-dir worker)))
       (is (= :complete-only (get-in worker [:apply :mode])))
+      (is (= 3 (:max-failures-per-run worker)))
       (is (= #{"maintenance-decision"}
              (get-in worker [:executors 0 :kinds])))
       (is (= :openai-compatible (get-in worker [:executors 0 :type])))

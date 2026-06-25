@@ -1,0 +1,86 @@
+# Index Maintenance Worker
+
+Yggdrasil can run a project-configured index maintenance worker after daemon
+sync/check enqueues maintenance work. The worker claims queue items through the
+filesystem queue, writes per-item input/result artifacts, completes the work
+item, and validates the returned JSON through the normal `sync work validate`
+path.
+
+The default apply policy is conservative:
+
+- `:complete-only` completes and validates work, but does not mutate
+  `ygg.map.json`.
+- `:validate-only` additionally moves invalid completed work to `failed`.
+- `:apply-valid` is intentionally not supported yet. Add it later only for
+  result classes with explicit safety guards.
+
+Example:
+
+```edn
+{:index-maintenance-worker
+ {:enabled true
+  :agent-id "ygg-auto"
+  :queue-dir ".dev/ygg/queue"
+  :report-dir ".dev/reports/index-maintenance"
+  :lease-minutes 10
+  :max-items-per-run 25
+  :max-failures-per-run 3
+  :apply {:mode :complete-only}
+
+  :executors
+  [{:id "deepseek-openai"
+    :type :openai-compatible
+    :provider :deepseek
+    :model "deepseek-v4-flash"
+    :env "YGG_DEEPSEEK_API_KEY"
+    :kinds #{:maintenance-decision :infra-review :dependency-review}}
+
+   {:id "deepseek-anthropic"
+    :type :anthropic-compatible
+    :provider :deepseek
+    :model "deepseek-v4-flash"
+    :env "YGG_DEEPSEEK_API_KEY"
+    :kinds #{:maintenance-decision}}
+
+   {:id "openrouter-deepseek-v4"
+    :type :openai-compatible
+    :provider :openrouter
+    :model "deepseek/deepseek-v4-flash"
+    :env "YGG_OPENROUTER_API_KEY"
+    :kinds #{:infra-review :dependency-review}}
+
+   {:id "codex"
+    :type :command-harness
+    :command ["scripts/ygg-maintenance-codex.sh"]
+    :kinds #{:maintenance-decision :infra-review :dependency-review}
+    :timeout-ms 600000}
+
+   {:id "claude"
+    :type :command-harness
+    :command ["scripts/ygg-maintenance-claude.sh"]
+    :kinds #{:maintenance-decision :infra-review :dependency-review}
+    :timeout-ms 600000}
+
+   {:id "opencode"
+    :type :command-harness
+    :command ["scripts/ygg-maintenance-opencode.sh"]
+    :kinds #{:maintenance-decision :infra-review :dependency-review}
+    :timeout-ms 600000}]}}
+```
+
+Command harness executors are called with `--work <input.json> --result
+<result.json>` appended to the configured command. The harness must write a
+valid JSON result to the result path.
+
+Daemon behavior:
+
+```sh
+ygg daemon start
+ygg daemon sync check project.edn --enqueue
+ygg daemon status
+```
+
+When daemon sync/check enqueues work and the project has
+`:index-maintenance-worker`, the daemon invokes the worker in-process. Disabled
+workers, missing API keys, leases, per-run item caps, and repeated executor
+failure backoff are handled by the worker.

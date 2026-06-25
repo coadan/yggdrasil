@@ -113,7 +113,7 @@ def main(argv):
         return UNAVAILABLE
     command = argv[1]
     if command == "status":
-        return control_request("ping", argv[2:])
+        return control_request("status", argv[2:])
     if command == "stop":
         return control_request("stop", argv[2:])
     if command == "sync" and len(argv) > 2 and argv[2] == "inspect":
