@@ -681,6 +681,39 @@
         (deliver release true)
         @holder))))
 
+(deftest locked-sync-request-returns-busy-before-storage-resolution
+  (let [lock (java.util.concurrent.locks.ReentrantLock.)
+        locked (promise)
+        release (promise)
+        holder (future
+                 (.lock lock)
+                 (try
+                   (deliver locked true)
+                   @release
+                   (finally
+                     (.unlock lock))))]
+    @locked
+    (try
+      (with-redefs [project/read-project
+                    (fn [& _]
+                      (throw (ex-info "sync should not resolve project while busy" {})))
+                    cli-sync/sync-index-project!
+                    (fn [& _]
+                      (throw (ex-info "sync should not run while busy" {})))]
+        (let [response (server/handle-request {:xtdb :xtdb
+                                               :token "token"
+                                               :running (atom true)
+                                               :operation-lock lock}
+                                              {:op "sync"
+                                               :token "token"
+                                               :args ["project.edn"]})]
+          (is (= false (:ok response)))
+          (is (= daemon-contract/unavailable-exit (:exit response)))
+          (is (= "operation-lock-busy" (get-in response [:data :reason])))))
+      (finally
+        (deliver release true)
+        @holder))))
+
 (deftest logged-command-request-emits-start-and-finish-lines
   (let [err (java.io.StringWriter.)]
     (with-redefs [cli/dispatch

@@ -802,8 +802,7 @@
                     {:cwd (:cwd request)}
                     (:options request)
                     (when progress-fn
-                      {:progress-fn progress-fn}))
-        xtdb (node-for! ctx (request-storage-path request args opts))]
+                      {:progress-fn progress-fn}))]
     (capture-response
      (fn []
        (with-operation-lock
@@ -811,7 +810,8 @@
          (fn []
            (with-user-dir (:cwd request)
              (fn []
-               (let [result (run-sync! xtdb opts)]
+               (let [xtdb (node-for! ctx (request-storage-path request args opts))
+                     result (run-sync! xtdb opts)]
                  (print-sync-result! args result)
                  result)))))))))
 
