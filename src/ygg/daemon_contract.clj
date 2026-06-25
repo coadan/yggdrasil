@@ -8,7 +8,8 @@
   [entrypoint command]
   (str "Direct " entrypoint " entrypoint is disabled. "
        "Yggdrasil commands require the local server. "
-       "Run `ygg start` first, then use `" command "`.\n"))
+       "Run `ygg init` first, or `ygg start` when a project is already initialized, "
+       "then use `" command "`.\n"))
 
 (defn direct-entrypoint-response
   [entrypoint command]

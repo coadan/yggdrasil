@@ -157,7 +157,9 @@
   (case (:schema payload)
     "ygg.context/v1" "context"
     "ygg.frontier.decision/v1" "maintenance-decision"
+    "ygg.frontier.decision-batch/v1" "maintenance-decision"
     "ygg.index-maintenance.classification/v1" "index-maintenance-classification"
+    "ygg.index-maintenance.classification-batch/v1" "index-maintenance-classification"
     "ygg.infra.review-packet/v1" "infra-review"
     "ygg.infra.review-result/v1" "infra-review-result"
     "ygg.dependency.review-packet/v1" "dependency-review"
@@ -507,6 +509,17 @@
 
                             (:allowedActions payload)
                             (assoc :allowedActions (:allowedActions payload)))
+
+                          "ygg.frontier.decision-batch/v1"
+                          (let [items (vec (:items payload))
+                                preview (take 8 items)]
+                            (cond-> {:id (:batchId payload)
+                                     :decisionCount (count items)
+                                     :decisionIds (mapv :decisionId preview)}
+                              (< (count preview) (count items))
+                              (assoc :truncated true
+                                     :omitted (- (count items)
+                                                 (count preview)))))
 
                           nil)]
     (cond-> {:schema summary-schema

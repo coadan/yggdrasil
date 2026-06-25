@@ -173,6 +173,70 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual(2, exit_code)
         self.assertEqual("Unknown server op: bogus\n", err.getvalue())
 
+    def test_init_starts_server_when_unavailable_then_retries(self):
+        client = load_client()
+        calls = []
+        started = []
+
+        def fake_request(op, args, **kwargs):
+            calls.append((op, args, kwargs))
+            if op == "init" and not started:
+                return None
+            return {"exit": 0, "out": json.dumps({
+                "schema": "ygg.init/v1",
+                "project-id": "demo",
+            }) + "\n", "err": ""}
+
+        def fake_start():
+            started.append(True)
+            return {"status": "started", "log": "/tmp/ygg.log"}
+
+        client.request = fake_request
+        client.start_server_for_init = fake_start
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            exit_code = client.main(["ygg", "init", "repo", "--project", "demo"])
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual(["init", "init"], [call[0] for call in calls])
+        self.assertEqual(["repo", "--project", "demo"], calls[0][1])
+        body = json.loads(out.getvalue())
+        self.assertEqual({"status": "started", "log": "/tmp/ygg.log"}, body["service"])
+
+    def test_init_no_start_server_keeps_unavailable_contract(self):
+        client = load_client()
+        calls = []
+
+        def fake_request(op, args, **kwargs):
+            calls.append((op, args, kwargs))
+            return None
+
+        client.request = fake_request
+        client.start_server_for_init = lambda: self.fail("server should not start")
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            exit_code = client.main(["ygg", "init", "repo", "--no-start-server"])
+
+        self.assertEqual(client.UNAVAILABLE, exit_code)
+        self.assertIn("Run `ygg init` first", err.getvalue())
+        self.assertEqual(["repo"], calls[0][1])
+
+    def test_service_start_at_login_status_reports_unsupported_off_macos(self):
+        client = load_client()
+        client.platform.system = lambda: "Linux"
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            with self.assertRaises(SystemExit) as raised:
+                client.main(["ygg", "service", "start-at-login", "status", "--json"])
+
+        self.assertEqual(2, raised.exception.code)
+        body = json.loads(out.getvalue())
+        self.assertEqual("unsupported", body["status"])
+        self.assertFalse(body["supported"])
+
 
 if __name__ == "__main__":
     unittest.main()

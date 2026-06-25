@@ -274,8 +274,10 @@
                   :producer index-maintenance/producer
                   :lane index-maintenance/graph-lane}}
                (set (mapv #(get-in % [:item :source]) items))))
-        (is (= #{"maintenance-decision:test" nil}
-               (set (mapv #(get-in % [:item :payload :decisionId]) items))))
+        (is (= #{"maintenance-decision:test"}
+               (set (mapcat #(map :decisionId
+                                  (get-in % [:item :payload :items]))
+                            items))))
         (is (= #{"infra-review:test" nil}
                (set (mapv #(when (= infra-review/packet-schema
                                     (get-in % [:item :payload :schema]))
@@ -285,7 +287,15 @@
                (set (mapv #(when (= dependency-review/packet-schema
                                     (get-in % [:item :payload :schema]))
                              (get-in % [:item :payload :reviewId]))
-                          items))))))))
+                          items))))
+        (with-out-str
+          (cli/dispatch "sync"
+                        ["project.edn"
+                         "--check"
+                         "--enqueue"
+                         "--json"
+                         "--queue-dir" root]))
+        (is (= 3 (count (queue/list-items root {:status "ready"}))))))))
 (deftest sync-coverage-returns-source-coverage-report
   (with-redefs [project/read-project (constantly project-fixture)
                 store/with-node (fn [_ f] (f :xtdb))
@@ -859,6 +869,49 @@
                              :target target-id
                              :value {:kind "application"}
                              :reason "Accept the bounded system candidate."}]))))))
+
+(deftest maintenance-decision-batch-result-requires-one-result-per-decision
+  (let [first-target "system:fixture:app:first"
+        second-target "system:fixture:app:second"
+        packet (decision-classifier/decision-batch-packet
+                [{:id "maintenance-decision:first"
+                  :project-id "fixture"
+                  :target first-target
+                  :recommended-actions [:none]
+                  :data {:system {:xt/id first-target
+                                  :label "first"}}}
+                 {:id "maintenance-decision:second"
+                  :project-id "fixture"
+                  :target second-target
+                  :recommended-actions [:none]
+                  :data {:system {:xt/id second-target
+                                  :label "second"}}}])
+        valid-result {:schema decision-classifier/batch-result-schema
+                      :batchId (:batchId packet)
+                      :results [{:schema decision-classifier/schema
+                                 :decisionId "maintenance-decision:first"
+                                 :recommendation "investigate"
+                                 :confidence 0.5
+                                 :reason "Evidence is insufficient."
+                                 :correctionPatch []}
+                                {:schema decision-classifier/schema
+                                 :decisionId "maintenance-decision:second"
+                                 :recommendation "investigate"
+                                 :confidence 0.5
+                                 :reason "Evidence is insufficient."
+                                 :correctionPatch []}]}
+        missing-result (update valid-result :results subvec 0 1)]
+    (is (empty? (decision-classifier/validate-result
+                 {:status :done
+                  :payload packet
+                  :result valid-result})))
+    (is (= [{:path [:result :results]
+             :error "Batch result is missing decision results."
+             :value ["maintenance-decision:second"]}]
+           (decision-classifier/validate-result
+            {:status :done
+             :payload packet
+             :result missing-result})))))
 (deftest sync-work-show-returns-summary-with-full-item
   (let [root (temp-dir "ygg-cli-work-show")
         id (get-in (queue/enqueue! {:schema "custom.packet/v1"

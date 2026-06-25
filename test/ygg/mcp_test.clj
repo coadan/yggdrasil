@@ -28,6 +28,7 @@
     (is (= "" (:out response)))
     (is (str/includes? (:err response)
                        "Direct ygg.mcp entrypoint is disabled."))
+    (is (str/includes? (:err response) "ygg init"))
     (is (str/includes? (:err response) "ygg start"))
     (is (str/includes? (:err response) "ygg-mcp"))))
 

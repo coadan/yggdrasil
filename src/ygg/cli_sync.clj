@@ -266,6 +266,59 @@
      :priority (queue-priority args priority)
      :source source})))
 
+(declare project-queue-root)
+
+(defn- work-identity
+  [payload]
+  (case (:schema payload)
+    "ygg.frontier.decision/v1"
+    [(:schema payload) (:decisionId payload)]
+
+    "ygg.frontier.decision-batch/v1"
+    [(:schema payload) (:batchId payload)]
+
+    "ygg.infra.review-packet/v1"
+    [(:schema payload) (:reviewId payload)]
+
+    "ygg.dependency.review-packet/v1"
+    [(:schema payload) (:reviewId payload)]
+
+    nil))
+
+(defn- existing-work-summaries
+  [root project-id]
+  (into {}
+        (keep (fn [found]
+                (when-let [identity (work-identity (get-in found [:item :payload]))]
+                  [identity (queue/item-summary found)])))
+        (queue/list-items root {:project-id project-id})))
+
+(defn- enqueue-work-items!
+  [args work-items]
+  (let [scopes (->> work-items
+                    (map (fn [{:keys [project-id]}]
+                           [(project-queue-root args project-id) project-id]))
+                    distinct)
+        existing* (atom
+                   (into {}
+                         (map (fn [[root project-id :as scope]]
+                                [scope (existing-work-summaries root project-id)]))
+                         scopes))]
+    (mapv (fn [{:keys [payload project-id] :as item}]
+            (let [root (project-queue-root args project-id)
+                  scope [root project-id]
+                  identity (work-identity payload)
+                  existing (when identity
+                             (get-in @existing* [scope identity]))]
+              (if existing
+                (assoc existing :enqueue-status "existing")
+                (let [summary (assoc (enqueue-work-item! args item)
+                                     :enqueue-status "enqueued")]
+                  (when identity
+                    (swap! existing* assoc-in [scope identity] summary))
+                  summary))))
+          work-items)))
+
 (defn- project-queue-root
   [args project-id]
   (or (option-value args "--queue-dir")
@@ -275,8 +328,7 @@
 
 (defn enqueue-sync-work!
   ([args report]
-   (mapv #(enqueue-work-item! args %)
-         (index-maintenance/work-items report)))
+   (enqueue-work-items! args (index-maintenance/work-items report)))
   ([args report deps]
    (binding [*deps* deps]
      (enqueue-sync-work! args report))))

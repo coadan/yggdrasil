@@ -7,6 +7,7 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (defn- temp-dir
@@ -19,6 +20,10 @@
 (defn- registry-path
   [root]
   (.getPath (io/file root ".config" "projects.edn")))
+
+(defn- canonical-file-path
+  [file]
+  (.getCanonicalPath file))
 
 (deftest init-writes-plain-repo-project-config
   (let [root (temp-dir "ygg-init-repo")
@@ -147,6 +152,76 @@
         (is (= 2 (:init-count onboarding)))
         (is (:first-init-at-ms onboarding))
         (is (:last-init-at-ms onboarding))))))
+
+(deftest init-can-install-codex-harness-artifacts
+  (let [root (temp-dir "ygg-init-harness")
+        out (.getPath (io/file root "project.edn"))
+        registry-path (registry-path root)]
+    (with-redefs [registry/registry-path (constantly registry-path)]
+      (let [result (init/init! root {:out out
+                                     :project-id "demo"
+                                     :harness "codex"
+                                     :hooks? true
+                                     :skill? true
+                                     :mcp? true})
+            agents (io/file root "AGENTS.md")
+            hooks (io/file root ".codex" "hooks.json")
+            skill (io/file root ".codex" "skills" "ygg" "SKILL.md")]
+        (is (= true (get-in result [:setup :harness :installed])))
+        (is (= "codex" (get-in result [:setup :harness :platform])))
+        (is (= (canonical-file-path agents)
+               (get-in result [:setup :harness :install :instructions])))
+        (is (= (canonical-file-path hooks)
+               (get-in result [:setup :harness :install :hooks])))
+        (is (= (canonical-file-path skill)
+               (get-in result [:setup :harness :install :skill])))
+        (is (= {:command "ygg-mcp --config project.edn"}
+               (get-in result [:setup :mcp])))
+        (is (str/includes? (slurp agents) "Yggdrasil Agent Workflow"))
+        (is (str/includes? (slurp skill) "name: ygg"))
+        (is (some #(= :mcp (:kind %)) (:nextActions result)))))))
+
+(deftest init-can-configure-harness-maintenance
+  (let [root (temp-dir "ygg-init-maintenance-harness")
+        out (.getPath (io/file root "project.edn"))
+        registry-path (registry-path root)]
+    (with-redefs [registry/registry-path (constantly registry-path)]
+      (let [result (init/init! root {:out out
+                                     :project-id "demo"
+                                     :harness "codex"
+                                     :maintenance "harness"
+                                     :maintenance-reasoning "high"})
+            config (edn/read-string (slurp out))
+            maintenance (:maintenance config)
+            executor (get-in maintenance [:worker :executors 0])]
+        (is (= true (:enabled maintenance)))
+        (is (= true (get-in maintenance [:worker :enabled])))
+        (is (= ["scripts/ygg-maintenance-codex.sh"] (:command executor)))
+        (is (= :command-harness (:type executor)))
+        (is (= "high" (:reasoning executor)))
+        (is (= #{:maintenance-decision :infra-review :dependency-review}
+               (:kinds executor)))
+        (is (= {:mode "harness"
+                :enabled true
+                :executor "codex"}
+               (get-in result [:setup :maintenance])))
+        (is (some #(= :maintenance-status (:kind %)) (:nextActions result)))))))
+
+(deftest init-can-configure-openrouter-maintenance
+  (let [root (temp-dir "ygg-init-maintenance-openrouter")
+        out (.getPath (io/file root "project.edn"))
+        registry-path (registry-path root)]
+    (with-redefs [registry/registry-path (constantly registry-path)]
+      (init/init! root {:out out
+                        :project-id "demo"
+                        :maintenance "openrouter"
+                        :maintenance-model "deepseek/deepseek-v4-pro"})
+      (let [executor (get-in (edn/read-string (slurp out))
+                             [:maintenance :worker :executors 0])]
+        (is (= :openai-compatible (:type executor)))
+        (is (= :openrouter (:provider executor)))
+        (is (= "deepseek/deepseek-v4-pro" (:model executor)))
+        (is (= "YGG_OPENROUTER_API_KEY" (:env executor)))))))
 
 (deftest next-commands-use-config-path-when-provided
   (let [root (temp-dir "ygg-init-next")

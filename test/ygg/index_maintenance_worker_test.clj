@@ -66,6 +66,21 @@
    :reason "Evidence is insufficient for an automatic correction patch."
    :correctionPatch []})
 
+(defn- valid-batch-result
+  [payload]
+  (let [items (or (:items payload)
+                  (get-in payload [:decisions :items]))]
+    {:schema decision-classifier/batch-result-schema
+     :batchId (:batchId payload)
+     :results (mapv (fn [item]
+                      {:schema decision-classifier/schema
+                       :decisionId (:decisionId item)
+                       :recommendation "investigate"
+                       :confidence 0.7
+                       :reason "Evidence is insufficient for an automatic correction patch."
+                       :correctionPatch []})
+                    items)}))
+
 (defn- infra-packet
   []
   (first
@@ -377,6 +392,59 @@
                (get-in by-kind [infra-review/work-kind :payload :schema])))
         (is (= dependency-review/packet-schema
                (get-in by-kind [dependency-review/work-kind :payload :schema])))))))
+
+(deftest command-harness-work-input-compacts-decision-batches
+  (let [root (temp-dir "ygg-index-maintenance-worker-command-batch-compact")
+        queue-root (.getPath (io/file root "queue"))
+        project (project-config
+                 root
+                 {:enabled true
+                  :queue-dir "queue"
+                  :report-dir "reports"
+                  :executors [{:id "codex"
+                               :type :command-harness
+                               :command ["codex-maintenance"]
+                               :kinds #{:maintenance-decision}}]})
+        payload (decision-classifier/decision-batch-packet
+                 [(-> (decision-packet "first")
+                      :decision
+                      (assoc :data {:targets (mapv (fn [idx]
+                                                     {:xt/id (str "target:" idx)
+                                                      :label (str "target-" idx)
+                                                      :edge-count 1
+                                                      :evidence-count 1})
+                                                   (range 20))
+                                    :edges (mapv (fn [idx] {:xt/id (str "edge:" idx)})
+                                                 (range 20))}))
+                  (-> (decision-packet "second")
+                      :decision)])
+        work-id (get-in (queue/enqueue! payload
+                                        {:root queue-root
+                                         :kind "maintenance-decision"
+                                         :project-id "demo"})
+                        [:item :id])]
+    (binding [index-maintenance-worker/*deps*
+              {:command-runner (fn [{:keys [argv]}]
+                                 (let [work-input (read-json (nth argv (- (count argv) 3)))
+                                       result-path (last argv)]
+                                   (spit result-path
+                                         (json/write-json-str
+                                          (valid-batch-result (:payload work-input)))))
+                                 {:exit 0 :out "" :err ""})}]
+      (let [result (index-maintenance-worker/run! project)
+            work-input (read-json (get-in result [:items 0 :artifacts :work]))]
+        (is (= "done" (get-in (queue/find-item queue-root work-id)
+                              [:item :status])))
+        (is (= decision-classifier/batch-packet-schema
+               (get-in work-input [:payload :schema])))
+        (is (= 2 (get-in work-input [:payload :decisions :count])))
+        (is (nil? (get-in work-input [:payload :items])))
+        (is (nil? (get-in work-input [:payload :messages])))
+        (is (= 2 (get-in work-input [:payload :omitted :messages])))
+        (is (= 20 (get-in work-input
+                          [:payload :decisions :items 0 :decision :data :targets :count])))
+        (is (= 20 (get-in work-input
+                          [:payload :decisions :items 0 :decision :data :omitted :edges])))))))
 
 (deftest validate-only-fails-invalid-completed-result
   (let [root (temp-dir "ygg-index-maintenance-worker-invalid")

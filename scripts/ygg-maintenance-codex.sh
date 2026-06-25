@@ -33,24 +33,38 @@ fi
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 mkdir -p "$(dirname "${RESULT_PATH}")"
 
-ADD_DIR_ARGS=(
-  --add-dir "$(cd "$(dirname "${WORK_PATH}")" && pwd)"
-  --add-dir "$(cd "$(dirname "${RESULT_PATH}")" && pwd)"
-)
+CODEX_ADD_DIRS=()
+
+add_codex_dir() {
+  local dir="$1"
+  local canonical=""
+  local existing=""
+
+  if [[ -z "${dir}" || ! -d "${dir}" ]]; then
+    return
+  fi
+
+  canonical="$(cd "${dir}" && pwd)"
+  for existing in "${CODEX_ADD_DIRS[@]}"; do
+    if [[ "${existing}" == "${canonical}" ]]; then
+      return
+    fi
+  done
+  CODEX_ADD_DIRS+=("${canonical}")
+}
+
+add_codex_dir "$(dirname "${WORK_PATH}")"
+add_codex_dir "$(dirname "${RESULT_PATH}")"
 
 if [[ -n "${YGG_CODEX_MAINTENANCE_ADD_DIRS:-}" ]]; then
   IFS=':' read -r -a EXTRA_DIRS <<< "${YGG_CODEX_MAINTENANCE_ADD_DIRS}"
   for dir in "${EXTRA_DIRS[@]}"; do
-    if [[ -n "${dir}" && -d "${dir}" ]]; then
-      ADD_DIR_ARGS+=(--add-dir "$(cd "${dir}" && pwd)")
-    fi
+    add_codex_dir "${dir}"
   done
 fi
 
 while IFS= read -r dir; do
-  if [[ -n "${dir}" && -d "${dir}" ]]; then
-    ADD_DIR_ARGS+=(--add-dir "$(cd "${dir}" && pwd)")
-  fi
+  add_codex_dir "${dir}"
 done < <(python3 - "${WORK_PATH}" <<'PY'
 import json
 import sys
@@ -67,6 +81,11 @@ for repo in value.get("project", {}).get("repos", []):
         print(root)
 PY
 )
+
+ADD_DIR_ARGS=()
+for dir in "${CODEX_ADD_DIRS[@]}"; do
+  ADD_DIR_ARGS+=(--add-dir "${dir}")
+done
 
 CODEX_ARGS=(
   -C "${ROOT_DIR}"

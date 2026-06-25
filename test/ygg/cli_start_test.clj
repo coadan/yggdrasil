@@ -25,7 +25,16 @@
               :project-id "demo"
               :name nil
               :workbench? false
-              :task nil}]
+              :task nil
+              :harness nil
+              :hooks? false
+              :skill? false
+              :mcp? false
+              :force-agent? false
+              :maintenance nil
+              :maintenance-model nil
+              :maintenance-reasoning nil
+              :maintenance-command nil}]
             [:query-index ["repo" "--project" "demo" "--sync" "--query-index"]]
             [:dispatch "sync" ["project.edn" "--check" "--no-progress" "--query-index"]]]
            @calls))
@@ -57,7 +66,16 @@
                                        :project-id nil
                                        :name nil
                                        :workbench? false
-                                       :task nil}
+                                       :task nil
+                                       :harness nil
+                                       :hooks? false
+                                       :skill? false
+                                       :mcp? false
+                                       :force-agent? false
+                                       :maintenance nil
+                                       :maintenance-model nil
+                                       :maintenance-reasoning nil
+                                       :maintenance-command nil}
                                       opts))
                                {:schema "ygg.init/v1"
                                 :project-id "demo"})]

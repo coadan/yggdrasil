@@ -65,7 +65,8 @@
     "--relation" "--base-url" "--detail" "--queue-dir" "--status" "--agent"
     "--lease-minutes" "--result" "--kind" "--priority" "--format" "--platform"
     "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode" "--tools"
-    "--files" "--since"
+    "--files" "--since" "--harness" "--maintenance" "--maintenance-model"
+    "--maintenance-reasoning" "--maintenance-command"
     "--id" "--plugin" "--file-kind" "--path-glob" "--scan-glob" "--fixture"
     "--text" "--target" "--tag" "--owner" "--visibility" "--scope" "--summary"
     "--ecosystem" "--package" "--prompt-profile" "--report-out" "--command"
@@ -121,7 +122,8 @@
     "--allow-duplicate-runs" "--allow-unverified-scores"
     "--skip-existing" "--with-conflicts" "--without-import-evidence"
     "--no-progress" "--extractor" "--report" "--tests" "--proof-commands"
-    "--changed-only" "--reviewed"})
+    "--changed-only" "--reviewed" "--skill" "--mcp" "--force-agent" "--start-at-login"
+    "--no-start-at-login" "--no-start-server"})
 
 (defn positional-args
   [args]

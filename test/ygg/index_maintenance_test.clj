@@ -47,14 +47,42 @@
            (mapv :kind work)))
     (is (= ["graph" "graph" "graph"] (mapv :lane work)))
     (is (= [60 50 45] (mapv :priority work)))
-    (is (= [decision-classifier/packet-schema
+    (is (= [decision-classifier/batch-packet-schema
             infra-review/packet-schema
             dependency-review/packet-schema]
            (mapv (comp :schema :payload) work)))
+    (is (= ["maintenance-decision:test"]
+           (mapv :decisionId (get-in work [0 :payload :items]))))
     (is (= [{:schema index-maintenance/source-schema
              :producer index-maintenance/producer
              :lane index-maintenance/graph-lane}]
            (distinct (mapv :source work))))))
+
+(deftest maintenance-decisions-are-batched-before-enqueue
+  (let [decisions (mapv (fn [idx]
+                          {:id (str "maintenance-decision:" idx)
+                           :project-id "demo"
+                           :kind :orphaned-candidate
+                           :severity (if (zero? idx) :high :low)
+                           :target (str "system:demo:app" idx)
+                           :reason "Needs review."
+                           :recommended-actions [:none]})
+                        (range (inc index-maintenance/decision-batch-size)))
+        report (index-maintenance/from-graph-report
+                {:project-id "demo"
+                 :counts {:maintenance-decisions (count decisions)}
+                 :decision-queue decisions})
+        work (index-maintenance/work-items report)]
+    (is (= 2 (count work)))
+    (is (= ["maintenance-decision" "maintenance-decision"]
+           (mapv :kind work)))
+    (is (= [decision-classifier/batch-packet-schema
+            decision-classifier/batch-packet-schema]
+           (mapv (comp :schema :payload) work)))
+    (is (= index-maintenance/decision-batch-size
+           (count (get-in work [0 :payload :items]))))
+    (is (= 1 (count (get-in work [1 :payload :items]))))
+    (is (= [90 30] (mapv :priority work)))))
 
 (deftest maintenance-work-packets-include-clear-bounded-instructions
   (let [decision-packet

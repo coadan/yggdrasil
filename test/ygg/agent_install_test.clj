@@ -64,3 +64,26 @@
     (is (str/includes? command "ygg sync inspect <project.edn> --json"))
     (is (str/includes? command "evidence.families"))
     (is (str/includes? command "ygg query"))))
+
+(deftest codex-install-can-write-skill-and-mcp-command
+  (let [root (temp-dir "ygg-agent-skill")
+        result (agent-install/install! "codex" {:root root
+                                                :project? true
+                                                :skill? true
+                                                :mcp? true})
+        skill-file (io/file root ".codex" "skills" "ygg" "SKILL.md")
+        content (slurp skill-file)]
+    (is (= (.getPath skill-file) (:skill result)))
+    (is (= {:command "ygg-mcp --config project.edn"} (:mcp result)))
+    (is (str/includes? content "name: ygg"))
+    (is (str/includes? content "ygg sync inspect <project.edn> --json"))
+    (is (str/includes? content "Project memory enters normal query packets"))))
+
+(deftest codex-platform-detection-uses-project-markers
+  (let [root (temp-dir "ygg-agent-detect")
+        codex-dir (io/file root ".codex")]
+    (.mkdirs codex-dir)
+    (let [result (agent-install/detect-platforms {:root root})]
+      (is (= "ygg.agent-detect/v1" (:schema result)))
+      (is (= "codex" (get-in result [:platforms 0 :id])))
+      (is (= "project-marker" (get-in result [:platforms 0 :reason]))))))

@@ -20,29 +20,60 @@ installed users should not need Node for normal report or graph viewing.
 
 ## Native CLI
 
-Local install on macOS:
+From a clone, use the entrypoints directly or put `bin/` on `PATH`:
 
 ```sh
-scripts/install-macos.sh
+bin/ygg init . --project my-project --out project.edn --sync
+bin/ygg query "where is auth handled" --project my-project
 ```
 
-With dependencies:
+`ygg init` starts the local server when needed. To keep it warm after login on
+macOS:
 
 ```sh
-scripts/install-macos.sh --install-deps
+ygg service start-at-login enable
 ```
 
-Verify the installed entrypoints:
+For non-interactive assistant setup, pass the harness and maintenance choices to
+`init`:
 
 ```sh
-ygg start
+bin/ygg init . --project my-project --out project.edn \
+  --harness codex --hooks --skill --mcp \
+  --maintenance harness
+```
+
+Use `--maintenance deepseek` or `--maintenance openrouter` to configure a
+DeepSeek V4-compatible API executor instead of the harness command.
+
+Verify the entrypoints:
+
+```sh
 ygg help
 ygg-mcp --config project.edn
 ```
 
-`ygg-mcp` is the stdio MCP proxy for editor and agent integrations. It requires
-the local Yggdrasil server started by `ygg start`, then lists the primary
-`ygg_query`, `ygg_node`, `ygg_status`, and
+Build the standalone JVM artifact used by the native-image path:
+
+```sh
+bb graalvm:uber
+```
+
+Build the GraalVM server binary when `native-image` is available:
+
+```sh
+bb graalvm:check
+bb graalvm:native
+```
+
+`bb graalvm:args` prints the `native-image` command without requiring GraalVM.
+The binary is written to `target/native/ygg-server`. `bin/ygg start` prefers
+that binary when it exists and falls back to the Clojure server path otherwise.
+Set `YGG_NATIVE_SERVER` to point the wrapper at another built server binary.
+
+`ygg-mcp` is the stdio MCP proxy for editor and agent integrations. It uses the
+local Yggdrasil server started by `ygg init` or `ygg start`, then lists the
+primary `ygg_query`, `ygg_node`, `ygg_status`, and
 `ygg_systems` tools by default. Use `--tools default,sync,work` or
 `YGG_MCP_TOOLS=all` to list bounded advanced packet tools for sync
 inspection/checks and filesystem queue handoff. Use the CLI for explicit
@@ -72,7 +103,7 @@ writable mounted directory:
 docker run --rm \
   -v "$PWD:/workspace:ro" \
   -v "$HOME/.cache/ygg:/data" \
-  yggdrasil:dev sh -lc 'ygg start & until ygg status >/dev/null 2>&1; do sleep 1; done; ygg init /workspace --out /data/project.edn --sync; ygg stop'
+  yggdrasil:dev sh -lc 'ygg init /workspace --out /data/project.edn --sync; ygg stop'
 ```
 
 For worktrees, mount the wrapper/workbench root rather than a nested worktree so

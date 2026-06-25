@@ -437,11 +437,11 @@ Yggdrasil automatically:
 
 ```sh
 ygg agent install --platform codex --project
-ygg agent install --platform codex --project --hooks
-ygg agent install --platform codex --project --hooks --print-config
+ygg agent install --platform codex --project --hooks --skill --mcp
+ygg agent install --platform codex --project --hooks --skill --mcp --print-config
 ```
 
-The installer edits only marked Yggdrasil sections. Remove them with:
+The agent setup command edits only marked Yggdrasil sections. Remove them with:
 
 ```sh
 ygg agent uninstall --platform codex --project

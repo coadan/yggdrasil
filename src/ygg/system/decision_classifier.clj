@@ -2,6 +2,7 @@
   "Focused classifier for one index maintenance decision at a time."
   (:require [ygg.corrections-api :as corrections-api]
             [ygg.correction-overlay :as correction-overlay]
+            [ygg.hash :as hash]
             [ygg.queue :as queue]
             [charred.api :as json]
             [clojure.string :as str]))
@@ -11,6 +12,12 @@
 
 (def packet-schema
   "ygg.frontier.decision/v1")
+
+(def batch-packet-schema
+  "ygg.frontier.decision-batch/v1")
+
+(def batch-result-schema
+  "ygg.index-maintenance.classification-batch/v1")
 
 (def apply-schema
   "ygg.sync.work.apply/v1")
@@ -61,6 +68,14 @@
    "Do not classify the repository, infer broad architecture, edit files, update queue state, or invent ids."
    "Return exactly one JSON object matching expectedResultSchema. If unsure, use recommendation investigate with correctionPatch []."])
 
+(def ^:private batch-instructions
+  ["Resolve each maintenance decision independently."
+   "Return exactly one result per decisionId in the packet."
+   "Each result must match the single-decision classification shape."
+   "Use only each decision, its allowedActions, and bounded source facts from attached project repo roots when needed."
+   "Do not edit files, update queue state, infer broad architecture, or invent ids."
+   "Prefer investigate with correctionPatch [] when a decision lacks enough evidence."])
+
 (defn- instructions-text
   [instructions]
   (str "Instructions:\n"
@@ -74,6 +89,19 @@
    :confidence 0.0
    :reason "brief rationale"
    :correctionPatch []})
+
+(defn- batch-id
+  [decisions]
+  (str "maintenance-decision-batch:"
+       (hash/short-hash (mapv :id decisions))))
+
+(defn- decision-item
+  [decision]
+  (let [allowed-actions (allowed-actions-for-decision decision)]
+    {:decisionId (:id decision)
+     :decision decision
+     :allowedActions allowed-actions
+     :expectedOutput (expected-output (:id decision))}))
 
 (defn prompt
   "Return OpenAI-compatible chat messages for one index maintenance decision."
@@ -125,6 +153,50 @@
      :messages (prompt decision)
      :expectedResultSchema schema
      :expectedOutput (expected-output (:id decision))}))
+
+(defn batch-prompt
+  "Return OpenAI-compatible chat messages for a bounded batch of decisions."
+  [decisions]
+  (let [items (mapv decision-item decisions)
+        id (batch-id decisions)
+        expected-output {:schema batch-result-schema
+                         :batchId id
+                         :results (mapv :expectedOutput items)}]
+    [{:role "system"
+      :content (str "You resolve a bounded batch of Yggdrasil index maintenance "
+                    "frontier decisions. Return JSON only. Treat decisions "
+                    "independently and do not classify a whole repository.")}
+     {:role "user"
+      :content (str
+                (instructions-text batch-instructions)
+                "\n\n"
+                "Return this JSON shape:\n"
+                (json/write-json-str expected-output {:indent-str "  "})
+                "\n\n"
+                (json/write-json-str {:batchId id
+                                      :instructions batch-instructions
+                                      :decisions items}
+                                     {:indent-str "  "}))}]))
+
+(defn decision-batch-packet
+  "Return one provider-agnostic packet for a bounded batch of maintenance decisions."
+  [decisions]
+  (let [decisions (vec decisions)]
+    (when-not (seq decisions)
+      (throw (ex-info "Missing index maintenance decisions." {})))
+    (let [items (mapv decision-item decisions)
+          id (batch-id decisions)]
+      {:schema batch-packet-schema
+       :batchId id
+       :project-id (:project-id (first decisions))
+       :goal "Resolve a bounded batch of Yggdrasil index maintenance decisions without classifying the whole project."
+       :items items
+       :instructions batch-instructions
+       :messages (batch-prompt decisions)
+       :expectedResultSchema batch-result-schema
+       :expectedOutput {:schema batch-result-schema
+                        :batchId id
+                        :results (mapv :expectedOutput items)}})))
 
 (defn decision-by-id
   "Find a decision by id or by its shortest unique suffix."
@@ -268,8 +340,7 @@
                 {:path [:correctionPatch idx :reason]
                  :error "Patch reason is required."})]))))
 
-(defn validate-result
-  "Return validation errors for applying item result, or an empty vector."
+(defn- validate-single-result
   [item]
   (let [packet (payload item)
         result (result item)
@@ -308,6 +379,110 @@
       (mapcat (fn [[idx patch]]
                 (patch-errors packet patch idx))
               (map-indexed vector (correction-patch result)))))))
+
+(defn- single-packet-from-batch-item
+  [item]
+  {:schema packet-schema
+   :decisionId (:decisionId item)
+   :project-id (get-in item [:decision :project-id])
+   :goal "Resolve one bounded Yggdrasil index maintenance decision without classifying the whole project."
+   :decision (:decision item)
+   :allowedActions (:allowedActions item)
+   :instructions decision-instructions
+   :expectedResultSchema schema
+   :expectedOutput (expected-output (:decisionId item))})
+
+(defn- result-decision-id
+  [result]
+  (s (:decisionId result)))
+
+(defn- index-by
+  [f xs]
+  (into {}
+        (keep (fn [x]
+                (when-let [k (f x)]
+                  [k x])))
+        xs))
+
+(defn- duplicate-values
+  [values]
+  (->> values
+       frequencies
+       (keep (fn [[value n]]
+               (when (< 1 n) value)))
+       vec))
+
+(defn- nested-result-error
+  [idx error]
+  (let [path (:path error)
+        path (if (= :result (first path))
+               (rest path)
+               path)]
+    (assoc error :path (into [:result :results idx] path))))
+
+(defn- validate-batch-result
+  [item]
+  (let [packet (payload item)
+        result (result item)
+        items (vec (:items packet))
+        results (vec (:results result))
+        item-ids (mapv (comp s :decisionId) items)
+        result-ids (mapv result-decision-id results)
+        items-by-id (index-by (comp s :decisionId) items)
+        missing (vec (remove (set result-ids) item-ids))
+        extra (vec (remove (set item-ids) result-ids))
+        duplicates (duplicate-values result-ids)]
+    (vec
+     (concat
+      (remove nil?
+              [(when-not (= "done" (queue/status-name (:status item)))
+                 {:path [:status]
+                  :error "Only done queue items can be applied."
+                  :value (:status item)})
+               (when-not (= batch-packet-schema (:schema packet))
+                 {:path [:payload :schema]
+                  :error "Work item payload is not an index maintenance decision batch packet."
+                  :value (:schema packet)})
+               (when-not (= batch-result-schema (:schema result))
+                 {:path [:result :schema]
+                  :error "Result is not an index maintenance classification batch."
+                  :value (:schema result)})
+               (when-not (= (:batchId packet) (:batchId result))
+                 {:path [:result :batchId]
+                  :error "Result batchId does not match the packet."
+                  :value (:batchId result)})
+               (when-not (vector? (:results result))
+                 {:path [:result :results]
+                  :error "Batch result must include a results vector."
+                  :value (:results result)})
+               (when (seq missing)
+                 {:path [:result :results]
+                  :error "Batch result is missing decision results."
+                  :value missing})
+               (when (seq extra)
+                 {:path [:result :results]
+                  :error "Batch result includes unknown decision ids."
+                  :value extra})
+               (when (seq duplicates)
+                 {:path [:result :results]
+                  :error "Batch result includes duplicate decision ids."
+                  :value duplicates})])
+      (mapcat (fn [[idx result]]
+                (if-let [decision-item (get items-by-id (result-decision-id result))]
+                  (map #(nested-result-error idx %)
+                       (validate-single-result
+                        {:status (:status item)
+                         :payload (single-packet-from-batch-item decision-item)
+                         :result result}))
+                  []))
+              (map-indexed vector results))))))
+
+(defn validate-result
+  "Return validation errors for applying item result, or an empty vector."
+  [item]
+  (case (get-in item [:payload :schema])
+    "ygg.frontier.decision-batch/v1" (validate-batch-result item)
+    (validate-single-result item)))
 
 (defn- upsert-system
   [overlay system]
@@ -376,6 +551,20 @@
           overlay
           (correction-patch result)))
 
+(defn- batch-results-by-id
+  [result]
+  (index-by result-decision-id (:results result)))
+
+(defn- apply-batch-patches
+  [overlay packet result]
+  (let [results-by-id (batch-results-by-id result)]
+    (reduce (fn [overlay item]
+              (let [single-packet (single-packet-from-batch-item item)
+                    single-result (get results-by-id (:decisionId item))]
+                (apply-patches overlay single-packet single-result)))
+            overlay
+            (:items packet))))
+
 (defn apply-work-result!
   "Validate and apply a completed index maintenance decision as correction facts."
   [xtdb root id]
@@ -394,17 +583,25 @@
          :item (queue/item-summary failed)})
       (let [packet (payload item)
             result (result item)
+            batch? (= batch-packet-schema (:schema packet))
             write-result (corrections-api/apply-overlay!
                           xtdb
                           (:project-id packet)
-                          #(apply-patches % packet result)
-                          {:source (:decisionId packet)})]
-        {:schema apply-schema
-         :status "applied"
-         :workId (:id item)
-         :decisionId (:decisionId packet)
-         :projectId (:project-id packet)
-         :correctionFacts (count (:rows write-result))
-         :patchesApplied (reduce + (map #(max 0 (- (get-in write-result [:after %] 0)
-                                                   (get-in write-result [:before %] 0)))
-                                        [:systems :rejects :edges]))}))))
+                          (if batch?
+                            #(apply-batch-patches % packet result)
+                            #(apply-patches % packet result))
+                          {:source (if batch?
+                                     (:batchId packet)
+                                     (:decisionId packet))})]
+        (cond-> {:schema apply-schema
+                 :status "applied"
+                 :workId (:id item)
+                 :projectId (:project-id packet)
+                 :correctionFacts (count (:rows write-result))
+                 :patchesApplied (reduce + (map #(max 0
+                                                      (- (get-in write-result [:after %] 0)
+                                                         (get-in write-result [:before %] 0)))
+                                                [:systems :rejects :edges]))}
+          batch? (assoc :batchId (:batchId packet)
+                        :decisionCount (count (:items packet)))
+          (not batch?) (assoc :decisionId (:decisionId packet)))))))

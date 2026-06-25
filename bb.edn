@@ -81,6 +81,18 @@
                    (shell {:dir "report-ui"} "npm run build")
                    (shell "bash scripts/v1-smoke.sh"))}
 
+  graalvm:args {:doc "Print the GraalVM native-image command for the ygg server."
+                :task (shell "clojure -T:build native-args")}
+
+  graalvm:uber {:doc "Build the standalone ygg server jar used by native-image."
+                :task (shell "clojure -T:build uber")}
+
+  graalvm:check {:doc "Check that GraalVM native-image is available."
+                 :task (shell "clojure -T:build native-check")}
+
+  graalvm:native {:doc "Build target/native/ygg-server with GraalVM native-image. Requires native-image or NATIVE_IMAGE."
+                  :task (shell "clojure -T:build native")}
+
   embed {:doc "Embed search docs. Usage: bb embed [--model MODEL] [--limit N]"
          :task (apply ygg "embed" *command-line-args*)}
 

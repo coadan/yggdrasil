@@ -51,12 +51,14 @@
     (is (= "" (:out cli-response)))
     (is (str/includes? (:err cli-response)
                        "Direct ygg.cli entrypoint is disabled."))
+    (is (str/includes? (:err cli-response) "ygg init"))
     (is (str/includes? (:err cli-response) "ygg start"))
     (is (str/includes? (:err cli-response) "ygg <command>"))
     (is (= daemon-contract/unavailable-exit (:exit inspect-response)))
     (is (= "" (:out inspect-response)))
     (is (str/includes? (:err inspect-response)
                        "Direct ygg.cli-sync-inspect entrypoint is disabled."))
+    (is (str/includes? (:err inspect-response) "ygg init"))
     (is (str/includes? (:err inspect-response) "ygg start"))
     (is (str/includes? (:err inspect-response) "ygg sync inspect"))))
 
@@ -70,6 +72,7 @@
     (is (str/includes? usage "Agent integration:"))
     (is (str/includes? usage "Server integration:"))
     (is (str/includes? usage "init <repo-root>"))
+    (is (str/includes? usage "--maintenance none|harness|deepseek|openrouter"))
     (is (str/includes? usage "projects list|show <project-id>|register <project.edn>|remove <project-id>"))
     (is (str/includes? usage "sync inspect [<project.edn>] [--project ID] [--json]"))
     (is (str/includes? usage "  start"))
@@ -99,6 +102,8 @@
     (is (str/includes? usage "plugin registry list <registry.edn>"))
     (is (str/includes? usage "plugin registry validate <registry.edn>"))
     (is (str/includes? usage "agent install --platform codex --project"))
+    (is (str/includes? usage "--skill"))
+    (is (str/includes? usage "--mcp"))
     (is (str/includes? usage "--print-config"))
     (is (str/includes? usage "agent uninstall --platform codex --project"))
     (is (str/includes? usage "agent list"))
@@ -106,6 +111,7 @@
     (is (not (str/includes? usage "  uninstall --platform codex --project")))
     (is (not (str/includes? usage "install-agent --platform codex --project")))
     (is (str/includes? usage "mcp [--root DIR]"))
+    (is (str/includes? usage "service start-at-login enable|disable|status"))
     (is (str/includes? usage "watch <project.edn>"))
     (is (str/includes? usage "hook install <project.edn>"))
     (is (str/includes? usage "bench prepare|run|report"))
@@ -1423,7 +1429,9 @@
     (is (= agent-install/schema (:schema parsed)))
     (is (= [{:id "codex"
              :scopes ["project"]
-             :hooks? true}]
+             :hooks? true
+             :skill? true
+             :mcp? true}]
            (:platforms parsed)))))
 
 (deftest agent-install-command-writes-codex-project-guidance
@@ -1452,20 +1460,28 @@
                                          "--platform" "codex"
                                          "--project"
                                          "--hooks"
+                                         "--skill"
+                                         "--mcp"
                                          "--print-config"]))
             parsed (read-json-output out)
             agents (io/file root "AGENTS.md")
-            hooks (io/file root ".codex" "hooks.json")]
+            hooks (io/file root ".codex" "hooks.json")
+            skill (io/file root ".codex" "skills" "ygg" "SKILL.md")]
         (is (= agent-install/schema (:schema parsed)))
         (is (= "print-config" (:action parsed)))
         (is (= (.getPath agents) (get-in parsed [:instructions :path])))
         (is (= (.getPath hooks) (get-in parsed [:hooks :path])))
+        (is (= (.getPath skill) (get-in parsed [:skill :path])))
+        (is (= {:command "ygg-mcp --config project.edn"} (:mcp parsed)))
         (is (str/includes? (get-in parsed [:instructions :content])
                            "Yggdrasil Agent Workflow"))
         (is (str/includes? (get-in parsed [:hooks :content])
                            "Yggdrasil may have relevant project context"))
+        (is (str/includes? (get-in parsed [:skill :content])
+                           "name: ygg"))
         (is (not (.exists agents)))
-        (is (not (.exists hooks))))
+        (is (not (.exists hooks)))
+        (is (not (.exists skill))))
       (finally
         (System/setProperty "user.dir" old-dir)))))
 

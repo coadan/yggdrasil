@@ -35,7 +35,16 @@
                             :project-id (option-value args "--project")
                             :name (option-value args "--name")
                             :workbench? (boolean workbench-root)
-                            :task (option-value args "--task")})]
+                            :task (option-value args "--task")
+                            :harness (option-value args "--harness")
+                            :hooks? (boolean (some #{"--hooks"} args))
+                            :skill? (boolean (some #{"--skill"} args))
+                            :mcp? (boolean (some #{"--mcp"} args))
+                            :force-agent? (boolean (some #{"--force-agent"} args))
+                            :maintenance (option-value args "--maintenance")
+                            :maintenance-model (option-value args "--maintenance-model")
+                            :maintenance-reasoning (option-value args "--maintenance-reasoning")
+                            :maintenance-command (option-value args "--maintenance-command")})]
     (print-json
      (cond-> result
        (some #{"--sync"} args)

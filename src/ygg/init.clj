@@ -1,6 +1,7 @@
 (ns ygg.init
   "Project config initialization for Yggdrasil onboarding."
-  (:require [ygg.command :as command]
+  (:require [ygg.agent-install :as agent-install]
+            [ygg.command :as command]
             [ygg.fs :as fs]
             [ygg.project-registry :as registry]
             [charred.api :as json]
@@ -76,8 +77,98 @@
   [project-id]
   (str "ygg view systems --project " (command/shell-token project-id)))
 
+(defn- agent-install-command
+  [platform {:keys [hooks? skill? mcp?]}]
+  (str "ygg agent install --platform "
+       (command/shell-token platform)
+       " --project"
+       (when hooks? " --hooks")
+       (when skill? " --skill")
+       (when mcp? " --mcp")))
+
+(defn- service-start-at-login-command
+  []
+  "ygg service start-at-login enable")
+
+(def ^:private maintenance-kinds
+  #{:maintenance-decision :infra-review :dependency-review})
+
+(defn- maintenance-mode
+  [opts]
+  (some-> (:maintenance opts) str str/lower-case))
+
+(defn- maintenance-schedules
+  []
+  [{:id "sync"
+    :task :sync
+    :enabled true
+    :every-minutes 10
+    :check false
+    :enqueue false
+    :query-index true}
+   {:id "check"
+    :task :sync
+    :enabled true
+    :every-minutes 60
+    :check true
+    :enqueue true}])
+
+(defn- maintenance-harness-command
+  [platform opts]
+  (if-let [command (:maintenance-command opts)]
+    [command]
+    (case (or platform "codex")
+      "codex" ["scripts/ygg-maintenance-codex.sh"]
+      (throw (ex-info "No maintenance command is known for harness."
+                      {:platform platform
+                       :hint "Pass --maintenance-command."})))))
+
+(defn- maintenance-executor
+  [mode platform opts]
+  (let [reasoning (or (:maintenance-reasoning opts) "medium")]
+    (case mode
+      "harness"
+      {:id (or platform "codex")
+       :type :command-harness
+       :command (maintenance-harness-command platform opts)
+       :reasoning reasoning
+       :kinds maintenance-kinds}
+
+      "deepseek"
+      {:id "deepseek"
+       :type :openai-compatible
+       :provider :deepseek
+       :model (or (:maintenance-model opts) "deepseek-v4-flash")
+       :reasoning reasoning
+       :env "YGG_DEEPSEEK_API_KEY"
+       :kinds maintenance-kinds}
+
+      "openrouter"
+      {:id "openrouter-deepseek-v4"
+       :type :openai-compatible
+       :provider :openrouter
+       :model (or (:maintenance-model opts) "deepseek/deepseek-v4-flash")
+       :reasoning reasoning
+       :env "YGG_OPENROUTER_API_KEY"
+       :kinds maintenance-kinds}
+
+      (throw (ex-info "Unsupported init maintenance mode."
+                      {:maintenance mode
+                       :supported ["none" "harness" "deepseek" "openrouter"]})))))
+
+(defn- maintenance-config
+  [opts platform]
+  (let [mode (maintenance-mode opts)]
+    (when (and mode (not (#{"none" "off" "false"} mode)))
+      {:enabled true
+       :schedules (maintenance-schedules)
+       :worker {:enabled true
+                :agent-id "ygg-auto"
+                :apply {:mode :complete-only}
+                :executors [(maintenance-executor mode platform opts)]}})))
+
 (defn- next-actions
-  [project-id config-path]
+  [project-id config-path setup]
   (cond-> [{:kind :sync
             :label "Index and validate project graph"
             :command (sync-command project-id config-path "--check")}
@@ -89,7 +180,23 @@
             :command (view-systems-command project-id)}
            {:kind :agent-install
             :label "Install project-local agent guidance"
-            :command "ygg agent install --platform codex --project"}]
+            :command (agent-install-command
+                      "codex"
+                      {:hooks? true
+                       :skill? true
+                       :mcp? true})}
+           {:kind :service-start-at-login
+            :label "Start Yggdrasil automatically when this user logs in"
+            :command (service-start-at-login-command)}]
+    (:mcp setup)
+    (conj {:kind :mcp
+           :label "Configure MCP in your assistant harness"
+           :command (get-in setup [:mcp :command])})
+    (and (:maintenance setup) config-path)
+    (conj {:kind :maintenance-status
+           :label "Inspect configured auto maintenance"
+           :command (str "ygg maintenance status "
+                         (command/shell-token config-path))})
     true vec))
 
 (defn- next-commands
@@ -100,16 +207,59 @@
   [project-id root]
   (registry/write-project-ref! root project-id))
 
+(defn- maybe-assoc-maintenance
+  [config opts]
+  (if-let [maintenance (maintenance-config opts (:maintenance-platform opts))]
+    (assoc config :maintenance maintenance)
+    config))
+
+(defn- requested-harness
+  [opts]
+  (or (:harness opts)
+      (when (or (:hooks? opts) (:skill? opts) (:mcp? opts))
+        "auto")
+      "none"))
+
+(defn- harness-setup
+  [root opts]
+  (let [requested (requested-harness opts)
+        detect (agent-install/detect-platforms {:root root})
+        platform (agent-install/resolve-platform requested {:root root})
+        install? (and platform
+                      (or (not= "auto" requested)
+                          (:hooks? opts)
+                          (:skill? opts)
+                          (:mcp? opts)))
+        install-result (when install?
+                         (agent-install/install!
+                          platform
+                          {:root root
+                           :project? true
+                           :hooks? (:hooks? opts)
+                           :skill? (:skill? opts)
+                           :mcp? (:mcp? opts)
+                           :force? (:force-agent? opts)}))]
+    (cond-> {:requested requested
+             :detected (:platforms detect)
+             :platform platform
+             :installed (boolean install-result)}
+      install-result (assoc :install install-result)
+      (and (:mcp? opts) platform)
+      (assoc :mcp (get install-result :mcp
+                       {:command "ygg-mcp --config project.edn"})))))
+
 (defn plain-config
   "Return project config data for a normal repo root."
   [root opts]
   (let [root (repo-root root)
         project-id (or (:project-id opts) (default-project-id root))]
-    {:id project-id
-     :name (or (:name opts) project-id)
-     :repos [{:id "app"
-              :root root
-              :role :application}]}))
+    (maybe-assoc-maintenance
+     {:id project-id
+      :name (or (:name opts) project-id)
+      :repos [{:id "app"
+               :root root
+               :role :application}]}
+     opts)))
 
 (defn workbench-config
   "Return project config data for a workbench root."
@@ -122,7 +272,8 @@
              :repos [{:id "workbench"
                       :root root
                       :role :tooling}]}
-      (:task opts) (assoc :workbench-task (:task opts)))))
+      (:task opts) (assoc :workbench-task (:task opts))
+      true (maybe-assoc-maintenance opts))))
 
 (defn init!
   "Register a project or write a portable project config when :out is provided."
@@ -137,24 +288,35 @@
                           (registry/upsert-project! config))
         init-record (registry/record-init!)
         project-id (:id config)
-        project-ref (write-project-ref! project-id
-                                        (or (:workbench-root config)
-                                            (get-in config [:repos 0 :root])))
+        root (or (:workbench-root config) (get-in config [:repos 0 :root]))
+        project-ref (write-project-ref! project-id root)
         repo-count (if workbench?
                      (+ (count (:repos config))
                         (or (repos-json-count (:workbench-root config)) 0))
                      (count (:repos config)))
-        actions (next-actions project-id config-path)]
+        harness (harness-setup root opts)
+        maintenance (maintenance-config
+                     opts
+                     (or (get-in harness [:platform])
+                         (:maintenance-platform opts)))
+        setup {:harness harness
+               :mcp (:mcp harness)
+               :maintenance (when maintenance
+                              {:mode (maintenance-mode opts)
+                               :enabled true
+                               :executor (get-in maintenance [:worker :executors 0 :id])})}
+        actions (next-actions project-id config-path setup)]
     (cond-> {:schema schema
              :project-id project-id
              :name (:name config)
              :mode (if workbench? "workbench" "repo")
-             :root (or (:workbench-root config) (get-in config [:repos 0 :root]))
+             :root root
              :project-ref project-ref
              :repos repo-count
              :registry (:registry init-record)
              :first-init (:first-init init-record)
              :init-count (:init-count init-record)
+             :setup setup
              :next (next-commands actions)
              :nextActions actions}
       config-path (assoc :config config-path)

@@ -93,6 +93,14 @@ Example:
      :timeout-ms 600000}]}}}
 ```
 
+`ygg init` can write the common worker config non-interactively:
+
+```sh
+ygg init . --project my-project --out project.edn --maintenance harness
+ygg init . --project my-project --out project.edn --maintenance deepseek
+ygg init . --project my-project --out project.edn --maintenance openrouter
+```
+
 Command harness executors are called with `--work <input.json> --result
 <result.json>` appended to the configured command. The harness must write a
 valid JSON result to the result path. Executor `:reasoning` defaults to
@@ -109,7 +117,7 @@ enough. Do not broaden a packet into a whole-repository review.
 Server behavior:
 
 ```sh
-ygg start
+ygg init . --project my-project --out project.edn
 ygg maintenance schedule project.edn --id sync --every-minutes 10 --query-index --no-check --no-enqueue
 ygg maintenance schedule project.edn --id check --every-minutes 60 --check --enqueue
 ygg maintenance enable project.edn

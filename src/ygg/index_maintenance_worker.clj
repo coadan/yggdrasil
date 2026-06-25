@@ -190,6 +190,12 @@
     (:data decision)
     (assoc :data (compact-decision-data (:data decision)))))
 
+(defn- compact-decision-item
+  [item]
+  (cond-> (select-keys item [:decisionId :allowedActions :expectedOutput])
+    (:decision item)
+    (assoc :decision (compact-decision (:decision item)))))
+
 (defn- mark-messages-omitted
   [out payload]
   (if-let [messages (seq (:messages payload))]
@@ -210,6 +216,19 @@
       :expectedResultSchema (:expectedResultSchema payload)
       :expectedOutput (:expectedOutput payload)
       :decision (compact-decision (:decision payload))}
+     payload)
+
+    "ygg.frontier.decision-batch/v1"
+    (mark-messages-omitted
+     {:schema (:schema payload)
+      :batchId (:batchId payload)
+      :project-id (:project-id payload)
+      :goal (:goal payload)
+      :instructions (:instructions payload)
+      :expectedResultSchema (:expectedResultSchema payload)
+      :expectedOutput (:expectedOutput payload)
+      :decisions (update (bounded-vec 12 (map compact-decision-item (:items payload)))
+                         :items vec)}
      payload)
 
     (mark-messages-omitted (dissoc payload :messages) payload)))

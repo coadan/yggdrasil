@@ -105,6 +105,16 @@
                                              :kind "maintenance-decision"
                                              :project-id "demo"})
                             [:item :id])
+        batch-id (get-in (queue/enqueue! {:schema "ygg.frontier.decision-batch/v1"
+                                          :batchId "maintenance-decision-batch:test"
+                                          :project-id "demo"
+                                          :items [{:decisionId "maintenance-decision:first"}
+                                                  {:decisionId "maintenance-decision:second"}]
+                                          :expectedResultSchema "ygg.index-maintenance.classification-batch/v1"}
+                                         {:root root
+                                          :kind "maintenance-decision"
+                                          :project-id "demo"})
+                         [:item :id])
         by-id (->> (:items (queue/list-summary root {:project-id "demo"}))
                    (map (juxt :id identity))
                    (into {}))]
@@ -123,7 +133,14 @@
             :allowedActions ["accept-system" "none"]}
            (:payload-summary (get by-id decision-id))))
     (is (= "ygg.index-maintenance.classification/v1"
-           (:expected-result-schema (get by-id decision-id))))))
+           (:expected-result-schema (get by-id decision-id))))
+    (is (= {:id "maintenance-decision-batch:test"
+            :decisionCount 2
+            :decisionIds ["maintenance-decision:first"
+                          "maintenance-decision:second"]}
+           (:payload-summary (get by-id batch-id))))
+    (is (= "ygg.index-maintenance.classification-batch/v1"
+           (:expected-result-schema (get by-id batch-id))))))
 
 (deftest queue-summary-includes-state-specific-actions
   (let [root (str (temp-dir "ygg-queue actions") "/queue root")

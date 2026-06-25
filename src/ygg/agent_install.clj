@@ -37,6 +37,15 @@
   (case platform
     "codex" (io/file (project-root opts) ".codex" "hooks.json")))
 
+(defn- skill-path
+  [platform opts]
+  (case platform
+    "codex" (io/file (project-root opts) ".codex" "skills" "ygg" "SKILL.md")))
+
+(defn- mcp-command
+  [_platform]
+  "ygg-mcp --config project.edn")
+
 (defn- read-file
   [file]
   (when (.exists file)
@@ -214,6 +223,49 @@
   []
   (str (json/write-json-str (hooks-json) {:indent-str "  "}) "\n"))
 
+(defn skill-content
+  "Return the reusable Yggdrasil skill file content for assistant harnesses."
+  []
+  (str "---\n"
+       "name: ygg\n"
+       "description: Use Yggdrasil for graph-grounded repository context, project memory, correction facts, sync inspection, MCP tools, and maintenance work. Trigger when a coding task depends on project structure, ownership, dependencies, architecture boundaries, recurring fixes, or when the user mentions ygg, Yggdrasil, project graph, codebase memory, maintenance packets, or correction facts.\n"
+       "---\n\n"
+       "# Yggdrasil\n\n"
+       "Use Yggdrasil before broad raw-file exploration when the task depends on "
+       "project structure, ownership, dependencies, system boundaries, or accepted "
+       "project memory.\n\n"
+       "Start with the narrowest fresh context check:\n\n"
+       "```sh\n"
+       "ygg current --json\n"
+       "ygg sync inspect <project.edn> --json\n"
+       "ygg query \"<question>\" --project <project-id> --json\n"
+       "```\n\n"
+       "If `sync inspect` reports stale, unsynced, limited, or empty evidence, follow "
+       "its `nextActions` before assuming the graph has no evidence. Use anchors, "
+       "symbols, or literals in `ygg query` when the task gives concrete names.\n\n"
+       "Use MCP when available. Prefer `ygg_query` for structural questions, "
+       "`ygg_node` for entity drilldowns, `ygg_systems` for system slices, and "
+       "`ygg_status` for freshness checks. Configure the MCP process with:\n\n"
+       "```sh\n"
+       "ygg-mcp --config project.edn\n"
+       "```\n\n"
+       "Project memory enters normal query packets in `memories`; do not use or "
+       "expect a separate memory search surface. Manage lifecycle with "
+       "`ygg memory add|review|accept|reject|supersede|attach`.\n\n"
+       "For queued maintenance work, pull one bounded packet at a time, write one "
+       "JSON result, validate it, then apply only accepted correction facts:\n\n"
+       "```sh\n"
+       "ygg sync <project.edn> --check --enqueue\n"
+       "ygg sync work pull --project <project-id> --agent <agent-id>\n"
+       "ygg sync work complete <work-id> --result result.json\n"
+       "ygg sync work validate <work-id>\n"
+       "```\n\n"
+       "Keep Yggdrasil evidence-first. Deterministic code records mechanical facts; "
+       "humans or LLM-backed correction packets make semantic decisions. Do not "
+       "infer architecture from names, host strings, path vocabulary, prose, or "
+       "substring lists. Record accepted meaning through supported Yggdrasil "
+       "commands.\n"))
+
 (defn- install-plan
   [platform opts]
   (let [instructions (instruction-path platform opts)
@@ -222,14 +274,20 @@
         hooks (when (:hooks? opts)
                 (let [file (hook-path platform opts)]
                   {:path (.getPath file)
-                   :content (hooks-content)}))]
+                   :content (hooks-content)}))
+        skill (when (:skill? opts)
+                (let [file (skill-path platform opts)]
+                  {:path (.getPath file)
+                   :content (skill-content)}))]
     (cond-> {:schema schema
              :action "print-config"
              :platform platform
              :scope "project"
              :instructions {:path (.getPath instructions)
                             :content new-content}}
-      hooks (assoc :hooks hooks))))
+      hooks (assoc :hooks hooks)
+      skill (assoc :skill skill)
+      (:mcp? opts) (assoc :mcp {:command (mcp-command platform)}))))
 
 (defn- write-hooks!
   [platform opts]
@@ -243,6 +301,42 @@
                       {:path (.getPath file)})))
     (write-file! file content)))
 
+(defn- write-skill!
+  [platform opts]
+  (write-file! (skill-path platform opts) (skill-content)))
+
+(defn detect-platforms
+  "Return supported assistant harnesses detected near `:root`."
+  [opts]
+  (let [root (project-root opts)
+        codex-markers [(io/file root "AGENTS.md")
+                       (io/file root ".codex")]
+        marker? (some #(.exists ^java.io.File %) codex-markers)]
+    {:schema "ygg.agent-detect/v1"
+     :platforms (cond-> []
+                  marker?
+                  (conj {:id "codex"
+                         :reason "project-marker"
+                         :markers (->> codex-markers
+                                       (filter #(.exists ^java.io.File %))
+                                       (mapv #(.getPath ^java.io.File %)))}))}))
+
+(defn resolve-platform
+  "Resolve a requested harness platform. `auto` uses detected supported markers."
+  [requested opts]
+  (let [requested (or requested "none")]
+    (cond
+      (= "none" requested)
+      nil
+
+      (= "auto" requested)
+      (some-> (detect-platforms opts) :platforms first :id)
+
+      :else
+      (do
+        (ensure-supported-platform! requested)
+        requested))))
+
 (defn install!
   "Install assistant guidance for platform.
 
@@ -250,6 +344,8 @@
   - `:root`: project root, defaults to current working directory
   - `:project?`: must be true for the current implementation
   - `:hooks?`: write optional hook configuration
+  - `:skill?`: write the reusable Yggdrasil skill file for the harness
+  - `:mcp?`: include the MCP launch command in the result
   - `:force?`: replace an existing hook file when `:hooks?` is true
   - `:print-config?`: return generated config without writing files"
   [platform opts]
@@ -265,13 +361,17 @@
           new-content (replace-marked-section existing (instruction-section))
           instruction-path (write-file! instructions new-content)
           hooks-path (when (:hooks? opts)
-                       (write-hooks! platform opts))]
+                       (write-hooks! platform opts))
+          skill-path (when (:skill? opts)
+                       (write-skill! platform opts))]
       (cond-> {:schema schema
                :action "install"
                :platform platform
                :scope "project"
                :instructions instruction-path}
-        hooks-path (assoc :hooks hooks-path)))))
+        hooks-path (assoc :hooks hooks-path)
+        skill-path (assoc :skill skill-path)
+        (:mcp? opts) (assoc :mcp {:command (mcp-command platform)})))))
 
 (defn uninstall!
   "Remove assistant guidance for platform."
@@ -317,4 +417,6 @@
                    (mapv (fn [platform]
                            {:id platform
                             :scopes ["project"]
-                            :hooks? (= "codex" platform)})))})
+                            :hooks? (= "codex" platform)
+                            :skill? (= "codex" platform)
+                            :mcp? true})))})

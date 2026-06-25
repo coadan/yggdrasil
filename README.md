@@ -26,13 +26,13 @@ should come from repeatable benchmarks.
 ## Quickstart
 
 ```sh
-ygg start
-ygg init . --project my-project --out project.edn --sync
+bin/ygg init . --project my-project --out project.edn --sync
 ygg query "where is auth handled" --project my-project
 ```
 
-`start` starts the long-lived local Yggdrasil server. Other `ygg` commands
-expect that server to be running and fail fast if it is not available.
+`init` creates the project reference and starts the long-lived local Yggdrasil
+server when it is not already running. Other `ygg` commands expect that server
+to be available.
 Project graph state, correction facts, memory, and activity are stored in XTDB.
 
 For lower-level setup, use the explicit commands behind that flow:
@@ -42,6 +42,24 @@ ygg init . --project my-project --out project.edn
 ygg sync project.edn --check
 ygg query "where is auth handled" --project my-project
 ```
+
+To start the server automatically when you log in on macOS:
+
+```sh
+ygg service start-at-login enable
+```
+
+`init` can also set up assistant harness files and auto maintenance without
+prompts:
+
+```sh
+bin/ygg init . --project my-project --out project.edn \
+  --harness codex --hooks --skill --mcp \
+  --maintenance harness
+```
+
+Use `--maintenance deepseek` or `--maintenance openrouter` to run maintenance
+with a DeepSeek V4-compatible API executor instead of the assistant harness.
 
 Default repo-local Yggdrasil data lives under `.ygg/`. Project-shared state,
 including XTDB, lives under the central Yggdrasil storage root by project id.
@@ -122,13 +140,11 @@ ygg query "where is auth handled" --project my-project --provider openrouter
 - Hand off work: enqueue bounded maintenance packets, claim them from the local
   queue, validate results, and apply accepted corrections.
 
-## Install And Develop
+## Develop
 
-Native macOS install from a clone:
-
-```sh
-scripts/install-macos.sh --install-deps
-```
+From a clone, run the entrypoints directly from `bin/` or put that directory on
+your `PATH`. First project setup is always `ygg init`; there is no separate
+top-level setup command.
 
 Local verification:
 
@@ -140,9 +156,16 @@ bb v1:smoke
 bb v1:gate
 ```
 
-This installs the Yggdrasil binary. Project agent setup is noun-scoped: use
-`ygg agent install` and `ygg agent uninstall`, not top-level
-`ygg install` or `ygg uninstall` wrappers.
+Native server build path:
+
+```sh
+bb graalvm:uber
+bb graalvm:check
+bb graalvm:native
+```
+
+Project agent setup is noun-scoped: use `ygg agent install` and
+`ygg agent uninstall`, not top-level `ygg install` or `ygg uninstall` wrappers.
 
 ## Detailed Docs
 

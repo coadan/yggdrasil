@@ -15,6 +15,7 @@ Optional:
 
 - Babashka, for `bb` development shortcuts.
 - Node.js and npm, for rebuilding the React/MDX report viewer assets.
+- GraalVM `native-image`, for building the standalone server binary.
 - OpenRouter or OpenAI API key, for embedding-backed semantic retrieval.
 - Docker, for zero-install CLI usage.
 
@@ -116,27 +117,6 @@ Maven coordinates do not mechanically imply Java package roots:
 ygg corrections package import org.slf4j maven:org.slf4j:slf4j-api \
   --reason "slf4j-api exports org.slf4j"
 ```
-
-## macOS
-
-Install dependencies and link the local entrypoints:
-
-```sh
-scripts/install-macos.sh --install-deps
-```
-
-Link entrypoints without installing dependencies:
-
-```sh
-scripts/install-macos.sh
-```
-
-The installer links:
-
-- `ygg`
-- `ygg-mcp`
-
-to `$HOME/.local/bin` by default. Use `--prefix DIR` to choose another prefix.
 
 ## Development
 

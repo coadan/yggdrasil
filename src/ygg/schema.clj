@@ -1,15 +1,98 @@
 (ns ygg.schema
-  "Malli schemas for graph records."
-  (:require [malli.core :as m]))
+  "Lightweight schemas for graph records.")
 
 (defonce ^:private validators
   (atom {}))
+
+(declare validate-schema)
+
+(defn- schema-kind
+  [schema]
+  (when (vector? schema)
+    (first schema)))
+
+(defn- predicate-name
+  [pred]
+  (or (some-> pred meta :name name)
+      (str pred)))
+
+(defn- failure
+  [path kind expected value]
+  {:path path
+   :kind kind
+   :expected expected
+   :value value})
+
+(defn- map-entry
+  [[k maybe-opts maybe-schema]]
+  (if (map? maybe-opts)
+    {:key k
+     :optional? (true? (:optional maybe-opts))
+     :schema maybe-schema}
+    {:key k
+     :optional? false
+     :schema maybe-opts}))
+
+(defn- validate-map
+  [schema value path]
+  (if-not (map? value)
+    [(failure path :type :map value)]
+    (->> (rest schema)
+         (mapcat
+          (fn [entry]
+            (let [{:keys [key optional? schema]} (map-entry entry)]
+              (if (contains? value key)
+                (validate-schema schema (get value key) (conj path key))
+                (when-not optional?
+                  [(failure (conj path key) :required key nil)])))))
+         vec)))
+
+(defn- validate-vector
+  [[_ item-schema] value path]
+  (if-not (vector? value)
+    [(failure path :type :vector value)]
+    (->> value
+         (map-indexed
+          (fn [idx item]
+            (validate-schema item-schema item (conj path idx))))
+         (apply concat)
+         vec)))
+
+(defn- validate-or
+  [schemas value path]
+  (if (some #(empty? (validate-schema % value path)) schemas)
+    []
+    [(failure path :or (mapv schema-kind schemas) value)]))
+
+(defn- validate-schema
+  [schema value path]
+  (cond
+    (fn? schema)
+    (if (schema value)
+      []
+      [(failure path :predicate (predicate-name schema) value)])
+
+    (vector? schema)
+    (case (first schema)
+      :map (validate-map schema value path)
+      :vector (validate-vector schema value path)
+      :or (validate-or (rest schema) value path)
+      [(failure path :schema schema value)])
+
+    :else
+    [(failure path :schema schema value)]))
+
+(defn explain
+  "Return validation details for value."
+  [schema value]
+  {:schema schema
+   :errors (validate-schema schema value [])})
 
 (defn- validator
   [schema]
   (if-let [validate (@validators schema)]
     validate
-    (let [validate (m/validator schema)]
+    (let [validate #(empty? (:errors (explain schema %)))]
       (get (swap! validators assoc schema validate) schema))))
 
 (def file-row
@@ -318,5 +401,5 @@
   [schema value message]
   (when-not ((validator schema) value)
     (throw (ex-info message {:value value
-                             :explain (m/explain schema value)})))
+                             :explain (explain schema value)})))
   value)

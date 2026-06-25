@@ -613,6 +613,8 @@
         platform (or (option-value agent-args "--platform") "codex")
         opts {:project? (boolean (some #{"--project"} agent-args))
               :hooks? (boolean (some #{"--hooks"} agent-args))
+              :skill? (boolean (some #{"--skill"} agent-args))
+              :mcp? (boolean (some #{"--mcp"} agent-args))
               :force? (boolean (some #{"--force"} agent-args))
               :print-config? (boolean (some #{"--print-config"} agent-args))}]
     (case action
@@ -961,7 +963,7 @@
    ["Usage:"
     ""
     "Setup:"
-    "  init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force] [--sync]"
+    "  init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force] [--sync] [--harness codex|auto|none] [--hooks] [--skill] [--mcp] [--maintenance none|harness|deepseek|openrouter] [--maintenance-model MODEL] [--maintenance-reasoning low|medium|high|xhigh] [--maintenance-command CMD]"
     "  init --workbench <root> [--task TASK] [--project ID] [--name NAME] [--out project.edn] [--force]"
     "  current [--project ID] [--json]"
     "  use <project-id> [--json]"
@@ -1040,7 +1042,7 @@
     "  plugin registry install <registry.edn> <project.edn> <package-id> [--cache-dir DIR] [--force] [--json] [--no-progress]"
     ""
     "Agent integration:"
-    "  agent install --platform codex --project [--hooks] [--print-config]"
+    "  agent install --platform codex --project [--hooks] [--skill] [--mcp] [--print-config]"
     "  agent uninstall --platform codex --project"
     "  agent list"
     "  watch <project.edn> [--query-index] [--debounce-ms N]"
@@ -1050,6 +1052,7 @@
     ""
     "Server integration:"
     "  start"
+    "  service start-at-login enable|disable|status [--json]"
     "  status [--json]"
     "  stop"
     "  mcp [--root DIR] [--config project.edn] [--queue-dir DIR] [--tools default,sync,work|all]"

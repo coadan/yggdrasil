@@ -9,5 +9,6 @@
     (is (= daemon-contract/unavailable-exit (:exit response)))
     (is (= "" (:out response)))
     (is (str/includes? (:err response) "Direct ygg.demo entrypoint is disabled."))
+    (is (str/includes? (:err response) "ygg init"))
     (is (str/includes? (:err response) "ygg start"))
     (is (str/includes? (:err response) "ygg demo"))))

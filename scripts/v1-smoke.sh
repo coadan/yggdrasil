@@ -42,8 +42,10 @@ PROJECT_EDN="$FIXTURE_REPO/project.edn"
 SERVER_PID=""
 
 cleanup() {
-  if [ -n "$SERVER_PID" ]; then
+  if [ -x "$PREFIX/bin/ygg" ]; then
     "$PREFIX/bin/ygg" stop >/dev/null 2>&1 || true
+  fi
+  if [ -n "$SERVER_PID" ]; then
     wait "$SERVER_PID" >/dev/null 2>&1 || true
   fi
   if [ "$KEEP" -eq 0 ] && [ -z "${YGG_V1_SMOKE_DIR:-}" ]; then
@@ -53,40 +55,16 @@ cleanup() {
 trap cleanup EXIT
 
 install_wrappers() {
-  if [ "$(uname -s)" = "Darwin" ]; then
-    "$REPO_DIR/scripts/install-macos.sh" --prefix "$PREFIX" > "$WORK_DIR/install.log"
-  else
-    mkdir -p "$PREFIX/bin"
-    ln -sfn "$REPO_DIR/bin/ygg" "$PREFIX/bin/ygg"
-    ln -sfn "$REPO_DIR/bin/ygg-mcp" "$PREFIX/bin/ygg-mcp"
-    printf 'Installed symlink fallback for non-macOS smoke.\n' > "$WORK_DIR/install.log"
-  fi
-}
-
-start_server() {
   export YGG_SERVER_PORT="${YGG_SERVER_PORT:-$((62122 + ($$ % 1000)))}"
   export YGG_XTDB_PATH="$WORK_DIR/xtdb"
-  "$PREFIX/bin/ygg" start > "$WORK_DIR/server.log" 2>&1 &
-  SERVER_PID=$!
-  for _ in $(seq 1 30); do
-    if "$PREFIX/bin/ygg" status > "$WORK_DIR/status.txt" 2> "$WORK_DIR/status.err"; then
-      return
-    fi
-    if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
-      cat "$WORK_DIR/server.log" >&2 || true
-      cat "$WORK_DIR/status.err" >&2 || true
-      return 1
-    fi
-    sleep 1
-  done
-  cat "$WORK_DIR/server.log" >&2 || true
-  cat "$WORK_DIR/status.err" >&2 || true
-  echo "Timed out waiting for ygg server." >&2
-  return 1
+  export YGG_SERVER_LOG="$WORK_DIR/server.log"
+  mkdir -p "$PREFIX/bin"
+  ln -sfn "$REPO_DIR/bin/ygg" "$PREFIX/bin/ygg"
+  ln -sfn "$REPO_DIR/bin/ygg-mcp" "$PREFIX/bin/ygg-mcp"
+  printf 'Linked local entrypoints for smoke.\n' > "$WORK_DIR/install.log"
 }
 
 install_wrappers
-start_server
 if ! "$PREFIX/bin/ygg" > "$WORK_DIR/help.txt" 2>&1; then
   grep -q "Usage:" "$WORK_DIR/help.txt"
 fi
@@ -114,6 +92,9 @@ EOF
 pushd "$FIXTURE_REPO" >/dev/null
 "$PREFIX/bin/ygg" init "$FIXTURE_REPO" \
   --project v1-smoke \
+  --harness codex \
+  --skill \
+  --mcp \
   --out "$PROJECT_EDN" > "$WORK_DIR/start.json"
 "$PREFIX/bin/ygg" sync "$PROJECT_EDN" \
   --query-index \

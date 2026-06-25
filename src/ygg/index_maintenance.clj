@@ -22,6 +22,9 @@
 (def producer
   "index-maintenance")
 
+(def decision-batch-size
+  8)
+
 (defn- severity-priority
   [severity]
   ({:high 90 :medium 60 :low 30
@@ -45,13 +48,13 @@
    :source (source lane)
    :payload payload})
 
-(defn- decision-work
-  [decision]
+(defn- decision-batch-work
+  [decisions]
   (work graph-lane
         "maintenance-decision"
-        (:project-id decision)
-        (severity-priority (:severity decision))
-        (decision-classifier/decision-packet decision)))
+        (:project-id (first decisions))
+        (apply max (map (comp severity-priority :severity) decisions))
+        (decision-classifier/decision-batch-packet decisions)))
 
 (defn- infra-review-work
   [packet]
@@ -73,7 +76,8 @@
   [graph-report]
   (vec
    (concat
-    (map decision-work (:decision-queue graph-report))
+    (map decision-batch-work
+         (partition-all decision-batch-size (:decision-queue graph-report)))
     (map infra-review-work (:infra-review-queue graph-report))
     (map dependency-review-work (:dependency-review-queue graph-report)))))
 

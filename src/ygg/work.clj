@@ -24,6 +24,9 @@
     "ygg.frontier.decision/v1"
     (decision-classifier/apply-work-result! xtdb root id)
 
+    "ygg.frontier.decision-batch/v1"
+    (decision-classifier/apply-work-result! xtdb root id)
+
     {:schema apply-schema
      :status "failed"
      :errors [{:path [:payload :schema]
@@ -36,6 +39,7 @@
     "ygg.infra.review-packet/v1" infra-review/apply-schema
     "ygg.dependency.review-packet/v1" dependency-review/apply-schema
     "ygg.frontier.decision/v1" decision-classifier/apply-schema
+    "ygg.frontier.decision-batch/v1" decision-classifier/apply-schema
     apply-schema))
 
 (defn validate-result
@@ -56,6 +60,9 @@
                      (dependency-review/validate-result item)
 
                      "ygg.frontier.decision/v1"
+                     (decision-classifier/validate-result item)
+
+                     "ygg.frontier.decision-batch/v1"
                      (decision-classifier/validate-result item)
 
                      nil)
