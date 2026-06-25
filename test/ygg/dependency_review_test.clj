@@ -94,11 +94,11 @@
                       :confidence 0.9
                       :reason "The import prefix is provided by the declared package."
                       :correctionPatch [{:op "add-package-import"
-                                  :import "org.slf4j"
-                                  :ecosystem "maven"
-                                  :package "org.slf4j:slf4j-api"
-                                  :evidence [evidence-id]
-                                  :reason "The package declares the matching API."}]})
+                                         :import "org.slf4j"
+                                         :ecosystem "maven"
+                                         :package "org.slf4j:slf4j-api"
+                                         :evidence [evidence-id]
+                                         :reason "The package declares the matching API."}]})
     (store/with-node xtdb-path
       (fn [xtdb]
         (let [applied (dependency-review/apply-work-result! xtdb root id)
@@ -149,8 +149,8 @@
           (is (= 1 (get-in report [:counts :unresolved-imports])))
           (is (= ["left_pad"] (mapv :import (:unresolved-imports report)))))))
     (with-redefs [store/storage-path (constantly xtdb-path)]
-      (let [check-result (sync-dispatch-json "check"
-                                             project-path
+      (let [check-result (sync-dispatch-json project-path
+                                             "--check"
                                              "--enqueue"
                                              "--json"
                                              "--queue-dir"
@@ -189,11 +189,11 @@
                 :confidence 0.83
                 :reason "The unresolved import matches the declared package after separator normalization."
                 :correctionPatch [{:op "add-package-import"
-                            :import "left_pad"
-                            :ecosystem "npm"
-                            :package "left-pad"
-                            :evidence [evidence-id]
-                            :reason "Reviewed package import mapping."}]}
+                                   :import "left_pad"
+                                   :ecosystem "npm"
+                                   :package "left-pad"
+                                   :evidence [evidence-id]
+                                   :reason "Reviewed package import mapping."}]}
                {:indent-str "  "}))
         (let [completed (sync-dispatch-json "work"
                                             "complete"
@@ -261,11 +261,11 @@
                           :recommendation "add-package-import"
                           :reason "Use a package."
                           :correctionPatch [{:op "add-package-import"
-                                      :import "org.slf4j"
-                                      :ecosystem "maven"
-                                      :package "org.slf4j:slf4j-api"
-                                      :evidence [evidence-id]
-                                      :reason "Not in packet."}]}})]
+                                             :import "org.slf4j"
+                                             :ecosystem "maven"
+                                             :package "org.slf4j:slf4j-api"
+                                             :evidence [evidence-id]
+                                             :reason "Not in packet."}]}})]
     (is (= [{:path [:correctionPatch 0 :package]
              :error "Patch package must be one of facts.packages[]."
              :value {:ecosystem "maven"

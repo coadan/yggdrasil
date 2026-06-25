@@ -348,8 +348,8 @@
 
       "reject-external-api"
       (correction-overlay/add-reject overlay {:kind "external-api"
-                                     :host target}
-                            reason)
+                                              :host target}
+                                     reason)
 
       ("add-edge" "set-edge-visibility")
       (correction-overlay/add-edge overlay (patch->edge patch))

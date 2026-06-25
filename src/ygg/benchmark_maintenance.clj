@@ -101,8 +101,8 @@
                                               project
                                               {:config-path config-path
                                                :correction-overlay (corrections/overlay
-                                                             xtdb
-                                                             (:id project))})
+                                                                    xtdb
+                                                                    (:id project))})
                           [:schema
                            :project-id
                            :freshness

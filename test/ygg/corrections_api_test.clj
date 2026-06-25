@@ -57,26 +57,26 @@
         (let [overlay (corrections/overlay xtdb "fixture")
               system (first (:systems overlay))]
           (is (= correction-overlay/schema (:schema overlay)))
-      (is (= ["system:accepted"] (mapv :id (:systems overlay))))
-      (is (= {:id "system:accepted"
-              :label "Accepted"
-              :kind "service"
-              :includes [{:repo "app"
-                          :path "src/accepted"}]
-              :status "accepted"
-              :reason "Reviewed architecture boundary."}
-             system))
-      (is (not-any? #(contains? system %)
-                    [:provenance :source :candidateTypes :metrics :evidence]))
-      (is (= [{:import "org.slf4j"
-               :ecosystem "maven"
-               :package "org.slf4j:slf4j-api"
-               :status "accepted"
-               :repo "app"
-               :reason "Reviewed package mapping."
-               :confidence 1.0
-               :rules "agent"}]
-             (:packageImports overlay))))))))
+          (is (= ["system:accepted"] (mapv :id (:systems overlay))))
+          (is (= {:id "system:accepted"
+                  :label "Accepted"
+                  :kind "service"
+                  :includes [{:repo "app"
+                              :path "src/accepted"}]
+                  :status "accepted"
+                  :reason "Reviewed architecture boundary."}
+                 system))
+          (is (not-any? #(contains? system %)
+                        [:provenance :source :candidateTypes :metrics :evidence]))
+          (is (= [{:import "org.slf4j"
+                   :ecosystem "maven"
+                   :package "org.slf4j:slf4j-api"
+                   :status "accepted"
+                   :repo "app"
+                   :reason "Reviewed package mapping."
+                   :confidence 1.0
+                   :rules "agent"}]
+                 (:packageImports overlay))))))))
 
 (deftest correction-import-ignores-generated-candidate-overlays
   (let [xtdb-path (temp-dir "ygg-corrections-import-candidate")

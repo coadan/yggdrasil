@@ -101,10 +101,10 @@
       (fn [xtdb]
         (let [parser-worker (benchmark-agent-packet/parser-worker-profile opts)
               correction-overlay (benchmark-maintenance/prepare-agent-overlay!
-                           xtdb
-                           case
-                           prepared
-                           opts)
+                                  xtdb
+                                  case
+                                  prepared
+                                  opts)
               index-summary (benchmark-progress/progress-stage!
                              suite
                              case

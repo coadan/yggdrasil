@@ -566,115 +566,115 @@
             (not without-import-evidence?))
      (package-report-summary xtdb scope opts)
      (let [files (active-scope-rows xtdb (:files store/tables) scope)
-         nodes (active-scope-rows xtdb (:nodes store/tables) scope)
-         edges (active-scope-report-edge-rows xtdb scope package-report-edge-relations)
-         files-by-path (into {} (map (juxt :path identity)) files)
-         nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
-         alias-nodes (filterv import-common/module-path-alias-node? nodes)
-         module-nodes (dependency-imports/module-nodes nodes)
-         local-namespace-targets (import-common/local-namespace-targets nodes)
-         packages (->> nodes (filter package-node?) sorted-values)
-         packages-by-id (into {} (map (juxt :xt/id identity)) packages)
-         versions (->> nodes
-                       (filter #(= :external-package-version (:kind %)))
-                       sorted-values)
-         requires (filter (partial relation? :requires) edges)
-         resolves (filter (partial relation? :resolves) edges)
-         version-of (filter (partial relation? :version-of) edges)
-         imports (filter (partial relation? :imports-package) edges)
-         source-edges (filter #(contains? #{:imports :uses} (:relation %))
-                              edges)
-         candidate-source-edges (filter #(dependency-imports/package-import-candidate?
-                                          {:files-by-path files-by-path
-                                           :alias-nodes alias-nodes
-                                           :module-nodes module-nodes
-                                           :nodes-by-id nodes-by-id
-                                           :local-namespace-targets local-namespace-targets
-                                           :edge %})
-                                        source-edges)
-         report-imports (vec (concat imports
-                                     (correction-overlay-import-edges project-id
-                                                               packages-by-id
-                                                               files-by-path
-                                                               correction-overlay
-                                                               candidate-source-edges
-                                                               imports)))
-         requires-by-package (group-by :target-id requires)
-         resolves-by-version (group-by :target-id resolves)
-         versions-by-package (->> version-of
-                                  (keep (fn [edge]
-                                          (when-let [version (get nodes-by-id (:source-id edge))]
-                                            [(:target-id edge) version])))
-                                  (reduce (fn [out [package-id version]]
-                                            (update out package-id (fnil conj []) version))
-                                          {}))
-         imports-by-package (group-by :target-id report-imports)
-         entries (->> packages
-                      (mapv #(package-entry % nodes-by-id
-                                            requires-by-package
-                                            versions-by-package
-                                            resolves-by-version
-                                            imports-by-package)))
-         conflicts (version-conflicts entries)
-         conflict-ids (set (map :id conflicts))
-         filtered-entries (->> entries
-                               (filter #(package-filter-match? opts conflict-ids %))
-                               vec)
-         filtered-package-ids (set (map :id filtered-entries))
-         filtered-version-ids (->> filtered-entries
-                                   (mapcat :resolved-versions)
-                                   (map :id)
-                                   set)
-         filtered-packages (filter #(contains? filtered-package-ids (:xt/id %)) packages)
-         filtered-versions (filter #(contains? filtered-version-ids (:xt/id %)) versions)
-         filtered-requires (filter #(contains? filtered-package-ids (:target-id %)) requires)
-         filtered-resolves (filter #(contains? filtered-version-ids (:target-id %)) resolves)
-         filtered-imports (filter #(contains? filtered-package-ids (:target-id %)) report-imports)
-         declared-without-import-evidence (->> filtered-entries
-                                               (filter #(and (seq (:declared-by %))
-                                                             (empty? (:imported-by %))))
-                                               vec)
-         filtered-conflicts (->> conflicts
-                                 (filter #(contains? filtered-package-ids (:id %)))
+           nodes (active-scope-rows xtdb (:nodes store/tables) scope)
+           edges (active-scope-report-edge-rows xtdb scope package-report-edge-relations)
+           files-by-path (into {} (map (juxt :path identity)) files)
+           nodes-by-id (into {} (map (juxt :xt/id identity)) nodes)
+           alias-nodes (filterv import-common/module-path-alias-node? nodes)
+           module-nodes (dependency-imports/module-nodes nodes)
+           local-namespace-targets (import-common/local-namespace-targets nodes)
+           packages (->> nodes (filter package-node?) sorted-values)
+           packages-by-id (into {} (map (juxt :xt/id identity)) packages)
+           versions (->> nodes
+                         (filter #(= :external-package-version (:kind %)))
+                         sorted-values)
+           requires (filter (partial relation? :requires) edges)
+           resolves (filter (partial relation? :resolves) edges)
+           version-of (filter (partial relation? :version-of) edges)
+           imports (filter (partial relation? :imports-package) edges)
+           source-edges (filter #(contains? #{:imports :uses} (:relation %))
+                                edges)
+           candidate-source-edges (filter #(dependency-imports/package-import-candidate?
+                                            {:files-by-path files-by-path
+                                             :alias-nodes alias-nodes
+                                             :module-nodes module-nodes
+                                             :nodes-by-id nodes-by-id
+                                             :local-namespace-targets local-namespace-targets
+                                             :edge %})
+                                          source-edges)
+           report-imports (vec (concat imports
+                                       (correction-overlay-import-edges project-id
+                                                                        packages-by-id
+                                                                        files-by-path
+                                                                        correction-overlay
+                                                                        candidate-source-edges
+                                                                        imports)))
+           requires-by-package (group-by :target-id requires)
+           resolves-by-version (group-by :target-id resolves)
+           versions-by-package (->> version-of
+                                    (keep (fn [edge]
+                                            (when-let [version (get nodes-by-id (:source-id edge))]
+                                              [(:target-id edge) version])))
+                                    (reduce (fn [out [package-id version]]
+                                              (update out package-id (fnil conj []) version))
+                                            {}))
+           imports-by-package (group-by :target-id report-imports)
+           entries (->> packages
+                        (mapv #(package-entry % nodes-by-id
+                                              requires-by-package
+                                              versions-by-package
+                                              resolves-by-version
+                                              imports-by-package)))
+           conflicts (version-conflicts entries)
+           conflict-ids (set (map :id conflicts))
+           filtered-entries (->> entries
+                                 (filter #(package-filter-match? opts conflict-ids %))
                                  vec)
-         packages-by-source (package-by-source nodes edges)
-         manifest-paths (set (keys packages-by-source))
-         unresolved-imports (if (or ecosystem package with-conflicts? without-import-evidence?)
-                              []
-                              (->> candidate-source-edges
-                                   (filter #(nil? (resolve-package-import packages-by-id
-                                                                          packages-by-source
-                                                                          manifest-paths
-                                                                          files-by-path
-                                                                          correction-overlay
-                                                                          (:repo-id %)
-                                                                          %)))
-                                   (mapv #(unresolved-import-row nodes-by-id
-                                                                 files-by-path
-                                                                 %))
-                                   (sort-by (juxt :path :line :import))
-                                   vec))
-         counts {:packages (count filtered-packages)
-                 :versions (count filtered-versions)
-                 :requires (count filtered-requires)
-                 :resolves (count filtered-resolves)
-                 :imports-package (count filtered-imports)
-                 :source-import-candidates (count candidate-source-edges)
-                 :unresolved-imports (count unresolved-imports)
-                 :declared-without-import-evidence (count declared-without-import-evidence)
-                 :version-conflicts (count filtered-conflicts)}
-         next-actions (package-next-actions project-id counts)]
-     {:schema "ygg.dependency.report/v1"
-      :project-id project-id
-      :repo-id repo-id
-      :filters (select-keys opts [:ecosystem :package :with-conflicts? :without-import-evidence?])
-      :counts counts
-      :ecosystems (summarize-ecosystem filtered-packages filtered-versions filtered-imports)
-      :packages (limit-report-entries filtered-entries limit)
-      :declared-without-import-evidence (limit-report-entries
-                                         declared-without-import-evidence
-                                         limit)
-      :unresolved-imports (limit-report-entries unresolved-imports limit)
-      :version-conflicts (limit-report-entries filtered-conflicts limit)
-      :nextActions next-actions
-      :next (mapv :command next-actions)}))))
+           filtered-package-ids (set (map :id filtered-entries))
+           filtered-version-ids (->> filtered-entries
+                                     (mapcat :resolved-versions)
+                                     (map :id)
+                                     set)
+           filtered-packages (filter #(contains? filtered-package-ids (:xt/id %)) packages)
+           filtered-versions (filter #(contains? filtered-version-ids (:xt/id %)) versions)
+           filtered-requires (filter #(contains? filtered-package-ids (:target-id %)) requires)
+           filtered-resolves (filter #(contains? filtered-version-ids (:target-id %)) resolves)
+           filtered-imports (filter #(contains? filtered-package-ids (:target-id %)) report-imports)
+           declared-without-import-evidence (->> filtered-entries
+                                                 (filter #(and (seq (:declared-by %))
+                                                               (empty? (:imported-by %))))
+                                                 vec)
+           filtered-conflicts (->> conflicts
+                                   (filter #(contains? filtered-package-ids (:id %)))
+                                   vec)
+           packages-by-source (package-by-source nodes edges)
+           manifest-paths (set (keys packages-by-source))
+           unresolved-imports (if (or ecosystem package with-conflicts? without-import-evidence?)
+                                []
+                                (->> candidate-source-edges
+                                     (filter #(nil? (resolve-package-import packages-by-id
+                                                                            packages-by-source
+                                                                            manifest-paths
+                                                                            files-by-path
+                                                                            correction-overlay
+                                                                            (:repo-id %)
+                                                                            %)))
+                                     (mapv #(unresolved-import-row nodes-by-id
+                                                                   files-by-path
+                                                                   %))
+                                     (sort-by (juxt :path :line :import))
+                                     vec))
+           counts {:packages (count filtered-packages)
+                   :versions (count filtered-versions)
+                   :requires (count filtered-requires)
+                   :resolves (count filtered-resolves)
+                   :imports-package (count filtered-imports)
+                   :source-import-candidates (count candidate-source-edges)
+                   :unresolved-imports (count unresolved-imports)
+                   :declared-without-import-evidence (count declared-without-import-evidence)
+                   :version-conflicts (count filtered-conflicts)}
+           next-actions (package-next-actions project-id counts)]
+       {:schema "ygg.dependency.report/v1"
+        :project-id project-id
+        :repo-id repo-id
+        :filters (select-keys opts [:ecosystem :package :with-conflicts? :without-import-evidence?])
+        :counts counts
+        :ecosystems (summarize-ecosystem filtered-packages filtered-versions filtered-imports)
+        :packages (limit-report-entries filtered-entries limit)
+        :declared-without-import-evidence (limit-report-entries
+                                           declared-without-import-evidence
+                                           limit)
+        :unresolved-imports (limit-report-entries unresolved-imports limit)
+        :version-conflicts (limit-report-entries filtered-conflicts limit)
+        :nextActions next-actions
+        :next (mapv :command next-actions)}))))

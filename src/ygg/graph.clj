@@ -650,7 +650,7 @@
         data (cond
                correction-overlay (correction-overlay/apply-overlay data correction-overlay)
                :else (correction-overlay/apply-overlay data
-                                              (corrections/overlay xtdb project-id)))]
+                                                       (corrections/overlay xtdb project-id)))]
     (enrich-graph xtdb
                   (if (= :raw detail)
                     data
@@ -712,7 +712,7 @@
         data (cond
                correction-overlay (correction-overlay/apply-overlay data correction-overlay)
                :else (correction-overlay/apply-overlay data
-                                              (corrections/overlay xtdb project-id)))]
+                                                       (corrections/overlay xtdb project-id)))]
     (enrich-graph xtdb
                   (if (= :raw detail)
                     data

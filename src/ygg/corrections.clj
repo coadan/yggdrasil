@@ -340,28 +340,28 @@
 (defn- attach-doc
   [overlay payload fact]
   (correction-overlay/add-doc overlay
-                     (:target payload)
-                     (:source payload)
-                     (assoc (select-keys payload [:role :heading :start-line :end-line])
-                            :reason (:reason fact))))
+                              (:target payload)
+                              (:source payload)
+                              (assoc (select-keys payload [:role :heading :start-line :end-line])
+                                     :reason (:reason fact))))
 
 (defn- add-edge
   [overlay payload fact]
   (correction-overlay/add-edge overlay
-                      (cond-> payload
-                        (:reason fact) (assoc :reason (:reason fact))
-                        (seq (:evidence-ids fact)) (assoc :evidence (:evidence-ids fact))
-                        (source-label fact) (assoc :rules (source-label fact)))))
+                               (cond-> payload
+                                 (:reason fact) (assoc :reason (:reason fact))
+                                 (seq (:evidence-ids fact)) (assoc :evidence (:evidence-ids fact))
+                                 (source-label fact) (assoc :rules (source-label fact)))))
 
 (defn- add-package-import
   [overlay payload fact]
   (correction-overlay/add-package-import overlay
-                                (cond-> payload
-                                  (:reason fact) (assoc :reason (:reason fact))
-                                  (seq (:evidence-ids fact)) (assoc :evidence (:evidence-ids fact))
-                                  (and (not (:rules payload))
-                                       (source-label fact)) (assoc :rules (source-label fact))
-                                  (:confidence fact) (assoc :confidence (:confidence fact)))))
+                                         (cond-> payload
+                                           (:reason fact) (assoc :reason (:reason fact))
+                                           (seq (:evidence-ids fact)) (assoc :evidence (:evidence-ids fact))
+                                           (and (not (:rules payload))
+                                                (source-label fact)) (assoc :rules (source-label fact))
+                                           (:confidence fact) (assoc :confidence (:confidence fact)))))
 
 (defn- payload-key
   [k]

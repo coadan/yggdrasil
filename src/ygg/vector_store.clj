@@ -69,8 +69,8 @@
 (defn configured-index-path
   ([] (configured-index-path nil))
   ([project-id]
-  (or (env/get-env "YGG_VECTOR_INDEX_PATH")
-      (default-index-path project-id))))
+   (or (env/get-env "YGG_VECTOR_INDEX_PATH")
+       (default-index-path project-id))))
 
 (defn configured-extension-path
   []
@@ -385,10 +385,10 @@
         dims (count query-vector)
         table-name (vector-table provider model dims)
         current (current-inputs docs)
-	        sqlite-opts {:index-path (or (:vector-index-path opts)
-	                                     (configured-index-path (:project-id opts)))
-	                     :extension-path (or (:sqlite-vec-extension opts)
-	                                         (configured-extension-path))}]
+        sqlite-opts {:index-path (or (:vector-index-path opts)
+                                     (configured-index-path (:project-id opts)))
+                     :extension-path (or (:sqlite-vec-extension opts)
+                                         (configured-extension-path))}]
     (with-open [conn (sqlite-connection sqlite-opts)]
       (ensure-schema! conn table-name dims)
       (let [[scores vector-timing] (timed :vector-search-ms

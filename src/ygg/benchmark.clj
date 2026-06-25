@@ -1173,10 +1173,10 @@
       (store/with-node (benchmark-paths/xtdb-dir suite case opts)
         (fn [xtdb]
           (let [correction-overlay (benchmark-maintenance/prepare-agent-overlay!
-                             xtdb
-                             case
-                             prepared
-                             opts)
+                                    xtdb
+                                    case
+                                    prepared
+                                    opts)
                 index-summary (benchmark-progress/progress-stage!
                                suite
                                case

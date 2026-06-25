@@ -341,9 +341,9 @@
                  "repo-a"
                  "run-a"
                  {:correction-overlay {:package-imports [{:repo "repo-a"
-                                                   :ecosystem :maven
-                                                   :package-name "org.junit.jupiter"
-                                                   :import "org.junit.jupiter"}]}}))))
+                                                          :ecosystem :maven
+                                                          :package-name "org.junit.jupiter"
+                                                          :import "org.junit.jupiter"}]}}))))
     (is (= #{:imports :requires :resolves :uses :version-of}
            (set (map last @xtql-queries))))))
 
@@ -398,9 +398,9 @@
                  "repo-a"
                  "run-a"
                  {:correction-overlay {:package-imports [{:repo "repo-a"
-                                                   :ecosystem :maven
-                                                   :package-name "org.slf4j:slf4j-api"
-                                                   :import "org.slf4j"}]}})]
+                                                          :ecosystem :maven
+                                                          :package-name "org.slf4j:slf4j-api"
+                                                          :import "org.slf4j"}]}})]
       (is (= [:java] (mapv :source-kind edges))))))
 
 (deftest import-package-resolution-resolves-java-maven-imports
