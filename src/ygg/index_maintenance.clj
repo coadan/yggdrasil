@@ -23,12 +23,12 @@
   "index-maintenance")
 
 (def default-work-controls
-  {:max-decisions 24
-   :max-decisions-per-kind 8
-   :max-infra-reviews 32
-   :max-dependency-reviews 32
-   :decision-batch-size 12
-   :review-batch-size 16})
+  {:max-decisions 8
+   :max-decisions-per-kind 4
+   :max-infra-reviews 8
+   :max-dependency-reviews 8
+   :decision-batch-size 8
+   :review-batch-size 8})
 
 (def decision-batch-size
   (:decision-batch-size default-work-controls))

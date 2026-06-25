@@ -352,7 +352,7 @@
              :queue-dir (:queue-dir maintenance)
              :report-dir (:report-dir maintenance)
              :lease-minutes (long (or (:lease-minutes worker) 10))
-             :max-items-per-run (long (or (:max-items-per-run worker) 3))
+             :max-items-per-run (long (or (:max-items-per-run worker) 1))
              :max-failures-per-run (long (or (:max-failures-per-run worker) 3))
              :apply (normalize-index-maintenance-apply (:apply worker))
              :executors (mapv normalize-index-maintenance-executor executors)

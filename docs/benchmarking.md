@@ -759,7 +759,7 @@ cross-checkout case. It also uses local benchmark checkouts under
 `.dev/ygg/benchmark-repos/`.
 
 Use `--enqueue --queue-dir <dir>` with `bench agent-packet` to hand packets to
-agents through the filesystem queue:
+agents through the project queue:
 
 ```sh
 bb bench agent-packet benchmark.edn --case penpot-example --enqueue --queue-dir .dev/ygg/queue --json

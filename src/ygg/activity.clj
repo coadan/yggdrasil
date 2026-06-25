@@ -206,7 +206,7 @@
   (schema/assert! schema/activity-event-row row "Invalid activity event row."))
 
 (defn queue-item->row
-  "Return one durable activity item row for a filesystem queue item."
+  "Return one durable activity item row for a project queue item."
   [run-id {:keys [path item]}]
   (let [target-ids (collect-target-ids [(:payload item) (:result item)])
         summary (summary-text item target-ids)]

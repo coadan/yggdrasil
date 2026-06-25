@@ -997,6 +997,7 @@
     "  sync work apply <work-id> [--queue-dir DIR] [--project ID]"
     "  sync work reject <work-id> --reason TEXT [--queue-dir DIR]"
     "  sync work release <work-id> [--reason TEXT] [--queue-dir DIR]"
+    "  sync work release-expired [--queue-dir DIR]"
     "  sync work heartbeat <work-id> [--queue-dir DIR] [--agent ID] [--lease-minutes N]"
     "  sync work auto <project.edn> [--json]"
     "  maintenance status <project.edn> [--json]"

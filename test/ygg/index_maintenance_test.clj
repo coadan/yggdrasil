@@ -71,7 +71,9 @@
         report (index-maintenance/from-graph-report
                 {:project-id "demo"
                  :counts {:maintenance-decisions (count decisions)}
-                 :decision-queue decisions})
+                 :decision-queue decisions}
+                {:max-decisions (count decisions)
+                 :decision-batch-size index-maintenance/decision-batch-size})
         work (index-maintenance/work-items report)]
     (is (= 2 (count work)))
     (is (= ["maintenance-decision" "maintenance-decision"]
@@ -104,7 +106,10 @@
                  :counts {:infra-review-items (count infra-packets)
                           :dependency-review-items (count dependency-packets)}
                  :infra-review-queue infra-packets
-                 :dependency-review-queue dependency-packets})
+                 :dependency-review-queue dependency-packets}
+                {:max-infra-reviews (count infra-packets)
+                 :max-dependency-reviews (count dependency-packets)
+                 :review-batch-size index-maintenance/review-batch-size})
         work (index-maintenance/work-items report)
         infra-work (filterv #(= infra-review/work-kind (:kind %)) work)
         dependency-work (filterv #(= dependency-review/work-kind (:kind %)) work)]

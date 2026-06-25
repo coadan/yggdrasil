@@ -3,7 +3,7 @@
 Yggdrasil can run project-configured maintenance schedules for sync and
 sync/check. When a scheduled or manual sync/check enqueues work, the maintenance
 worker can claim queue items through the
-filesystem queue, writes per-item input/result artifacts, completes the work
+SQLite-backed project queue, writes per-item input/result artifacts, completes the work
 item, and validates the returned JSON through the normal `sync work validate`
 path.
 
@@ -23,6 +23,13 @@ Example:
   ;; Omit queue-dir/report-dir to use the central per-project state root:
   ;; <YGG_STORAGE_ROOT>/projects/<project-id>/queue
   ;; <YGG_STORAGE_ROOT>/projects/<project-id>/reports/maintenance
+  :work {:max-decisions 8
+         :max-decisions-per-kind 4
+         :max-infra-reviews 8
+         :max-dependency-reviews 8
+         :decision-batch-size 8
+         :review-batch-size 8}
+
   :schedules
   [{:id "sync"
     :task :sync
@@ -42,7 +49,7 @@ Example:
   {:enabled true
    :agent-id "ygg-auto"
    :lease-minutes 10
-   :max-items-per-run 25
+   :max-items-per-run 1
    :max-failures-per-run 3
    :apply {:mode :complete-only}
 

@@ -125,15 +125,18 @@
                                                               :docs []}}]]
                (mapv (fn [call]
                        (if (contains? #{:index :check} (first call))
-                         (update-in call [3 :correction-overlay] #(select-keys %
-                                                                               [:schema
-                                                                                :project
-                                                                                :systems
-                                                                                :reject
-                                                                                :edges
-                                                                                :docs]))
+                         (-> call
+                             (update-in [3 :correction-overlay] #(select-keys %
+                                                                              [:schema
+                                                                               :project
+                                                                               :systems
+                                                                               :reject
+                                                                               :edges
+                                                                               :docs]))
+                             (update 3 dissoc :progress-fn))
                          call))
                      @calls))))
+      (is (fn? (-> @calls second (get 3) :progress-fn)))
       (is (= {:schema "ygg.correction-overlay/v1"
               :project "fixture"
               :systems []
@@ -395,6 +398,22 @@
                                          [:item :id])
                                  "old failure")
                                 [:item :id])
+        stale-claimed-id (let [id (get-in (queue/enqueue!
+                                           (assoc stale-packet
+                                                  :batchId
+                                                  "maintenance-decision-batch:claimed")
+                                           {:root root
+                                            :kind "maintenance-decision"
+                                            :project-id "fixture"
+                                            :priority 99
+                                            :source stale-source})
+                                          [:item :id])]
+                           (queue/claim-next! root
+                                              {:agent-id "old-worker"
+                                               :project-id "fixture"
+                                               :kind "maintenance-decision"
+                                               :lease-ms -1})
+                           id)
         unrelated-id (get-in (queue/enqueue!
                               {:schema "custom.packet/v1"
                                :id "custom"}
@@ -440,6 +459,8 @@
         (is (= "rejected" (get-in (queue/find-item root stale-ready-id)
                                   [:item :status])))
         (is (= "rejected" (get-in (queue/find-item root stale-failed-id)
+                                  [:item :status])))
+        (is (= "rejected" (get-in (queue/find-item root stale-claimed-id)
                                   [:item :status])))
         (is (= "Superseded by newer index maintenance report."
                (get-in (queue/find-item root stale-ready-id) [:item :reason])))
@@ -798,6 +819,51 @@
       (is (= "claimed" (:status parsed)))
       (is (= "codex" (get-in parsed [:lease :agent-id])))
       (is (integer? (get-in parsed [:lease :heartbeat-at-ms]))))))
+
+(deftest sync-work-release-expired-releases-stale-claims
+  (let [root (temp-dir "ygg-cli-work-release-expired")
+        id (get-in (queue/enqueue! {:schema context/schema
+                                    :project-id "fixture"}
+                                   {:root root
+                                    :kind "context"
+                                    :project-id "fixture"})
+                   [:item :id])]
+    (queue/claim-next! root {:agent-id "codex"
+                             :project-id "fixture"
+                             :lease-ms -1})
+    (let [out (with-out-str
+                (cli/dispatch "sync"
+                              ["work" "release-expired"
+                               "--queue-dir" root]))
+          parsed (read-json-output out)]
+      (is (= "ygg.queue.release-expired/v1" (:schema parsed)))
+      (is (= 1 (:released parsed)))
+      (is (= "ready" (get-in (queue/find-item root id) [:item :status])))
+      (is (= "lease expired"
+             (get-in (queue/find-item root id) [:item :release-reason]))))))
+
+(deftest sync-work-list-releases-expired-claims-before-listing
+  (let [root (temp-dir "ygg-cli-work-list-release-expired")
+        id (get-in (queue/enqueue! {:schema context/schema
+                                    :project-id "fixture"}
+                                   {:root root
+                                    :kind "context"
+                                    :project-id "fixture"})
+                   [:item :id])]
+    (queue/claim-next! root {:agent-id "codex"
+                             :project-id "fixture"
+                             :lease-ms -1})
+    (let [out (with-out-str
+                (cli/dispatch "sync"
+                              ["work" "list"
+                               "--queue-dir" root
+                               "--status" "ready"
+                               "--json"]))
+          parsed (read-json-output out)]
+      (is (= queue/list-schema (:schema parsed)))
+      (is (= [id] (mapv :id (:items parsed))))
+      (is (= "ready" (get-in (queue/find-item root id) [:item :status]))))))
+
 (deftest sync-work-validate-reports-valid-invalid-not-done-and-unsupported-results
   (let [root (temp-dir "ygg-cli-work-validate")
         dir (temp-dir "ygg-cli-work-validate-results")

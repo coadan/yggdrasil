@@ -346,6 +346,8 @@
         scopes (or (seq (keys identities-by-scope))
                    [[(project-queue-root args (:project-id report))
                      (:project-id report)]])
+        _ (doseq [[root _project-id] scopes]
+            (queue/release-expired! root))
         _ (doseq [[root project-id :as scope] scopes]
             (supersede-stale-work! root
                                    project-id
@@ -515,12 +517,14 @@
         root (delay (queue-root work-args))]
     (case action
       :list
-      (print-json
-       (queue/list-summary @root
-                           {:status (option-value work-args "--status")
-                            :project-id (option-value work-args "--project")
-                            :kind (option-value work-args "--kind")
-                            :limit (parse-limit work-args)}))
+      (do
+        (queue/release-expired! @root)
+        (print-json
+         (queue/list-summary @root
+                             {:status (option-value work-args "--status")
+                              :project-id (option-value work-args "--project")
+                              :kind (option-value work-args "--kind")
+                              :limit (parse-limit work-args)})))
 
       :pull
       (print-json
@@ -591,6 +595,11 @@
          (queue/item-summary
           (queue/release! @root id (or (option-value work-args "--reason")
                                        "manual release")))))
+
+      :release-expired
+      (print-json {:schema "ygg.queue.release-expired/v1"
+                   :root @root
+                   :released (queue/release-expired! @root)})
 
       :heartbeat
       (let [id (first positional)]

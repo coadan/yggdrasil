@@ -18,7 +18,6 @@
             [ygg.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
-            [clojure.pprint :as pprint]
             [clojure.string :as str]
             [integrant.core :as ig])
   (:import [java.io BufferedReader Closeable InputStreamReader OutputStreamWriter
@@ -75,9 +74,9 @@
          "-h" "help"))
 
 (def ^:private cli-query-command-handlers
-  {"query" cli-query/query!
-   "view" cli-query/view!
-   "report" cli-query/report!})
+  {"query" #'cli-query/query!
+   "view" #'cli-query/view!
+   "report" #'cli-query/report!})
 
 (def ^:private logged-ops
   (set (concat ["sync" "init"]
@@ -187,6 +186,14 @@
                      :schema "ygg.server.request-log/v1"
                      :event event)))))
 
+(defn- log-lifecycle!
+  [event row]
+  (binding [*out* *err*]
+    (println (json/write-json-str
+              (assoc row
+                     :schema "ygg.server.lifecycle/v1"
+                     :event event)))))
+
 (defn- loggable-request
   [{:keys [op args cwd projectId project-id storagePath storage-path]}]
   (cond-> {:op op
@@ -198,6 +205,32 @@
 (defn- response-status
   [response]
   (if (:ok response) "ok" "error"))
+
+(defn- operation-project-id
+  [request cli-args]
+  (or (:projectId request)
+      (:project-id request)
+      (option-value (vec cli-args) "--project")))
+
+(defn- operation-storage-path
+  [request]
+  (or (:storagePath request)
+      (:storage-path request)))
+
+(defn- request-operation
+  ([request cli-args]
+   (request-operation request cli-args nil))
+  ([request cli-args extra]
+   (let [cli-args (vec cli-args)
+         project-id (operation-project-id request cli-args)
+         storage-path (operation-storage-path request)]
+     (cond-> {:schema "ygg.server.active-operation/v1"
+              :op (or (:op request) (first cli-args))
+              :args cli-args}
+       (:cwd request) (assoc :cwd (:cwd request))
+       project-id (assoc :projectId project-id)
+       storage-path (assoc :storagePath storage-path)
+       extra (merge extra)))))
 
 (defn- authorized?
   [{:keys [token]} request]
@@ -227,7 +260,7 @@
        (io/file (or cwd (System/getProperty "user.dir")) path)))))
 
 (def ^:private path-value-options
-  #{"--config" "--out" "--map" "--result" "--queue-dir" "--fixture"
+  #{"--config" "--out" "--result" "--queue-dir" "--fixture"
     "--report-out" "--python" "--venv" "--cache-dir" "--shell-report"
     "--ygg-report" "--agent-report" "--baseline-report" "--candidate-report"
     "--markdown-out" "--output-schema"})
@@ -489,6 +522,9 @@
 (def ^:private scheduler-busy
   ::scheduler-busy)
 
+(def ^:private global-operation-lock-key
+  "global")
+
 (def ^:private unlocked-cli-commands
   #{"current"
     "query"
@@ -503,41 +539,146 @@
         (and (= "sync" command)
              (#{"activity" "inspect"} subcommand)))))
 
+(defn- operation-lock-key
+  [operation]
+  (if-let [project-id (:projectId operation)]
+    (str "project:" project-id)
+    global-operation-lock-key))
+
+(defn- global-operation-lock?
+  [lock-key]
+  (= global-operation-lock-key lock-key))
+
 (defn- operation-lock
+  [ctx lock-key]
+  (when-let [locks (:operation-locks ctx)]
+    (locking locks
+      (or (get @locks lock-key)
+          (let [lock (ReentrantLock.)]
+            (swap! locks assoc lock-key lock)
+            lock)))))
+
+(defn- active-operation-status
+  [operation]
+  (assoc operation
+         :elapsedMs (- (System/currentTimeMillis)
+                       (long (:startedAtMs operation)))))
+
+(defn- active-operation-statuses
   [ctx]
-  (:operation-lock ctx))
+  (if-let [active-operations (:active-operations ctx)]
+    (->> @active-operations
+         (mapv (fn [[lock-key operation]]
+                 (active-operation-status (assoc operation :lockKey lock-key))))
+         (sort-by :lockKey)
+         vec)
+    []))
+
+(defn- active-operation-for-lock
+  [ctx lock-key]
+  (when-let [active-operations (:active-operations ctx)]
+    (when-let [operation (get @active-operations lock-key)]
+      (active-operation-status (assoc operation :lockKey lock-key)))))
+
+(defn- first-active-operation
+  [ctx]
+  (first (active-operation-statuses ctx)))
+
+(defn- operation-lock-status
+  [ctx]
+  (let [locks (vals (or (some-> ctx :operation-locks deref) {}))
+        active-operations (active-operation-statuses ctx)]
+    {:busy (boolean (or (seq active-operations)
+                        (some (fn [^ReentrantLock lock] (.isLocked lock)) locks)))
+     :activeOperation (first active-operations)
+     :activeOperations active-operations
+     :queuedRequests (reduce + 0 (map (fn [^ReentrantLock lock]
+                                        (.getQueueLength lock))
+                                      locks))}))
+
+(defn- start-active-operation!
+  [ctx lock-key operation]
+  (when-let [active-operations (:active-operations ctx)]
+    (let [operation (assoc (or operation
+                               {:schema "ygg.server.active-operation/v1"})
+                           :lockKey lock-key
+                           :startedAtMs (System/currentTimeMillis))]
+      (swap! active-operations assoc lock-key operation)
+      operation)))
+
+(defn- clear-active-operation!
+  [ctx lock-key operation]
+  (when-let [active-operations (:active-operations ctx)]
+    (swap! active-operations
+           (fn [operations]
+             (if (= operation (get operations lock-key))
+               (dissoc operations lock-key)
+               operations)))))
 
 (defn- locked-operation
-  [ctx on-busy f]
-  (if-let [^ReentrantLock lock (operation-lock ctx)]
-    (if (.tryLock lock)
-      (try
-        (f)
-        (finally
-          (.unlock lock)))
-      (on-busy))
-    (locking ctx
-      (f))))
+  ([ctx on-busy f]
+   (locked-operation ctx nil on-busy f))
+  ([ctx operation on-busy f]
+   (let [lock-key (operation-lock-key operation)]
+     (letfn [(run-locked []
+               (let [active-operation (start-active-operation! ctx lock-key operation)]
+                 (try
+                   (f)
+                   (finally
+                     (clear-active-operation! ctx lock-key active-operation)))))]
+       (if-let [^ReentrantLock lock (operation-lock ctx lock-key)]
+         (if (global-operation-lock? lock-key)
+           (if (.tryLock lock)
+             (try
+               (if-let [active-operation (first-active-operation ctx)]
+                 (on-busy (:lockKey active-operation))
+                 (run-locked))
+               (finally
+                 (.unlock lock)))
+             (on-busy lock-key))
+           (let [^ReentrantLock global-lock (operation-lock ctx global-operation-lock-key)]
+             (if (and global-lock (.isLocked global-lock))
+               (on-busy global-operation-lock-key)
+               (if (.tryLock lock)
+                 (try
+                   (if (and global-lock (.isLocked global-lock))
+                     (on-busy global-operation-lock-key)
+                     (run-locked))
+                   (finally
+                     (.unlock lock)))
+                 (on-busy lock-key)))))
+         (locking ctx
+           (run-locked)))))))
 
 (defn- operation-lock-busy!
-  []
-  (throw (ex-info "Yggdrasil server is busy running another operation."
-                  {:exit daemon-contract/unavailable-exit
-                   :reason "operation-lock-busy"})))
+  [ctx lock-key]
+  (let [active-operation (active-operation-for-lock ctx lock-key)]
+    (throw (ex-info "Yggdrasil server is busy running another operation."
+                    (cond-> {:exit daemon-contract/unavailable-exit
+                             :reason "operation-lock-busy"
+                             :lockKey lock-key}
+                      active-operation
+                      (assoc :activeOperation active-operation))))))
 
 (defn- with-operation-lock
-  [ctx f]
-  (locked-operation ctx operation-lock-busy! f))
+  ([ctx f]
+   (with-operation-lock ctx nil f))
+  ([ctx operation f]
+   (locked-operation ctx operation #(operation-lock-busy! ctx %) f)))
 
 (defn- try-operation-lock
-  [ctx f]
-  (locked-operation ctx (constantly scheduler-busy) f))
+  ([ctx f]
+   (try-operation-lock ctx nil f))
+  ([ctx operation f]
+   (locked-operation ctx operation (constantly scheduler-busy) f)))
 
 (defn- with-cli-operation
-  [ctx cli-args f]
-  (if (unlocked-cli-operation? cli-args)
-    (f)
-    (with-operation-lock ctx f)))
+  ([ctx cli-args f]
+   (with-cli-operation ctx cli-args nil f))
+  ([ctx cli-args operation f]
+   (if (unlocked-cli-operation? cli-args)
+     (f)
+     (with-operation-lock ctx operation f))))
 
 (defn- schedule-key
   [project-id schedule-id]
@@ -559,6 +700,11 @@
   [ctx project schedule]
   (try-operation-lock
    ctx
+   {:schema "ygg.server.active-operation/v1"
+    :op "maintenance-schedule"
+    :projectId (:id project)
+    :scheduleId (:id schedule)
+    :task (some-> (:task schedule) name)}
    (fn []
      (let [xtdb (node-for! ctx (store/storage-path (:id project)))
            opts (schedule-sync-options project schedule)]
@@ -701,11 +847,11 @@
   (let [open-node-paths (if-let [node-pool (:node-pool ctx)]
                           (sort (keys @node-pool))
                           [])
-        ^ReentrantLock lock (operation-lock ctx)
         maintenance-projects (mapv maintenance-project-status (registered-projects))
         enabled-projects (filterv :enabled maintenance-projects)
         scheduled-count (reduce + (map #(count (:schedules %)) maintenance-projects))
-        scheduler-state @(or (:scheduler-state ctx) (atom {}))]
+        scheduler-state @(or (:scheduler-state ctx) (atom {}))
+        lock-status (operation-lock-status ctx)]
     {:schema "ygg.server.status/v1"
      :status "running"
      :host (:host ctx)
@@ -713,8 +859,10 @@
      :pid (pid)
      :storagePath (:storage-path ctx)
      :startedAtMs (:started-at-ms ctx)
-     :busy (boolean (some-> lock .isLocked))
-     :queuedRequests (long (or (some-> lock .getQueueLength) 0))
+     :busy (:busy lock-status)
+     :activeOperation (:activeOperation lock-status)
+     :activeOperations (:activeOperations lock-status)
+     :queuedRequests (long (:queuedRequests lock-status))
      :openNodes (count open-node-paths)
      :openNodePaths (vec open-node-paths)
      :maintenance {:scheduler {:running true
@@ -740,6 +888,21 @@
       (when (:startedAtMs status)
         (println "- started-at-ms" (:startedAtMs status)))
       (println "- busy" (boolean (:busy status)))
+      (doseq [operation (:activeOperations status)]
+        (println "- active-operation"
+                 (str/join " "
+                           (cond-> [(:op operation)
+                                    (str "elapsed=" (:elapsedMs operation) "ms")]
+                             (:lockKey operation)
+                             (conj (str "lock=" (:lockKey operation)))
+                             (:projectId operation)
+                             (conj (str "project=" (:projectId operation)))
+                             (:scheduleId operation)
+                             (conj (str "schedule=" (:scheduleId operation)))
+                             (:task operation)
+                             (conj (str "task=" (:task operation)))
+                             (:toolName operation)
+                             (conj (str "tool=" (:toolName operation)))))))
       (println "- queued-requests" (:queuedRequests status 0))
       (println "- open-nodes" (:openNodes status))
       (doseq [path (:openNodePaths status)]
@@ -829,6 +992,9 @@
      (fn []
        (with-operation-lock
          ctx
+         (request-operation request (into ["sync"] args)
+                            (when-let [project-id (:project-id opts)]
+                              {:projectId project-id}))
          (fn []
            (with-user-dir (:cwd request)
              (fn []
@@ -879,7 +1045,7 @@
      ctx
      request
      cli-args
-     #(with-cli-operation ctx cli-args %)
+     #(with-cli-operation ctx cli-args (request-operation request cli-args) %)
      #(run-command-handler! command args))))
 
 (defn- cli-query-response
@@ -890,7 +1056,7 @@
      ctx
      request
      cli-args
-     #(with-cli-operation ctx cli-args %)
+     #(with-cli-operation ctx cli-args (request-operation request cli-args) %)
      #(with-bindings {#'cli-query/*deps* (cli/query-deps)}
         (handler args)))))
 
@@ -938,6 +1104,7 @@
            (with-cli-operation
              ctx
              cli-args
+             (request-operation request cli-args)
              #(cli-start/init!
                args
                {:print-json server-print-json!
@@ -946,6 +1113,7 @@
 
 (defn- stop-response
   [{:keys [running server]}]
+  (log-lifecycle! "stop-request" {:pid (pid)})
   (reset! running false)
   (future
     (Thread/sleep 25)
@@ -973,10 +1141,13 @@
   (f))
 
 (defn- mcp-tool-lock
-  [ctx message]
+  [ctx request message]
   (if (read-only-mcp-tool-call? message)
     without-operation-lock
-    #(with-operation-lock ctx %)))
+    #(with-operation-lock
+       ctx
+       (request-operation request ["mcp"] {:toolName (mcp-tool-name message)})
+       %)))
 
 (defn- handle-mcp-message
   [args message]
@@ -993,7 +1164,7 @@
        ctx
        request
        args
-       (mcp-tool-lock ctx message)
+       (mcp-tool-lock ctx request message)
        #(handle-mcp-message args message))
       (capture-response
        #(with-user-dir (:cwd request)
@@ -1138,7 +1309,8 @@
         running (atom true)
         request-executor (request-executor)
         request-counter (AtomicLong.)
-        operation-lock (ReentrantLock.)
+        operation-locks (atom {})
+        active-operations (atom {})
         scheduler-state (atom {:last-run-ms {}
                                :runs []})
         stopped (promise)
@@ -1147,7 +1319,8 @@
              :server server
              :request-executor request-executor
              :request-counter request-counter
-             :operation-lock operation-lock
+             :operation-locks operation-locks
+             :active-operations active-operations
              :node-pool node-pool
              :host host
              :port (.getLocalPort server)
@@ -1162,6 +1335,10 @@
                       (when @running
                         (.printStackTrace t)))
                     (finally
+                      (log-lifecycle! "accept-thread-stopped"
+                                      {:pid (pid)
+                                       :running @running
+                                       :serverClosed (.isClosed server)})
                       (deliver stopped true))))
                 "ygg-server-accept")
         scheduler-thread (start-scheduler! ctx)]
@@ -1180,7 +1357,8 @@
      :thread thread
      :request-executor request-executor
      :request-counter request-counter
-     :operation-lock operation-lock
+     :operation-locks operation-locks
+     :active-operations active-operations
      :scheduler-thread scheduler-thread
      :scheduler-state scheduler-state
      :host host
@@ -1254,6 +1432,6 @@
         (let [data (ex-data e)]
           (println (or (ex-message e) (.getMessage e)))
           (when data
-            (pprint/pprint data))))
+            (prn data))))
       (shutdown-agents)
       (System/exit 1))))

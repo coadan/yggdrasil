@@ -371,10 +371,10 @@
                (get-in decision [:data :omitted])))
         (is (= 30 (get-in decision [:data :targets :count])))
         (is (= true (get-in decision [:data :targets :truncated])))
-        (is (= 24 (count (get-in decision [:data :targets :items]))))
+        (is (= 12 (count (get-in decision [:data :targets :items]))))
         (is (= 30 (get-in decision [:data :correctionPatch :count])))
         (is (= true (get-in decision [:data :correctionPatch :truncated])))
-        (is (= 24 (count (get-in decision [:data :correctionPatch :items]))))
+        (is (= 12 (count (get-in decision [:data :correctionPatch :items]))))
         (is (nil? (get-in decision [:data :edges])))
         (is (nil? (get-in work-input [:payload :messages])))))))
 
@@ -418,7 +418,7 @@
             by-kind (into {}
                           (map (juxt #(get-in % [:workItem :kind]) identity))
                           @work-inputs*)]
-        (is (= "limit-reached" (:status result)))
+        (is (= "completed" (:status result)))
         (is (= "done" (get-in (queue/find-item queue-root infra-id)
                               [:item :status])))
         (is (= "done" (get-in (queue/find-item queue-root dependency-id)

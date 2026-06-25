@@ -154,7 +154,7 @@
                   [])}
    {:name "ygg_sync_activity"
     :groups #{:sync}
-    :description "Import filesystem queue lifecycle and result audit facts into local activity rows."
+    :description "Import project queue lifecycle and result audit facts into local activity rows."
     :inputSchema (json-schema
                   {:configPath {:type "string"}
                    :queueDir {:type "string"}}
@@ -162,7 +162,7 @@
    {:name "ygg_work_list"
     :groups #{:work}
     :read-only? true
-    :description "List filesystem queue work items without claiming them."
+    :description "List project queue work items without claiming them."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
                    :projectId {:type "string"}
@@ -174,14 +174,14 @@
    {:name "ygg_work_show"
     :groups #{:work}
     :read-only? true
-    :description "Return one filesystem queue work item without changing its state."
+    :description "Return one project queue work item without changing its state."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
                    :workId {:type "string"}}
                   ["workId"])}
    {:name "ygg_work_pull"
     :groups #{:work}
-    :description "Claim one ready filesystem queue item for an agent."
+    :description "Claim one ready project queue item for an agent."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
                    :projectId {:type "string"}
@@ -192,7 +192,7 @@
                   [])}
    {:name "ygg_work_heartbeat"
     :groups #{:work}
-    :description "Extend the lease for one claimed filesystem queue item."
+    :description "Extend the lease for one claimed project queue item."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
                    :workId {:type "string"}
@@ -202,7 +202,7 @@
                   ["workId"])}
    {:name "ygg_work_complete"
     :groups #{:work}
-    :description "Complete a claimed filesystem queue item with a schema-bearing result object."
+    :description "Complete a claimed project queue item with a schema-bearing result object."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
                    :workId {:type "string"}
@@ -210,7 +210,7 @@
                   ["workId" "result"])}
    {:name "ygg_work_release"
     :groups #{:work}
-    :description "Release one claimed filesystem queue item back to ready."
+    :description "Release one claimed project queue item back to ready."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
                    :workId {:type "string"}
@@ -218,7 +218,7 @@
                   ["workId"])}
    {:name "ygg_work_reject"
     :groups #{:work}
-    :description "Reject one filesystem queue item with a reason."
+    :description "Reject one project queue item with a reason."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
                    :workId {:type "string"}
@@ -1130,6 +1130,7 @@
 (defn- work-list
   [ctx args]
   (let [root (queue-root ctx args)]
+    (queue/release-expired! root)
     (queue/list-summary root
                         {:status (:status args)
                          :project-id (:projectId args)

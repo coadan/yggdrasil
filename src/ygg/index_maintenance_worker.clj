@@ -19,10 +19,10 @@
   "ygg.index-maintenance.command-work/v1")
 
 (def ^:private decision-target-limit
-  24)
+  12)
 
 (def ^:private decision-correction-patch-limit
-  24)
+  12)
 
 (def ^:dynamic *deps* {})
 
@@ -562,6 +562,15 @@
   [result]
   (= "executor" (:failure-kind result)))
 
+(defn- ready-work-remains?
+  [project config]
+  (let [executors (available-executors config)]
+    (boolean
+     (and (seq executors)
+          (next-ready-kind (:queue-dir config)
+                           (:id project)
+                           (available-kinds executors))))))
+
 (defn run!
   "Run the project-configured index maintenance worker for up to max-items-per-run items."
   ([project] (run! project {}))
@@ -604,7 +613,8 @@
                           (conj out result))
                    {:results out})))
              exhausted? (and (pos? max-items)
-                             (= max-items (count results)))
+                             (= max-items (count results))
+                             (ready-work-remains? project config))
              backoff? (= :backoff stop-reason)]
          (cond-> {:schema schema
                   :project-id (:id project)

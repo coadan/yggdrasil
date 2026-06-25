@@ -780,20 +780,147 @@
     (is (re-find #"- status running" (:out response)))))
 
 (deftest status-request-reports-busy-operation-lock
-  (let [lock (java.util.concurrent.locks.ReentrantLock.)]
+  (let [lock (java.util.concurrent.locks.ReentrantLock.)
+        active-operations (atom {"project:demo" {:schema "ygg.server.active-operation/v1"
+                                                 :op "sync"
+                                                 :args ["sync" "--project" "demo"]
+                                                 :projectId "demo"
+                                                 :startedAtMs (System/currentTimeMillis)}})]
     (.lock lock)
     (try
       (let [response (server/handle-request {:token "token"
                                              :running (atom true)
-                                             :operation-lock lock
+                                             :operation-locks (atom {"project:demo" lock})
+                                             :active-operations active-operations
                                              :node-pool (atom {})}
                                             {:op "status"
                                              :token "token"
                                              :args ["--json"]})]
         (is (= true (:ok response)))
-        (is (= true (get-in response [:data :busy]))))
+        (is (= true (get-in response [:data :busy])))
+        (is (= "sync" (get-in response [:data :activeOperation :op])))
+        (is (= "project:demo" (get-in response [:data :activeOperation :lockKey])))
+        (is (= "demo" (get-in response [:data :activeOperation :projectId])))
+        (is (integer? (get-in response [:data :activeOperation :elapsedMs]))))
       (finally
         (.unlock lock)))))
+
+(deftest locked-command-status-reports-active-operation
+  (let [ctx {:xtdb :xtdb
+             :token "token"
+             :running (atom true)
+             :operation-locks (atom {})
+             :active-operations (atom {})
+             :node-pool (atom {})}
+        started (promise)
+        release (promise)
+        handler (future
+                  (with-redefs [cli/dispatch
+                                (fn [command args]
+                                  (deliver started true)
+                                  @release
+                                  (println (str "command=" command
+                                                " args=" (pr-str args))))]
+                    (server/handle-request ctx
+                                           {:op "packages"
+                                            :token "token"
+                                            :cwd "/repo"
+                                            :args ["--project" "demo"]})))]
+    (try
+      (is (= true (deref started 5000 :timeout)))
+      (let [response (server/handle-request ctx
+                                            {:op "status"
+                                             :token "token"
+                                             :args []})
+            operation (get-in response [:data :activeOperation])]
+        (is (= true (:ok response)))
+        (is (= true (get-in response [:data :busy])))
+        (is (= "packages" (:op operation)))
+        (is (= "project:demo" (:lockKey operation)))
+        (is (= ["packages" "--project" "demo"] (:args operation)))
+        (is (= "demo" (:projectId operation)))
+        (is (integer? (:elapsedMs operation)))
+        (is (re-find #"- active-operation packages" (:out response))))
+      (finally
+        (deliver release true)
+        (is (= true (:ok @handler)))
+        (is (empty? @(:active-operations ctx)))))))
+
+(deftest locked-command-does-not-block-other-project
+  (let [ctx {:xtdb :xtdb
+             :token "token"
+             :running (atom true)
+             :operation-locks (atom {})
+             :active-operations (atom {})
+             :node-pool (atom {})}
+        alpha-started (promise)
+        release-alpha (promise)]
+    (with-redefs [cli/dispatch
+                  (fn [command args]
+                    (let [project-id (second args)]
+                      (if (= "alpha" project-id)
+                        (do
+                          (deliver alpha-started true)
+                          @release-alpha
+                          (println (str "command=" command
+                                        " project=" project-id)))
+                        (println (str "command=" command
+                                      " project=" project-id)))))]
+      (let [alpha (future
+                    (server/handle-request ctx
+                                           {:op "packages"
+                                            :token "token"
+                                            :args ["--project" "alpha"]}))]
+        (try
+          (is (= true (deref alpha-started 5000 :timeout)))
+          (let [beta (server/handle-request ctx
+                                            {:op "packages"
+                                             :token "token"
+                                             :args ["--project" "beta"]})]
+            (is (= true (:ok beta)))
+            (is (= "command=packages project=beta\n" (:out beta))))
+          (finally
+            (deliver release-alpha true)
+            (is (= true (:ok @alpha)))))))))
+
+(deftest project-operation-blocks-global-command
+  (let [ctx {:xtdb :xtdb
+             :token "token"
+             :running (atom true)
+             :operation-locks (atom {})
+             :active-operations (atom {})
+             :node-pool (atom {})}
+        project-started (promise)
+        release-project (promise)]
+    (with-redefs [cli/dispatch
+                  (fn [command args]
+                    (if (= "packages" command)
+                      (do
+                        (deliver project-started true)
+                        @release-project
+                        (println (str "command=" command
+                                      " args=" (pr-str args))))
+                      (throw (ex-info "global command should not run while project is busy"
+                                      {:command command
+                                       :args args}))))]
+      (let [project (future
+                      (server/handle-request ctx
+                                             {:op "packages"
+                                              :token "token"
+                                              :args ["--project" "demo"]}))]
+        (try
+          (is (= true (deref project-started 5000 :timeout)))
+          (let [response (server/handle-request ctx
+                                                {:op "projects"
+                                                 :token "token"
+                                                 :args ["list"]})]
+            (is (= false (:ok response)))
+            (is (= daemon-contract/unavailable-exit (:exit response)))
+            (is (= "operation-lock-busy" (get-in response [:data :reason])))
+            (is (= "project:demo" (get-in response [:data :lockKey]))))
+          (finally
+            (deliver release-project true)
+            (is (= true (:ok @project)))))))))
 
 (deftest query-request-runs-while-operation-lock-is-busy
   (let [lock (java.util.concurrent.locks.ReentrantLock.)
@@ -814,7 +941,7 @@
         (let [response (server/handle-request {:xtdb :xtdb
                                                :token "token"
                                                :running (atom true)
-                                               :operation-lock lock}
+                                               :operation-locks (atom {"project:demo" lock})}
                                               {:op "query"
                                                :token "token"
                                                :args ["needle" "--project" "demo"]})]
@@ -844,7 +971,7 @@
         (let [response (server/handle-request {:xtdb :xtdb
                                                :token "token"
                                                :running (atom true)
-                                               :operation-lock lock}
+                                               :operation-locks (atom {"project:demo" lock})}
                                               {:op "view"
                                                :token "token"
                                                :args ["systems" "--project" "demo"]})]
@@ -879,7 +1006,7 @@
         (let [response (server/handle-request {:xtdb :xtdb
                                                :token "token"
                                                :running (atom true)
-                                               :operation-lock lock}
+                                               :operation-locks (atom {"global" lock})}
                                               {:op "sync"
                                                :token "token"
                                                :args ["project.edn"]})]
@@ -931,7 +1058,7 @@
     (try
       (is (= @#'server/scheduler-busy
              (#'server/run-maintenance-schedule!
-              {:operation-lock lock}
+              {:operation-locks (atom {"project:demo" lock})}
               {:id "demo"}
               {:id "sync"
                :task :sync})))
@@ -1065,7 +1192,7 @@
                         {:xtdb :xtdb
                          :token "token"
                          :running (atom true)
-                         :operation-lock lock}
+                         :operation-locks (atom {"global" lock})}
                         {:op "mcp"
                          :token "token"
                          :args []
@@ -1106,7 +1233,7 @@
                         {:xtdb :xtdb
                          :token "token"
                          :running (atom true)
-                         :operation-lock lock}
+                         :operation-locks (atom {"global" lock})}
                         {:op "mcp"
                          :token "token"
                          :storagePath "/tmp/ygg/mcp"
@@ -1149,7 +1276,7 @@
                         {:xtdb :xtdb
                          :token "token"
                          :running (atom true)
-                         :operation-lock lock}
+                         :operation-locks (atom {"global" lock})}
                         {:op "mcp"
                          :token "token"
                          :storagePath "/tmp/ygg/mcp"

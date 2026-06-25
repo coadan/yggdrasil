@@ -88,7 +88,7 @@
                :run-on-start false}]
              (:schedules maintenance)))
       (is (= :complete-only (get-in worker [:apply :mode])))
-      (is (= 3 (:max-items-per-run worker)))
+      (is (= 1 (:max-items-per-run worker)))
       (is (= 3 (:max-failures-per-run worker)))
       (is (= #{"maintenance-decision"}
              (get-in worker [:executors 0 :kinds])))
@@ -119,12 +119,12 @@
              (:queue-dir maintenance)))
       (is (= (store/project-data-path "demo" "reports" "maintenance")
              (:report-dir maintenance)))
-      (is (= {:max-decisions 24
-              :max-decisions-per-kind 8
-              :max-infra-reviews 32
-              :max-dependency-reviews 32
-              :decision-batch-size 12
-              :review-batch-size 16}
+      (is (= {:max-decisions 8
+              :max-decisions-per-kind 4
+              :max-infra-reviews 8
+              :max-dependency-reviews 8
+              :decision-batch-size 8
+              :review-batch-size 8}
              (:work maintenance)))
       (is (= (:queue-dir maintenance) (:queue-dir worker))))))
 

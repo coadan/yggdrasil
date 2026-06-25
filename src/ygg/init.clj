@@ -161,15 +161,16 @@
   (let [mode (maintenance-mode opts)]
     (when (and mode (not (#{"none" "off" "false"} mode)))
       {:enabled true
-       :work {:max-decisions 24
-              :max-decisions-per-kind 8
-              :max-infra-reviews 32
-              :max-dependency-reviews 32
-              :decision-batch-size 12
-              :review-batch-size 16}
+       :work {:max-decisions 8
+              :max-decisions-per-kind 4
+              :max-infra-reviews 8
+              :max-dependency-reviews 8
+              :decision-batch-size 8
+              :review-batch-size 8}
        :schedules (maintenance-schedules)
        :worker {:enabled true
                 :agent-id "ygg-auto"
+                :max-items-per-run 1
                 :apply {:mode :complete-only}
                 :executors [(maintenance-executor mode platform opts)]}})))
 
