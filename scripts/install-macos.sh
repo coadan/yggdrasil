@@ -45,6 +45,19 @@ fi
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
+YGG_BIN="$PREFIX/bin/ygg"
+YGG_MCP_BIN="$PREFIX/bin/ygg-mcp"
+SERVER_LOG="$REPO_DIR/.ygg/server.log"
+
+server_ready() {
+  "$YGG_BIN" status >/dev/null 2>&1
+}
+
+fail_with_server_log() {
+  echo "$1" >&2
+  tail -n 40 "$SERVER_LOG" >&2 || true
+  exit 1
+}
 
 missing=()
 for cmd in git java clojure python3; do
@@ -68,12 +81,12 @@ if [ "${#missing[@]}" -gt 0 ]; then
 fi
 
 mkdir -p "$PREFIX/bin"
-ln -sfn "$REPO_DIR/bin/ygg" "$PREFIX/bin/ygg"
-ln -sfn "$REPO_DIR/bin/ygg-mcp" "$PREFIX/bin/ygg-mcp"
+ln -sfn "$REPO_DIR/bin/ygg" "$YGG_BIN"
+ln -sfn "$REPO_DIR/bin/ygg-mcp" "$YGG_MCP_BIN"
 
 echo "Installed:"
-echo "- $PREFIX/bin/ygg -> $REPO_DIR/bin/ygg"
-echo "- $PREFIX/bin/ygg-mcp -> $REPO_DIR/bin/ygg-mcp"
+echo "- $YGG_BIN -> $REPO_DIR/bin/ygg"
+echo "- $YGG_MCP_BIN -> $REPO_DIR/bin/ygg-mcp"
 
 if ! echo "$PATH" | tr ':' '\n' | grep -qx "$PREFIX/bin"; then
   echo
@@ -81,32 +94,27 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "$PREFIX/bin"; then
   echo "export PATH=\"$PREFIX/bin:\$PATH\""
 fi
 
-SERVER_LOG="$REPO_DIR/.ygg/server.log"
 mkdir -p "$(dirname "$SERVER_LOG")"
 echo
-if "$PREFIX/bin/ygg" status >/dev/null 2>&1; then
+if server_ready; then
   echo "Yggdrasil server is already running."
 else
   echo "Starting Yggdrasil server..."
-  nohup "$PREFIX/bin/ygg" start >"$SERVER_LOG" 2>&1 &
+  nohup "$YGG_BIN" start >"$SERVER_LOG" 2>&1 &
   server_pid=$!
   started=0
   for _ in {1..60}; do
-    if "$PREFIX/bin/ygg" status >/dev/null 2>&1; then
+    if server_ready; then
       started=1
       break
     fi
     if ! kill -0 "$server_pid" >/dev/null 2>&1; then
-      echo "Yggdrasil server failed to start. Last log lines:" >&2
-      tail -n 40 "$SERVER_LOG" >&2 || true
-      exit 1
+      fail_with_server_log "Yggdrasil server failed to start. Last log lines:"
     fi
     sleep 1
   done
   if [ "$started" -ne 1 ]; then
-    echo "Timed out waiting for Yggdrasil server. Last log lines:" >&2
-    tail -n 40 "$SERVER_LOG" >&2 || true
-    exit 1
+    fail_with_server_log "Timed out waiting for Yggdrasil server. Last log lines:"
   fi
   echo "Yggdrasil server started."
 fi
