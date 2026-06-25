@@ -1,26 +1,27 @@
 (ns ygg.cli-progress-test
   (:require [ygg.cli-project :as cli-project]
             [ygg.cli-sync :as cli]
+            [ygg.progress :as progress]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (deftest sync-progress-line-renders-human-counts
   (is (= "- app plan 1 changed file, 2 reused unchanged files, 0 deleted files"
-         (#'cli/sync-progress-line
+         (progress/sync-progress-line
           {:phase :plan-complete
            :repo-id "app"
            :files-changed 1
            :files-reused 2
            :files-deleted 0})))
   (is (= "- app plan 1 changed file, 2 reused unchanged files, 0 deleted files"
-         (#'cli/sync-progress-line
+         (progress/sync-progress-line
           {:phase :plan-complete
            :repo-id "app"
            :files-changed 1
            :files-skipped 2
            :files-deleted 0})))
   (is (= "- app committed 3 files, 4 chunks, 5 search docs, 1 diagnostic"
-         (#'cli/sync-progress-line
+         (progress/sync-progress-line
           {:phase :commit-complete
            :repo-id "app"
            :files-indexed 3
