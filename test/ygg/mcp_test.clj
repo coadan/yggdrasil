@@ -199,6 +199,16 @@
            (get-in schemas ["ygg_work_reject" :required])))
     (is (every? #(= false (:additionalProperties %)) (vals schemas)))))
 
+(deftest tool-effect-metadata-is-internal
+  (let [listed (mcp/handle-message (mcp/server-context ["--tools" "all"])
+                                   (request 1 "tools/list" {}))]
+    (is (true? (mcp/read-only-tool? "ygg_query")))
+    (is (true? (mcp/read-only-tool? "ygg_work_list")))
+    (is (false? (mcp/read-only-tool? "ygg_sync_activity")))
+    (is (false? (mcp/read-only-tool? "ygg_work_pull")))
+    (is (every? #(not (contains? % :read-only?))
+                (get-in listed [:result :tools])))))
+
 (deftest query-tool-returns-context-packet
   (let [summaries (atom [])]
     (with-redefs [project/read-project (constantly project-with-plugin-package)

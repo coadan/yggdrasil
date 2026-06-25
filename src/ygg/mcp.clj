@@ -96,6 +96,7 @@
 (def tool-definitions
   [{:name "ygg_query"
     :groups #{:default}
+    :read-only? true
     :description "Return the primary one-shot Yggdrasil context packet for an agent question."
     :inputSchema (json-schema
                   {:query {:type "string"}
@@ -108,6 +109,7 @@
                   ["query"])}
    {:name "ygg_node"
     :groups #{:default}
+    :read-only? true
     :description "Inspect one exact graph node or source file target with mechanical neighbors and source context."
     :inputSchema (json-schema
                   {:target {:type "string"}
@@ -120,6 +122,7 @@
                   ["target"])}
    {:name "ygg_systems"
     :groups #{:default}
+    :read-only? true
     :description "Return the canonical ygg.graph/v2 systems graph JSON."
     :inputSchema (json-schema
                   {:projectId {:type "string"}
@@ -131,18 +134,21 @@
                   [])}
    {:name "ygg_sync_inspect"
     :groups #{:sync}
+    :read-only? true
     :description "Return project config plus the current mechanical evidence surface without syncing."
     :inputSchema (json-schema
                   {:configPath {:type "string"}}
                   [])}
    {:name "ygg_status"
     :groups #{:default}
+    :read-only? true
     :description "Return agent-facing freshness, query-index readiness, evidence surface, coverage, and next actions without syncing."
     :inputSchema (json-schema
                   {:configPath {:type "string"}}
                   [])}
    {:name "ygg_sync_check"
     :groups #{:sync}
+    :read-only? true
     :description "Return the read-only maintenance check report for a project."
     :inputSchema (json-schema
                   {:configPath {:type "string"}
@@ -157,6 +163,7 @@
                   [])}
    {:name "ygg_work_list"
     :groups #{:work}
+    :read-only? true
     :description "List filesystem queue work items without claiming them."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
@@ -168,6 +175,7 @@
                   [])}
    {:name "ygg_work_show"
     :groups #{:work}
+    :read-only? true
     :description "Return one filesystem queue work item without changing its state."
     :inputSchema (json-schema
                   {:queueDir {:type "string"}
@@ -232,11 +240,16 @@
   [tool-name]
   (get tool-definitions-by-name tool-name))
 
+(defn read-only-tool?
+  "Return true when an MCP tool is declared read-only."
+  [tool-name]
+  (boolean (:read-only? (tool-definition tool-name))))
+
 (defn- listed-tools
   [ctx]
   (->> tool-definitions
        (filter #(tool-visible? (:tool-groups ctx) %))
-       (mapv #(dissoc % :groups))))
+       (mapv #(dissoc % :groups :read-only?))))
 
 (defn- ensure-tool-enabled!
   [ctx tool-name]

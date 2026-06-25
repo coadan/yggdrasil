@@ -937,23 +937,13 @@
   [message]
   (= "tools/call" (:method message)))
 
-(def ^:private read-only-mcp-tools
-  #{"ygg_query"
-    "ygg_node"
-    "ygg_systems"
-    "ygg_sync_inspect"
-    "ygg_status"
-    "ygg_sync_check"
-    "ygg_work_list"
-    "ygg_work_show"})
-
 (defn- mcp-tool-name
   [message]
   (get-in message [:params :name]))
 
 (defn- read-only-mcp-tool-call?
   [message]
-  (contains? read-only-mcp-tools (mcp-tool-name message)))
+  (call-var 'ygg.mcp/read-only-tool? (mcp-tool-name message)))
 
 (defn- without-operation-lock
   [f]
