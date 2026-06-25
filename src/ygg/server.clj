@@ -442,6 +442,12 @@
              (get-in project [:maintenance :worker]))
     (index-maintenance-worker/run! project (worker-run-options opts))))
 
+(defn- attach-index-maintenance-worker
+  [project opts result]
+  (if-let [worker-run (run-index-maintenance-worker project opts (:enqueued result))]
+    (assoc result :maintenance-worker worker-run)
+    result))
+
 (defn- repo-index-change-count
   [repo]
   (when-let [stats (:stats repo)]
@@ -501,7 +507,8 @@
                         args
                         report
                         sync-deps))
-            worker-run (run-index-maintenance-worker project opts enqueued)]
+            worker-run (when (not= false (:run-worker? opts))
+                         (run-index-maintenance-worker project opts enqueued))]
         (cond-> {:schema "ygg.sync/v1"
                  :project-id (:id project)
                  :repo-id repo-id
@@ -531,14 +538,29 @@
     "query"
     "help"})
 
+(def ^:private unlocked-sync-work-subcommands
+  #{"auto"
+    "complete"
+    "heartbeat"
+    "list"
+    "pull"
+    "reject"
+    "release"
+    "release-expired"
+    "show"
+    "validate"})
+
 (defn- unlocked-cli-operation?
   [cli-args]
   (let [args (vec cli-args)
         command (first args)
-        subcommand (second args)]
+        subcommand (second args)
+        work-subcommand (nth args 2 nil)]
     (or (contains? unlocked-cli-commands command)
         (and (= "sync" command)
-             (#{"activity" "inspect"} subcommand)))))
+             (or (#{"activity" "inspect"} subcommand)
+                 (and (= "work" subcommand)
+                      (contains? unlocked-sync-work-subcommands work-subcommand)))))))
 
 (defn- operation-lock-key
   [operation]
@@ -699,18 +721,21 @@
 
 (defn- run-maintenance-schedule!
   [ctx project schedule]
-  (try-operation-lock
-   ctx
-   {:schema "ygg.server.active-operation/v1"
-    :op "maintenance-schedule"
-    :projectId (:id project)
-    :scheduleId (:id schedule)
-    :task (some-> (:task schedule) name)}
-   (fn []
-     (let [xtdb (node-for! ctx (store/storage-path (:id project)))
-           opts (schedule-sync-options project schedule)]
-       (case (:task schedule)
-         :sync (run-sync! xtdb opts))))))
+  (let [opts (schedule-sync-options project schedule)
+        result (try-operation-lock
+                ctx
+                {:schema "ygg.server.active-operation/v1"
+                 :op "maintenance-schedule"
+                 :projectId (:id project)
+                 :scheduleId (:id schedule)
+                 :task (some-> (:task schedule) name)}
+                (fn []
+                  (let [xtdb (node-for! ctx (store/storage-path (:id project)))]
+                    (case (:task schedule)
+                      :sync (run-sync! xtdb (assoc opts :run-worker? false))))))]
+    (if (= scheduler-busy result)
+      result
+      (attach-index-maintenance-worker project opts result))))
 
 (defn- due-schedule?
   [state now-ms project-id schedule]

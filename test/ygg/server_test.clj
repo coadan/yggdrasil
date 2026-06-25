@@ -2,6 +2,7 @@
   (:require [ygg.cli :as cli]
             [ygg.cli-query :as cli-query]
             [ygg.cli-sync :as cli-sync]
+            [ygg.embedding-client :as embedding-client]
             [ygg.index-maintenance-worker :as index-maintenance-worker]
             [ygg.init :as init]
             [ygg.project :as project]
@@ -438,6 +439,42 @@
                                   {:op "query"
                                    :token "token"
                                    :args ["where" "--project" "demo"]})))))
+
+(deftest command-requests-use-server-owned-semantic-client-pool
+  (let [created (atom 0)
+        closed (atom 0)
+        pool (atom {})]
+    (with-redefs [embedding-client/provider-client
+                  (fn [provider model]
+                    (swap! created inc)
+                    {:provider provider
+                     :model model
+                     :embed-batch (fn [_] [])
+                     :close (fn [] (swap! closed inc))})
+                  cli/dispatch
+                  (fn [command args]
+                    (let [client (embedding-client/query-embedding-client
+                                  :hybrid
+                                  :local
+                                  "server-model")]
+                      (println (str "command=" command
+                                    " args=" (pr-str args)
+                                    " provider=" (name (:provider client))
+                                    " model=" (:model client)))))]
+      (let [ctx {:xtdb :xtdb
+                 :token "token"
+                 :running (atom true)
+                 :semantic-client-pool pool}
+            request {:op "packages"
+                     :token "token"
+                     :args ["--project" "demo"]}]
+        (is (= "command=packages args=[\"--project\" \"demo\"] provider=local model=server-model\n"
+               (:out (server/handle-request ctx request))))
+        (is (= "command=packages args=[\"--project\" \"demo\"] provider=local model=server-model\n"
+               (:out (server/handle-request ctx request))))
+        (is (= 1 @created))
+        (embedding-client/close-client-pool! pool)
+        (is (= 1 @closed))))))
 
 (deftest sync-request-runs-sync-inside-server
   (with-redefs [project/read-project
@@ -922,6 +959,37 @@
             (deliver release-project true)
             (is (= true (:ok @project)))))))))
 
+(deftest sync-work-list-runs-while-project-operation-is-busy
+  (let [lock (java.util.concurrent.locks.ReentrantLock.)
+        called (atom nil)]
+    (.lock lock)
+    (try
+      (with-redefs [cli/dispatch
+                    (fn [command args]
+                      (reset! called {:command command
+                                      :args args})
+                      (println "work-list-ok"))]
+        (let [response (server/handle-request
+                        {:xtdb :xtdb
+                         :token "token"
+                         :running (atom true)
+                         :operation-locks (atom {"project:demo" lock})
+                         :active-operations (atom {"project:demo"
+                                                   {:schema "ygg.server.active-operation/v1"
+                                                    :op "sync"
+                                                    :projectId "demo"
+                                                    :startedAtMs (System/currentTimeMillis)}})}
+                        {:op "sync"
+                         :token "token"
+                         :args ["work" "list" "--json"]})]
+          (is (= true (:ok response)))
+          (is (= "work-list-ok\n" (:out response)))
+          (is (= {:command "sync"
+                  :args ["work" "list" "--json"]}
+                 @called))))
+      (finally
+        (.unlock lock)))))
+
 (deftest query-request-runs-while-operation-lock-is-busy
   (let [lock (java.util.concurrent.locks.ReentrantLock.)
         locked (promise)
@@ -1067,20 +1135,25 @@
         @holder))))
 
 (deftest scheduler-runs-sync-with-check-and-enqueue
-  (let [calls (atom [])]
+  (let [calls (atom [])
+        worker-calls (atom [])]
     (with-redefs [server/run-sync!
                   (fn [xtdb opts]
                     (swap! calls conj {:xtdb xtdb
                                        :opts opts})
                     {:schema "ygg.sync/v1"
-                     :enqueued [{:id "work-1"}]
-                     :maintenance-worker {:schema "ygg.index-maintenance-worker.run/v1"
-                                          :status "completed"
-                                          :counts {:claimed 1
-                                                   :completed 1
-                                                   :failed 0
-                                                   :executor-failures 0
-                                                   :validated 1}}})]
+                     :enqueued [{:id "work-1"}]})
+                  index-maintenance-worker/run!
+                  (fn [project opts]
+                    (swap! worker-calls conj {:project project
+                                              :opts opts})
+                    {:schema "ygg.index-maintenance-worker.run/v1"
+                     :status "completed"
+                     :counts {:claimed 1
+                              :completed 1
+                              :failed 0
+                              :executor-failures 0
+                              :validated 1}})]
       (is (= {:schema "ygg.sync/v1"
               :enqueued [{:id "work-1"}]
               :maintenance-worker {:schema "ygg.index-maintenance-worker.run/v1"
@@ -1109,8 +1182,78 @@
                       :query-index? nil
                       :index-profile :graph
                       :json? true
-                      :no-progress? true}}]
-             @calls)))))
+                      :no-progress? true
+                      :run-worker? false}}]
+             @calls))
+      (is (= [{:project {:id "demo"
+                         :maintenance {:worker {:enabled true}}}
+               :opts {}}]
+             @worker-calls)))))
+
+(deftest scheduler-releases-project-lock-before-running-worker
+  (let [ctx {:xtdb :xtdb
+             :token "token"
+             :running (atom true)
+             :operation-locks (atom {})
+             :active-operations (atom {})
+             :node-pool (atom {})}
+        worker-started (promise)
+        release-worker (promise)]
+    (with-redefs [server/run-sync!
+                  (fn [xtdb opts]
+                    (is (= :xtdb xtdb))
+                    (is (= false (:run-worker? opts)))
+                    {:schema "ygg.sync/v1"
+                     :enqueued [{:id "work-1"}]})
+                  index-maintenance-worker/run!
+                  (fn [project opts]
+                    (is (= "demo" (:id project)))
+                    (is (= {} opts))
+                    (deliver worker-started true)
+                    @release-worker
+                    {:schema "ygg.index-maintenance-worker.run/v1"
+                     :status "completed"
+                     :counts {:claimed 1
+                              :completed 1
+                              :failed 0
+                              :executor-failures 0
+                              :validated 1}})
+                  cli/dispatch
+                  (fn [command args]
+                    (println (str "command=" command
+                                  " args=" (pr-str args))))]
+      (let [schedule-result (future
+                              (#'server/run-maintenance-schedule!
+                               ctx
+                               {:id "demo"
+                                :maintenance {:worker {:enabled true}}}
+                               {:id "check"
+                                :task :sync
+                                :enabled true
+                                :check true
+                                :enqueue true}))]
+        (try
+          (is (= true (deref worker-started 5000 :timeout)))
+          (is (empty? @(:active-operations ctx)))
+          (let [response (server/handle-request ctx
+                                                {:op "packages"
+                                                 :token "token"
+                                                 :args ["--project" "demo"]})]
+            (is (= true (:ok response)))
+            (is (= "command=packages args=[\"--project\" \"demo\"]\n"
+                   (:out response))))
+          (finally
+            (deliver release-worker true)))
+        (is (= {:schema "ygg.sync/v1"
+                :enqueued [{:id "work-1"}]
+                :maintenance-worker {:schema "ygg.index-maintenance-worker.run/v1"
+                                     :status "completed"
+                                     :counts {:claimed 1
+                                              :completed 1
+                                              :failed 0
+                                              :executor-failures 0
+                                              :validated 1}}}
+               @schedule-result))))))
 
 (deftest status-request-rereads-project-registry
   (let [registry (atom (registry/empty-registry))

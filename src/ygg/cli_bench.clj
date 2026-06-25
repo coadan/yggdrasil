@@ -49,6 +49,11 @@
                                                   (option-value args "--vector-command"))
     (option-value args "--vector-model") (assoc :vector-model
                                                 (option-value args "--vector-model"))
+    (option-value args "--provider") (assoc :provider (option-value args "--provider"))
+    (option-value args "--model") (assoc :model (option-value args "--model"))
+    (parse-optional-long args "--batch-size") (assoc :batch-size
+                                                     (parse-optional-long args
+                                                                          "--batch-size"))
     (option-value args "--codebase-memory-command") (assoc :codebase-memory-command
                                                            (option-value args
                                                                          "--codebase-memory-command"))

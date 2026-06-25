@@ -1742,6 +1742,9 @@
                                 ["agent-baseline" "benchmark.edn"
                                  "--case" "case-1"
                                  "--retriever" "lexical"
+                                 "--provider" "local"
+                                 "--model" "fake-embedding-model"
+                                 "--batch-size" "9"
                                  "--limit" "3"
                                  "--doc-limit" "12"
                                  "--retrieval-limit" "80"
@@ -1767,6 +1770,9 @@
                  {:case-id "case-1"
                   :out nil
                   :retriever "lexical"
+                  :provider "local"
+                  :model "fake-embedding-model"
+                  :batch-size 9
                   :parser-worker "java"
                   :mode nil
                   :result-path nil

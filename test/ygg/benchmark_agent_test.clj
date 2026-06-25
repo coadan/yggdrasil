@@ -3,10 +3,12 @@
             [ygg.benchmark-agent-baseline :as benchmark-agent-baseline]
             [ygg.benchmark-agent-run :as benchmark-agent-run]
             [ygg.benchmark-agent-score :as benchmark-agent-score]
+            [ygg.benchmark-maintenance :as benchmark-maintenance]
             [ygg.benchmark-paths :as benchmark-paths]
             [ygg.benchmark-prediction :as benchmark-prediction]
             [ygg.benchmark-test-support :refer [commit! git! sh! spit-file! spit-json! temp-dir]]
             [ygg.context :as context]
+            [ygg.embedding-client :as embedding-client]
             [ygg.extract :as extract]
             [ygg.project :as project]
             [ygg.query :as query]
@@ -160,6 +162,23 @@
     (is (= 12000 (:budget override)))
     (is (= 300 (:retrieval-limit defaults)))
     (is (= 42 (:retrieval-limit override)))))
+
+(deftest agent-baseline-resolves-semantic-client-from-provider-options
+  (let [calls (atom [])]
+    (with-redefs [embedding-client/configured-query-client
+                  (fn [retriever opts]
+                    (swap! calls conj [retriever opts])
+                    {:provider :fake
+                     :model "fake-model"
+                     :embed-batch (fn [_] [])})]
+      (is (= :fake
+             (:provider (#'benchmark-agent-baseline/agent-baseline-embedding-client
+                         {:retriever "hybrid"
+                          :provider "local"
+                          :model "fake-model"}))))
+      (is (= [[:hybrid {:provider "local"
+                        :model "fake-model"}]]
+             @calls)))))
 (deftest benchmark-index-options-are-bounded-by-default
   (is (= {:index-profile :query
           :index-timeout-ms 600000}
@@ -202,7 +221,7 @@
                           :key-fn keyword)
           token-usage (get-in score [:agent :tokenUsage])
           family-by-name (into {}
-                               (map (juxt :family identity))
+                               (map (juxt #(keyword (:family %)) identity))
                                (get-in baseline [:syncInspect :families]))]
       (is (= benchmark/agent-baselines-schema (:schema result)))
       (is (= "ygg-baseline-lexical" (:agentId baseline)))
@@ -214,7 +233,7 @@
       (is (= "completed" (get-in score [:syncInspect :status])))
       (is (= :available (get-in family-by-name [:activity :status])))
       (is (= :available (get-in family-by-name [:validation-history :status])))
-      (is (= :available (get-in family-by-name [:correction-overlay :status])))
+      (is (= :missing (get-in family-by-name [:corrections :status])))
       (is (= true (:claimReady score)))
       (is (= true (:claimReady baseline)))
       (is (= "ygg-baseline-compact-surface-estimate"
@@ -543,6 +562,9 @@
               :mode "ygg"}]
     (with-redefs [store/with-node (fn [_ f]
                                     (f {:indexed? (atom false)}))
+                  benchmark-maintenance/prepare-agent-overlay! (fn [& _] {})
+                  benchmark-maintenance/sync-inspect-summary (fn [& _]
+                                                               {:status "completed"})
                   project/index-project! (fn [xtdb _project _opts]
                                            (reset! (:indexed? xtdb) true)
                                            {:status "completed"})
@@ -881,6 +903,9 @@
         index-count (atom 0)]
     (with-redefs [store/with-node (fn [_ f]
                                     (f {:indexed? (atom false)}))
+                  benchmark-maintenance/prepare-agent-overlay! (fn [& _] {})
+                  benchmark-maintenance/sync-inspect-summary (fn [& _]
+                                                               {:status "completed"})
                   project/index-project! (fn [xtdb _project _opts]
                                            (swap! index-count inc)
                                            (reset! (:indexed? xtdb) true)
