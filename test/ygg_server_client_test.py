@@ -41,6 +41,28 @@ class ServerClientRoutingTest(unittest.TestCase):
                 self.assertEqual("ok\n", out.getvalue())
                 self.assertEqual([expected_request], requests)
 
+    def test_sync_command_routes_to_sync_server_ops(self):
+        client = load_client()
+        cases = [
+            (["ygg", "sync", "project.edn"], ("sync", ["project.edn"])),
+            (["ygg", "sync", "work", "pull"], ("sync.work", ["pull"])),
+        ]
+
+        for argv, expected_request in cases:
+            with self.subTest(argv=argv):
+                requests = []
+
+                def capture_request(op, args):
+                    requests.append((op, args))
+                    return {"exit": 0, "out": "ok\n", "err": ""}
+
+                client.request = capture_request
+                with contextlib.redirect_stdout(io.StringIO()):
+                    exit_code = client.main(argv)
+
+                self.assertEqual(0, exit_code)
+                self.assertEqual([expected_request], requests)
+
     def test_removed_command_is_rejected_without_server_request(self):
         client = load_client()
 

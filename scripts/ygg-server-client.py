@@ -274,6 +274,13 @@ def server_request(op, args):
     return print_response(response)
 
 
+def sync_request(args):
+    op = SYNC_SUBCOMMAND_OPS.get(args[0]) if args else None
+    if op:
+        return server_request(op, args[1:])
+    return server_request("sync", args)
+
+
 def reject_unknown_command(command):
     sys.stderr.write(f"Unknown command: {command}\n")
     return 2
@@ -286,11 +293,7 @@ def main(argv):
     if command == "mcp":
         return mcp_proxy(argv[2:])
     if command == "sync":
-        args = argv[2:]
-        op = SYNC_SUBCOMMAND_OPS.get(args[0]) if args else None
-        if op:
-            return server_request(op, args[1:])
-        return server_request("sync", args)
+        return sync_request(argv[2:])
     if command in SERVER_COMMAND_OPS:
         return server_request(command, argv[2:])
     return reject_unknown_command(command)
