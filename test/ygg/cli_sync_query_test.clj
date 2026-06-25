@@ -3,7 +3,6 @@
             [ygg.audit-scope :as audit-scope]
             [ygg.benchmark :as benchmark]
             [ygg.cli :as cli]
-            [ygg.cli-start :as cli-start]
             [ygg.context :as context]
             [ygg.corrections :as corrections]
             [ygg.coverage :as coverage]
@@ -17,7 +16,6 @@
             [ygg.queue :as queue]
             [ygg.query :as query]
             [ygg.system.decision-classifier :as decision-classifier]
-            [ygg.report :as report]
             [ygg.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -112,28 +110,28 @@
                 [:index :xtdb "fixture" {:dry-run? false
                                          :index-profile :graph
                                          :correction-overlay {:schema "ygg.correction-overlay/v1"
-                                                       :project "fixture"
-                                                       :systems []
-                                                       :reject []
-                                                       :edges []
-                                                       :docs []}}]
+                                                              :project "fixture"
+                                                              :systems []
+                                                              :reject []
+                                                              :edges []
+                                                              :docs []}}]
                 [:infer :xtdb "fixture"]
                 [:check :xtdb "fixture" {:low-confidence-threshold 0.6
                                          :correction-overlay {:schema "ygg.correction-overlay/v1"
-                                                       :project "fixture"
-                                                       :systems []
-                                                       :reject []
-                                                       :edges []
-                                                       :docs []}}]]
+                                                              :project "fixture"
+                                                              :systems []
+                                                              :reject []
+                                                              :edges []
+                                                              :docs []}}]]
                (mapv (fn [call]
                        (if (contains? #{:index :check} (first call))
                          (update-in call [3 :correction-overlay] #(select-keys %
-                                                                        [:schema
-                                                                         :project
-                                                                         :systems
-                                                                         :reject
-                                                                         :edges
-                                                                         :docs]))
+                                                                               [:schema
+                                                                                :project
+                                                                                :systems
+                                                                                :reject
+                                                                                :edges
+                                                                                :docs]))
                          call))
                      @calls))))
       (is (= {:schema "ygg.correction-overlay/v1"
@@ -146,217 +144,6 @@
                  last
                  (get-in [3 :correction-overlay])
                  (select-keys [:schema :project :systems :reject :edges :docs])))))))
-(deftest start-command-initializes-syncs-activity-and-report
-  (let [root (temp-dir "ygg-cli-start")
-        config-path (.getPath (io/file root "project.edn"))
-        report-out (.getPath (io/file root "ygg-out"))
-        calls (atom [])]
-    (with-redefs [corrections/overlay (fn [_ project-id]
-                                        (empty-correction-overlay project-id))
-                  store/xtdb-handle? (constantly true)
-                  store/with-node (fn [_ f] (f :xtdb))
-                  project/index-project! (fn [xtdb project opts]
-                                           (swap! calls conj [:index xtdb (:id project) opts])
-                                           {:project-id (:id project)
-                                            :status :completed
-                                            :repos []})
-                  project/infer-project! (fn [xtdb project]
-                                           (swap! calls conj [:infer xtdb (:id project)])
-                                           {:project-id (:id project)
-                                            :status :completed
-                                            :system-evidence 0
-                                            :system-nodes 0
-                                            :system-edges 0})
-                  project/maintain-project (fn [xtdb project opts]
-                                             (swap! calls conj [:check xtdb (:id project) opts])
-                                             {:project-id (:id project)
-                                              :counts {:maintenance-decisions 0}
-                                              :decision-queue []})
-                  activity/sync-queue! (fn [xtdb project opts]
-                                         (swap! calls conj [:activity xtdb (:id project) opts])
-                                         {:schema activity/sync-schema
-                                          :project-id (:id project)
-                                          :queue-root (:queue-root opts)
-                                          :counts {:items 0
-                                                   :events 0
-                                                   :validation-events 0
-                                                   :result-schema-mismatch-events 0}})
-                  report/bundle! (fn [xtdb project opts]
-                                   (swap! calls conj [:report xtdb (:id project) opts])
-                                   {:schema report/schema
-                                    :project-id (:id project)
-                                    :out (:out opts)
-                                    :evidence {:schema evidence/schema
-                                               :available [:source-graph]
-                                               :counts {:files 1}}
-                                    :files {:index "index.html"}})]
-      (let [out (with-out-str
-                  (cli/dispatch "start" [root
-                                         "--project" "fixture"
-                                         "--out" config-path
-                                         "--report-out" report-out]))
-            parsed (read-json-output out)]
-        (is (= "ygg.start/v1" (:schema parsed)))
-        (is (= "initialized" (:mode parsed)))
-        (is (= true (:initialized parsed)))
-        (is (= "fixture" (:project-id parsed)))
-        (is (= config-path (:config parsed)))
-        (is (not (contains? parsed :corrections)))
-        (is (not (contains? parsed :sync)))
-        (is (not (contains? parsed :activity)))
-        (is (not (contains? parsed :check-report)))
-        (is (not (contains? parsed :semantic-connections)))
-        (is (= report-out (get-in parsed [:report :out])))
-        (is (= "ygg.evidence/v2" (get-in parsed [:evidence :schema])))
-        (is (= ["source-graph"] (get-in parsed [:evidence :available])))
-        (is (= {:status "ready"
-                :basis "start-run"
-                :summary "Ready for query with the graph produced by this start run."
-                :readyFor ["query" "systems" "report"]
-                :checks {:graph-sync true
-                         :system-inference true
-                         :report-written true
-                         :evidence-summary true}
-                :agentGuidance {:status "available"
-                                :installed false
-                                :command "ygg agent install --platform codex --project"}}
-               (:readiness parsed)))
-        (is (= {:scanned 0
-                :indexed 0
-                :reused 0
-                :skipped 0
-                :deleted 0
-                :diagnostics 0}
-               (get-in parsed [:counts :files])))
-        (is (= {:nodes 0
-                :edges 0
-                :file-facts 0
-                :chunks 0
-                :search-docs 0}
-               (get-in parsed [:counts :graph])))
-        (is (= {:nodes 0
-                :edges 0
-                :evidence 0
-                :maintenance-decisions 0
-                :orphaned-candidates 0}
-               (get-in parsed [:counts :systems])))
-        (is (= {:items 0
-                :events 0
-                :validation-events 0
-                :result-schema-mismatch-events 0}
-               (get-in parsed [:counts :activity])))
-        (is (some #(str/includes? % "ygg query")
-                  (:next parsed)))
-        (is (some #(= {:kind "query"
-                       :label "Query graph-grounded implementation context"
-                       :command "ygg query \"where is this handled?\" --project fixture --json"}
-                      %)
-                  (:nextActions parsed)))
-        (is (= (set (:next parsed))
-               (set (map :command (:nextActions parsed)))))
-        (is (= [[:index :xtdb "fixture" {:dry-run? false
-                                         :index-profile :graph
-                                         :correction-overlay {:schema "ygg.correction-overlay/v1"
-                                                       :project "fixture"
-                                                       :systems []
-                                                       :reject []
-                                                       :edges []
-                                                       :docs []}}]
-                [:infer :xtdb "fixture"]
-                [:check :xtdb "fixture" {:low-confidence-threshold 0.6
-                                         :correction-overlay {:schema "ygg.correction-overlay/v1"
-                                                       :project "fixture"
-                                                       :systems []
-                                                       :reject []
-                                                       :edges []
-                                                       :docs []}}]
-                [:activity :xtdb "fixture" {:queue-root (store/project-sqlite-path "fixture")}]
-                [:report :xtdb "fixture" {:out report-out
-                                          :detail :primary
-                                          :force? false}]]
-               (mapv (fn [call]
-                       (if (contains? #{:index :check} (first call))
-                         (update-in call [3 :correction-overlay] #(select-keys %
-                                                                        [:schema
-                                                                         :project
-                                                                         :systems
-                                                                         :reject
-                                                                         :edges
-                                                                         :docs]))
-                         call))
-                     @calls)))))))
-(deftest start-command-reuses-existing-project-config
-  (let [root (temp-dir "ygg-cli-start-existing")
-        config-path (.getPath (io/file root "project.edn"))
-        report-out (.getPath (io/file root "ygg-out"))
-        calls (atom [])]
-    (init/init! root {:out config-path
-                      :project-id "existing"})
-    (with-redefs [corrections/overlay (fn [_ project-id]
-                                        (empty-correction-overlay project-id))
-                  store/xtdb-handle? (constantly true)
-                  store/with-node (fn [_ f] (f :xtdb))
-                  project/index-project! (fn [xtdb project opts]
-                                           (swap! calls conj [:index xtdb (:id project) opts])
-                                           {:project-id (:id project)
-                                            :status :completed
-                                            :repos []})
-                  project/infer-project! (constantly {:status :completed})
-                  project/maintain-project (constantly {:counts {}
-                                                        :decision-queue []})
-                  activity/sync-queue! (fn [_ project _]
-                                         {:schema activity/sync-schema
-                                          :project-id (:id project)
-                                          :counts {}})
-                  report/bundle! (fn [_ project _]
-                                   {:schema report/schema
-                                    :project-id (:id project)})]
-      (let [out (with-out-str
-                  (cli/dispatch "start" [root
-                                         "--out" config-path
-                                         "--report-out" report-out]))
-            parsed (read-json-output out)]
-        (is (= "existing" (:mode parsed)))
-        (is (= "existing" (:project-id parsed)))
-        (is (not (contains? parsed :init)))
-        (is (not (contains? parsed :initialized)))
-        (is (not (contains? parsed :sync)))
-        (is (some #(= (str "ygg report " config-path
-                           " --out " report-out)
-                      %)
-                  (:next parsed)))
-        (is (= [[:index :xtdb "existing" {:dry-run? false
-                                          :index-profile :graph
-                                          :correction-overlay {:schema "ygg.correction-overlay/v1"
-                                                        :project "existing"
-                                                        :systems []
-                                                        :reject []
-                                                        :edges []
-                                                        :docs []}}]]
-               (mapv (fn [call]
-                       (if (= :index (first call))
-                         (update-in call [3 :correction-overlay] #(select-keys %
-                                                                        [:schema
-                                                                         :project
-                                                                         :systems
-                                                                         :reject
-                                                                         :edges
-                                                                         :docs]))
-                         call))
-                     @calls)))))))
-(deftest start-next-actions-quote-shell-sensitive-values
-  (let [actions (cli-start/start-next-actions
-                 "fixture project"
-                 "Project Files/project.edn"
-                 "Report Output")
-        commands (set (map :command actions))]
-    (is (contains? commands
-                   "ygg query \"where is this handled?\" --project 'fixture project' --json"))
-    (is (contains? commands
-                   "ygg report 'Project Files/project.edn' --out 'Report Output'"))
-    (is (contains? commands
-                   "ygg agent install --platform codex --project"))
-    (is (= commands (set (cli-start/start-next-commands actions))))))
 (deftest sync-runs-index-infer-and-optional-check
   (let [calls (atom [])]
     (with-redefs [project/read-project (fn [path]
@@ -453,6 +240,13 @@
                            :expectedResultSchema dependency-review/result-schema}]
     (with-redefs [project/read-project (constantly project-fixture)
                   store/with-node (fn [_ f] (f :xtdb))
+                  project/index-project! (fn [_ project _]
+                                           {:project-id (:id project)
+                                            :status :completed
+                                            :repos []})
+                  project/infer-project! (fn [_ project]
+                                           {:project-id (:id project)
+                                            :status :completed})
                   project/maintain-project (fn [_ _ _]
                                              {:project-id "fixture"
                                               :counts {:maintenance-decisions 1
@@ -463,16 +257,17 @@
                                               :dependency-review-queue [dependency-packet]})]
       (let [out (with-out-str
                   (cli/dispatch "sync"
-                                ["check" "project.edn"
+                                ["project.edn"
+                                 "--check"
                                  "--enqueue"
                                  "--json"
                                  "--queue-dir" root]))
             parsed (read-json-output out)
             items (queue/list-items root {:status "ready"})]
-        (is (= "ygg.sync.check/v1" (:schema parsed)))
-        (is (= index-maintenance/schema (get-in parsed [:report :schema])))
-        (is (= "graph" (get-in parsed [:report :lanes :graph :lane])))
-        (is (= 3 (count (get-in parsed [:report :work]))))
+        (is (= "ygg.sync/v1" (:schema parsed)))
+        (is (= index-maintenance/schema (get-in parsed [:check-report :schema])))
+        (is (= "graph" (get-in parsed [:check-report :lanes :graph :lane])))
+        (is (= 3 (count (get-in parsed [:check-report :work]))))
         (is (= #{"maintenance-decision" "infra-review" "dependency-review"}
                (set (mapv #(get-in % [:item :kind]) items))))
         (is (= #{{:schema index-maintenance/source-schema
@@ -893,11 +688,11 @@
             :confidence 0.86
             :reason "The import prefix is provided by the declared package."
             :correctionPatch [{:op "add-package-import"
-                        :import "org.slf4j"
-                        :ecosystem "maven"
-                        :package "org.slf4j:slf4j-api"
-                        :evidence [evidence-id]
-                        :reason "Explicit package import mapping."}]}
+                               :import "org.slf4j"
+                               :ecosystem "maven"
+                               :package "org.slf4j:slf4j-api"
+                               :evidence [evidence-id]
+                               :reason "Explicit package import mapping."}]}
            {:indent-str "  "}))
     (spit invalid-result-path
           (json/write-json-str
@@ -1012,8 +807,8 @@
                           :recommendation "maybe"
                           :confidence 0.5
                           :correctionPatch [{:op "set-system-kind"
-                                      :target target-id
-                                      :value {:kind "application"}}]}}]
+                                             :target target-id
+                                             :value {:kind "application"}}]}}]
     (is (= [{:path [:result :recommendation]
              :error "Result recommendation is required and must be supported."
              :value "maybe"}
@@ -1047,10 +842,10 @@
                        :confidence 0.5
                        :reason "A bounded correction is warranted."
                        :correctionPatch [{:op "add-edge"
-                                   :value {:source target-id
-                                           :target "external-api:api.fixture.test"
-                                           :relation "references"}
-                                   :reason "This patch was not advertised by the decision."}]}}]
+                                          :value {:source target-id
+                                                  :target "external-api:api.fixture.test"
+                                                  :relation "references"}
+                                          :reason "This patch was not advertised by the decision."}]}}]
     (is (= ["set-system-kind" "none"]
            (:allowedActions packet)))
     (is (= [{:path [:correctionPatch 0 :op]

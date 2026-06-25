@@ -541,18 +541,6 @@
   [args]
   (cli-sync/query-index? args))
 
-(defn- sync-index-project!
-  [xtdb project args]
-  (cli-sync/sync-index-project! xtdb project args (sync-deps)))
-
-(defn- maintenance-report
-  [xtdb project args]
-  (cli-sync/maintenance-report xtdb project args (sync-deps)))
-
-(defn- enqueue-sync-work!
-  [args report]
-  (cli-sync/enqueue-sync-work! args report (sync-deps)))
-
 (defn- sync-dispatch!
   [args]
   (cli-sync/sync-dispatch! args (sync-deps)))
@@ -617,17 +605,6 @@
                    {:print-json print-json
                     :dispatch dispatch
                     :query-index? query-index?}))
-
-(defn- start!
-  [args]
-  (cli-start/start! args
-                    {:print-json print-json
-                     :query-index? query-index?
-                     :enqueue-output? enqueue-output?
-                     :sync-index-project! sync-index-project!
-                     :maintenance-report maintenance-report
-                     :enqueue-sync-work! enqueue-sync-work!
-                     :queue-root queue-root}))
 
 (defn- agent!
   [args]
@@ -1101,9 +1078,6 @@
 
     "init"
     (init! args)
-
-    "start"
-    (start! args)
 
     "current"
     (current! args)

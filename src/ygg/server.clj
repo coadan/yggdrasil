@@ -37,17 +37,21 @@
 (def default-port
   62121)
 
-(def ^:private logged-ops
-  #{"sync"
-    "sync.inspect"
-    "sync.activity"
-    "sync.add-repo"
-    "sync.coverage"
-    "sync.docs"
-    "sync.meta"
-    "sync.view"
-    "sync.work"
-    "query"
+(def ^:private sync-subcommand->op
+  {"inspect" "sync.inspect"
+   "activity" "sync.activity"
+   "add-repo" "sync.add-repo"
+   "coverage" "sync.coverage"
+   "docs" "sync.docs"
+   "meta" "sync.meta"
+   "view" "sync.view"
+   "work" "sync.work"})
+
+(def ^:private sync-op->subcommand
+  (into {} (map (fn [[subcommand op]] [op subcommand]) sync-subcommand->op)))
+
+(def ^:private cli-command-ops
+  #{"query"
     "init"
     "current"
     "use"
@@ -66,6 +70,9 @@
     "hook"
     "bench"
     "embed"})
+
+(def ^:private logged-ops
+  (set (concat ["sync"] (vals sync-subcommand->op) cli-command-ops)))
 
 (defn- silence-jul!
   []
@@ -824,119 +831,46 @@
 
 (defn- handle-authorized-request
   [{:keys [running server] :as ctx} request]
-  (case (:op request)
-    "ping"
-    {:ok true
-     :exit 0
-     :out "ok\n"
-     :err ""}
-
-    "status"
-    (status-response ctx request)
-
-    "sync"
-    (sync-response ctx request)
-
-    "sync.inspect"
-    (sync-subcommand-response ctx request "inspect")
-
-    "sync.activity"
-    (sync-subcommand-response ctx request "activity")
-
-    "sync.add-repo"
-    (sync-subcommand-response ctx request "add-repo")
-
-    "sync.coverage"
-    (sync-subcommand-response ctx request "coverage")
-
-    "sync.docs"
-    (sync-subcommand-response ctx request "docs")
-
-    "sync.meta"
-    (sync-subcommand-response ctx request "meta")
-
-    "sync.view"
-    (sync-subcommand-response ctx request "view")
-
-    "sync.work"
-    (sync-subcommand-response ctx request "work")
-
-    "query"
-    (command-response ctx request "query" (:args request))
-
-    "init"
-    (command-response ctx request "init" (:args request))
-
-    "current"
-    (command-response ctx request "current" (:args request))
-
-    "use"
-    (command-response ctx request "use" (:args request))
-
-    "projects"
-    (command-response ctx request "projects" (:args request))
-
-    "audit-scope"
-    (command-response ctx request "audit-scope" (:args request))
-
-    "maintenance"
-    (command-response ctx request "maintenance" (:args request))
-
-    "corrections"
-    (command-response ctx request "corrections" (:args request))
-
-    "memory"
-    (command-response ctx request "memory" (:args request))
-
-    "affected"
-    (command-response ctx request "affected" (:args request))
-
-    "view"
-    (command-response ctx request "view" (:args request))
-
-    "packages"
-    (command-response ctx request "packages" (:args request))
-
-    "report"
-    (command-response ctx request "report" (:args request))
-
-    "plugin"
-    (command-response ctx request "plugin" (:args request))
-
-    "agent"
-    (command-response ctx request "agent" (:args request))
-
-    "watch"
-    (command-response ctx request "watch" (:args request))
-
-    "hook"
-    (command-response ctx request "hook" (:args request))
-
-    "bench"
-    (command-response ctx request "bench" (:args request))
-
-    "embed"
-    (command-response ctx request "embed" (:args request))
-
-    "mcp"
-    (mcp-response ctx request)
-
-    "stop"
-    (do
-      (reset! running false)
-      (future
-        (Thread/sleep 25)
-        (when (instance? Closeable server)
-          (.close ^Closeable server)))
+  (let [op (:op request)]
+    (cond
+      (= "ping" op)
       {:ok true
        :exit 0
-       :out "stopping\n"
-       :err ""})
+       :out "ok\n"
+       :err ""}
 
-    {:ok false
-     :exit 1
-     :out ""
-     :err (str "Unknown server op: " (:op request) "\n")}))
+      (= "status" op)
+      (status-response ctx request)
+
+      (= "sync" op)
+      (sync-response ctx request)
+
+      (contains? sync-op->subcommand op)
+      (sync-subcommand-response ctx request (get sync-op->subcommand op))
+
+      (contains? cli-command-ops op)
+      (command-response ctx request op (:args request))
+
+      (= "mcp" op)
+      (mcp-response ctx request)
+
+      (= "stop" op)
+      (do
+        (reset! running false)
+        (future
+          (Thread/sleep 25)
+          (when (instance? Closeable server)
+            (.close ^Closeable server)))
+        {:ok true
+         :exit 0
+         :out "stopping\n"
+         :err ""})
+
+      :else
+      {:ok false
+       :exit 1
+       :out ""
+       :err (str "Unknown server op: " op "\n")})))
 
 (defn- handle-logged-request
   [ctx request]
@@ -1170,52 +1104,26 @@
   (try
     (silence-jul!)
     (let [[command & command-args] args]
-      (case command
-        "start"
+      (cond
+        (= "start" command)
         (serve!)
 
-        "status"
+        (= "status" command)
         (print-response! (request "status" command-args))
 
-        "stop"
+        (= "stop" command)
         (print-response! (request "stop" command-args))
 
-        "query"
-        (print-response! (request "query" command-args))
-
-        "sync"
+        (= "sync" command)
         (let [[subcommand & subcommand-args] command-args]
-          (case subcommand
-            "inspect" (print-response! (request "sync.inspect" subcommand-args))
-            "activity" (print-response! (request "sync.activity" subcommand-args))
-            "add-repo" (print-response! (request "sync.add-repo" subcommand-args))
-            "coverage" (print-response! (request "sync.coverage" subcommand-args))
-            "docs" (print-response! (request "sync.docs" subcommand-args))
-            "meta" (print-response! (request "sync.meta" subcommand-args))
-            "view" (print-response! (request "sync.view" subcommand-args))
-            "work" (print-response! (request "sync.work" subcommand-args))
+          (if-let [op (get sync-subcommand->op subcommand)]
+            (print-response! (request op subcommand-args))
             (print-response! (request "sync" command-args))))
 
-        ("init"
-         "current"
-         "use"
-         "projects"
-         "audit-scope"
-         "maintenance"
-         "corrections"
-         "memory"
-         "affected"
-         "view"
-         "packages"
-         "report"
-         "plugin"
-         "agent"
-         "watch"
-         "hook"
-         "bench"
-         "embed")
+        (contains? cli-command-ops command)
         (print-response! (request command command-args))
 
+        :else
         (print-response! {:exit 2
                           :out ""
                           :err (str "Unknown command: " command "\n")})))
