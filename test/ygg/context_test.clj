@@ -2944,6 +2944,94 @@
       (is (= (sort > (map :score (:results packet)))
              (map :score (:results packet)))))))
 
+(deftest context-packet-compact-output-boosts-structured-exact-label-results
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :retriever-requested :auto
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 2
+                                                         :returned-count 2}
+                                       :results [{:path "docs/version.md"
+                                                  :score 1.2
+                                                  :target-kind :chunk
+                                                  :target-id "chunk:version"
+                                                  :label "version banner notes"
+                                                  :score-components {:lexical 1.2}}
+                                                 {:path "src/pytop/__init__.py"
+                                                  :score 0.4
+                                                  :target-kind :node
+                                                  :target-id "node:pytop"
+                                                  :label "pytop"
+                                                  :score-components {:sourceGraph 0.4}}]})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/query-evidence (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "python -m pytop --version"
+                                         {:project-id "fixture"
+                                          :retriever :lexical
+                                          :output :compact})
+          first-result (first (:results packet))]
+      (is (= "src/pytop/__init__.py" (:resolvedPath first-result)))
+      (is (= [:source-graph :query-label] (:why first-result)))
+      (is (= (sort > (map :score (:results packet)))
+             (map :score (:results packet)))))))
+
+(deftest context-packet-compact-output-boosts-structured-shaped-label-results
+  (with-redefs [query/search-report (fn [_ _ _]
+                                      {:schema query/search-report-schema
+                                       :query-run-id "query:test"
+                                       :retriever-requested :auto
+                                       :retriever-effective :lexical
+                                       :instrumentation {:search-docs 2
+                                                         :returned-count 2}
+                                       :results [{:path "docs/persistence.md"
+                                                  :score 1.1
+                                                  :target-kind :chunk
+                                                  :target-id "chunk:persistence"
+                                                  :label "persistence entropy notes"
+                                                  :score-components {:lexical 1.1}}
+                                                 {:path "src/pytop/persistence_distances.py"
+                                                  :score 0.4
+                                                  :target-kind :node
+                                                  :target-id "node:entropy"
+                                                  :label "pytop.persistence_distances/persistence_entropy"
+                                                  :score-components {:sourceGraph 0.4}}]})
+                graph/system-graph (fn [_ project-id _]
+                                     {:basis {:project-id project-id}
+                                      :nodes []
+                                      :edges []
+                                      :clusters []})
+                query/all-chunks (fn [& _] [])
+                query/chunks-by-ids (fn [& _] [])
+                query/chunks-by-paths (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                dependency/package-report (fn [& _] (empty-dependency-report))
+                activity/select-activity (fn [& _] [])
+                context/query-evidence (fn [& _] {:status :ready})
+                coverage/context-summary (fn [& _] nil)]
+    (let [packet (context/context-packet :xtdb
+                                         "persistence_entropy regression"
+                                         {:project-id "fixture"
+                                          :retriever :lexical
+                                          :output :compact})
+          first-result (first (:results packet))]
+      (is (= "src/pytop/persistence_distances.py" (:resolvedPath first-result)))
+      (is (= [:source-graph :query-label] (:why first-result)))
+      (is (= (sort > (map :score (:results packet)))
+             (map :score (:results packet)))))))
+
 (deftest context-packet-compact-output-preserves-results-before-full-budget-trimming
   (with-redefs [query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema

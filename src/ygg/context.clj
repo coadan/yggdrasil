@@ -63,6 +63,12 @@
 (def ^:private compact-exact-label-result-reserve-limit
   1)
 
+(def ^:private compact-exact-label-score-boost
+  1.25)
+
+(def ^:private compact-shaped-label-score-boost
+  0.75)
+
 (def proof-command-path-limit
   8)
 
@@ -1913,6 +1919,7 @@
         [:lexical :lexical]
         [:graph :graph]
         [:sourceGraph :source-graph]
+        [:queryLabel :query-label]
         [:exact :exact]]
        (keep (fn [[field lane]]
                (when (pos? (double (or (get score-components field) 0.0)))
@@ -2088,11 +2095,56 @@
   [query-tokens row]
   (not= Long/MAX_VALUE (exact-label-query-token-index query-tokens row)))
 
+(defn- row-target-kind
+  [row]
+  (some-> (or (:targetKind row)
+              (:target-kind row)
+              (:resultKind row)
+              (:result-kind row))
+          str/lower-case))
+
+(defn- structured-node-row?
+  [row]
+  (= "node" (row-target-kind row)))
+
+(defn- primary-label-differs-from-path?
+  [row]
+  (let [label (str/lower-case (str (:label row)))
+        path (str/lower-case (str (:path row)))]
+    (and (not (str/blank? label))
+         (not (str/blank? path))
+         (not= label path))))
+
+(defn- compact-query-label-score-boost
+  [query-tokens query-token-set row]
+  (if-not (and (structured-node-row? row)
+               (primary-label-differs-from-path? row))
+    0.0
+    (let [exact-label? (query-matched-exact-label-row? query-tokens row)
+          shaped-label? (query-matched-label-token-row? query-token-set row)]
+      (cond
+        exact-label? compact-exact-label-score-boost
+        shaped-label? compact-shaped-label-score-boost
+        :else 0.0))))
+
+(defn- add-compact-query-label-score
+  [query-tokens query-token-set row]
+  (let [boost (compact-query-label-score-boost query-tokens query-token-set row)]
+    (if (pos? boost)
+      (-> row
+          (update :score #(+ (double (or % 0.0)) boost))
+          (assoc-in [:scoreComponents :queryLabel] boost))
+      row)))
+
 (defn- compact-result-rows
   [packet]
-  (let [sorted (sort-by compact-result-sort-key (:candidateFiles packet))
-        query-tokens (text/tokenize (:query packet))
+  (let [query-tokens (text/tokenize (:query packet))
         query-token-set (set query-tokens)
+        rows (mapv #(add-compact-query-label-score query-tokens
+                                                   query-token-set
+                                                   %)
+                   (:candidateFiles packet))
+        sorted (sort-by compact-result-sort-key rows)
         grep-reserve-limit (min compact-grep-result-reserve-limit
                                 compact-result-limit)
         path-reserve-limit (min compact-path-token-result-reserve-limit
