@@ -162,6 +162,43 @@
                         :cwd nil}}]
                @sync-calls))))))
 
+(deftest init-request-does-not-resolve-storage-before-project-exists
+  (with-redefs [init/init!
+                (fn [root opts]
+                  (is (= "repo" root))
+                  (is (= {:out nil
+                          :force? false
+                          :project-id nil
+                          :name nil
+                          :workbench? false
+                          :task nil}
+                         opts))
+                  {:schema "ygg.init/v1"
+                   :project-id "generated"
+                   :config "project.edn"})
+                registry/resolve-project
+                (fn [& _]
+                  (throw (ex-info "init should not resolve project registry before creation" {})))
+                store/storage-path
+                (fn [& _]
+                  (throw (ex-info "init should not resolve graph storage before creation" {})))
+                cli/dispatch
+                (fn [& _]
+                  (throw (ex-info "init should not use generic CLI dispatch" {})))]
+    (let [response (server/handle-request
+                    {:xtdb :xtdb
+                     :token "token"
+                     :running (atom true)}
+                    {:op "init"
+                     :token "token"
+                     :args ["repo"]})
+          body (json/read-json (:out response) :key-fn keyword)]
+      (is (= true (:ok response)))
+      (is (= 0 (:exit response)))
+      (is (= "ygg.init/v1" (:schema body)))
+      (is (= "generated" (:project-id body)))
+      (is (not (contains? body :sync-output))))))
+
 (deftest generic-command-op-routes-project-id-to-warm-node
   (with-redefs [store/storage-path
                 (fn

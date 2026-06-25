@@ -908,16 +908,18 @@
   [ctx request]
   (let [args (absolutize-path-options (:cwd request) (vec (:args request)))
         cli-args (into ["init"] args)]
-    (captured-request-storage-response
-     ctx
-     request
-     cli-args
-     #(with-cli-operation ctx cli-args %)
-     #(call-var 'ygg.cli-start/init!
-                args
-                {:print-json server-print-json!
-                 :dispatch (partial init-sync-dispatch! ctx request)
-                 :query-index? server-query-index?}))))
+    (capture-response
+     (fn []
+       (with-user-dir (:cwd request)
+         (fn []
+           (with-cli-operation
+             ctx
+             cli-args
+             #(call-var 'ygg.cli-start/init!
+                        args
+                        {:print-json server-print-json!
+                         :dispatch (partial init-sync-dispatch! ctx request)
+                         :query-index? server-query-index?}))))))))
 
 (defn- stop-response
   [{:keys [running server]}]
