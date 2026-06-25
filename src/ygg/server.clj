@@ -48,7 +48,6 @@
 
 (def ^:private cli-command-names
   ["help"
-   "init"
    "current"
    "use"
    "projects"
@@ -76,7 +75,7 @@
    "report" 'ygg.cli-query/report!})
 
 (def ^:private logged-ops
-  (set (concat ["sync"]
+  (set (concat ["sync" "init"]
                (keys cli-query-command-handlers)
                (keys cli-command-dispatch))))
 
@@ -887,6 +886,40 @@
       (sync-subcommand-response ctx request subcommand args)
       (sync-response ctx request))))
 
+(defn- server-print-json!
+  [value]
+  (println (json/write-json-str value {:indent-str "  "})))
+
+(defn- server-query-index?
+  [args]
+  (boolean (some #{"--query-index"} args)))
+
+(defn- init-sync-dispatch!
+  [ctx request command args]
+  (if (= "sync" command)
+    (let [args (vec args)
+          opts (merge (sync-args->options args)
+                      {:cwd (:cwd request)})
+          xtdb (node-for! ctx (request-storage-path request args opts))
+          result (run-sync! xtdb opts)]
+      (print-sync-result! args result))
+    (run-command-handler! command args)))
+
+(defn- init-response
+  [ctx request]
+  (let [args (absolutize-path-options (:cwd request) (vec (:args request)))
+        cli-args (into ["init"] args)]
+    (captured-request-storage-response
+     ctx
+     request
+     cli-args
+     #(with-cli-operation ctx cli-args %)
+     #(call-var 'ygg.cli-start/init!
+                args
+                {:print-json server-print-json!
+                 :dispatch (partial init-sync-dispatch! ctx request)
+                 :query-index? server-query-index?}))))
+
 (defn- stop-response
   [{:keys [running server]}]
   (reset! running false)
@@ -940,6 +973,9 @@
 
       (= "sync" op)
       (sync-response-dispatch ctx request)
+
+      (= "init" op)
+      (init-response ctx request)
 
       (contains? cli-query-command-handlers op)
       (cli-query-response ctx request op (get cli-query-command-handlers op))

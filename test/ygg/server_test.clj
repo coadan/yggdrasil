@@ -3,6 +3,7 @@
             [ygg.cli-query :as cli-query]
             [ygg.cli-sync :as cli-sync]
             [ygg.index-maintenance-worker :as index-maintenance-worker]
+            [ygg.init :as init]
             [ygg.project :as project]
             [ygg.project-registry :as registry]
             [ygg.queue :as queue]
@@ -104,6 +105,62 @@
                                   {:op "bench"
                                    :token "token"
                                    :args ["agent-report" "suite.edn"]})))))
+
+(deftest init-sync-runs-through-server-sync-path
+  (let [sync-calls (atom [])]
+    (with-redefs [init/init!
+                  (fn [root opts]
+                    (is (= "repo" root))
+                    (is (= {:out nil
+                            :force? false
+                            :project-id "demo"
+                            :name nil
+                            :workbench? false
+                            :task nil}
+                           opts))
+                    {:schema "ygg.init/v1"
+                     :project-id "demo"
+                     :config "project.edn"})
+                  store/storage-path
+                  (fn
+                    ([] "/store/default")
+                    ([project-id] (str "/store/" project-id)))
+                  server/run-sync!
+                  (fn [xtdb opts]
+                    (swap! sync-calls conj
+                           {:xtdb xtdb
+                            :opts (select-keys opts [:config-path
+                                                     :project-id
+                                                     :check?
+                                                     :query-index?
+                                                     :no-progress?
+                                                     :cwd])})
+                    {:schema "ygg.sync/v1"
+                     :project-id "demo"
+                     :index-summary {:repos []}})
+                  cli/dispatch
+                  (fn [& _]
+                    (throw (ex-info "init --sync should not use generic CLI dispatch" {})))]
+      (let [response (server/handle-request
+                      {:xtdb :xtdb
+                       :token "token"
+                       :running (atom true)}
+                      {:op "init"
+                       :token "token"
+                       :args ["repo" "--project" "demo" "--sync" "--query-index"]})
+            body (json/read-json (:out response) :key-fn keyword)]
+        (is (= true (:ok response)))
+        (is (= 0 (:exit response)))
+        (is (= "ygg.init/v1" (:schema body)))
+        (is (str/includes? (:sync-output body) "# Sync"))
+        (is (= [{:xtdb :xtdb
+                 :opts {:config-path "project.edn"
+                        :project-id nil
+                        :check? true
+                        :query-index? true
+                        :no-progress? true
+                        :cwd nil}}]
+               @sync-calls))))))
 
 (deftest generic-command-op-routes-project-id-to-warm-node
   (with-redefs [store/storage-path
