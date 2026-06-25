@@ -1,7 +1,7 @@
 (ns ygg.graph-test
   (:require [ygg.graph :as graph]
             [ygg.index :as index]
-            [ygg.map :as graph-map]
+            [ygg.correction-overlay :as correction-overlay]
             [ygg.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
@@ -49,7 +49,7 @@
           (is (= (:edges query) (:edges exported)))
           (is (.exists (io/file json-path))))))))
 
-(deftest map-overlay-noise-edges-hide-rendered-edges
+(deftest correction-overlay-noise-edges-hide-rendered-edges
   (let [graph-data {:schema graph/schema
                     :nodes [{:id "system:fixture:app:path/api"
                              :label "api"
@@ -62,7 +62,7 @@
                              :target "system:fixture:app:path/config"
                              :relation "shares-config"
                              :visibility "supporting"}]}
-        overlay {:schema graph-map/schema
+        overlay {:schema correction-overlay/schema
                  :project "fixture"
                  :systems []
                  :reject []
@@ -72,6 +72,6 @@
                           :visibility "noise"
                           :reason "Reviewed low-confidence fanout."}]
                  :docs []}
-        updated (graph-map/apply-overlay graph-data overlay)]
+        updated (correction-overlay/apply-overlay graph-data overlay)]
     (is (empty? (:edges updated)))
-    (is (= 1 (get-in updated [:map :edges])))))
+    (is (= 1 (get-in updated [:corrections :edges])))))

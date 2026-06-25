@@ -84,7 +84,7 @@
                                            {:recommendation "reject"
                                             :confidence 0.9
                                             :reason "Weak evidence."
-                                            :mapPatch []})}})]
+                                            :correctionPatch []})}})]
     (is (= decision-classifier/schema (:schema result)))
     (is (= "maintenance-decision:123" (:decisionId result)))
     (is (= "reject" (:recommendation result)))

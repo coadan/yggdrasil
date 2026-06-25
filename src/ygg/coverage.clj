@@ -485,10 +485,29 @@
      :edges (active-project-rows xtdb (:edges store/tables) project-id)
      :diagnostics (active-project-rows xtdb (:diagnostics store/tables) project-id)}))
 
+(defn- active-project-row-count
+  [xtdb table project-id]
+  (store/active-row-count xtdb
+                          table
+                          (active-index-constraints {:project-id project-id})))
+
+(defn- indexed-project-counts
+  [xtdb project-id]
+  {:files (active-project-row-count xtdb (:files store/tables) project-id)
+   :nodes (active-project-row-count xtdb (:nodes store/tables) project-id)
+   :edges (active-project-row-count xtdb (:edges store/tables) project-id)
+   :diagnostics (active-project-row-count xtdb (:diagnostics store/tables) project-id)})
+
 (defn- indexed-connectivity-summary
   [{:keys [files nodes edges]}]
   (when files
     (indexed-connectivity-from-rows files nodes edges)))
+
+(defn- indexed-connectivity-count-summary
+  [{:keys [files nodes edges]}]
+  {:indexedFiles (long (or files 0))
+   :nodes (long (or nodes 0))
+   :edges (long (or edges 0))})
 
 (defn- diagnostics-summary
   [{:keys [files diagnostics]}]
@@ -532,6 +551,22 @@
                                             :source-line
                                             :file-id])))})))
 
+(defn- stage-count-row
+  [{:keys [value count]}]
+  {:stage (display-value value)
+   :count (long count)})
+
+(defn- diagnostics-count-summary
+  [xtdb project-id indexed-counts]
+  {:total (long (or (:diagnostics indexed-counts) 0))
+   :by-stage (->> (store/active-row-counts-by-field
+                   xtdb
+                   (:diagnostics store/tables)
+                   :stage
+                   (active-index-constraints {:project-id project-id}))
+                  (map stage-count-row)
+                  vec)})
+
 (defn- indexed-extractor-fingerprint-summary
   [files]
   (if-not files
@@ -546,14 +581,34 @@
          (sort-by (juxt :kind :extractor-version :extractor-fingerprint))
          vec)))
 
+(defn- indexed-extractor-fingerprint-count-summary
+  [xtdb project-id]
+  (->> (store/active-row-counts-by-fields
+        xtdb
+        (:files store/tables)
+        [:kind :extractor-fingerprint]
+        (active-index-constraints {:project-id project-id}))
+       (map (fn [{:keys [values count]}]
+              (let [kind (:kind values)]
+                {:kind (display-value kind)
+                 :extractor-version (get extract/extractor-versions kind "none/v1")
+                 :extractor-fingerprint (extractor-fingerprint-value values)
+                 :files (long count)})))
+       (sort-by (juxt :kind :extractor-version :extractor-fingerprint))
+       vec))
+
 (defn project-coverage
   "Return source type coverage for project repos.
 
   When `xtdb` is provided, indexed diagnostics are joined with active file rows
   to summarize parser/extractor failures by source kind and extractor version."
   ([project] (project-coverage nil project {}))
-  ([xtdb {:keys [id repos path] :as _project} {:keys [config-path]}]
-   (let [indexed-rows (indexed-project-rows xtdb id)
+  ([xtdb {:keys [id repos path] :as _project} {:keys [config-path summary?]}]
+   (let [count-summary? (and summary? (store/xtdb-handle? xtdb))
+         indexed-rows (when-not count-summary?
+                        (indexed-project-rows xtdb id))
+         indexed-counts (when count-summary?
+                          (indexed-project-counts xtdb id))
          repos (mapv repo-coverage repos)
          coverage-files-by-repo (into {}
                                       (map (fn [repo]
@@ -572,10 +627,18 @@
                                                                :skipped-by-reason
                                                                :reason)
                  :extractors (merge-extractors repos)
-                 :extractor-fingerprints (indexed-extractor-fingerprint-summary
-                                          (:files indexed-rows))
-                 :indexedConnectivity (indexed-connectivity-summary indexed-rows)
-                 :diagnostics (diagnostics-summary indexed-rows)
+                 :extractor-fingerprints (if count-summary?
+                                           (indexed-extractor-fingerprint-count-summary
+                                            xtdb
+                                            id)
+                                           (indexed-extractor-fingerprint-summary
+                                            (:files indexed-rows)))
+                 :indexedConnectivity (if count-summary?
+                                        (indexed-connectivity-count-summary indexed-counts)
+                                        (indexed-connectivity-summary indexed-rows))
+                 :diagnostics (if count-summary?
+                                (diagnostics-count-summary xtdb id indexed-counts)
+                                (diagnostics-summary indexed-rows))
                  :repos repos}
          actions (coverage-next-actions report (or config-path path))]
      (with-meta

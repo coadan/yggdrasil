@@ -28,7 +28,7 @@ repo ids, clone URLs, cache dirs, and commits required by tracked suites. Check
 setup before running a gate:
 
 ```sh
-bb bench:repos check --suite benchmarks/architecture-synthetic.edn
+bb bench repos check --suite benchmarks/architecture-synthetic.edn
 bb bench:gate --setup-check
 ```
 
@@ -179,7 +179,7 @@ bb bench agent-report benchmarks/headline.edn \
   --agent codex \
   --out .dev/ygg/headline-bench/ygg
 
-bb efficiency \
+bb bench efficiency \
   .dev/ygg/headline-bench/shell-only/agent-report.json \
   .dev/ygg/headline-bench/ygg/agent-report.json \
   --out .dev/ygg/headline-bench/summary.json \
@@ -325,7 +325,7 @@ plugin-fit choice, not just a shorter suspected-file list.
   `bench agent-report`, writes an updated `agent-report.json`, and writes
   `system-improvement-report.json`. The report is dev-time guidance, not a
   repair workflow: it does not enqueue `sync work`, does not patch
-  `ygg.map.json`, and does not waive benchmark failures. It groups benchmark
+  correction facts, and does not waive benchmark failures. It groups benchmark
   diagnostics into `maintenance-emitter-gap`, `indexing-gap`, `extractor-gap`,
   `retrieval-gap`, `decision-quality-gap`, `benchmark-suite-gap`, and
   `agent-protocol-gap` lanes with affected cases, declared

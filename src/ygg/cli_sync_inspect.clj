@@ -1,8 +1,7 @@
 (ns ygg.cli-sync-inspect
-  (:require [ygg.cli-options :refer [json-output? option-value positional-args]]
+  (:require [ygg.cli-options :refer [json-output? positional-args]]
+            [ygg.corrections :as corrections]
             [ygg.evidence :as evidence]
-            [ygg.map :as graph-map]
-            [ygg.map-store :as map-store]
             [ygg.project :as project]
             [ygg.xtdb :as store]
             [charred.api :as json]
@@ -16,30 +15,22 @@
 
 (defn- usage
   []
-  "Usage: ygg sync inspect <project.edn> [--map PATH] [--json]")
+  "Usage: ygg sync inspect <project.edn> [--json]")
 
 (defn- print-json
   [value]
   (println (json/write-json-str value {:indent-str "  "})))
 
-(defn- default-map-path
-  [args]
-  (cond
-    (some #{"--no-map"} args) nil
-    (option-value args "--map") (option-value args "--map")
-    (map-store/file-exists? graph-map/default-path) graph-map/default-path
-    :else nil))
-
 (defn project-inspect-result
-  [xtdb project {:keys [config-path map-path]}]
-  (let [overlay (when (and map-path (map-store/file-exists? map-path))
-                  (map-store/read-map map-path))
+  [xtdb project {:keys [config-path]}]
+  (let [overlay (when (store/xtdb-handle? xtdb)
+                  (corrections/overlay xtdb (:id project)))
         evidence-summary (evidence/summarize xtdb
                                              project
-                                             {:map-overlay overlay
+                                             {:correction-overlay overlay
                                               :config-path (or config-path
                                                                (:path project))
-                                              :map-path map-path})
+                                              :summary? true})
         freshness (:freshness evidence-summary)]
     {:schema "ygg.project.inspect/v1"
      :project {:id (:id project)
@@ -118,8 +109,6 @@
       (println "- basis" (:basis freshness)))
     (when (:projectConfig freshness)
       (println "- project-config" (:projectConfig freshness)))
-    (when (:map freshness)
-      (println "- map" (:map freshness) "exists" (boolean (:mapExists freshness))))
     (when (contains? freshness :missingQueryIndex)
       (println "- missing-query-index" (boolean (:missingQueryIndex freshness))))
     (println "- indexed" (get-in freshness [:counts :indexed] 0))
@@ -149,8 +138,7 @@
 (defn- default-deps
   []
   {:usage usage
-   :print-json print-json
-   :default-map-path default-map-path})
+   :print-json print-json})
 
 (declare print-project-status-on-node-with-deps!)
 
@@ -181,11 +169,9 @@
     args
     deps))
   ([xtdb project config-path args deps]
-   (let [map-path ((:default-map-path deps) args)
-         result (project-inspect-result xtdb
+   (let [result (project-inspect-result xtdb
                                         project
-                                        {:config-path config-path
-                                         :map-path map-path})]
+                                        {:config-path config-path})]
      (print-project-status-result! result args deps))))
 
 (defn print-project-status!

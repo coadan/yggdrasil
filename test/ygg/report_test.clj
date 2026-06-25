@@ -83,8 +83,7 @@
                                         :status :weak}]
                             :nextActions [{:kind :validation-history
                                            :label "Run sync work validation loop"
-                                           :command (str "ygg sync check project.edn"
-                                                         " --map ygg.map.json --enqueue")}]}
+                                           :command "ygg sync project.edn --check --enqueue"}]}
                  :package-report {:counts {:packages 2
                                            :unresolved-imports 1
                                            :declared-without-import-evidence 1
@@ -161,7 +160,7 @@
               (get-in packet [:operator :caveats])))
     (is (some #(= {:kind :validation-history
                    :label "Run sync work validation loop"
-                   :command "ygg sync check project.edn --map ygg.map.json --enqueue"}
+                   :command "ygg sync project.edn --check --enqueue"}
                   %)
               (get-in packet [:operator :next-actions])))
     (is (some #(= {:kind :dependencies
@@ -220,7 +219,7 @@
             :result-schema-mismatch-events 1}
            (get-in packet [:atlas :activity])))
     (is (= #{"ygg packages --project fixture --json"
-             "ygg map package import <import-prefix> <ecosystem>:<package>"
+             "ygg corrections package import <import-prefix> <ecosystem>:<package> --reason <reason>"
              "ygg packages --project fixture --with-conflicts --json"
              "ygg sync coverage project.edn --json"
              "ygg sync activity project.edn --json"}
@@ -239,7 +238,6 @@
                 {:project {:id "fixture"
                            :path "project.edn"
                            :repos []}
-                 :map-path "ygg.map.json"
                  :detail :primary
                  :generated-at-ms 1
                  :graph-data {:nodes [] :edges []}
@@ -253,7 +251,7 @@
                  :package-report {}
                  :artifacts {}})
         commands (set (:commands packet))]
-    (is (contains? commands "ygg sync inspect project.edn --map ygg.map.json --json"))
+    (is (contains? commands "ygg sync inspect project.edn --json"))
     (is (contains? commands "ygg sync work list --project fixture"))
     (is (contains? commands "ygg sync work show <work-id>"))
     (is (contains? commands "ygg sync work pull --project fixture --agent <agent-id>"))
@@ -262,7 +260,7 @@
     (is (contains? commands "ygg sync work pull --project fixture --kind dependency-review --agent <agent-id>"))
     (is (contains? commands "ygg sync work heartbeat <work-id> --agent <agent-id> --lease-minutes 30"))
     (is (contains? commands "ygg sync work complete <work-id> --result result.json"))
-    (is (contains? commands "ygg sync work apply <work-id> --map ygg.map.json"))
+    (is (contains? commands "ygg sync work validate <work-id>"))
     (is (= [{:kind :maintenance
              :label "Process maintenance work queue"
              :count 3
@@ -274,7 +272,6 @@
                 {:project {:id "fixture project"
                            :path "Project Files/project.edn"
                            :repos []}
-                 :map-path "Maps/ygg map.json"
                  :detail :primary
                  :generated-at-ms 1
                  :graph-data {:nodes [] :edges []}
@@ -288,13 +285,13 @@
         commands (set (:commands packet))
         atlas-commands (set (map :command (get-in packet [:atlas :next-actions])))]
     (is (contains? commands
-                   "ygg sync 'Project Files/project.edn' --check --map 'Maps/ygg map.json'"))
+                   "ygg sync 'Project Files/project.edn' --check"))
     (is (contains? commands
-                   "ygg sync inspect 'Project Files/project.edn' --map 'Maps/ygg map.json' --json"))
+                   "ygg sync inspect 'Project Files/project.edn' --json"))
     (is (contains? commands
                    "ygg packages --project 'fixture project' --json"))
     (is (contains? commands
-                   "ygg sync work apply <work-id> --map 'Maps/ygg map.json'"))
+                   "ygg sync work validate <work-id>"))
     (is (contains? atlas-commands
                    "ygg packages --project 'fixture project' --json"))
     (is (contains? atlas-commands

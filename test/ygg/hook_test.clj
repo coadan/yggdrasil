@@ -30,7 +30,6 @@
     (spit hook-file "#!/usr/bin/env sh\necho existing\n")
     (let [result (hook/install! (project root)
                                 {:config-path (str root "/project.edn")
-                                 :map-path (str root "/ygg.map.json")
                                  :ygg-bin "/bin/false"})]
       (is (= hook/schema (:schema result)))
       (is (= "installed" (get-in result [:repos 0 :status])))
@@ -77,4 +76,3 @@
         result (hook/install! (project root) {:config-path (str root "/project.edn")})]
     (is (= "skipped" (get-in result [:repos 0 :status])))
     (is (= "not-a-git-repo" (get-in result [:repos 0 :reason])))))
-

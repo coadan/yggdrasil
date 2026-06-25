@@ -1,5 +1,12 @@
 (ns ygg.cli-query
-  (:require [ygg.cli-options :refer [json-output? option-value parse-double-option parse-limit positional-args project-scope remove-option]]
+  (:require [ygg.cli-options :refer [json-output?
+                                     option-value
+                                     parse-depth
+                                     parse-double-option
+                                     parse-limit
+                                     positional-args
+                                     project-scope
+                                     remove-option]]
             [ygg.context :as context]
             [ygg.embedding.local :as local]
             [ygg.embedding.openai :as openai]
@@ -24,10 +31,8 @@
 
 (defn- usage [] (call-dep :usage))
 (defn- print-json [data] (call-dep :print-json data))
-(defn- default-map-path [args] (call-dep :default-map-path args))
 (defn- temporal-options [args] (call-dep :temporal-options args))
 (defn- context-packet-options [xtdb args opts] (call-dep :context-packet-options xtdb args opts))
-(defn- dispatch [command args] (call-dep :dispatch command args))
 
 (defn print-query-result
   [result]
@@ -406,7 +411,6 @@
                                              :min-confidence min-confidence
                                              :detail (keyword (or (option-value graph-args "--detail")
                                                                   "primary"))
-                                             :map-path (default-map-path graph-args)
                                              :read-context (temporal-options graph-args)
                                              :view-id (option-value graph-args "--view")})))
 
@@ -417,7 +421,6 @@
       (graph/system-graph xtdb project-id {:limit limit
                                            :detail (keyword (or (option-value graph-args "--detail")
                                                                 "primary"))
-                                           :map-path (default-map-path graph-args)
                                            :read-context (temporal-options graph-args)
                                            :view-id (option-value graph-args "--view")}))
 
@@ -434,7 +437,6 @@
                            {:limit limit
                             :detail (keyword (or (option-value graph-args "--detail")
                                                  "expanded"))
-                            :map-path (default-map-path graph-args)
                             :read-context (temporal-options graph-args)
                             :view-id (option-value graph-args "--view")}))
 
@@ -511,10 +513,30 @@
 (defn view!
   [args]
   (let [format (keyword (or (option-value args "--format") "html"))
-        view-args (args-with-project (remove-option args "--format"))]
+        view-args (args-with-project (remove-option args "--format"))
+        mode (keyword (first view-args))
+        graph-args (vec (rest view-args))
+        limit (or (parse-limit graph-args)
+                  (case mode :query 40 graph/default-node-limit))
+        depth (parse-depth graph-args)
+        value (graph-output-value mode graph-args)]
     (case format
-      :html (dispatch "graph" view-args)
-      :json (dispatch "graph" (into ["export"] view-args))
+      :html
+      (store/with-node (store/storage-path)
+        (fn [xtdb]
+          (let [data (graph-data-for-mode xtdb mode graph-args limit depth)]
+            (print-graph-output
+             (report/write-graph-viewer! (graph-output graph-args mode value) data)
+             data))))
+
+      :json
+      (store/with-node (store/storage-path)
+        (fn [xtdb]
+          (let [data (graph-data-for-mode xtdb mode graph-args limit depth)]
+            (print-canonical-output
+             (graph/write-canonical! (graph-json-output graph-args mode value) data)
+             data))))
+
       (throw (ex-info "Unknown view format."
                       {:format format
                        :supported [:html :json]
@@ -527,8 +549,7 @@
                              {:project-id (option-value args "--project")
                               :cwd (System/getProperty "user.dir")})
                             {:project (project/read-project config-path)
-                             :config-path config-path})
-        map-path (default-map-path args)]
+                             :config-path config-path})]
     (store/with-node (store/storage-path (:id project))
       (fn [xtdb]
         (print-json
@@ -536,7 +557,6 @@
                          project
                          {:out (or (option-value args "--out")
                                    report/default-output-dir)
-                          :map-path map-path
                           :detail (keyword (or (option-value args "--detail")
                                                (name report/default-detail)))
                           :force? (boolean (some #{"--force"} args))}))))))

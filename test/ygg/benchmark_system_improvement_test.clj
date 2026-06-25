@@ -178,15 +178,15 @@
              :runs 3}]
            (get-in report [:summary :architectureClasses])))))
 
-(deftest improve-command-writes-report-without-map-or-queue-artifacts
+(deftest improve-command-writes-report-without-sidecar-artifacts
   (let [out (temp-dir "ygg-bench-improve")
         suite {:id "suite"
                :cases [{:id "case-1"
                         :repo-id "repo"
                         :tags ["problem-localization"]}]}
-        map-path (io/file out "ygg.map.json")
+        sentinel-path (io/file out "sentinel.json")
         queue-dir (io/file out "queue")]
-    (spit map-path "{\"stable\":true}\n")
+    (spit sentinel-path "{\"stable\":true}\n")
     (spit-json! out
                 "suite/cases/case-1/agent-scores/run.score.json"
                 {:schema benchmark/agent-score-schema
@@ -216,5 +216,5 @@
       (is (.isFile (io/file out
                             "suite"
                             "system-improvement-report.json")))
-      (is (= "{\"stable\":true}\n" (slurp map-path)))
+      (is (= "{\"stable\":true}\n" (slurp sentinel-path)))
       (is (not (.exists queue-dir))))))

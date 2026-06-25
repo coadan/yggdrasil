@@ -229,4 +229,4 @@ opening raw report JSON.
 Report plugins are presentation and planning tools. They should emit panel data,
 diagnostics, or artifacts for review. They should not mutate graph facts or
 write accepted semantic corrections directly; accepted corrections still belong
-in validated `ygg.map.json` flows.
+in validated correction-fact flows.

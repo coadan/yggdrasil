@@ -1,8 +1,8 @@
 (ns ygg.vector-store
   "Semantic vector retrieval backends.
 
-  XTDB embedding rows remain the source of truth. SQLite/sqlite-vec is an
-  optional rebuildable acceleration sidecar used only when explicitly available."
+  XTDB embedding rows remain the source of truth. Project SQLite stores the
+  rebuildable sqlite-vec index when the sqlite-vec extension is available."
   (:require [ygg.env :as env]
             [ygg.hash :as hash]
             [ygg.xtdb :as store]
@@ -11,7 +11,6 @@
   (:import [java.sql PreparedStatement]
            [org.sqlite SQLiteConfig]))
 
-(def default-index-file "vector-index.sqlite")
 (def default-candidate-limit 100)
 
 (def embedding-row-query-fields
@@ -61,15 +60,17 @@
   (keyword (or (env/get-env "YGG_VECTOR_STORE") "auto")))
 
 (defn default-index-path
-  []
-  (let [storage (io/file (store/storage-path))
-        parent (or (.getParentFile storage) (io/file ".dev" "ygg"))]
-    (.getPath (io/file parent default-index-file))))
+  ([] (default-index-path nil))
+  ([project-id]
+   (store/project-sqlite-path (or project-id
+                                  (env/get-env "YGG_PROJECT_ID")
+                                  store/default-project-id))))
 
 (defn configured-index-path
-  []
+  ([] (configured-index-path nil))
+  ([project-id]
   (or (env/get-env "YGG_VECTOR_INDEX_PATH")
-      (default-index-path)))
+      (default-index-path project-id))))
 
 (defn configured-extension-path
   []
@@ -205,18 +206,19 @@
       (.executeUpdate statement))))
 
 (defn upsert-embeddings!
-  "Upsert embedding rows into the optional sqlite-vec sidecar.
+  "Upsert embedding rows into the project SQLite sqlite-vec index.
 
   In `auto` mode, missing sqlite-vec configuration is a no-op. XTDB remains the
-  durable source of truth, so sidecar failures never make embedding persistence
+  durable source of truth, so sqlite-vec failures never make embedding persistence
   fail unless callers set `YGG_VECTOR_STORE=sqlite-vec`."
   ([rows] (upsert-embeddings! rows {}))
-  ([rows {:keys [mode index-path extension-path]
-          :or {mode (configured-mode)
-               index-path (configured-index-path)
-               extension-path (configured-extension-path)}}]
+  ([rows {:keys [mode index-path extension-path project-id]}]
    (let [mode (keyword mode)
          rows (vec rows)
+         mode (or mode (configured-mode))
+         project-id (or project-id (:project-id (first rows)))
+         index-path (or index-path (configured-index-path project-id))
+         extension-path (or extension-path (configured-extension-path))
          enabled? (sqlite-enabled? {:mode mode :extension-path extension-path})]
      (cond
        (empty? rows)
@@ -383,10 +385,10 @@
         dims (count query-vector)
         table-name (vector-table provider model dims)
         current (current-inputs docs)
-        sqlite-opts {:index-path (or (:vector-index-path opts)
-                                     (configured-index-path))
-                     :extension-path (or (:sqlite-vec-extension opts)
-                                         (configured-extension-path))}]
+	        sqlite-opts {:index-path (or (:vector-index-path opts)
+	                                     (configured-index-path (:project-id opts)))
+	                     :extension-path (or (:sqlite-vec-extension opts)
+	                                         (configured-extension-path))}]
     (with-open [conn (sqlite-connection sqlite-opts)]
       (ensure-schema! conn table-name dims)
       (let [[scores vector-timing] (timed :vector-search-ms

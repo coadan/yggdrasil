@@ -32,34 +32,27 @@ if [ -n "$PROJECT_ID" ] && [ -z "${YGG_PROJECT_ID:-}" ]; then
   export YGG_PROJECT_ID=$PROJECT_ID
 fi
 
-MAIN=ygg.cli
-if [ "${1:-}" = "daemon" ]; then
-  if [ "${2:-}" != "start" ] && [ "$#" -gt 1 ] && command -v python3 >/dev/null 2>&1; then
-    shift
-    python3 "$REPO_DIR/scripts/ygg-daemon-client.py" "$@"
-    exit "$?"
+if [ "${1:-}" = "start" ]; then
+  if [ "$#" -gt 1 ]; then
+    printf '%s\n' "ygg start starts the local server and does not accept project setup arguments." >&2
+    printf '%s\n' "Use ygg init --sync for project setup." >&2
+    exit 2
   fi
-  MAIN=ygg.daemon
-  shift
+  if command -v python3 >/dev/null 2>&1; then
+    if YGG_SERVER_CONNECT_TIMEOUT_MS=0 python3 "$REPO_DIR/scripts/ygg-server-client.py" status >/dev/null 2>&1; then
+      printf '%s\n' "Yggdrasil server is already running."
+      exit 0
+    fi
+  fi
+  set -- start
 elif [ "$#" -gt 0 ] && command -v python3 >/dev/null 2>&1; then
-  set +e
-  python3 "$REPO_DIR/scripts/ygg-daemon-client.py" "$@"
-  STATUS=$?
-  set -e
-  if [ "$STATUS" -ne 75 ]; then
-    exit "$STATUS"
-  fi
-  printf '%s\n' "warning: ygg daemon not running; using direct CLI path" >&2
+  exec python3 "$REPO_DIR/scripts/ygg-server-client.py" "$@"
 elif [ "$#" -gt 0 ]; then
-  printf '%s\n' "warning: python3 unavailable; using direct CLI path without daemon routing" >&2
-fi
-
-if [ "${1:-}" = "sync" ] && [ "${2:-}" = "inspect" ]; then
-  shift 2
-  MAIN=ygg.cli-sync-inspect
-elif [ "${1:-}" = "query" ]; then
-  shift
-  set -- query "$@"
+  printf '%s\n' "python3 is required for server-backed ygg commands." >&2
+  exit 75
+else
+  printf '%s\n' "Usage: ygg start | ygg <command> ..." >&2
+  exit 2
 fi
 
 exec clojure \
@@ -70,4 +63,4 @@ exec clojure \
   -J--enable-native-access=ALL-UNNAMED \
   -J-Dio.netty.tryReflectionSetAccessible=true \
   -M \
-  -m "$MAIN" "$@"
+  -m ygg.server "$@"

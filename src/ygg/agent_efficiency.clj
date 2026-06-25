@@ -2180,7 +2180,7 @@
 
 (defn- usage
   []
-  (str "Usage: bb efficiency <shell-agent-report.json> <ygg-agent-report.json>"
+  (str "Usage: bb bench efficiency <shell-agent-report.json> <ygg-agent-report.json>"
        " [--out report.json] [--markdown-out REPORT.md]"
        " [--json] [--min-shared-cases N]"))
 

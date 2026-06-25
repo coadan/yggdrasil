@@ -111,16 +111,16 @@ run_bench() {
   local action="$1"
   shift
   if [[ -n "$case_id" ]]; then
-    run clojure -M:run -m ygg.cli bench "$action" "$suite" --case "$case_id" "$@"
+    run ./bin/ygg bench "$action" "$suite" --case "$case_id" "$@"
   elif [[ -n "$case_ids" ]]; then
-    run clojure -M:run -m ygg.cli bench "$action" "$suite" --cases "$case_ids" "$@"
+    run ./bin/ygg bench "$action" "$suite" --cases "$case_ids" "$@"
   else
-    run clojure -M:run -m ygg.cli bench "$action" "$suite" "$@"
+    run ./bin/ygg bench "$action" "$suite" "$@"
   fi
 }
 
 setup_check() {
-  run bb bench:repos check --manifest "$manifest" --suite "$suite"
+  run bb bench repos check --manifest "$manifest" --suite "$suite"
 }
 
 if [[ "$setup_check_only" == true ]]; then

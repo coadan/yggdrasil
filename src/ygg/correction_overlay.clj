@@ -1,23 +1,17 @@
-(ns ygg.map
-  "Editable system-map overlay for agent-maintained graph meaning."
+(ns ygg.correction-overlay
+  "Correction overlay helpers for query-time graph projections."
   (:require [ygg.hash :as hash]
             [clojure.string :as str]))
 
 (def schema
-  "ygg.map/v2")
-
-(def legacy-schema
-  "ygg.map/v1")
-
-(def default-path
-  "ygg.map.json")
+  "ygg.correction-overlay/v1")
 
 (defn now-ms
   []
   (System/currentTimeMillis))
 
-(defn empty-map
-  "Return an empty editable graph map for project-id."
+(defn empty-overlay
+  "Return an empty correction overlay for project-id."
   [project-id]
   {:schema schema
    :project project-id
@@ -109,7 +103,7 @@
                                     (s (:pathPrefix system))
                                     (s (first-include-path system))
                                     (:pathPrefix base))
-                    :source "map-overlay"})
+                    :source "correction-overlay"})
       (:reason system) (assoc :reason (:reason system))
       (:lifecycle system) (assoc :lifecycle (s (:lifecycle system)))
       (:clusterHint system) (assoc :clusterHint (s (:clusterHint system)))
@@ -157,7 +151,7 @@
                      :target (:target edge)
                      :relation (kname (:relation edge))
                      :confidence (str (or (:confidence edge) 1.0))
-                     :rules (or (:rules edge) "map-overlay")
+                     :rules (or (:rules edge) "correction-overlay")
                      :evidence (or (:evidence edge) (:reason edge))}
               (:visibility edge) (assoc :visibility (s (:visibility edge)))
               (:importance edge) (assoc :importance (s (:importance edge)))
@@ -165,7 +159,7 @@
               (:reason edge) (assoc :reason (:reason edge))
               (seq (:tags edge)) (assoc :tags (mapv s (:tags edge))))]
     (assoc row :id (or (:id edge)
-                       (str "map-edge:" (hash/short-hash row))))))
+                       (str "correction-edge:" (hash/short-hash row))))))
 
 (defn- hidden-edge?
   [edge]
@@ -188,7 +182,7 @@
       out)))
 
 (defn apply-overlay
-  "Apply editable map overlay to canonical ygg.graph/v2 data."
+  "Apply a correction overlay to canonical ygg.graph/v2 data."
   [graph-data overlay]
   (let [nodes (vec (:nodes graph-data))
         nodes-by-id (into {} (map (juxt :id identity)) nodes)
@@ -214,12 +208,12 @@
                              (remove #(= (:source %) (:target %)))
                              (remove #(or (contains? rejected (:source %))
                                           (contains? rejected (:target %)))))
-        map-edges (map overlay-edge (:edges overlay))
-        hidden-edge-keys (set (map edge-key (filter hidden-edge? map-edges)))
-        visible-map-edges (remove hidden-edge? map-edges)
+        correction-edges (map overlay-edge (:edges overlay))
+        hidden-edge-keys (set (map edge-key (filter hidden-edge? correction-edges)))
+        visible-correction-edges (remove hidden-edge? correction-edges)
         visible-rewritten-edges (remove #(contains? hidden-edge-keys (edge-key %))
                                         rewritten-edges)
-        edges* (->> (concat visible-map-edges visible-rewritten-edges)
+        edges* (->> (concat visible-correction-edges visible-rewritten-edges)
                     (remove #(or (contains? rejected (:source %))
                                  (contains? rejected (:target %))))
                     (filter #(and (contains? node-ids (:source %))
@@ -229,17 +223,17 @@
     (assoc graph-data
            :nodes nodes**
            :edges edges*
-           :map {:schema schema
-                 :project (:project overlay)
-                 :systems (count (:systems overlay))
-                 :rejects (count (:reject overlay))
-                 :edges (count (:edges overlay))
-                 :docs (count (:docs overlay))
-                 :packageImports (count (or (:packageImports overlay)
-                                            (:package-imports overlay)))})))
+           :corrections {:schema schema
+                         :project (:project overlay)
+                         :systems (count (:systems overlay))
+                         :rejects (count (:reject overlay))
+                         :edges (count (:edges overlay))
+                         :docs (count (:docs overlay))
+                         :packageImports (count (or (:packageImports overlay)
+                                                    (:package-imports overlay)))})))
 
 (defn system-entry
-  "Return an editable map system candidate from stored system node."
+  "Return a correction system candidate from a stored system node."
   [node]
   (cond-> {:id (:xt/id node)
            :label (:label node)
@@ -258,8 +252,8 @@
     (:path-prefix node) (assoc :pathPrefix (:path-prefix node))
     (:repo-id node) (assoc :repo (:repo-id node))))
 
-(defn propose-map
-  "Return editable candidate map from stored system nodes and edges."
+(defn propose-overlay
+  "Return candidate correction overlay data from stored system nodes and edges."
   [project-id systems _edges]
   {:schema schema
    :project project-id
@@ -344,8 +338,8 @@
     (contains? package-import :confidence) (assoc :confidence (numeric (:confidence package-import)))
     (:reason package-import) (assoc :reason (s (:reason package-import)))))
 
-(defn normalize-map
-  "Return a compact ygg.map/v2 overlay containing accepted corrections only."
+(defn normalize-overlay
+  "Return a compact ygg.correction-overlay/v1 overlay containing accepted corrections only."
   [overlay]
   {:schema schema
    :project (:project overlay)
@@ -393,7 +387,7 @@
   [overlay value f]
   (if-let [idx (find-system-index overlay value)]
     (update overlay :systems update idx f)
-    (throw (ex-info "System not found in map."
+    (throw (ex-info "System not found in correction overlay."
                     {:system value
                      :available (mapv #(select-keys % [:id :label]) (:systems overlay))}))))
 
@@ -461,7 +455,7 @@
             (seq reason) (assoc :reason reason))))
 
 (defn add-edge
-  "Attach an accepted project-level relationship to the editable map."
+  "Attach an accepted project-level relationship to the correction overlay."
   [overlay edge]
   (update overlay :edges (fnil conj []) edge))
 

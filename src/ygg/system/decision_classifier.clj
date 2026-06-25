@@ -1,7 +1,7 @@
 (ns ygg.system.decision-classifier
   "Focused classifier for one index maintenance decision at a time."
-  (:require [ygg.map :as graph-map]
-            [ygg.map-api :as map-api]
+  (:require [ygg.corrections-api :as corrections-api]
+            [ygg.correction-overlay :as correction-overlay]
             [ygg.queue :as queue]
             [charred.api :as json]
             [clojure.string :as str]))
@@ -71,7 +71,7 @@
                 "\"recommendation\":\"accept|reject|change|investigate\","
                 "\"confidence\":0.0,"
                 "\"reason\":\"brief rationale\","
-                "\"mapPatch\":[{\"op\":\"" (str/join "|" allowed-actions) "\","
+                "\"correctionPatch\":[{\"op\":\"" (str/join "|" allowed-actions) "\","
                 "\"target\":\"id or label\",\"value\":{},\"reason\":\"brief rationale\"}]"
                 "}\n\n"
                 (json/write-json-str {:decision decision
@@ -110,7 +110,7 @@
                       :recommendation "accept|reject|change|investigate"
                       :confidence 0.0
                       :reason "brief rationale"
-                      :mapPatch []}}))
+                      :correctionPatch []}}))
 
 (defn decision-by-id
   "Find a decision by id or by its shortest unique suffix."
@@ -150,11 +150,9 @@
     (catch Exception _
       false)))
 
-(defn- map-patch
+(defn- correction-patch
   [result]
-  (vec (or (:mapPatch result)
-           (:map-patch result)
-           [])))
+  (vec (or (:correctionPatch result) [])))
 
 (defn- patch-value
   [patch]
@@ -224,36 +222,36 @@
     (vec
      (remove nil?
              [(when-not (contains? allowed-ops op)
-                {:path [:mapPatch idx :op]
-                 :error "Index maintenance map patch op is not allowed for this decision."
+                {:path [:correctionPatch idx :op]
+                 :error "Index maintenance correction patch op is not allowed for this decision."
                  :value op})
               (when (and (#{"accept-system" "reject-system" "set-system-kind"} op)
                          (not (target-system? packet target)))
-                {:path [:mapPatch idx :target]
+                {:path [:correctionPatch idx :target]
                  :error "System patch target must match the decision target."
                  :value target})
               (when (and (#{"add-edge" "set-edge-visibility"} op)
                          (not (and (present? source)
                                    (present? edge-target)
                                    (present? relation))))
-                {:path [:mapPatch idx]
+                {:path [:correctionPatch idx]
                  :error "Edge patch requires source, target, and relation."})
               (when (and (= "set-system-kind" op)
                          (not (present? kind)))
-                {:path [:mapPatch idx :value :kind]
+                {:path [:correctionPatch idx :value :kind]
                  :error "set-system-kind requires kind."})
               (when (and (= "set-edge-visibility" op)
                          (not (present? visibility)))
-                {:path [:mapPatch idx :visibility]
+                {:path [:correctionPatch idx :visibility]
                  :error "set-edge-visibility requires visibility."})
               (when (and (contains? patch :confidence)
                          (not (bounded-confidence? (:confidence patch))))
-                {:path [:mapPatch idx :confidence]
+                {:path [:correctionPatch idx :confidence]
                  :error "Confidence must be between 0 and 1."
                  :value (:confidence patch)})
               (when (and (not= "none" op)
                          (not (present? (:reason patch))))
-                {:path [:mapPatch idx :reason]
+                {:path [:correctionPatch idx :reason]
                  :error "Patch reason is required."})]))))
 
 (defn validate-result
@@ -295,7 +293,7 @@
                   :value (:confidence result)})])
       (mapcat (fn [[idx patch]]
                 (patch-errors packet patch idx))
-              (map-indexed vector (map-patch result)))))))
+              (map-indexed vector (correction-patch result)))))))
 
 (defn- upsert-system
   [overlay system]
@@ -340,7 +338,7 @@
                                reason (assoc :reason reason)))
 
       "reject-system"
-      (graph-map/add-reject overlay {:id target} reason)
+      (correction-overlay/add-reject overlay {:id target} reason)
 
       "set-system-kind"
       (upsert-system overlay (assoc (cond-> (target-system-row packet)
@@ -349,12 +347,12 @@
                                     :status "accepted"))
 
       "reject-external-api"
-      (graph-map/add-reject overlay {:kind "external-api"
+      (correction-overlay/add-reject overlay {:kind "external-api"
                                      :host target}
                             reason)
 
       ("add-edge" "set-edge-visibility")
-      (graph-map/add-edge overlay (patch->edge patch))
+      (correction-overlay/add-edge overlay (patch->edge patch))
 
       overlay)))
 
@@ -362,11 +360,11 @@
   [overlay packet result]
   (reduce #(apply-patch %1 packet %2)
           overlay
-          (map-patch result)))
+          (correction-patch result)))
 
 (defn apply-work-result!
-  "Validate and apply a completed index maintenance decision queue item to a map file."
-  [root id map-path]
+  "Validate and apply a completed index maintenance decision as correction facts."
+  [xtdb root id]
   (let [found (or (queue/find-item root id)
                   (throw (ex-info "Queue item not found." {:id id})))
         item (:item found)
@@ -382,15 +380,17 @@
          :item (queue/item-summary failed)})
       (let [packet (payload item)
             result (result item)
-            write-result (map-api/apply-overlay!
-                          map-path
+            write-result (corrections-api/apply-overlay!
+                          xtdb
                           (:project-id packet)
-                          #(apply-patches % packet result))]
+                          #(apply-patches % packet result)
+                          {:source (:decisionId packet)})]
         {:schema apply-schema
          :status "applied"
          :workId (:id item)
          :decisionId (:decisionId packet)
-         :mapPath (:path write-result)
+         :projectId (:project-id packet)
+         :correctionFacts (count (:rows write-result))
          :patchesApplied (reduce + (map #(max 0 (- (get-in write-result [:after %] 0)
                                                    (get-in write-result [:before %] 0)))
                                         [:systems :rejects :edges]))}))))

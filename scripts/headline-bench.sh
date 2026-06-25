@@ -51,7 +51,7 @@ Commands:
   stage-time-check
               Check completed stage timings from existing baseline reports.
   token-check Run token telemetry gates for both external lane reports.
-  compare     Compare lane reports with bb efficiency.
+  compare     Compare lane reports with bb bench efficiency.
   claim-pack  Write bundled efficiency, token, and improvement proof artifacts.
   all         Run baseline, both external lanes, reports, token gates, and claim pack.
 EOF
@@ -337,7 +337,7 @@ report_path() {
 }
 
 compare() {
-  run bb efficiency \
+  run bb bench efficiency \
     "$(report_path shell-only)" \
     "$(report_path ygg)" \
     --out "$out/summary.json" \

@@ -10,7 +10,7 @@
            [java.util.concurrent TimeUnit]))
 
 (def default-model-name "sentence-transformers/all-MiniLM-L6-v2")
-(def default-venv-path ".dev/ygg/local-embedding-venv")
+(def default-venv-path ".ygg/local-embedding-venv")
 
 (defn configured-model
   "Return the configured local embedding model name."

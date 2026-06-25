@@ -214,7 +214,7 @@
       (is (= "completed" (get-in score [:syncInspect :status])))
       (is (= :available (get-in family-by-name [:activity :status])))
       (is (= :available (get-in family-by-name [:validation-history :status])))
-      (is (= :available (get-in family-by-name [:map-overlay :status])))
+      (is (= :available (get-in family-by-name [:correction-overlay :status])))
       (is (= true (:claimReady score)))
       (is (= true (:claimReady baseline)))
       (is (= "ygg-baseline-compact-surface-estimate"

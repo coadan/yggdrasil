@@ -201,18 +201,18 @@
     (:score edge) (assoc :score (:score edge))
     (:evidenceCounts edge) (assoc :evidenceCounts (:evidenceCounts edge))
     (:relations edge) (assoc :relations (:relations edge))))
-(defn- map-edge-evidence-row
+(defn- correction-edge-evidence-row
   [edge]
-  (cond-> {:kind "map-edge"
+  (cond-> {:kind "correction-edge"
            :id (s (:id edge))
            :source (s (:source edge))
            :target (s (:target edge))
            :relation (display-name (:relation edge))
            :status (or (some-> (:status edge) display-name) "accepted")
-           :provenance "map-overlay"}
+           :provenance "correction-overlay"}
     (:reason edge) (assoc :reason (:reason edge))
     (:evidence edge) (assoc :evidence (:evidence edge))))
-(defn- selected-map-edges
+(defn- selected-correction-edges
   [overlay entities accepted-systems]
   (let [selected-ids (set (concat (map :id entities)
                                   (map :id accepted-systems)))]
@@ -220,7 +220,7 @@
          (filter #(not= "rejected" (display-name (:status %))))
          (filter #(or (contains? selected-ids (s (:source %)))
                       (contains? selected-ids (s (:target %)))))
-         (mapv map-edge-evidence-row))))
+         (mapv correction-edge-evidence-row))))
 
 (defn- reject-match-row
   [match]
@@ -238,11 +238,11 @@
 
 (defn- reject-correction-row
   [idx reject]
-  (cond-> {:kind "map-reject"
+  (cond-> {:kind "correction-reject"
            :id (or (s (:id reject))
-                   (str "map-reject:" (inc idx)))
+                   (str "correction-reject:" (inc idx)))
            :status "rejected"
-           :provenance "map-overlay"
+           :provenance "correction-overlay"
            :match (reject-match-row (:match reject))}
     (:reason reject) (assoc :reason (:reason reject))
     (:evidence reject) (assoc :evidence (:evidence reject))))
@@ -358,9 +358,9 @@
 (defn- map-evidence-rank
   [row]
   (cond
-    (and (= "map-edge" (:kind row))
+    (and (= "correction-edge" (:kind row))
          (= "accepted" (display-name (:status row)))) 2
-    (= "map-edge" (:kind row)) 1
+    (= "correction-edge" (:kind row)) 1
     :else 0))
 (defn- evidence-sort-key
   [selected-ids row]
@@ -1129,7 +1129,7 @@
    :system-graph #{:system-graph}
    :activity #{:activity}
    :validation-history #{:activity}
-   :map-overlay #{:map-overlay}})
+   :correction-overlay #{:correction-overlay}})
 (defn- action-kind
   [action]
   (keyword (:kind action)))
@@ -1196,8 +1196,8 @@
     :source-keys [:docs]
     :planes [:docs]}
    {:family "map-corrections"
-    :source-keys [:acceptedSystems :mapEdges :rejectedCorrections]
-    :planes [:map-overlay]}
+    :source-keys [:acceptedSystems :correctionEdges :rejectedCorrections]
+    :planes [:correction-overlay]}
    {:family "maintenance"
     :source-keys [:openDecisions]
     :planes [:activity]}])
@@ -1219,13 +1219,13 @@
 (defn- architecture-source-count
   [section source-key]
   (case source-key
-    :mapEdges (count (filter #(= "map-edge" (:kind %))
+    :correctionEdges (count (filter #(= "correction-edge" (:kind %))
                              (:boundaryEvidence section)))
     (count (get section source-key))))
 (defn- architecture-source-rows
   [section source-key]
   (case source-key
-    :mapEdges (filter #(= "map-edge" (:kind %))
+    :correctionEdges (filter #(= "correction-edge" (:kind %))
                       (:boundaryEvidence section))
     (get section source-key)))
 (defn- architecture-source-counts
@@ -1478,11 +1478,11 @@
         rejected-corrections (selected-rejected-corrections overlay selected-rows)
         selected-ids (set (concat (map :id entities)
                                   (map :id accepted-systems)))
-        map-edges (selected-map-edges overlay entities accepted-systems)
+        correction-edges (selected-correction-edges overlay entities accepted-systems)
         boundary-evidence (vec (take 12
                                      (ranked-evidence
                                       selected-ids
-                                      (concat map-edges
+                                      (concat correction-edges
                                               (map graph-edge-evidence-row edges)))))
         dependency-rows (ranked-evidence
                          selected-ids

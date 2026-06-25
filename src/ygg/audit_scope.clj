@@ -2,7 +2,6 @@
   "Mechanical audit-scope summaries for selected graph evidence."
   (:require [ygg.command :as command]
             [ygg.coverage :as coverage]
-            [ygg.map-store :as map-store]
             [ygg.xtdb :as store]
             [clojure.set :as set]
             [clojure.string :as str]))
@@ -300,7 +299,7 @@
 
 (defn- map-correction-audit-rows
   [section row]
-  (when (#{"map-edge" "map-reject"} (normalize-key (:kind row)))
+  (when (#{"correction-edge" "correction-reject"} (normalize-key (:kind row)))
     [(audit-row "map-corrections"
                 section
                 row
@@ -626,7 +625,7 @@
 
 (defn report-from-rows
   "Return a full-project audit-scope report from indexed rows and coverage data."
-  [{:keys [project rows coverage-report map-overlay config-path repo-id]}]
+  [{:keys [project rows coverage-report correction-overlay config-path repo-id]}]
   (let [file-by-id (into {} (map (juxt :xt/id identity)) (:files rows))
         audit-rows (concat (mapcat file-report-rows (:files rows))
                            (mapcat (partial node-report-rows file-by-id) (:nodes rows))
@@ -638,7 +637,7 @@
                                    (:system-evidence rows))
                            (mapcat (partial diagnostic-report-rows file-by-id)
                                    (:diagnostics rows))
-                           (mapcat overlay-doc-report-rows (:docs map-overlay))
+                           (mapcat overlay-doc-report-rows (:docs correction-overlay))
                            (coverage-skipped-report-rows coverage-report))
         scopes (->> audit-rows
                     (group-by :scope)
@@ -709,11 +708,9 @@
    :system-evidence (scoped-active-rows xtdb (:system-evidence store/tables) opts)
    :diagnostics (scoped-active-rows xtdb (:diagnostics store/tables) opts)})
 
-(defn- map-overlay
-  [{:keys [map-overlay map-path]}]
-  (or map-overlay
-      (when (and map-path (map-store/file-exists? map-path))
-        (map-store/read-map map-path))))
+(defn- correction-overlay
+  [{:keys [correction-overlay]}]
+  correction-overlay)
 
 (defn report
   "Return a mechanical audit-scope report for the indexed project graph."
@@ -724,5 +721,5 @@
                        :repo-id repo-id
                        :config-path (or (:config-path opts) (:path project))
                        :coverage-report coverage-report
-                       :map-overlay (map-overlay opts)
+                       :correction-overlay (correction-overlay opts)
                        :rows (indexed-rows xtdb scope)})))

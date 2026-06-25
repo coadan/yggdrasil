@@ -4,7 +4,7 @@
             [ygg.dependency-review :as dependency-review]
             [ygg.hash :as hash]
             [ygg.infra-review :as infra-review]
-            [ygg.map :as graph-map]
+            [ygg.correction-overlay :as correction-overlay]
             [ygg.system.cluster :as cluster]
             [ygg.system.salience :as salience]
             [ygg.xtdb :as store]
@@ -86,7 +86,7 @@
     {:systems systems
      :edges edges
      :evidence evidence
-     :map nil}
+     :corrections nil}
     (let [matches (vec (reject-matches overlay))
           hidden-edges (hidden-edge-keys overlay)
           rejected-ids (->> systems
@@ -100,10 +100,10 @@
                                 (contains? hidden-edges (system-edge-key %)))
                            edges))
        :evidence (vec (remove #(contains? rejected-ids (:system-id %)) evidence))
-       :map {:schema graph-map/schema
-             :project (:project overlay)
-             :rejects (count (:reject overlay))
-             :rejected-systems (count rejected-ids)}})))
+       :corrections {:schema correction-overlay/schema
+                     :project (:project overlay)
+                     :rejects (count (:reject overlay))
+                     :rejected-systems (count rejected-ids)}})))
 (defn- graph-basis
   [project-id systems edges evidence semantic-edges]
   (let [signature {:systems (stable-row-signature systems [:xt/id :run-id :kind])
@@ -327,9 +327,9 @@
                                          :edges (mapv #(edge-summary system-by-id %)
                                                       (take max-fanout-decision-edges
                                                             (sort-by :target-id edges)))
-                                         :mapPatch (mapv external-api-reject-patch
-                                                         (take max-fanout-decision-edges
-                                                               (keep #(get system-by-id (:xt/id %)) targets)))}))))
+                                         :correctionPatch (mapv external-api-reject-patch
+                                                                (take max-fanout-decision-edges
+                                                                      (keep #(get system-by-id (:xt/id %)) targets)))}))))
                             (sort-by (fn [{:keys [target-count peer relation visibility direction]}]
                                        [(- (long target-count))
                                         (get peer :label)
@@ -397,7 +397,7 @@
                      :edge-count edge-count
                      :edges (mapv #(edge-summary system-by-id %)
                                   (take max-fanout-decision-edges edges))
-                     :mapPatch (mapv edge-visibility-patch edges)}
+                     :correctionPatch (mapv edge-visibility-patch edges)}
                     {:scope {:target-kind :system-edge-fanout
                              :source source-id
                              :relation relation}
@@ -590,7 +590,7 @@
           {:kind :classify-decision
            :label "Classify the first bounded maintenance decision"
            :target (:id (first decision-queue))
-           :command (str "ygg classify decision "
+           :command (str "ygg maintenance classify "
                          (command/shell-token (:id (first decision-queue)))
                          " --project "
                          (command/shell-token project-id))})))
@@ -742,32 +742,32 @@
         orphan-ratio (get-in scale [:ratios :orphaned])
         actions (cond-> [(fold-in-action
                           :review-primary-graph
-                          (str "ygg graph systems --project " project-id
+                          (str "ygg view systems --project " project-id
                                " --detail primary")
                           "Start from the compact system view before drilling down.")]
                   (pos? (:orphaned-systems counts))
                   (conj (fold-in-action
                          :review-orphans
-                         "ygg project maintain <project.edn> --json"
+                         "ygg sync <project.edn> --check --json --enqueue"
                          "Research orphaned systems discovered during normal work."))
 
                   (< 0.35 noise-ratio)
                   (conj (fold-in-action
                          :review-noise
-                         (str "ygg graph export systems --project " project-id
-                              " --detail evidence")
+                         (str "ygg view systems --project " project-id
+                              " --detail evidence --format json")
                          "Inspect noisy evidence before promoting or hiding it."))
 
                   (< 0.20 orphan-ratio)
                   (conj (fold-in-action
                          :add-missing-connections
-                         "ygg map include ygg.map.json <system> <repo>:<path>"
-                         "Fold researched boundaries into the map overlay."))
+                         "ygg corrections include <system> <repo>:<path> --reason <reason>"
+                         "Fold researched boundaries into correction facts."))
 
                   (seq decision-queue)
                   (conj (fold-in-action
                          :classify-one-decision
-                         (str "ygg classify decision "
+                         (str "ygg maintenance classify "
                               (:id (first decision-queue))
                               " --project " project-id)
                          "Ask an LLM only about one bounded maintenance decision.")))]
@@ -776,7 +776,7 @@
      :actions actions}))
 (defn maintenance-report
   "Return read-only maintenance findings for a project's current system graph."
-  [xtdb project-id {:keys [low-confidence-threshold map-overlay]
+  [xtdb project-id {:keys [low-confidence-threshold correction-overlay]
                     :or {low-confidence-threshold 0.60}}]
   (let [raw-systems (vec (store/constrained-rows xtdb
                                                  (:system-nodes store/tables)
@@ -790,7 +790,7 @@
                                                   (:system-evidence store/tables)
                                                   {:project-id project-id
                                                    :active? true}))
-        overlay-result (apply-maintenance-overlay raw-systems raw-edges raw-evidence map-overlay)
+        overlay-result (apply-maintenance-overlay raw-systems raw-edges raw-evidence correction-overlay)
         systems (:systems overlay-result)
         edges (:edges overlay-result)
         evidence (:evidence overlay-result)
@@ -841,7 +841,7 @@
                              :evidence evidence})
         package-report (dependency/package-report xtdb
                                                   {:project-id project-id}
-                                                  {:map-overlay map-overlay
+                                                  {:correction-overlay correction-overlay
                                                    :limit 100})
         dependency-review-queue (dependency-review/review-packets
                                  {:project-id project-id
@@ -856,7 +856,7 @@
                             system-by-id)]
     {:project-id project-id
      :graph-basis basis
-     :map (:map overlay-result)
+     :corrections (:corrections overlay-result)
      :counts {:systems (count systems)
               :edges (count edges)
               :evidence (count evidence)

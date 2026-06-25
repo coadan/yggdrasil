@@ -21,8 +21,12 @@
   #inst "2026-03-01T00:00:00Z")
 
 (deftest project-storage-path-lives-under-user-project-root
+  (is (str/ends-with? (store/project-root-path "demo")
+                      "/projects/demo"))
   (is (str/ends-with? (store/project-storage-path "demo")
                       "/projects/demo/xtdb"))
+  (is (str/ends-with? (store/project-sqlite-path "demo")
+                      "/projects/demo/project.sqlite"))
   (is (str/includes? (store/project-storage-path "team/a")
                      "/projects/team%2Fa/xtdb")))
 

@@ -322,6 +322,23 @@
     (update packet :sourceDeclarations
             #(mapv compact-source-declaration (take 32 %)))
     packet))
+(defn- compact-memory
+  [memory]
+  (select-keys memory
+               [:id
+                :kind
+                :scope
+                :visibility
+                :status
+                :summary
+                :targetIds
+                :score
+                :basis]))
+(defn compact-memories-in-packet
+  [packet]
+  (if (contains? packet :memories)
+    (update packet :memories #(mapv compact-memory (take 4 %)))
+    packet))
 (defn- minimal-graph-in-packet
   [packet]
   (if (contains? packet :graph)
@@ -340,10 +357,12 @@
                     compact-relationships-in-packet
                     compact-blast-radius-in-packet
                     compact-source-declarations-in-packet
+                    compact-memories-in-packet
                     compact-snippets-in-packet
                     #(update % :evidence compact-evidence-readiness)
                     #(dissoc % :snippets)
                     #(dissoc % :sourceDeclarations)
+                    #(dissoc % :memories)
                     #(dissoc % :relationships)
                     #(dissoc % :blastRadius)
                     #(dissoc % :auditScopes)
@@ -391,11 +410,13 @@
                compact-relationships-in-packet
                compact-blast-radius-in-packet
                compact-source-declarations-in-packet
+               compact-memories-in-packet
                compact-snippets-in-packet
                #(update % :evidence compact-evidence-readiness)
                #(update % :evidence minimal-evidence-readiness)
                #(dissoc % :snippets)
                #(dissoc % :sourceDeclarations)
+               #(dissoc % :memories)
                #(dissoc % :relationships)
                #(dissoc % :blastRadius)
                #(dissoc % :auditScopes)

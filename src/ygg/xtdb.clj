@@ -33,10 +33,25 @@
       (throw (ex-info "Missing project id for storage path." {})))
     (URLEncoder/encode value "UTF-8")))
 
+(defn project-root-path
+  "Return the central user-level state root for a Yggdrasil project id."
+  [project-id]
+  (str (io/file (storage-root) "projects" (project-storage-key project-id))))
+
+(defn project-data-path
+  "Return a path below the central user-level project state root."
+  [project-id & parts]
+  (str (apply io/file (project-root-path project-id) parts)))
+
 (defn project-storage-path
   "Return the default XTDB storage path for a Yggdrasil project id."
   [project-id]
-  (str (io/file (storage-root) "projects" (project-storage-key project-id) "xtdb")))
+  (project-data-path project-id "xtdb"))
+
+(defn project-sqlite-path
+  "Return the central project SQLite state database path for project id."
+  [project-id]
+  (project-data-path project-id "project.sqlite"))
 
 (defn storage-path
   "Return configured XTDB storage path."
@@ -88,8 +103,8 @@
   "Open a locked XTDB node at path.
 
    The returned handle must be closed with `stop-node!`. Keeping the file lock
-   for the node lifetime prevents a daemon and a direct CLI process from opening
-   the same local store concurrently."
+   for the node lifetime makes a single server process the canonical owner of a
+   local store."
   [path]
   (let [root (ensure-dir! path)
         lock-path (.toPath (io/file root ".ygg.lock"))
@@ -142,6 +157,8 @@
    :system-evidence :ygg/system-evidence
    :system-nodes :ygg/system-nodes
    :system-edges :ygg/system-edges
+   :correction-facts :ygg/correction-facts
+   :memories :ygg/memories
    :activity-items :ygg/activity-items
    :activity-events :ygg/activity-events})
 
@@ -209,7 +226,7 @@
 (defn xtdb-handle?
   "Return true when value is a Yggdrasil XTDB handle."
   [xtdb]
-  (and (map? xtdb) (contains? xtdb :node)))
+  (and (map? xtdb) (some? (:node xtdb))))
 
 (defn- clean-constraints
   [constraints]

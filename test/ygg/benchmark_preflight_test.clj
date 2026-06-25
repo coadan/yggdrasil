@@ -27,17 +27,17 @@
                                               {:family :validation-history
                                                :status :missing
                                                :counts {:validation-events 0}}
-                                              {:family :map-overlay
+                                              {:family :correction-overlay
                                                :status :missing
                                                :counts {:systems 0
                                                         :docs 0
                                                         :edges 0
                                                         :rejects 0}}]
                                    :nextActions [{:kind :dependency-review
-                                                  :command "ygg sync check project.edn --enqueue"}
+                                                  :command "ygg sync project.edn --check --enqueue"}
                                                  {:kind :validation-history
                                                   :command "ygg sync work validate <work-id>"}
-                                                 {:kind :map-overlay
+                                                 {:kind :correction-overlay
                                                   :command "ygg sync init project.edn"}]}})
         sync-check (get-in preflight [:checks :syncCheck])]
     (is (= "failed" (:status preflight)))
@@ -51,19 +51,19 @@
                             :blocking true
                             :message "Source import candidates were extracted, but some did not resolve to package facts."}]
              :nextActions [{:kind :dependency-review
-                            :command "ygg sync check project.edn --enqueue"}]}
+                            :command "ygg sync project.edn --check --enqueue"}]}
             {:plane "validation-history"
              :status "missing"
              :counts {:validation-events 0}
              :nextActions [{:kind :validation-history
                             :command "ygg sync work validate <work-id>"}]}
-            {:plane "map-overlay"
+            {:plane "correction-overlay"
              :status "missing"
              :counts {:systems 0
                       :docs 0
                       :edges 0
                       :rejects 0}
-             :nextActions [{:kind :map-overlay
+             :nextActions [{:kind :correction-overlay
                             :command "ygg sync init project.edn"}]}]
            (:blockingValidationGaps sync-check)))))
 

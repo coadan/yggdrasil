@@ -16,8 +16,8 @@
   (:kind (get files-by-path path)))
 
 (defn mapping-entries
-  [map-overlay]
-  (->> (concat (:packageImports map-overlay) (:package-imports map-overlay))
+  [correction-overlay]
+  (->> (concat (:packageImports correction-overlay) (:package-imports correction-overlay))
        (filter #(not= "rejected" (str (:status %))))
        vec))
 
@@ -26,8 +26,8 @@
   (contains? directly-resolvable-import-ecosystems (:ecosystem package)))
 
 (defn can-resolve-import-packages?
-  [packages-by-source map-overlay]
-  (or (seq (mapping-entries map-overlay))
+  [packages-by-source correction-overlay]
+  (or (seq (mapping-entries correction-overlay))
       (some directly-resolvable-package?
             (mapcat identity (vals packages-by-source)))))
 
@@ -42,8 +42,8 @@
           (vals packages-by-id))))
 
 (defn resolve-map-import
-  [packages-by-id map-overlay repo-id target]
-  (->> (mapping-entries map-overlay)
+  [packages-by-id correction-overlay repo-id target]
+  (->> (mapping-entries correction-overlay)
        (filter #(or (nil? (:repo %))
                     (= repo-id (:repo %))))
        (filter #(common/import-prefix-match? target (:import %)))
@@ -52,15 +52,15 @@
                (when-let [package (mapping-package packages-by-id mapping)]
                  {:package package
                   :import-name (:import mapping)
-                  :resolution-source :map-overlay})))
+                  :resolution-source :correction-overlay})))
        first))
 
 (defn resolve-import
-  [{:keys [files-by-path packages-by-id map-overlay repo-id edge] :as context}]
+  [{:keys [files-by-path packages-by-id correction-overlay repo-id edge] :as context}]
   (let [target (common/namespace-target (:target-id edge))
         kind (source-kind files-by-path (:path edge))
         context (assoc context :target target :kind kind)]
-    (or (resolve-map-import packages-by-id map-overlay repo-id target)
+    (or (resolve-map-import packages-by-id correction-overlay repo-id target)
         (cond
           (javascript/source-kind? kind)
           (javascript/resolve-import context)

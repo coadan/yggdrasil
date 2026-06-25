@@ -2,19 +2,27 @@
  {:requires ([babashka.process :refer [shell]])
   :init (defn ygg [& args] (apply shell "./bin/ygg" args))
 
-  start {:doc "Start Yggdrasil for a repo. Usage: bb start <repo-root> [--project ID] [--out project.edn] [--map ygg.map.json] [--report-out ygg-out]"
+  start {:doc "Start the local Yggdrasil server. Usage: bb start"
          :task (apply ygg "start" *command-line-args*)}
+
+  init {:doc "Initialize a project. Usage: bb init <repo-root> [--project ID] [--out project.edn] [--sync]"
+        :task (apply ygg "init" *command-line-args*)}
+
+  status {:doc "Show local Yggdrasil server status. Usage: bb status [--json]"
+          :task (apply ygg "status" *command-line-args*)}
+
+  stop {:doc "Stop the local Yggdrasil server for upgrades or explicit shutdown. Usage: bb stop"
+        :task (apply ygg "stop" *command-line-args*)}
 
   sync {:doc "Sync Yggdrasil with a project. Usage: bb sync [<project.edn>] [--project ID] [--check] [--enqueue] [--query-index]"
         :task (apply ygg "sync" *command-line-args*)}
 
-  daemon {:doc "Run or control the local Yggdrasil daemon. Usage: bb daemon start|status|stop|<cli-command>"
-          :task (let [{:keys [exit]} (apply shell
-                                            {:continue true}
-                                            "./bin/ygg"
-                                            "daemon"
-                                            *command-line-args*)]
-                  (System/exit exit))}
+  maintenance {:doc "Manage auto maintenance. Usage: bb maintenance status|enable|disable|schedule|worker|candidates|classify ..."
+               :task (apply ygg "maintenance" *command-line-args*)}
+
+  server:dev {:doc "Start the reloadable dev server. Usage: bb server:dev"
+              :task (apply shell "clojure" "-M:dev" "-m" "ygg.dev.server"
+                           *command-line-args*)}
 
   query {:doc "Query the current graph. Usage: bb query \"text\" [--project ID]"
          :task (apply ygg "query" *command-line-args*)}
@@ -60,16 +68,6 @@
                                                      *command-line-args*)]
                            (System/exit exit))}
 
-  bench:repos {:doc "Check local benchmark repo inputs. Usage: bb bench:repos check [--manifest PATH] [--suite PATH] [--repo ID] [--json]"
-               :task (let [{:keys [exit]} (apply shell
-                                                 {:continue true}
-                                                 "clojure"
-                                                 "-M:run"
-                                                 "-m"
-                                                 "ygg.benchmark-repos"
-                                                 *command-line-args*)]
-                       (System/exit exit))}
-
   v1:smoke {:doc "Run the V1 install/start/report smoke gate. Usage: bb v1:smoke [--keep]"
             :task (apply shell "bash" "scripts/v1-smoke.sh"
                          *command-line-args*)}
@@ -83,36 +81,8 @@
                    (shell {:dir "report-ui"} "npm run build")
                    (shell "bash scripts/v1-smoke.sh"))}
 
-  efficiency {:doc "Compare shell-only and Yggdrasil agent reports. Usage: bb efficiency <shell-agent-report.json> <ygg-agent-report.json> [--out report.json] [--json] [--min-shared-cases N]"
-              :task (apply shell "clojure" "-M:run" "-m" "ygg.agent-efficiency"
-                           *command-line-args*)}
-
-  index {:doc "Compatibility: index a repo. Usage: bb index <repo-path> [--dry-run]"
-         :task (apply ygg "index" *command-line-args*)}
-
-  project {:doc "Compatibility: project commands. Prefer bb sync."
-           :task (apply ygg "project" *command-line-args*)}
-
-  systems {:doc "System candidate commands. Usage: bb systems candidates --project ID"
-           :task (apply ygg "systems" *command-line-args*)}
-
-  classify {:doc "Focused classifier commands. Usage: bb classify decision <id> --project ID"
-            :task (apply ygg "classify" *command-line-args*)}
-
-  queue {:doc "Compatibility: filesystem queue commands. Prefer bb sync work."
-         :task (apply ygg "queue" *command-line-args*)}
-
   embed {:doc "Embed search docs. Usage: bb embed [--model MODEL] [--limit N]"
          :task (apply ygg "embed" *command-line-args*)}
-
-  graph {:doc "Compatibility: write graph view. Prefer bb view."
-         :task (apply ygg "graph" *command-line-args*)}
-
-  deps {:doc "Compatibility: show graph dependencies. Prefer bb view deps or bb query."
-        :task (apply ygg "deps" *command-line-args*)}
-
-  path {:doc "Compatibility: find graph path."
-        :task (apply ygg "path" *command-line-args*)}
 
   report {:doc "Write a local report bundle. Usage: bb report [<project.edn>] [--project ID] [--map ygg.map.json] [--out ygg-out]"
           :task (apply ygg "report" *command-line-args*)}

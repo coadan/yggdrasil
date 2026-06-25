@@ -161,7 +161,7 @@
     "swagger.yaml" "swagger.yml"})
 
 (def ignored-dirs
-  #{".git" ".dev" ".cpcache" ".clj-kondo" "target" "node_modules"
+  #{".git" ".dev" ".ygg" ".cpcache" ".clj-kondo" "target" "node_modules"
     ".shadow-cljs" ".calva" ".idea" "ygg-out"})
 
 (def ignored-filenames

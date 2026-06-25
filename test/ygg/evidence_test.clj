@@ -4,9 +4,9 @@
             [ygg.dependency :as dependency]
             [ygg.evidence :as evidence]
             [ygg.fs :as fs]
+            [ygg.memory :as memory]
             [ygg.query :as query]
             [ygg.xtdb :as store]
-            [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]))
 
 (defn- temp-dir
@@ -249,7 +249,7 @@
              (:skipped-by-extension summary)))
       (is (some #{"ygg packages --project fixture --without-import-evidence --json"}
                 (:next summary)))
-      (is (some #{"ygg sync check <project.edn> --enqueue"}
+      (is (some #{"ygg sync <project.edn> --check --enqueue"}
                 (:next summary)))
       (is (some #(= {:kind :dependencies
                      :label "Inspect packages without source import evidence"
@@ -260,7 +260,7 @@
       (is (some #(= {:kind :dependency-review
                      :label "Queue unresolved import review work"
                      :count 1
-                     :command "ygg sync check <project.edn> --enqueue"}
+                     :command "ygg sync <project.edn> --check --enqueue"}
                     %)
                 (:nextActions summary)))
       (is (some #(= {:kind :coverage
@@ -278,6 +278,59 @@
                      :command "ygg audit-scope <project.edn> --json"}
                     %)
                 (:nextActions summary))))))
+
+(deftest summarize-exposes-memory-evidence-family
+  (with-redefs [coverage/project-coverage (fn [& _]
+                                            {:totals {:skipped 0}
+                                             :files-by-kind []
+                                             :extractors []
+                                             :skipped-by-extension []
+                                             :skipped-by-reason []
+                                             :diagnostics {:total 0}})
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :versions 0
+                                                      :imports-package 0
+                                                      :version-conflicts 0
+                                                      :declared-without-import-evidence 0
+                                                      :unresolved-imports 0}
+                                             :ecosystems []})
+                store/all-rows (fn [& _] [])
+                memory/counts (fn [_ scope]
+                                (is (= "fixture" (:project-id scope)))
+                                {:memories 2
+                                 :memory-statuses {:reviewed 1
+                                                   :suggested 1}
+                                 :suggested-memories 1
+                                 :observed-memories 0
+                                 :reviewed-memories 1})
+                query/all-nodes (fn [& _] [])
+                query/all-edges (fn [& _] [])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _] [])
+                query/all-system-edges (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                activity/all-items (fn [& _] [])
+                activity/all-events (fn [& _] [])]
+    (let [summary (evidence/summarize :xtdb
+                                      {:id "fixture"
+                                       :repos []}
+                                      {})
+          memory-family (some #(when (= :memory (:family %)) %)
+                              (:families summary))]
+      (is (contains? (set (:available summary)) :memory))
+      (is (= {:family :memory
+              :status :available
+              :counts {:memories 2
+                       :suggested-memories 1
+                       :observed-memories 0
+                       :reviewed-memories 1}}
+             memory-family))
+      (is (= {:reviewed 1
+              :suggested 1}
+             (get-in summary [:counts :memory-statuses]))))))
 
 (deftest summarize-marks-dependencies-not-applicable-without-package-inputs
   (with-redefs [coverage/project-coverage (fn [& _]
@@ -506,9 +559,8 @@
     (let [summary (evidence/summarize :xtdb
                                       {:id "fixture project"
                                        :repos []}
-                                      {:config-path "Project Files/project.edn"
-                                       :map-path "Maps/ygg map.json"})]
-      (is (some #(= "ygg sync 'Project Files/project.edn' --check --map 'Maps/ygg map.json'"
+                                      {:config-path "Project Files/project.edn"})]
+      (is (some #(= "ygg sync 'Project Files/project.edn' --check"
                     (:command %))
                 (:nextActions summary)))
       (is (some #(= {:kind :dependencies
@@ -518,15 +570,13 @@
                 (:nextActions summary)))
       (is (some #(= {:kind :validation-history
                      :label "Run sync work validation loop"
-                     :command (str "ygg sync check 'Project Files/project.edn'"
-                                   " --map 'Maps/ygg map.json' --enqueue")
-                     :commands [(str "ygg sync check 'Project Files/project.edn'"
-                                     " --map 'Maps/ygg map.json' --enqueue")
+                     :command "ygg sync 'Project Files/project.edn' --check --enqueue"
+                     :commands ["ygg sync 'Project Files/project.edn' --check --enqueue"
                                 "ygg sync work list --project 'fixture project' --status ready"
                                 "ygg sync work pull --project 'fixture project' --agent <agent-id>"
                                 "ygg sync work complete <work-id> --result result.json"
                                 "ygg sync work validate <work-id>"
-                                "ygg sync work apply <work-id> --map 'Maps/ygg map.json'"
+                                "ygg sync work apply <work-id>"
                                 "ygg sync activity 'Project Files/project.edn' --json"]}
                     %)
                 (:nextActions summary)))
@@ -534,8 +584,7 @@
                      :label "Inspect system evidence coverage"
                      :command "ygg sync coverage 'Project Files/project.edn' --json"
                      :mcpTool "ygg_status"
-                     :mcpArgs {:configPath "Project Files/project.edn"
-                               :mapPath "Maps/ygg map.json"}}
+                     :mcpArgs {:configPath "Project Files/project.edn"}}
                     %)
                 (:nextActions summary)))
       (is (some #(= {:kind :coverage
@@ -543,8 +592,7 @@
                      :count 2
                      :command "ygg sync coverage 'Project Files/project.edn' --json"
                      :mcpTool "ygg_status"
-                     :mcpArgs {:configPath "Project Files/project.edn"
-                               :mapPath "Maps/ygg map.json"}}
+                     :mcpArgs {:configPath "Project Files/project.edn"}}
                     %)
                 (:nextActions summary))))))
 
@@ -583,11 +631,10 @@
     (let [summary (evidence/summarize :xtdb
                                       {:id "fixture project"
                                        :repos []}
-                                      {:config-path "Project Files/project.edn"
-                                       :map-path "Maps/ygg map.json"})]
+                                      {:config-path "Project Files/project.edn"})]
       (is (some #(= {:kind :audit-scope
                      :label "Inspect project audit scopes"
-                     :command "ygg audit-scope 'Project Files/project.edn' --map 'Maps/ygg map.json' --json"}
+                     :command "ygg audit-scope 'Project Files/project.edn' --json"}
                     %)
                 (:nextActions summary))))))
 
@@ -817,8 +864,7 @@
                                       {:id "fixture"
                                        :repos [{:id "app"
                                                 :root "/repo"}]}
-                                      {:config-path "project.edn"
-                                       :map-path "ygg.map.json"})]
+                                      {:config-path "project.edn"})]
       (is (= :stale (get-in summary [:freshness :status])))
       (is (= {:indexed 2
               :current 2
@@ -838,14 +884,12 @@
       (is (some #(= {:kind :freshness
                      :label "Refresh indexed graph basis"
                      :count 3
-                     :command "ygg sync project.edn --check --map ygg.map.json"}
+                     :command "ygg sync project.edn --check"}
                     %)
                 (:nextActions summary))))))
 
 (deftest summarize-marks-current-graph-without-query-index-partial
-  (let [root (temp-dir "ygg-freshness-query-index")
-        map-path (.getPath (io/file root "ygg.map.json"))]
-    (spit map-path "{}\n")
+  (let [root (temp-dir "ygg-freshness-query-index")]
     (with-redefs [coverage/project-coverage (fn [& _]
                                               {:totals {:skipped 0}
                                                :files-by-kind []
@@ -889,24 +933,21 @@
                                          :repos [{:id "app"
                                                   :root root}]}
                                         {:config-path "project.edn"
-                                         :map-path map-path})]
+                                         :correction-overlay {:systems [{:id "system:fixture:app"}]}})]
         (is (= :partial (get-in summary [:freshness :status])))
         (is (= "indexed-graph" (get-in summary [:freshness :basis])))
         (is (= true (get-in summary [:freshness :missingQueryIndex])))
         (is (= "project.edn" (get-in summary [:freshness :projectConfig])))
-        (is (= map-path (get-in summary [:freshness :map])))
-        (is (= true (get-in summary [:freshness :mapExists])))
-        (is (= {:family :map-overlay
+        (is (= {:family :corrections
                 :status :available
-                :counts {:map-file 1
-                         :systems 0
+                :counts {:systems 1
                          :docs 0
                          :edges 0
                          :rejects 0
                          :package-imports 0}}
-               (some #(when (= :map-overlay (:family %)) %)
+               (some #(when (= :corrections (:family %)) %)
                      (:families summary))))
-        (is (not-any? #(= :map-overlay (:kind %))
+        (is (not-any? #(= :corrections (:kind %))
                       (:nextActions summary)))
         (is (some #(= {:kind :docs
                        :label "Build query index"

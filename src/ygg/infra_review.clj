@@ -1,8 +1,8 @@
 (ns ygg.infra-review
   "Bounded infrastructure graph review packets and result application."
   (:require [ygg.hash :as hash]
-            [ygg.map :as graph-map]
-            [ygg.map-api :as map-api]
+            [ygg.corrections-api :as corrections-api]
+            [ygg.correction-overlay :as correction-overlay]
             [ygg.queue :as queue]
             [charred.api :as json]
             [clojure.string :as str]))
@@ -37,7 +37,7 @@
   #{"primary" "secondary" "noise"})
 
 (def ^:private allowed-recommendations
-  #{"add-map-edge" "no-change" "needs-human" "needs-scanner"})
+  #{"add-correction-edge" "no-change" "needs-human" "needs-scanner"})
 
 (defn- s
   [value]
@@ -132,10 +132,10 @@
                :evidence (mapv evidence-summary rows)}
         expected-output {:schema result-schema
                          :reviewId review-id
-                         :recommendation "add-map-edge|no-change|needs-human|needs-scanner"
+                         :recommendation "add-correction-edge|no-change|needs-human|needs-scanner"
                          :confidence 0.0
                          :reason "brief rationale"
-                         :mapPatch []
+                         :correctionPatch []
                          :findings []}]
     {:schema packet-schema
      :reviewId review-id
@@ -156,7 +156,7 @@
                 {:role "user"
                  :content (str "Return this JSON shape:\n"
                                (json/write-json-str expected-output {:indent-str "  "})
-                               "\n\nIf evidence is insufficient, return no mapPatch and add a finding."
+                               "\n\nIf evidence is insufficient, return no correctionPatch and add a finding."
                                "\n\nPacket:\n"
                                (json/write-json-str {:reviewId review-id
                                                      :kind kind
@@ -209,11 +209,9 @@
   [packet]
   (set (map s (:allowedActions packet))))
 
-(defn- map-patch
+(defn- correction-patch
   [result]
-  (vec (or (:mapPatch result)
-           (:map-patch result)
-           [])))
+  (vec (or (:correctionPatch result) [])))
 
 (defn- patch-evidence
   [patch]
@@ -236,49 +234,49 @@
     (vec
      (remove nil?
              [(when-not (contains? actions op)
-                {:path [:mapPatch idx :op]
+                {:path [:correctionPatch idx :op]
                  :error "Patch op is not allowed by the packet."
                  :value op})
               (when (and (not= "none" op)
                          (not (contains? #{"add-edge" "set-edge-visibility" "reject-edge"} op)))
-                {:path [:mapPatch idx :op]
+                {:path [:correctionPatch idx :op]
                  :error "Unsupported patch op."
                  :value op})
               (when (and (#{"add-edge" "set-edge-visibility" "reject-edge"} op)
                          (not (contains? system-ids source)))
-                {:path [:mapPatch idx :source]
+                {:path [:correctionPatch idx :source]
                  :error "Patch source must be one of facts.systems[].id."
                  :value source})
               (when (and (#{"add-edge" "set-edge-visibility" "reject-edge"} op)
                          (not (contains? system-ids target)))
-                {:path [:mapPatch idx :target]
+                {:path [:correctionPatch idx :target]
                  :error "Patch target must be one of facts.systems[].id."
                  :value target})
               (when (and (#{"add-edge" "set-edge-visibility" "reject-edge"} op)
                          (= source target))
-                {:path [:mapPatch idx]
+                {:path [:correctionPatch idx]
                  :error "Patch source and target must differ."})
               (when (and (#{"add-edge" "set-edge-visibility" "reject-edge"} op)
                          (not (contains? allowed-relations relation)))
-                {:path [:mapPatch idx :relation]
-                 :error "Unsupported relation for infra-review map patch."
+                {:path [:correctionPatch idx :relation]
+                 :error "Unsupported relation for infra-review correction patch."
                  :value relation})
               (when (and (= "set-edge-visibility" op)
                          (not (contains? allowed-visibilities visibility)))
-                {:path [:mapPatch idx :visibility]
+                {:path [:correctionPatch idx :visibility]
                  :error "Unsupported edge visibility."
                  :value visibility})
               (when (and (contains? patch :confidence)
                          (not (bounded-confidence? (:confidence patch))))
-                {:path [:mapPatch idx :confidence]
+                {:path [:correctionPatch idx :confidence]
                  :error "Confidence must be between 0 and 1."
                  :value (:confidence patch)})
               (when (and (#{"add-edge" "set-edge-visibility" "reject-edge"} op)
                          (empty? evidence))
-                {:path [:mapPatch idx :evidence]
+                {:path [:correctionPatch idx :evidence]
                  :error "Edge patch must cite at least one facts.evidence[].id."})
               (when-let [missing (seq (remove evidence-ids evidence))]
-                {:path [:mapPatch idx :evidence]
+                {:path [:correctionPatch idx :evidence]
                  :error "Patch evidence must come from facts.evidence[].id."
                  :value (vec missing)})]))))
 
@@ -321,7 +319,7 @@
                   :value (:confidence result)})])
       (mapcat (fn [[idx patch]]
                 (patch-errors packet patch idx))
-              (map-indexed vector (map-patch result)))))))
+              (map-indexed vector (correction-patch result)))))))
 
 (defn- patch->edge
   [packet patch]
@@ -347,14 +345,14 @@
   [overlay packet result]
   (reduce (fn [overlay patch]
             (if-let [edge (patch->edge packet patch)]
-              (graph-map/add-edge overlay edge)
+              (correction-overlay/add-edge overlay edge)
               overlay))
           overlay
-          (map-patch result)))
+          (correction-patch result)))
 
 (defn apply-work-result!
-  "Validate and apply a completed infra-review queue item to a map file."
-  [root id map-path]
+  "Validate and apply a completed infra-review queue item as correction facts."
+  [xtdb root id]
   (let [found (or (queue/find-item root id)
                   (throw (ex-info "Queue item not found." {:id id})))
         item (:item found)
@@ -370,14 +368,16 @@
          :item (queue/item-summary failed)})
       (let [packet (payload item)
             result (result item)
-            write-result (map-api/apply-overlay!
-                          map-path
+            write-result (corrections-api/apply-overlay!
+                          xtdb
                           (:project-id packet)
-                          #(apply-patches % packet result))]
+                          #(apply-patches % packet result)
+                          {:source (:reviewId packet)})]
         {:schema apply-schema
          :status "applied"
          :workId (:id item)
          :reviewId (:reviewId packet)
-         :mapPath (:path write-result)
+         :projectId (:project-id packet)
+         :correctionFacts (count (:rows write-result))
          :patchesApplied (max 0 (- (get-in write-result [:after :edges] 0)
                                    (get-in write-result [:before :edges] 0)))}))))

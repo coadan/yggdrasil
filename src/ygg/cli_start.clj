@@ -2,9 +2,6 @@
   (:require [ygg.activity :as activity]
             [ygg.cli-options :refer [option-value positional-args]]
             [ygg.command :as command]
-            [ygg.map :as graph-map]
-            [ygg.map-api :as map-api]
-            [ygg.map-store :as map-store]
             [ygg.init :as init]
             [ygg.project :as project]
             [ygg.project-registry :as registry]
@@ -54,42 +51,27 @@
 
 (def start-schema
   "ygg.start/v1")
-(defn- ensure-init-map!
-  [project-id map-path]
-  (when (and map-path
-             (not (map-store/file-exists? map-path)))
-    (map-api/init! map-path project-id)))
-(defn- start-map-path
-  [args]
-  (cond
-    (some #{"--no-map"} args) nil
-    (option-value args "--map") (option-value args "--map")
-    :else graph-map/default-path))
 (defn- project-config-exists?
   [path]
   (.exists (io/file path)))
 (defn- init-sync-args
-  [project-id config-path map-path query-index?]
+  [project-id config-path query-index?]
   (cond-> (if config-path
             [config-path "--check" "--no-progress"]
             ["--project" project-id "--check" "--no-progress"])
-    map-path (into ["--map" map-path])
     query-index? (conj "--query-index")))
 (defn init!
   [args deps]
   (binding [*deps* deps]
     (let [workbench-root (option-value args "--workbench")
           root (or workbench-root (first (positional-args args)) ".")
-          map-path (option-value args "--map")
           result (init/init! root
                              {:out (option-value args "--out")
                               :force? (boolean (some #{"--force"} args))
                               :project-id (option-value args "--project")
                               :name (option-value args "--name")
                               :workbench? (boolean workbench-root)
-                              :task (option-value args "--task")
-                              :map-path map-path})]
-      (ensure-init-map! (:project-id result) map-path)
+                              :task (option-value args "--task")})]
       (print-json
        (cond-> result
          (some #{"--sync"} args)
@@ -98,7 +80,6 @@
                   (dispatch "sync"
                             (init-sync-args (:project-id result)
                                             (:config result)
-                                            map-path
                                             (query-index? args))))))))))
 (defn- sync-project-result!
   [xtdb project args]
@@ -119,7 +100,7 @@
       report (assoc :check-report report)
       enqueued (assoc :enqueued enqueued))))
 (defn- start-project!
-  [root config-path map-path args]
+  [root config-path args]
   (if (and config-path
            (project-config-exists? config-path)
            (not (some #{"--force"} args)))
@@ -132,8 +113,7 @@
                               :project-id (option-value args "--project")
                               :name (option-value args "--name")
                               :workbench? (boolean (option-value args "--workbench"))
-                              :task (option-value args "--task")
-                              :map-path map-path})]
+                              :task (option-value args "--task")})]
       {:mode "initialized"
        :config (:config result)
        :init result
@@ -141,25 +121,19 @@
                   (project/read-project path)
                   (registry/read-project (:project-id result)))})))
 (defn start-next-actions
-  [project-id config-path map-path report-out]
+  [project-id config-path report-out]
   (let [target (if config-path
                  (command/shell-token config-path)
                  (str "--project " (command/shell-token project-id)))]
     (cond-> [{:kind :inspect
               :label "Inspect freshness and evidence planes"
-              :command (str "ygg sync inspect " target
-                            (when map-path
-                              (str " --map " (command/shell-token map-path)))
-                            " --json")}
+              :command (str "ygg sync inspect " target " --json")}
              {:kind :activity
               :label "Import local work and validation activity"
               :command (str "ygg sync activity " target " --json")}
              {:kind :audit-scope
               :label "Inspect audit scopes and caveats"
-              :command (str "ygg audit-scope " target
-                            (when map-path
-                              (str " --map " (command/shell-token map-path)))
-                            " --json")}
+              :command (str "ygg audit-scope " target " --json")}
              {:kind :dependencies
               :label "Inspect package dependency evidence"
               :command (str "ygg packages --project "
@@ -177,8 +151,6 @@
              {:kind :report
               :label "Open or regenerate local report bundle"
               :command (str "ygg report " target
-                            (when map-path
-                              (str " --map " (command/shell-token map-path)))
                             " --out " (command/shell-token report-out))}
              {:kind :agent-install
               :label "Install project-local agent guidance"
@@ -261,16 +233,14 @@
                      :installed false
                      :command (:command agent-action)}}))
 (defn- start-result
-  [project start-info map-path report-out sync-result activity-result report-result]
+  [project start-info report-out sync-result activity-result report-result]
   (let [actions (start-next-actions (:id project)
                                     (:config start-info)
-                                    map-path
                                     report-out)]
     (cond-> {:schema start-schema
              :project-id (:id project)
              :mode (:mode start-info)
              :config (:config start-info)
-             :map map-path
              :report (compact-report report-result)
              :counts (compact-counts sync-result activity-result)
              :evidence (:evidence report-result)
@@ -284,32 +254,28 @@
     (let [workbench-root (option-value args "--workbench")
           root (or workbench-root (first (positional-args args)) ".")
           config-path (option-value args "--out")
-          map-path (start-map-path args)
           report-out (or (option-value args "--report-out") report/default-output-dir)
-          start-info (start-project! root config-path map-path args)
+          start-info (start-project! root config-path args)
           project (:project start-info)]
-      (ensure-init-map! (:id project) map-path)
       (store/with-node (store/storage-path (:id project))
         (fn [xtdb]
           (let [sync-args (init-sync-args (:id project)
                                           (:config start-info)
-                                          map-path
                                           (query-index? args))
                 sync-result (sync-project-result! xtdb project sync-args)
-                activity-result (activity/sync-queue! xtdb
-                                                      project
-                                                      {:queue-root (queue-root args)})
+	                activity-result (activity/sync-queue! xtdb
+	                                                      project
+	                                                      {:queue-root (or (option-value args "--queue-dir")
+	                                                                       (store/project-sqlite-path (:id project)))})
                 report-result (report/bundle! xtdb
                                               project
                                               {:out report-out
-                                               :map-path map-path
                                                :detail (keyword (or (option-value args "--detail")
                                                                     (name report/default-detail)))
                                                :force? (boolean (some #{"--force"} args))})]
             (print-json
-             (start-result project
+            (start-result project
                            start-info
-                           map-path
                            report-out
                            sync-result
                            activity-result

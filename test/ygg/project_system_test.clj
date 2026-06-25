@@ -4,8 +4,7 @@
             [ygg.dependency :as dependency]
             [ygg.graph :as graph]
             [ygg.infra-review :as infra-review]
-            [ygg.map :as graph-map]
-            [ygg.map-store :as map-store]
+            [ygg.correction-overlay :as correction-overlay]
             [ygg.project :as project]
             [ygg.query :as query]
             [ygg.system :as system]
@@ -206,7 +205,7 @@
               mapped-maintenance (project/maintain-project
                                   xtdb
                                   project
-                                  {:map-overlay {:schema graph-map/schema
+                                  {:correction-overlay {:schema correction-overlay/schema
                                                  :project "fixture"
                                                  :systems []
                                                  :reject [{:match {:kind "external-api"
@@ -272,7 +271,7 @@
           (is (contains? (:graph-health maintenance) :cross-cluster-edges))
           (is (seq (get-in maintenance [:graph-health :orphaned-candidates])))
           (is (seq (get-in maintenance [:graph-health :evidence-concentrations])))
-          (is (= 1 (get-in mapped-maintenance [:map :rejected-systems])))
+          (is (= 1 (get-in mapped-maintenance [:corrections :rejected-systems])))
           (is (= (dec (get-in maintenance [:counts :systems]))
                  (get-in mapped-maintenance [:counts :systems])))
           (is (not-any? #(or (str/includes? (:source-id %) "api.stripe.com")
@@ -382,21 +381,21 @@
                   {:kind :classify-decision
                    :label "Classify the first bounded maintenance decision"
                    :target (:id (first (:decision-queue maintenance)))
-                   :command (str "ygg classify decision "
+                   :command (str "ygg maintenance classify "
                                  (:id (first (:decision-queue maintenance)))
                                  " --project noise")}]
                  (get-in maintenance [:decision-summary :nextActions])))
           (is (some? fanout))
           (is (= source (get-in fanout [:data :source :xt/id])))
           (is (= 3 (get-in fanout [:data :edge-count])))
-          (is (= 3 (count (get-in fanout [:data :mapPatch]))))
+          (is (= 3 (count (get-in fanout [:data :correctionPatch]))))
           (is (contains? (set (:recommended-actions fanout))
                          :set-edge-visibility))
           (is (= 1 (get-in maintenance [:external-api-review :counts :source-fanouts])))
           (is (some? group-decision))
           (is (= group-source (get-in group-decision [:data :peer :xt/id])))
           (is (= 3 (get-in group-decision [:data :target-count])))
-          (is (= 3 (count (get-in group-decision [:data :mapPatch]))))
+          (is (= 3 (count (get-in group-decision [:data :correctionPatch]))))
           (is (contains? (set (:recommended-actions group-decision))
                          :reject-external-api))
           (is (some? external-decision))
@@ -418,7 +417,7 @@
                    :target "system:demo:api"
                    :recommended-actions [:accept-system]}])]
     (is (= ["ygg sync work pull --project 'demo project' --kind maintenance-decision --agent <agent-id>"
-            "ygg classify decision maintenance-decision:demo --project 'demo project'"]
+            "ygg maintenance classify maintenance-decision:demo --project 'demo project'"]
            (mapv :command (:nextActions summary))))))
 
 (deftest container-image-artifacts-connect-producers-to-deployment-manifests
@@ -642,10 +641,21 @@
           (is (some? (:source-cluster bridge)))
           (is (some? (:target-cluster bridge))))))))
 
-(deftest graph-map-overlay-corrects-system-graph
-  (let [xtdb-path (temp-dir "ygg-map-xtdb")
+(deftest correction-overlay-corrects-system-graph
+  (let [xtdb-path (temp-dir "ygg-corrections-xtdb")
         repo (.getPath (io/file "test/fixtures/project-repo"))
-        map-path (.getPath (io/file (temp-dir "ygg-map") "ygg.map.json"))
+        overlay {:schema correction-overlay/schema
+                 :project "fixture"
+                 :systems [{:id "system:fixture:accepted-api"
+                            :label "Fixture API"
+                            :kind "service"
+                            :includes [{:repo "app" :path "services/api"}]
+                            :status "accepted"
+                            :reason "Agent verified this path is the API service."}]
+                 :reject [{:match {:kind "external-api"
+                                   :host "api.stripe.com"}
+                           :reason "Example payment URL in fixture code."}]
+                 :edges []}
         project {:id "fixture"
                  :name "Fixture"
                  :repos [{:id "app" :root repo :role :application}]}]
@@ -653,21 +663,7 @@
       (fn [xtdb]
         (project/index-project! xtdb project {})
         (project/infer-project! xtdb project)
-        (map-store/write-map!
-         map-path
-         {:schema graph-map/schema
-          :project "fixture"
-          :systems [{:id "system:fixture:accepted-api"
-                     :label "Fixture API"
-                     :kind "service"
-                     :includes [{:repo "app" :path "services/api"}]
-                     :status "accepted"
-                     :reason "Agent verified this path is the API service."}]
-          :reject [{:match {:kind "external-api"
-                            :host "api.stripe.com"}
-                    :reason "Example payment URL in fixture code."}]
-          :edges []})
-        (let [graph-data (graph/system-graph xtdb "fixture" {:map-path map-path})
+        (let [graph-data (graph/system-graph xtdb "fixture" {:correction-overlay overlay})
               labels (set (map :label (:nodes graph-data)))
               api-node (some #(when (= "Fixture API" (:label %)) %) (:nodes graph-data))]
           (is (= "service" (:kind api-node)))
@@ -678,7 +674,6 @@
 (deftest context-packet-uses-attached-doc-snippets-with-budget
   (let [xtdb-path (temp-dir "ygg-context-xtdb")
         repo (.getPath (io/file "test/fixtures/project-repo"))
-        map-path (.getPath (io/file (temp-dir "ygg-context-map") "ygg.map.json"))
         accepted-id "system:fixture:accepted-api"
         project {:id "fixture"
                  :name "Fixture"
@@ -687,8 +682,8 @@
       (fn [xtdb]
         (project/index-project! xtdb project {})
         (project/infer-project! xtdb project)
-        (let [map-data (graph-map/add-doc
-                        {:schema graph-map/schema
+        (let [map-data (correction-overlay/add-doc
+                        {:schema correction-overlay/schema
                          :project "fixture"
                          :systems [{:id accepted-id
                                     :label "Fixture API"
@@ -698,16 +693,15 @@
                          :reject []
                          :edges []
                          :docs []}
-                        "Fixture API"
-                        {:repo "app" :path "docs/api.md"}
-                        {:role "runbook" :heading "Fixture API"})]
-          (is (= accepted-id (get-in map-data [:docs 0 :target])))
-          (map-store/write-map! map-path map-data))
-        (let [packet (context/context-packet xtdb
-                                             "fixture api runtime"
-                                             {:project-id "fixture"
-                                              :map-path map-path
-                                              :retriever :lexical
+	                        "Fixture API"
+	                        {:repo "app" :path "docs/api.md"}
+	                        {:role "runbook" :heading "Fixture API"})]
+	          (is (= accepted-id (get-in map-data [:docs 0 :target])))
+	        (let [packet (context/context-packet xtdb
+	                                             "fixture api runtime"
+	                                             {:project-id "fixture"
+	                                              :correction-overlay map-data
+	                                              :retriever :lexical
                                               :budget 1300
                                               :entity-limit 4
                                               :edge-limit 6
@@ -734,7 +728,7 @@
                                      (get-in % [:source :path])
                                      (get-in % [:source :lines])])
                                 (:docs packet)))))
-          (is (str/includes? (:snippet doc) "Fixture API service")))))))
+          (is (str/includes? (:snippet doc) "Fixture API service"))))))))
 
 (deftest context-packet-includes-retrieved-source-chunks
   (store/with-node (temp-dir "ygg-context-source-chunk-xtdb")

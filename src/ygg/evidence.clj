@@ -5,8 +5,8 @@
             [ygg.coverage :as coverage]
             [ygg.dependency :as dependency]
             [ygg.fs :as fs]
+            [ygg.memory :as memory]
             [ygg.xtdb :as store]
-            [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.string :as str]))
 
@@ -145,20 +145,28 @@
   [row]
   (display (:value row)))
 
-(defn- map-exists?
-  [map-path]
-  (when (seq (str map-path))
-    (.exists (io/file map-path))))
-
-(defn- overlay-counts
-  [overlay map-path]
-  {:map-file (if (map-exists? map-path) 1 0)
-   :systems (count (:systems overlay))
+(defn- correction-counts
+  [overlay]
+  {:systems (count (:systems overlay))
    :docs (count (:docs overlay))
    :edges (count (:edges overlay))
    :rejects (count (:reject overlay))
    :package-imports (+ (count (:packageImports overlay))
                        (count (:package-imports overlay)))})
+
+(def ^:private empty-memory-counts
+  {:memories 0
+   :memory-statuses {}
+   :suggested-memories 0
+   :observed-memories 0
+   :reviewed-memories 0})
+
+(defn- memory-summary-counts
+  [xtdb scope {:keys [include-memory-counts? memory-counts]}]
+  (cond
+    (some? memory-counts) memory-counts
+    (false? include-memory-counts?) empty-memory-counts
+    :else (memory/counts xtdb scope)))
 
 (def ^:private family-order
   [:source-files
@@ -171,9 +179,10 @@
    :embeddings
    :system-evidence
    :system-graph
+   :memory
    :activity
    :validation-history
-   :map-overlay])
+   :corrections])
 
 (def ^:private family-count-keys
   {:source-files [:files :skipped-files :diagnostics]
@@ -195,6 +204,10 @@
    :embeddings [:embeddings]
    :system-evidence [:system-evidence]
    :system-graph [:system-nodes :system-edges]
+   :memory [:memories
+            :suggested-memories
+            :observed-memories
+            :reviewed-memories]
    :activity [:activity-items :activity-events]
    :validation-history [:validation-events
                         :result-schema-status-items
@@ -203,7 +216,7 @@
                         :result-schema-missing-result-items
                         :result-schema-unexpected-result-items
                         :result-schema-mismatch-events]
-   :map-overlay [:map-file :systems :docs :edges :rejects :package-imports]})
+   :corrections [:systems :docs :edges :rejects :package-imports]})
 
 (defn- validation-history-count
   [counts]
@@ -214,7 +227,7 @@
 (defn- available
   [{:keys [files file-facts nodes edges chunks search-docs embeddings system-evidence
            runtime-config-evidence auth-references system-nodes system-edges
-           activity-items activity-events packages map-overlay]
+           memories activity-items activity-events packages corrections]
     :as counts}]
   (cond-> []
     (pos? files) (conj :source-files)
@@ -226,15 +239,16 @@
     (pos? auth-references) (conj :auth)
     (pos? system-evidence) (conj :system-evidence)
     (pos? (+ system-nodes system-edges)) (conj :system-graph)
+    (pos? memories) (conj :memory)
     (pos? packages) (conj :dependencies)
     (pos? (+ activity-items activity-events)) (conj :activity)
     (pos? (validation-history-count counts)) (conj :validation-history)
-    (pos? (reduce + (vals map-overlay))) (conj :map-overlay)))
+    (pos? (reduce + (vals corrections))) (conj :corrections)))
 
 (defn- family-counts
   [counts family]
-  (let [source (if (= :map-overlay family)
-                 (:map-overlay counts)
+  (let [source (if (= :corrections family)
+                 (:corrections counts)
                  counts)]
     (when-let [ks (seq (get family-count-keys family))]
       (into {}
@@ -489,26 +503,14 @@
        " --json"))
 
 (defn- audit-scope-command
-  [config-path map-path]
+  [config-path]
   (str "ygg audit-scope "
        (command/shell-token (or config-path "<project.edn>"))
-       (when map-path
-         (str " --map " (command/shell-token map-path)))
        " --json"))
 
-(defn- map-init-command
-  [config-path map-path]
-  (str "ygg sync init "
-       (command/shell-token (or config-path "<project.edn>"))
-       " --out "
-       (command/shell-token (or map-path "ygg.map.json"))))
-
 (defn- canonical-work-loop-commands
-  [project-id config-path map-path]
-  (let [check-command (str (sync-subcommand "check" config-path)
-                           (when map-path
-                             (str " --map " (command/shell-token map-path)))
-                           " --enqueue")]
+  [project-id config-path]
+  (let [check-command (sync-command config-path "--check" "--enqueue")]
     [check-command
      (sync-work-list-command project-id "--status" "ready")
      (sync-work-command "pull"
@@ -518,15 +520,12 @@
                         "<agent-id>")
      (sync-work-command "complete" "<work-id>" "--result" "result.json")
      (sync-work-command "validate" "<work-id>")
-     (sync-work-command "apply"
-                        "<work-id>"
-                        "--map"
-                        (or map-path "ygg.map.json"))
+     (sync-work-command "apply" "<work-id>")
      (sync-subcommand "activity" config-path "--json")]))
 
 (defn- validation-history-action
-  [project-id config-path map-path]
-  (let [commands (canonical-work-loop-commands project-id config-path map-path)]
+  [project-id config-path]
+  (let [commands (canonical-work-loop-commands project-id config-path)]
     {:kind :validation-history
      :label "Run sync work validation loop"
      :command (first commands)
@@ -545,15 +544,14 @@
   "bb plugin new <package-dir> --extractor --file-kind <file-kind> --path-glob '<glob>' --fixture fixtures/sample.<ext>")
 
 (defn- status-mcp
-  [config-path map-path]
+  [config-path]
   (let [args (cond-> {}
-               config-path (assoc :configPath config-path)
-               map-path (assoc :mapPath map-path))]
+               config-path (assoc :configPath config-path))]
     (cond-> {:mcpTool "ygg_status"}
       (seq args) (assoc :mcpArgs args))))
 
 (defn- skipped-source-action
-  [skipped-files config-path map-path]
+  [skipped-files config-path]
   (merge {:kind :coverage
           :label "Inspect skipped source candidates"
           :count skipped-files
@@ -561,15 +559,13 @@
           :pluginRegistryCommand (extractor-plugin-registry-command)
           :pluginScaffoldCommand (extractor-plugin-scaffold-command)
           :pluginGapCommand (extractor-plugin-gap-command)}
-         (status-mcp config-path map-path)))
+         (status-mcp config-path)))
 
 (defn- package-next-actions
   [project-id {:keys [packages package-evidence-gaps unresolved-imports package-conflicts
                       source-import-candidates]}
-   {:keys [config-path map-path]}]
-  (let [check-command (str (sync-subcommand "check" config-path)
-                           (when map-path
-                             (str " --map " (command/shell-token map-path))))]
+   {:keys [config-path]}]
+  (let [check-command (sync-command config-path "--check")]
     (cond-> []
       (and (zero? (long (or packages 0)))
            (positive-count? source-import-candidates))
@@ -611,23 +607,19 @@
       (conj {:kind :dependency-correction
              :label "Apply accepted import-to-package correction"
              :count unresolved-imports
-             :command (str "ygg map package import <import-prefix> <ecosystem>:<package>"
-                           (when map-path
-                             (str " --map " (command/shell-token map-path))))}))))
+             :command "ygg corrections package import <import-prefix> <ecosystem>:<package> --reason <reason>"}))))
 
 (defn- refresh-command
-  [config-path map-path]
-  (str (sync-command config-path "--check")
-       (when map-path
-         (str " --map " (command/shell-token map-path)))))
+  [config-path]
+  (sync-command config-path "--check"))
 
 (defn- next-actions
-  [{:keys [project config-path map-path counts freshness]}]
+  [{:keys [project config-path counts freshness]}]
   (let [{:keys [files search-docs system-nodes system-edges activity-items
                 activity-events result-schema-mismatch-events
                 result-schema-missing-result-items result-schema-unexpected-result-items
                 diagnostics skipped-files
-                system-evidence map-overlay]}
+                system-evidence]}
         counts
         project-id (:id project)
         stale-count (+ (get-in freshness [:counts :changed] 0)
@@ -637,13 +629,13 @@
            (zero? files)
            (conj {:kind :source-files
                   :label "Index and validate project source files"
-                  :command (refresh-command config-path map-path)})
+                  :command (refresh-command config-path)})
 
            (contains? #{:stale :unsynced} (:status freshness))
            (conj {:kind :freshness
                   :label "Refresh indexed graph basis"
                   :count stale-count
-                  :command (refresh-command config-path map-path)})
+                  :command (refresh-command config-path)})
 
            (zero? search-docs)
            (conj {:kind :docs
@@ -657,13 +649,7 @@
 
            true
            (into (package-next-actions project-id counts
-                                       {:config-path config-path
-                                        :map-path map-path}))
-
-           (zero? (long (or (:map-file map-overlay) 0)))
-           (conj {:kind :map-overlay
-                  :label "Initialize editable graph map"
-                  :command (map-init-command config-path map-path)})
+                                       {:config-path config-path}))
 
            (zero? (+ activity-items activity-events))
            (conj (merge {:kind :activity
@@ -674,7 +660,7 @@
                           {:mcpArgs {:configPath config-path}})))
 
            (zero? (validation-history-count counts))
-           (conj (validation-history-action project-id config-path map-path))
+           (conj (validation-history-action project-id config-path))
 
            (pos? result-schema-mismatch-events)
            (conj (merge {:kind :activity
@@ -697,25 +683,25 @@
                           {:mcpArgs {:configPath config-path}})))
 
            (pos? skipped-files)
-           (conj (skipped-source-action skipped-files config-path map-path))
+           (conj (skipped-source-action skipped-files config-path))
 
            (pos? diagnostics)
            (conj (merge {:kind :coverage
                          :label "Inspect extractor diagnostics"
                          :count diagnostics
                          :command (sync-subcommand "coverage" config-path "--json")}
-                        (status-mcp config-path map-path)))
+                        (status-mcp config-path)))
 
            (zero? system-evidence)
            (conj (merge {:kind :system-evidence
                          :label "Inspect system evidence coverage"
                          :command (sync-subcommand "coverage" config-path "--json")}
-                        (status-mcp config-path map-path)))
+                        (status-mcp config-path)))
 
            (pos? files)
            (conj {:kind :audit-scope
                   :label "Inspect project audit scopes"
-                  :command (audit-scope-command config-path map-path)})
+                  :command (audit-scope-command config-path)})
 
            true
            (conj {:kind :query
@@ -912,20 +898,18 @@
     status))
 
 (defn- annotate-freshness
-  [freshness counts {:keys [config-path map-path]}]
+  [freshness counts {:keys [config-path]}]
   (cond-> (assoc freshness
                  :status (freshness-readiness-status (:status freshness) counts)
                  :basis (freshness-basis counts)
                  :missingQueryIndex (query-index-missing? counts))
-    (seq (str config-path)) (assoc :projectConfig config-path)
-    (seq (str map-path)) (assoc :map map-path
-                                :mapExists (boolean (map-exists? map-path)))))
+    (seq (str config-path)) (assoc :projectConfig config-path)))
 
 (defn summarize
   "Return a project-level mechanical evidence summary.
 
   This is an inventory, not a per-question semantic confidence claim."
-  [xtdb project {:keys [repo-id map-overlay config-path map-path read-context] :as opts}]
+  [xtdb project {:keys [repo-id correction-overlay config-path read-context summary?] :as opts}]
   (let [read-scope (scope {:project-id (:id project)
                            :repo-id repo-id
                            :read-context read-context})
@@ -936,8 +920,9 @@
         package-report (dependency/package-report xtdb
                                                   {:project-id (:id project)
                                                    :repo-id repo-id}
-                                                  {:map-overlay map-overlay
-                                                   :limit 0})
+                                                  {:correction-overlay correction-overlay
+                                                   :limit 0
+                                                   :summary? summary?})
         files (active-rows xtdb (:files store/tables) read-scope)
         file-fact-count (active-row-total xtdb (:file-facts store/tables) read-scope)
         file-fact-kind-counts (active-field-counts xtdb
@@ -969,6 +954,7 @@
         system-node-count (active-row-total xtdb (:system-nodes store/tables) project-scope)
         system-edge-count (active-row-total xtdb (:system-edges store/tables) project-scope)
         activity-summary-counts (activity-counts xtdb (:id project) read-context)
+        memory-summary-counts (memory-summary-counts xtdb read-scope opts)
         freshness (freshness-summary files project repo-id coverage-files-by-repo)
         counts (merge {:files (count files)
                        :file-facts file-fact-count
@@ -1003,8 +989,9 @@
                        :unresolved-imports (get-in package-report [:counts :unresolved-imports] 0)
                        :diagnostics (get-in coverage-report [:diagnostics :total] 0)
                        :skipped-files (get-in coverage-report [:totals :skipped] 0)
-                       :map-overlay (overlay-counts map-overlay map-path)}
-                      activity-summary-counts)
+                       :corrections (correction-counts correction-overlay)}
+                      activity-summary-counts
+                      memory-summary-counts)
         freshness (annotate-freshness freshness counts opts)
         available-families (available counts)
         families (evidence-families counts available-families)
@@ -1018,7 +1005,6 @@
         state (evidence-state freshness diagnostics counts)
         actions (next-actions {:project project
                                :config-path config-path
-                               :map-path map-path
                                :counts counts
                                :freshness freshness})]
     {:schema schema

@@ -47,7 +47,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)"
 
 missing=()
-for cmd in git java clojure; do
+for cmd in git java clojure python3; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     missing+=("$cmd")
   fi
@@ -59,7 +59,7 @@ if [ "${#missing[@]}" -gt 0 ]; then
       echo "Homebrew is required for --install-deps: https://brew.sh" >&2
       exit 1
     fi
-    brew install git openjdk@21 clojure/tools/clojure babashka
+    brew install git openjdk@21 clojure/tools/clojure python babashka
   else
     echo "Missing dependencies: ${missing[*]}" >&2
     echo "Install them manually, or rerun: scripts/install-macos.sh --install-deps" >&2
@@ -81,6 +81,34 @@ if ! echo "$PATH" | tr ':' '\n' | grep -qx "$PREFIX/bin"; then
   echo "export PATH=\"$PREFIX/bin:\$PATH\""
 fi
 
-"$PREFIX/bin/ygg" help >/dev/null
+SERVER_LOG="$REPO_DIR/.ygg/server.log"
+mkdir -p "$(dirname "$SERVER_LOG")"
+echo
+if "$PREFIX/bin/ygg" status >/dev/null 2>&1; then
+  echo "Yggdrasil server is already running."
+else
+  echo "Starting Yggdrasil server..."
+  nohup "$PREFIX/bin/ygg" start >"$SERVER_LOG" 2>&1 &
+  server_pid=$!
+  started=0
+  for _ in {1..60}; do
+    if "$PREFIX/bin/ygg" status >/dev/null 2>&1; then
+      started=1
+      break
+    fi
+    if ! kill -0 "$server_pid" >/dev/null 2>&1; then
+      echo "Yggdrasil server failed to start. Last log lines:" >&2
+      tail -n 40 "$SERVER_LOG" >&2 || true
+      exit 1
+    fi
+    sleep 1
+  done
+  if [ "$started" -ne 1 ]; then
+    echo "Timed out waiting for Yggdrasil server. Last log lines:" >&2
+    tail -n 40 "$SERVER_LOG" >&2 || true
+    exit 1
+  fi
+  echo "Yggdrasil server started."
+fi
 echo
 echo "Yggdrasil is ready."

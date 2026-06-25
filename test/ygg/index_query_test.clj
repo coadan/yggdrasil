@@ -1708,7 +1708,7 @@
                                 xtdb
                                 {:project-id "py-doc-dep-test"
                                  :repo-id "app"}
-                                {:map-overlay
+                                {:correction-overlay
                                  {:packageImports
                                   [{:repo "app"
                                     :import "testinfra"
@@ -1745,7 +1745,7 @@
                                                     {:project-id "jvm-dep-test"
                                                      :repo-id "app"}
                                                     {})
-              map-overlay {:schema "ygg.map/v1"
+              correction-overlay {:schema "ygg.correction-overlay/v1"
                            :project "jvm-dep-test"
                            :systems []
                            :reject []
@@ -1758,7 +1758,7 @@
               mapped-report-before-sync (dependency/package-report xtdb
                                                                    {:project-id "jvm-dep-test"
                                                                     :repo-id "app"}
-                                                                   {:map-overlay map-overlay})
+                                                                   {:correction-overlay correction-overlay})
               mapped-before-package-by-label (into {}
                                                    (map (juxt :label identity)
                                                         (:packages mapped-report-before-sync)))
@@ -1766,7 +1766,7 @@
                                                 (.getPath repo)
                                                 {:project-id "jvm-dep-test"
                                                  :repo-id "app"
-                                                 :map-overlay map-overlay})
+                                                 :correction-overlay correction-overlay})
               deps (query/deps xtdb "demo" {:project-id "jvm-dep-test"
                                             :repo-id "app"})
               package-edges (filter #(= :imports-package (:relation %))
@@ -1774,7 +1774,7 @@
               mapped-report (dependency/package-report xtdb
                                                        {:project-id "jvm-dep-test"
                                                         :repo-id "app"}
-                                                       {:map-overlay map-overlay})]
+                                                       {:correction-overlay correction-overlay})]
           (is (= 1 (get-in raw-summary [:stats :dependency-edges])))
           (is (= 1 (get-in raw-report [:counts :imports-package])))
           (is (empty? (:unresolved-imports raw-report)))
@@ -1794,7 +1794,7 @@
           (is (= 1 (get-in mapped-summary [:stats :dependency-edges])))
           (is (= ["maven:org.slf4j:slf4j-api"]
                  (mapv (comp :label :target) package-edges)))
-          (is (= [:map-overlay] (mapv :resolution-source package-edges)))
+          (is (= [:correction-overlay] (mapv :resolution-source package-edges)))
           (is (empty? (:unresolved-imports mapped-report)))
           (is (not-any? #(= :dependency-review (:kind %))
                         (:nextActions mapped-report))))))))

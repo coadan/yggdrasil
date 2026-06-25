@@ -5,6 +5,7 @@
             [ygg.cli :as cli]
             [ygg.cli-start :as cli-start]
             [ygg.context :as context]
+            [ygg.corrections :as corrections]
             [ygg.coverage :as coverage]
             [ygg.dependency-review :as dependency-review]
             [ygg.evidence :as evidence]
@@ -12,7 +13,6 @@
             [ygg.index-maintenance :as index-maintenance]
             [ygg.infra-review :as infra-review]
             [ygg.init :as init]
-            [ygg.map-store :as map-store]
             [ygg.project :as project]
             [ygg.queue :as queue]
             [ygg.query :as query]
@@ -62,14 +62,25 @@
 (def project-with-plugin-package
   (assoc-in project-fixture [:plugins :packages] [plugin-package-fixture]))
 
-(deftest init-command-can-run-sync-and-create-explicit-map
+(defn- empty-correction-overlay
+  [project-id]
+  {:schema "ygg.correction-overlay/v1"
+   :project project-id
+   :systems []
+   :reject []
+   :edges []
+   :docs []})
+
+(deftest init-command-can-run-sync-with-corrections-overlay
   (let [root (temp-dir "ygg-cli-init")
         config-path (.getPath (io/file root "project.edn"))
-        map-path (.getPath (io/file root "ygg.map.json"))
         calls (atom [])]
     (with-redefs [project/read-project (fn [path]
                                          (swap! calls conj [:read path])
                                          (assoc project-fixture :path path))
+                  corrections/overlay (fn [_ project-id]
+                                        (empty-correction-overlay project-id))
+                  store/xtdb-handle? (constantly true)
                   store/with-node (fn [_ f] (f :xtdb))
                   project/index-project! (fn [xtdb project opts]
                                            (swap! calls conj [:index xtdb (:id project) opts])
@@ -92,17 +103,15 @@
                   (cli/dispatch "init" [root
                                         "--project" "fixture"
                                         "--out" config-path
-                                        "--sync"
-                                        "--map" map-path]))
+                                        "--sync"]))
             parsed (read-json-output out)]
         (is (= init/schema (:schema parsed)))
         (is (= "fixture" (:project-id parsed)))
         (is (str/includes? (:sync-output parsed) "# Sync"))
-        (is (map-store/file-exists? map-path))
         (is (= [[:read config-path]
                 [:index :xtdb "fixture" {:dry-run? false
                                          :index-profile :graph
-                                         :map-overlay {:schema "ygg.map/v2"
+                                         :correction-overlay {:schema "ygg.correction-overlay/v1"
                                                        :project "fixture"
                                                        :systems []
                                                        :reject []
@@ -110,7 +119,7 @@
                                                        :docs []}}]
                 [:infer :xtdb "fixture"]
                 [:check :xtdb "fixture" {:low-confidence-threshold 0.6
-                                         :map-overlay {:schema "ygg.map/v2"
+                                         :correction-overlay {:schema "ygg.correction-overlay/v1"
                                                        :project "fixture"
                                                        :systems []
                                                        :reject []
@@ -118,7 +127,7 @@
                                                        :docs []}}]]
                (mapv (fn [call]
                        (if (contains? #{:index :check} (first call))
-                         (update-in call [3 :map-overlay] #(select-keys %
+                         (update-in call [3 :correction-overlay] #(select-keys %
                                                                         [:schema
                                                                          :project
                                                                          :systems
@@ -127,7 +136,7 @@
                                                                          :docs]))
                          call))
                      @calls))))
-      (is (= {:schema "ygg.map/v2"
+      (is (= {:schema "ygg.correction-overlay/v1"
               :project "fixture"
               :systems []
               :reject []
@@ -135,15 +144,17 @@
               :docs []}
              (-> @calls
                  last
-                 (get-in [3 :map-overlay])
+                 (get-in [3 :correction-overlay])
                  (select-keys [:schema :project :systems :reject :edges :docs])))))))
 (deftest start-command-initializes-syncs-activity-and-report
   (let [root (temp-dir "ygg-cli-start")
         config-path (.getPath (io/file root "project.edn"))
-        map-path (.getPath (io/file root "ygg.map.json"))
         report-out (.getPath (io/file root "ygg-out"))
         calls (atom [])]
-    (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+    (with-redefs [corrections/overlay (fn [_ project-id]
+                                        (empty-correction-overlay project-id))
+                  store/xtdb-handle? (constantly true)
+                  store/with-node (fn [_ f] (f :xtdb))
                   project/index-project! (fn [xtdb project opts]
                                            (swap! calls conj [:index xtdb (:id project) opts])
                                            {:project-id (:id project)
@@ -183,7 +194,6 @@
                   (cli/dispatch "start" [root
                                          "--project" "fixture"
                                          "--out" config-path
-                                         "--map" map-path
                                          "--report-out" report-out]))
             parsed (read-json-output out)]
         (is (= "ygg.start/v1" (:schema parsed)))
@@ -191,7 +201,7 @@
         (is (= true (:initialized parsed)))
         (is (= "fixture" (:project-id parsed)))
         (is (= config-path (:config parsed)))
-        (is (= map-path (:map parsed)))
+        (is (not (contains? parsed :corrections)))
         (is (not (contains? parsed :sync)))
         (is (not (contains? parsed :activity)))
         (is (not (contains? parsed :check-report)))
@@ -235,7 +245,6 @@
                 :validation-events 0
                 :result-schema-mismatch-events 0}
                (get-in parsed [:counts :activity])))
-        (is (map-store/file-exists? map-path))
         (is (some #(str/includes? % "ygg query")
                   (:next parsed)))
         (is (some #(= {:kind "query"
@@ -247,7 +256,7 @@
                (set (map :command (:nextActions parsed)))))
         (is (= [[:index :xtdb "fixture" {:dry-run? false
                                          :index-profile :graph
-                                         :map-overlay {:schema "ygg.map/v2"
+                                         :correction-overlay {:schema "ygg.correction-overlay/v1"
                                                        :project "fixture"
                                                        :systems []
                                                        :reject []
@@ -255,20 +264,19 @@
                                                        :docs []}}]
                 [:infer :xtdb "fixture"]
                 [:check :xtdb "fixture" {:low-confidence-threshold 0.6
-                                         :map-overlay {:schema "ygg.map/v2"
+                                         :correction-overlay {:schema "ygg.correction-overlay/v1"
                                                        :project "fixture"
                                                        :systems []
                                                        :reject []
                                                        :edges []
                                                        :docs []}}]
-                [:activity :xtdb "fixture" {:queue-root queue/default-root}]
+                [:activity :xtdb "fixture" {:queue-root (store/project-sqlite-path "fixture")}]
                 [:report :xtdb "fixture" {:out report-out
-                                          :map-path map-path
                                           :detail :primary
                                           :force? false}]]
                (mapv (fn [call]
                        (if (contains? #{:index :check} (first call))
-                         (update-in call [3 :map-overlay] #(select-keys %
+                         (update-in call [3 :correction-overlay] #(select-keys %
                                                                         [:schema
                                                                          :project
                                                                          :systems
@@ -280,12 +288,14 @@
 (deftest start-command-reuses-existing-project-config
   (let [root (temp-dir "ygg-cli-start-existing")
         config-path (.getPath (io/file root "project.edn"))
-        map-path (.getPath (io/file root "ygg.map.json"))
         report-out (.getPath (io/file root "ygg-out"))
         calls (atom [])]
     (init/init! root {:out config-path
                       :project-id "existing"})
-    (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+    (with-redefs [corrections/overlay (fn [_ project-id]
+                                        (empty-correction-overlay project-id))
+                  store/xtdb-handle? (constantly true)
+                  store/with-node (fn [_ f] (f :xtdb))
                   project/index-project! (fn [xtdb project opts]
                                            (swap! calls conj [:index xtdb (:id project) opts])
                                            {:project-id (:id project)
@@ -304,7 +314,6 @@
       (let [out (with-out-str
                   (cli/dispatch "start" [root
                                          "--out" config-path
-                                         "--map" map-path
                                          "--report-out" report-out]))
             parsed (read-json-output out)]
         (is (= "existing" (:mode parsed)))
@@ -313,13 +322,12 @@
         (is (not (contains? parsed :initialized)))
         (is (not (contains? parsed :sync)))
         (is (some #(= (str "ygg report " config-path
-                           " --map " map-path
                            " --out " report-out)
                       %)
                   (:next parsed)))
         (is (= [[:index :xtdb "existing" {:dry-run? false
                                           :index-profile :graph
-                                          :map-overlay {:schema "ygg.map/v2"
+                                          :correction-overlay {:schema "ygg.correction-overlay/v1"
                                                         :project "existing"
                                                         :systems []
                                                         :reject []
@@ -327,7 +335,7 @@
                                                         :docs []}}]]
                (mapv (fn [call]
                        (if (= :index (first call))
-                         (update-in call [3 :map-overlay] #(select-keys %
+                         (update-in call [3 :correction-overlay] #(select-keys %
                                                                         [:schema
                                                                          :project
                                                                          :systems
@@ -340,13 +348,12 @@
   (let [actions (cli-start/start-next-actions
                  "fixture project"
                  "Project Files/project.edn"
-                 "Maps/ygg map.json"
                  "Report Output")
         commands (set (map :command actions))]
     (is (contains? commands
                    "ygg query \"where is this handled?\" --project 'fixture project' --json"))
     (is (contains? commands
-                   "ygg report 'Project Files/project.edn' --map 'Maps/ygg map.json' --out 'Report Output'"))
+                   "ygg report 'Project Files/project.edn' --out 'Report Output'"))
     (is (contains? commands
                    "ygg agent install --platform codex --project"))
     (is (= commands (set (cli-start/start-next-commands actions))))))
@@ -378,10 +385,10 @@
     (is (= [[:read "project.edn"]
             [:index :xtdb "fixture" {:dry-run? false
                                      :index-profile :graph
-                                     :map-overlay nil}]
+                                     :correction-overlay nil}]
             [:infer :xtdb "fixture"]
             [:check :xtdb "fixture" {:low-confidence-threshold 0.6
-                                     :map-overlay nil}]]
+                                     :correction-overlay nil}]]
            @calls))))
 (deftest sync-without-maintenance-uses-query-index
   (let [calls (atom [])]
@@ -406,7 +413,7 @@
     (is (= [[:read "project.edn"]
             [:index :xtdb "fixture" {:dry-run? false
                                      :index-profile :query
-                                     :map-overlay nil}]
+                                     :correction-overlay nil}]
             [:infer :xtdb "fixture"]]
            @calls))))
 (deftest sync-check-enqueues-maintenance-work
@@ -540,7 +547,6 @@
 (deftest audit-scope-command-returns-core-scope-report
   (with-redefs [project/read-project (constantly project-fixture)
                 store/with-node (fn [_ f] (f :xtdb))
-                map-store/file-exists? (constantly false)
                 audit-scope/report (fn [xtdb project opts]
                                      {:schema audit-scope/report-schema
                                       :xtdb xtdb
@@ -591,7 +597,6 @@
       (is (str/includes? plain-out "- ygg sync coverage project.edn --json")))))
 (deftest sync-inspect-json-includes-evidence-surface
   (with-redefs [project/read-project (constantly project-fixture)
-                map-store/file-exists? (constantly false)
                 store/with-node (fn [_ f] (f :xtdb))
                 evidence/summarize (fn [xtdb project opts]
                                      {:schema evidence/schema
@@ -612,8 +617,6 @@
                                       :freshness {:status :stale
                                                   :basis "indexed-graph"
                                                   :projectConfig "project.edn"
-                                                  :map "ygg.map.json"
-                                                  :mapExists false
                                                   :missingQueryIndex true
                                                   :counts {:indexed 2
                                                            :current 3
@@ -687,8 +690,6 @@
       (is (= {:status "stale"
               :basis "indexed-graph"
               :projectConfig "project.edn"
-              :map "ygg.map.json"
-              :mapExists false
               :missingQueryIndex true
               :counts {:indexed 2
                        :current 3
@@ -728,7 +729,6 @@
       (is (str/includes? plain-out "- status stale"))
       (is (str/includes? plain-out "- basis indexed-graph"))
       (is (str/includes? plain-out "- project-config project.edn"))
-      (is (str/includes? plain-out "- map ygg.map.json exists false"))
       (is (str/includes? plain-out "- missing-query-index true"))
       (is (str/includes? plain-out "- changed 1"))
       (is (str/includes? plain-out "- unindexed 1"))
@@ -841,175 +841,6 @@
       (is (= "claimed" (:status parsed)))
       (is (= "codex" (get-in parsed [:lease :agent-id])))
       (is (integer? (get-in parsed [:lease :heartbeat-at-ms]))))))
-(deftest sync-work-apply-valid-infra-review-result-updates-map
-  (let [root (temp-dir "ygg-cli-work-apply")
-        dir (temp-dir "ygg-cli-work-map")
-        map-path (.getPath (io/file dir "ygg.map.json"))
-        result-path (.getPath (io/file dir "result.json"))
-        source-id "system:fixture:app:api"
-        target-id "system:fixture:env:api"
-        evidence-id "evidence:image:api"
-        packet {:schema infra-review/packet-schema
-                :reviewId "infra-review:test"
-                :project-id "fixture"
-                :facts {:systems [{:id source-id}
-                                  {:id target-id}]
-                        :evidence [{:id evidence-id}]}
-                :allowedActions ["add-edge" "none"]}
-        id (get-in (queue/enqueue! packet {:root root
-                                           :kind infra-review/work-kind
-                                           :project-id "fixture"})
-                   [:item :id])]
-    (queue/claim-next! root {:agent-id "codex"
-                             :project-id "fixture"})
-    (spit result-path
-          (json/write-json-str
-           {:schema infra-review/result-schema
-            :reviewId "infra-review:test"
-            :recommendation "add-map-edge"
-            :confidence 0.86
-            :reason "Evidence supports a deploys relationship."
-            :mapPatch [{:op "add-edge"
-                        :source source-id
-                        :target target-id
-                        :relation "deploys"
-                        :confidence 0.86
-                        :evidence [evidence-id]
-                        :reason "Image producer and consumer are verified."}]}
-           {:indent-str "  "}))
-    (with-out-str
-      (cli/dispatch "sync"
-                    ["work" "complete" id
-                     "--result" result-path
-                     "--queue-dir" root]))
-    (let [out (with-out-str
-                (cli/dispatch "sync"
-                              ["work" "apply" id
-                               "--map" map-path
-                               "--queue-dir" root]))
-          parsed (read-json-output out)
-          map-data (map-store/read-map map-path)
-          edge (first (:edges map-data))]
-      (is (= infra-review/apply-schema (:schema parsed)))
-      (is (= "applied" (:status parsed)))
-      (is (= 1 (:patchesApplied parsed)))
-      (is (= source-id (:source edge)))
-      (is (= target-id (:target edge)))
-      (is (= "deploys" (:relation edge)))
-      (is (= [evidence-id] (:evidence edge)))
-      (is (str/includes? (:rules edge) "infra-review:test")))))
-(deftest sync-work-apply-rejects-infra-review-edge-without-evidence
-  (let [root (temp-dir "ygg-cli-work-apply-missing-evidence")
-        dir (temp-dir "ygg-cli-work-map-missing-evidence")
-        map-path (.getPath (io/file dir "ygg.map.json"))
-        result-path (.getPath (io/file dir "result.json"))
-        source-id "system:fixture:app:api"
-        target-id "system:fixture:env:api"
-        evidence-id "evidence:image:api"
-        packet {:schema infra-review/packet-schema
-                :reviewId "infra-review:test"
-                :project-id "fixture"
-                :facts {:systems [{:id source-id}
-                                  {:id target-id}]
-                        :evidence [{:id evidence-id}]}
-                :allowedActions ["add-edge" "none"]}
-        id (get-in (queue/enqueue! packet {:root root
-                                           :kind infra-review/work-kind
-                                           :project-id "fixture"})
-                   [:item :id])]
-    (queue/claim-next! root {:agent-id "codex"
-                             :project-id "fixture"})
-    (spit result-path
-          (json/write-json-str
-           {:schema infra-review/result-schema
-            :reviewId "infra-review:test"
-            :recommendation "add-map-edge"
-            :confidence 0.86
-            :reason "Evidence supports a deploys relationship."
-            :mapPatch [{:op "add-edge"
-                        :source source-id
-                        :target target-id
-                        :relation "deploys"
-                        :confidence 0.86
-                        :reason "Image producer and consumer are verified."}]}
-           {:indent-str "  "}))
-    (with-out-str
-      (cli/dispatch "sync"
-                    ["work" "complete" id
-                     "--result" result-path
-                     "--queue-dir" root]))
-    (let [out (with-out-str
-                (cli/dispatch "sync"
-                              ["work" "apply" id
-                               "--map" map-path
-                               "--queue-dir" root]))
-          parsed (read-json-output out)]
-      (is (= infra-review/apply-schema (:schema parsed)))
-      (is (= "failed" (:status parsed)))
-      (is (= [{:path ["mapPatch" 0 "evidence"]
-               :error "Edge patch must cite at least one facts.evidence[].id."}]
-             (:errors parsed)))
-      (is (false? (map-store/file-exists? map-path))))))
-(deftest sync-work-apply-valid-dependency-review-result-updates-map
-  (let [root (temp-dir "ygg-cli-work-dependency-apply")
-        dir (temp-dir "ygg-cli-work-dependency-map")
-        map-path (.getPath (io/file dir "ygg.map.json"))
-        result-path (.getPath (io/file dir "result.json"))
-        evidence-id "dependency-evidence:test"
-        packet {:schema dependency-review/packet-schema
-                :reviewId "dependency-review:test"
-                :project-id "fixture"
-                :facts {:unresolvedImport {:repo-id "app"
-                                           :import "org.slf4j.Logger"
-                                           :path "App.java"
-                                           :line 1}
-                        :packages [{:ecosystem "maven"
-                                    :package-name "org.slf4j:slf4j-api"}]
-                        :evidence [{:id evidence-id}]}
-                :expectedResultSchema dependency-review/result-schema
-                :allowedActions ["add-package-import" "none"]}
-        id (get-in (queue/enqueue! packet {:root root
-                                           :kind dependency-review/work-kind
-                                           :project-id "fixture"})
-                   [:item :id])]
-    (queue/claim-next! root {:agent-id "codex"
-                             :project-id "fixture"})
-    (spit result-path
-          (json/write-json-str
-           {:schema dependency-review/result-schema
-            :reviewId "dependency-review:test"
-            :recommendation "add-package-import"
-            :confidence 0.86
-            :reason "The import prefix is provided by the declared package."
-            :mapPatch [{:op "add-package-import"
-                        :import "org.slf4j"
-                        :ecosystem "maven"
-                        :package "org.slf4j:slf4j-api"
-                        :evidence [evidence-id]
-                        :reason "Explicit package import mapping."}]}
-           {:indent-str "  "}))
-    (with-out-str
-      (cli/dispatch "sync"
-                    ["work" "complete" id
-                     "--result" result-path
-                     "--queue-dir" root]))
-    (let [out (with-out-str
-                (cli/dispatch "sync"
-                              ["work" "apply" id
-                               "--map" map-path
-                               "--queue-dir" root]))
-          parsed (read-json-output out)
-          package-import (first (:packageImports (map-store/read-map map-path)))]
-      (is (= dependency-review/apply-schema (:schema parsed)))
-      (is (= "applied" (:status parsed)))
-      (is (= 1 (:patchesApplied parsed)))
-      (is (= "org.slf4j" (:import package-import)))
-      (is (= "maven" (:ecosystem package-import)))
-      (is (= "org.slf4j:slf4j-api" (:package package-import)))
-      (is (= [evidence-id] (:evidence package-import)))
-      (is (= "dependency-review:test" (:rules package-import)))
-      (is (= "dependency-review:test" (:reviewId package-import)))
-      (is (= 0.86 (:confidence package-import))))))
 (deftest sync-work-validate-reports-valid-invalid-not-done-and-unsupported-results
   (let [root (temp-dir "ygg-cli-work-validate")
         dir (temp-dir "ygg-cli-work-validate-results")
@@ -1061,7 +892,7 @@
             :recommendation "add-package-import"
             :confidence 0.86
             :reason "The import prefix is provided by the declared package."
-            :mapPatch [{:op "add-package-import"
+            :correctionPatch [{:op "add-package-import"
                         :import "org.slf4j"
                         :ecosystem "maven"
                         :package "org.slf4j:slf4j-api"
@@ -1074,7 +905,7 @@
             :reviewId "dependency-review:invalid"
             :recommendation "maybe"
             :reason "Invalid recommendation."
-            :mapPatch []}
+            :correctionPatch []}
            {:indent-str "  "}))
     (queue/claim-next! root {:agent-id "codex"
                              :project-id "fixture"
@@ -1136,141 +967,6 @@
                :error "No validation handler for work item payload schema."
                :value "ygg.custom.work/v1"}]
              (:errors unsupported))))))
-(deftest sync-work-apply-runs-validation-before-map-write
-  (let [root (temp-dir "ygg-cli-work-apply-validation")
-        dir (temp-dir "ygg-cli-work-apply-validation-results")
-        valid-result-path (.getPath (io/file dir "valid.json"))
-        invalid-result-path (.getPath (io/file dir "invalid.json"))
-        valid-map-path (.getPath (io/file dir "valid-map.json"))
-        invalid-map-path (.getPath (io/file dir "invalid-map.json"))
-        ready-map-path (.getPath (io/file dir "ready-map.json"))
-        unsupported-map-path (.getPath (io/file dir "unsupported-map.json"))
-        evidence-id "dependency-evidence:test"
-        packet {:schema dependency-review/packet-schema
-                :reviewId "dependency-review:test"
-                :project-id "fixture"
-                :facts {:unresolvedImport {:repo-id "app"
-                                           :import "org.slf4j.Logger"
-                                           :path "App.java"
-                                           :line 1}
-                        :packages [{:ecosystem "maven"
-                                    :package-name "org.slf4j:slf4j-api"}]
-                        :evidence [{:id evidence-id}]}
-                :expectedResultSchema dependency-review/result-schema
-                :allowedActions ["add-package-import" "none"]}
-        valid-id (get-in (queue/enqueue! packet {:root root
-                                                 :kind dependency-review/work-kind
-                                                 :project-id "fixture"
-                                                 :priority 100})
-                         [:item :id])
-        invalid-id (get-in (queue/enqueue! (assoc packet
-                                                  :reviewId "dependency-review:invalid")
-                                           {:root root
-                                            :kind dependency-review/work-kind
-                                            :project-id "fixture"
-                                            :priority 90})
-                           [:item :id])
-        ready-id (get-in (queue/enqueue! (assoc packet
-                                                :reviewId "dependency-review:ready")
-                                         {:root root
-                                          :kind dependency-review/work-kind
-                                          :project-id "fixture"
-                                          :priority 10})
-                         [:item :id])
-        unsupported-id (get-in (queue/enqueue! {:schema "ygg.custom.work/v1"
-                                                :expectedResultSchema "custom.result/v1"
-                                                :project-id "fixture"}
-                                               {:root root
-                                                :kind "custom"
-                                                :project-id "fixture"})
-                               [:item :id])]
-    (spit valid-result-path
-          (json/write-json-str
-           {:schema dependency-review/result-schema
-            :reviewId "dependency-review:test"
-            :recommendation "add-package-import"
-            :confidence 0.86
-            :reason "The import prefix is provided by the declared package."
-            :mapPatch [{:op "add-package-import"
-                        :import "org.slf4j"
-                        :ecosystem "maven"
-                        :package "org.slf4j:slf4j-api"
-                        :evidence [evidence-id]
-                        :reason "Explicit package import mapping."}]}
-           {:indent-str "  "}))
-    (spit invalid-result-path
-          (json/write-json-str
-           {:schema dependency-review/result-schema
-            :reviewId "dependency-review:invalid"
-            :recommendation "maybe"
-            :reason "Invalid recommendation."
-            :mapPatch []}
-           {:indent-str "  "}))
-    (doseq [[id result-path kind] [[valid-id valid-result-path dependency-review/work-kind]
-                                   [invalid-id invalid-result-path dependency-review/work-kind]
-                                   [unsupported-id valid-result-path "custom"]]]
-      (queue/claim-next! root {:agent-id "codex"
-                               :project-id "fixture"
-                               :kind kind})
-      (with-out-str
-        (cli/dispatch "sync"
-                      ["work" "complete" id
-                       "--result" result-path
-                       "--queue-dir" root])))
-    (let [valid (read-json-output
-                 (with-out-str
-                   (cli/dispatch "sync"
-                                 ["work" "apply" valid-id
-                                  "--map" valid-map-path
-                                  "--queue-dir" root])))
-          invalid (read-json-output
-                   (with-out-str
-                     (cli/dispatch "sync"
-                                   ["work" "apply" invalid-id
-                                    "--map" invalid-map-path
-                                    "--queue-dir" root])))
-          not-done (read-json-output
-                    (with-out-str
-                      (cli/dispatch "sync"
-                                    ["work" "apply" ready-id
-                                     "--map" ready-map-path
-                                     "--queue-dir" root])))
-          unsupported (read-json-output
-                       (with-out-str
-                         (cli/dispatch "sync"
-                                       ["work" "apply" unsupported-id
-                                        "--map" unsupported-map-path
-                                        "--queue-dir" root])))]
-      (is (= "applied" (:status valid)))
-      (is (= "valid" (get-in valid [:validation :status])))
-      (is (= "org.slf4j"
-             (:import (first (:packageImports (map-store/read-map valid-map-path))))))
-      (is (= dependency-review/apply-schema (:schema invalid)))
-      (is (= "failed" (:status invalid)))
-      (is (= "invalid" (get-in invalid [:validation :status])))
-      (is (= "failed" (get-in invalid [:item :status])))
-      (is (= [{:path ["result" "recommendation"]
-               :error "Result recommendation is required and must be supported."
-               :value "maybe"}]
-             (:errors invalid)))
-      (is (false? (map-store/file-exists? invalid-map-path)))
-      (is (= "failed" (:status not-done)))
-      (is (= "not-done" (get-in not-done [:validation :status])))
-      (is (= "ready" (get-in not-done [:item :status])))
-      (is (= [{:path ["validation" "status"]
-               :error "Work result must validate before apply."
-               :value "not-done"}]
-             (:errors not-done)))
-      (is (false? (map-store/file-exists? ready-map-path)))
-      (is (= "ygg.sync.work.apply/v1" (:schema unsupported)))
-      (is (= "failed" (:status unsupported)))
-      (is (= "unsupported" (get-in unsupported [:validation :status])))
-      (is (= "failed" (get-in unsupported [:item :status])))
-      (is (= [{:path ["payload" "schema"]
-               :error "No validation handler for work item payload schema."
-               :value "ygg.custom.work/v1"}]
-             (:errors unsupported)))
-      (is (false? (map-store/file-exists? unsupported-map-path))))))
 (deftest infra-review-result-requires-supported-recommendation-and-reason
   (let [packet {:schema infra-review/packet-schema
                 :reviewId "infra-review:test"
@@ -1284,7 +980,7 @@
                        :reviewId "infra-review:test"
                        :recommendation "maybe"
                        :confidence 0.5
-                       :mapPatch []}}]
+                       :correctionPatch []}}]
     (is (= [{:path [:result :recommendation]
              :error "Result recommendation is required and must be supported."
              :value "maybe"}
@@ -1298,78 +994,8 @@
                                  :recommendation "needs-human"
                                  :confidence 0.5
                                  :reason "The packet evidence is insufficient."
-                                 :mapPatch []
+                                 :correctionPatch []
                                  :findings ["Needs a human call."]}))))))
-(deftest sync-work-apply-valid-maintenance-result-updates-map
-  (let [root (temp-dir "ygg-cli-work-maintenance-apply")
-        dir (temp-dir "ygg-cli-work-maintenance-map")
-        map-path (.getPath (io/file dir "ygg.map.json"))
-        result-path (.getPath (io/file dir "result.json"))
-        target-id "system:fixture:app:cmd-api"
-        decision {:id "maintenance-decision:test"
-                  :project-id "fixture"
-                  :kind :unclustered-system
-                  :status :open
-                  :severity :low
-                  :target target-id
-                  :reason "Candidate has enough local evidence to name explicitly."
-                  :recommended-actions [:set-system-kind :add-edge]
-                  :basis {:schema "ygg.graph-basis/v1"
-                          :project-id "fixture"
-                          :hash "basis"}
-                  :data {:system {:xt/id target-id
-                                  :label "cmd/api"
-                                  :kind :candidate
-                                  :repo-id "app"
-                                  :path-prefix "cmd/api"}}}
-        id (get-in (queue/enqueue! (decision-classifier/decision-packet decision)
-                                   {:root root
-                                    :kind "maintenance-decision"
-                                    :project-id "fixture"})
-                   [:item :id])]
-    (queue/claim-next! root {:agent-id "codex"
-                             :project-id "fixture"})
-    (spit result-path
-          (json/write-json-str
-           {:schema decision-classifier/schema
-            :decisionId "maintenance-decision:test"
-            :recommendation "change"
-            :confidence 0.78
-            :reason "The existing candidate should be accepted with a clearer kind."
-            :mapPatch [{:op "set-system-kind"
-                        :value {:target target-id
-                                :kind "application"}
-                        :reason "Accept the bounded system candidate."}
-                       {:op "add-edge"
-                        :value {:source target-id
-                                :target "external-api:api.fixture.test"
-                                :relation "references"}
-                        :reason "Record a bounded relation from the packet."}]}
-           {:indent-str "  "}))
-    (with-out-str
-      (cli/dispatch "sync"
-                    ["work" "complete" id
-                     "--result" result-path
-                     "--queue-dir" root]))
-    (let [out (with-out-str
-                (cli/dispatch "sync"
-                              ["work" "apply" id
-                               "--map" map-path
-                               "--queue-dir" root]))
-          parsed (read-json-output out)
-          map-data (map-store/read-map map-path)
-          system (first (:systems map-data))
-          edge (first (:edges map-data))]
-      (is (= infra-review/apply-schema (:schema parsed)))
-      (is (= "applied" (:status parsed)))
-      (is (= 2 (:patchesApplied parsed)))
-      (is (= target-id (:id system)))
-      (is (= "application" (:kind system)))
-      (is (= "accepted" (:status system)))
-      (is (= [{:repo "app" :path "cmd/api"}] (:includes system)))
-      (is (= target-id (:source edge)))
-      (is (= "external-api:api.fixture.test" (:target edge)))
-      (is (= "references" (:relation edge))))))
 (deftest maintenance-decision-result-requires-supported-recommendation-and-reasons
   (let [target-id "system:fixture:app:cmd-api"
         packet (decision-classifier/decision-packet
@@ -1385,7 +1011,7 @@
                           :decisionId "maintenance-decision:test"
                           :recommendation "maybe"
                           :confidence 0.5
-                          :mapPatch [{:op "set-system-kind"
+                          :correctionPatch [{:op "set-system-kind"
                                       :target target-id
                                       :value {:kind "application"}}]}}]
     (is (= [{:path [:result :recommendation]
@@ -1393,7 +1019,7 @@
              :value "maybe"}
             {:path [:result :reason]
              :error "Result reason is required."}
-            {:path [:mapPatch 0 :reason]
+            {:path [:correctionPatch 0 :reason]
              :error "Patch reason is required."}]
            (decision-classifier/validate-result invalid)))
     (is (empty? (decision-classifier/validate-result
@@ -1403,7 +1029,7 @@
                                  :recommendation "investigate"
                                  :confidence 0.5
                                  :reason "The packet does not contain enough bounded evidence."
-                                 :mapPatch []}))))))
+                                 :correctionPatch []}))))))
 (deftest maintenance-decision-result-rejects-unadvertised-patch-actions
   (let [target-id "system:fixture:app:cmd-api"
         packet (decision-classifier/decision-packet
@@ -1420,20 +1046,20 @@
                        :recommendation "change"
                        :confidence 0.5
                        :reason "A bounded correction is warranted."
-                       :mapPatch [{:op "add-edge"
+                       :correctionPatch [{:op "add-edge"
                                    :value {:source target-id
                                            :target "external-api:api.fixture.test"
                                            :relation "references"}
                                    :reason "This patch was not advertised by the decision."}]}}]
     (is (= ["set-system-kind" "none"]
            (:allowedActions packet)))
-    (is (= [{:path [:mapPatch 0 :op]
-             :error "Index maintenance map patch op is not allowed for this decision."
+    (is (= [{:path [:correctionPatch 0 :op]
+             :error "Index maintenance correction patch op is not allowed for this decision."
              :value "add-edge"}]
            (decision-classifier/validate-result item)))
     (is (empty? (decision-classifier/validate-result
                  (assoc-in item
-                           [:result :mapPatch]
+                           [:result :correctionPatch]
                            [{:op "set-system-kind"
                              :target target-id
                              :value {:kind "application"}
@@ -1520,9 +1146,9 @@
                (:pluginPackages parsed)))
         (is (= [[:xtdb
                  (assoc project-with-plugin-package :path "project.edn")
-                 {:map-overlay nil
+                 {:correction-overlay nil
                   :config-path "project.edn"
-                  :map-path nil}]]
+                  :summary? true}]]
                @summaries))))))
 
 (deftest query-json-passes-output-and-proof-command-options
@@ -1664,46 +1290,3 @@
         (cli/dispatch "view" ["overview" "--project" "fixture" "--format" "json" "--out" "graph.json"]))
       (is (= "graph.json" (:path @written)))
       (is (= graph/schema (get-in @written [:data :schema]))))))
-(deftest map-reject-updates-map-file
-  (let [dir (temp-dir "ygg-cli-map")
-        map-path (.getPath (io/file dir "ygg.map.json"))]
-    (spit map-path (json/write-json-str {:schema "ygg.map/v2"
-                                         :project "fixture"
-                                         :systems []
-                                         :reject []
-                                         :edges []
-                                         :docs []}))
-    (with-out-str
-      (cli/dispatch "map"
-                    ["reject" "external-api" "docs.example.com"
-                     "--map" map-path
-                     "--reason" "Documentation reference"]))
-    (let [data (json/read-json (slurp map-path) :key-fn keyword)]
-      (is (= [{:match {:kind "external-api"
-                       :host "docs.example.com"}
-               :reason "Documentation reference"}]
-             (:reject data))))))
-(deftest map-package-import-updates-map-file
-  (let [dir (temp-dir "ygg-cli-package-import-map")
-        map-path (.getPath (io/file dir "ygg.map.json"))]
-    (spit map-path (json/write-json-str {:schema "ygg.map/v2"
-                                         :project "fixture"
-                                         :systems []
-                                         :reject []
-                                         :edges []
-                                         :docs []
-                                         :packageImports []}))
-    (with-out-str
-      (cli/dispatch "map"
-                    ["package" "import" "org.slf4j" "maven:org.slf4j:slf4j-api"
-                     "--repo" "app"
-                     "--map" map-path
-                     "--reason" "Maven coordinate exports this Java package"]))
-    (let [data (json/read-json (slurp map-path) :key-fn keyword)]
-      (is (= [{:import "org.slf4j"
-               :ecosystem "maven"
-               :package "org.slf4j:slf4j-api"
-               :status "accepted"
-               :repo "app"
-               :reason "Maven coordinate exports this Java package"}]
-             (:packageImports data))))))

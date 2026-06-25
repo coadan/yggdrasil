@@ -1,6 +1,7 @@
 (ns ygg.queue-test
   (:require [ygg.queue :as queue]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]))
 
 (defn- temp-dir
@@ -10,7 +11,7 @@
               (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
-(deftest queue-items-claim-and-complete-through-status-dirs
+(deftest queue-items-claim-and-complete-through-sqlite
   (let [root (temp-dir "ygg-queue")
         payload {:schema "ygg.context/v1"
                  :query "projection boundary"
@@ -21,7 +22,8 @@
         id (get-in enqueued [:item :id])]
     (is (= "ready" (get-in enqueued [:item :status])))
     (is (= "context" (get-in enqueued [:item :kind])))
-    (is (.isFile (io/file (:path enqueued))))
+    (is (.isFile (io/file (queue/db-path root))))
+    (is (str/includes? (:path enqueued) "#"))
     (is (= [id] (mapv (comp :id :item)
                       (queue/list-items root {:status "ready"}))))
     (testing "claim moves the item into claimed and records the lease"
@@ -145,32 +147,26 @@
              :label "Inspect work item payload"
              :command (str "ygg sync work show "
                            ready-id
-                           " --queue-dir "
-                           "'" root "'")}
+                           " --project demo")}
             {:kind :claim
              :label "Claim next matching work item"
-             :command (str "ygg sync work pull --project demo --kind custom "
-                           "--agent <agent-id> --queue-dir "
-                           "'" root "'")}]
+             :command "ygg sync work pull --project demo --kind custom --agent <agent-id>"}]
            (:actions ready-summary)))
     (is (= #{:show :heartbeat :complete :release :reject}
            (set (map :kind (:actions claimed-summary)))))
     (is (some #(= (str "ygg sync work show "
                        ready-id
-                       " --queue-dir "
-                       "'" root "'")
+                       " --project demo")
                   (:command %))
               (:actions claimed-summary)))
     (is (some #(= (str "ygg sync work heartbeat "
                        ready-id
-                       " --agent <agent-id> --lease-minutes 30 --queue-dir "
-                       "'" root "'")
+                       " --agent <agent-id> --lease-minutes 30 --project demo")
                   (:command %))
               (:actions claimed-summary)))
     (is (some #(= (str "ygg sync work complete "
                        ready-id
-                       " --result result.json --queue-dir "
-                       "'" root "'")
+                       " --result result.json --project demo")
                   (:command %))
               (:actions claimed-summary)))
     (is (= "custom.result/v1" (:result-schema done-summary)))
@@ -178,20 +174,17 @@
              :label "Inspect work item payload"
              :command (str "ygg sync work show "
                            ready-id
-                           " --queue-dir "
-                           "'" root "'")}
+                           " --project demo")}
             {:kind :validate
              :label "Validate completed work result"
              :command (str "ygg sync work validate "
                            ready-id
-                           " --queue-dir "
-                           "'" root "'")}
+                           " --project demo")}
             {:kind :apply
-             :label "Apply completed work result to map"
+             :label "Apply validated work result"
              :command (str "ygg sync work apply "
                            ready-id
-                           " --map ygg.map.json --queue-dir "
-                           "'" root "'")}]
+                           " --project demo")}]
            (:actions done-summary)))))
 
 (deftest queue-list-and-claim-can-filter-by-kind

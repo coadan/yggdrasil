@@ -36,9 +36,6 @@
 (defn agent-project-path
   [suite case opts]
   (io/file (case-output-dir suite case opts) "agent-project.edn"))
-(defn agent-map-path
-  [suite case opts]
-  (io/file (case-output-dir suite case opts) "ygg.map.json"))
 (defn agent-packet-path
   [suite case opts]
   (io/file (case-output-dir suite case opts) "agent-packet.json"))

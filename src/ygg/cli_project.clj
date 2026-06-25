@@ -17,7 +17,6 @@
 
 (defn- usage [] (call-dep :usage))
 (defn- print-json [data] (call-dep :print-json data))
-(defn- default-map-path [args] (call-dep :default-map-path args))
 (defn- temporal-options [args] (call-dep :temporal-options args))
 
 (defn print-project-status!
@@ -26,16 +25,14 @@
     config-path
     args
     {:usage usage
-     :print-json print-json
-     :default-map-path default-map-path}))
+     :print-json print-json}))
   ([project config-path args]
    (cli-sync-inspect/print-project-status-with-deps!
     project
     config-path
     args
     {:usage usage
-     :print-json print-json
-     :default-map-path default-map-path})))
+     :print-json print-json})))
 (defn- timing-total-text
   [stats]
   (when-let [total-ms (get-in stats [:timings-ms :total-ms])]

@@ -319,7 +319,7 @@
            (get-in (first @tx-ops) [1 :valid-from])))
     (is (= "edge:old-import-package" (last (first @tx-ops))))))
 
-(deftest import-package-resolution-reads-source-edges-when-map-overlay-can-resolve
+(deftest import-package-resolution-reads-source-edges-when-correction-overlay-can-resolve
   (let [xtql-queries (atom [])]
     (with-redefs [store/rows-by-field (fn [_ table _ _]
                                         (case table
@@ -340,7 +340,7 @@
                  "project-a"
                  "repo-a"
                  "run-a"
-                 {:map-overlay {:package-imports [{:repo "repo-a"
+                 {:correction-overlay {:package-imports [{:repo "repo-a"
                                                    :ecosystem :maven
                                                    :package-name "org.junit.jupiter"
                                                    :import "org.junit.jupiter"}]}}))))
@@ -397,7 +397,7 @@
                  "project-a"
                  "repo-a"
                  "run-a"
-                 {:map-overlay {:package-imports [{:repo "repo-a"
+                 {:correction-overlay {:package-imports [{:repo "repo-a"
                                                    :ecosystem :maven
                                                    :package-name "org.slf4j:slf4j-api"
                                                    :import "org.slf4j"}]}})]

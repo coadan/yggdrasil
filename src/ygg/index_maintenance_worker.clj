@@ -66,6 +66,51 @@
   [executors]
   (set (mapcat :kinds executors)))
 
+(defn- executor-status
+  [executor]
+  (let [api? (api-executor? executor)
+        available? (executor-available? executor)]
+    (cond-> {:id (:id executor)
+             :type (:type executor)
+             :kinds (sort (:kinds executor))
+             :available available?}
+      (:provider executor) (assoc :provider (:provider executor))
+      (:model executor) (assoc :model (:model executor))
+      (:env executor) (assoc :env (:env executor))
+      (and api? (not available?)) (assoc :missing-env (:env executor)))))
+
+(defn- worker-config
+  ([project] (worker-config project {}))
+  ([project opts]
+   (when-let [worker (get-in project [:maintenance :worker])]
+     (merge (select-keys (:maintenance project) [:queue-dir :report-dir])
+            worker
+            opts))))
+
+(defn config-status
+  "Return a compact status map for a project's normalized maintenance config."
+  [project]
+  (let [maintenance (:maintenance project)
+        config (worker-config project)
+        executors (:executors config)
+        executor-statuses (mapv executor-status executors)
+        available-executors (filterv :available executor-statuses)]
+    {:schema "ygg.maintenance.config-status/v1"
+     :project-id (:id project)
+     :configured (boolean maintenance)
+     :enabled (boolean (:enabled maintenance))
+     :schedules (vec (:schedules maintenance))
+     :queueRoot (:queue-dir maintenance)
+     :reportDir (:report-dir maintenance)
+     :worker {:configured (boolean config)
+              :enabled (boolean (:enabled config))
+              :apply (:apply config)
+              :executors executor-statuses
+              :executorCount (count executor-statuses)
+              :availableExecutorCount (count available-executors)
+              :availableKinds (sort (available-kinds
+                                     (filterv executor-available? executors)))}}))
+
 (defn- next-ready-kind
   [root project-id kinds]
   (some (fn [{:keys [item]}]
@@ -275,13 +320,23 @@
   "Run the project-configured index maintenance worker for up to max-items-per-run items."
   ([project] (run! project {}))
   ([project opts]
-   (let [config (merge (:index-maintenance-worker project) opts)
+   (let [maintenance-enabled? (get-in project [:maintenance :enabled])
+         config (worker-config project opts)
          max-items (long (or (:max-items-per-run config) 0))]
-     (if-not (:enabled config)
+     (cond
+       (not config)
+       {:schema schema
+        :project-id (:id project)
+        :status "not-configured"
+        :counts (result-counts [])}
+
+       (not (and maintenance-enabled? (:enabled config)))
        {:schema schema
         :project-id (:id project)
         :status "disabled"
         :counts (result-counts [])}
+
+       :else
        (let [{:keys [results stop-reason]}
              (loop [remaining max-items
                     executor-failures 0

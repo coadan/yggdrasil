@@ -6,12 +6,11 @@
             [ygg.benchmark-paths :as benchmark-paths]
             [ygg.benchmark-prepare :as benchmark-prepare]
             [ygg.benchmark-util :as benchmark-util]
+            [ygg.corrections :as corrections]
             [ygg.evidence :as evidence]
             [ygg.fs :as fs]
             [ygg.hash :as hash]
-            [ygg.map :as graph-map]
-            [ygg.map-api :as map-api]
-            [ygg.map-store :as map-store]
+            [ygg.correction-overlay :as correction-overlay]
             [ygg.text :as text]
             [ygg.xtdb :as store]
             [clojure.java.io :as io]
@@ -39,7 +38,7 @@
   (let [missing-fields (filterv #(nil? (package-import-field package-import %))
                                 package-import-required-fields)]
     (when (seq missing-fields)
-      (throw (ex-info "Benchmark map-overlay package import is missing required fields."
+      (throw (ex-info "Benchmark correction-overlay package import is missing required fields."
                       {:package-import package-import
                        :missing-fields missing-fields
                        :required-fields package-import-required-fields})))
@@ -63,48 +62,47 @@
                      k (package-import-key package-import)]
                  (if (contains? seen-keys k)
                    [out seen-keys]
-                   [(graph-map/add-package-import out package-import)
+                   [(correction-overlay/add-package-import out package-import)
                     (conj seen-keys k)])))
              [overlay existing-keys]
              package-imports))))
 
-(defn- seed-case-map-overlay
+(defn- seed-case-correction-overlay
   [overlay case]
-  (let [package-imports (get-in case [:map-overlay :packageImports])]
+  (let [package-imports (get-in case [:correction-overlay :packageImports])]
     (cond-> overlay
       (seq package-imports) (seed-package-imports package-imports))))
 
-(defn prepare-agent-map!
-  "Ensure the benchmark case has an `ygg.map.json`, seed case overlay corrections, and return its canonical path."
-  [suite case prepared opts]
-  (let [path (benchmark-paths/agent-map-path suite case opts)
-        existing? (map-store/file-exists? path)
-        before (if existing?
-                 (map-store/read-map path)
-                 (graph-map/empty-map (:project-id prepared)))
-        after (seed-case-map-overlay before case)]
-    (when (or (not existing?) (not= before after))
-      (map-api/apply-overlay! path (:project-id prepared) (constantly after)))
-    (fs/canonical-path path)))
+(defn prepare-agent-corrections!
+  "Seed benchmark case overlay fixtures as canonical correction facts."
+  [xtdb case prepared opts]
+  (let [overlay (seed-case-correction-overlay
+                 (correction-overlay/empty-overlay (:project-id prepared))
+                 case)]
+    (corrections/import-overlay! xtdb
+                                 (:project-id prepared)
+                                 overlay
+                                 {:source "benchmark-fixture"
+                                  :now (:now-ms opts)})))
 
-(defn agent-map-overlay
-  "Read a benchmark map overlay when the map file exists."
-  [map-path]
-  (when (map-store/file-exists? map-path)
-    (map-store/read-map map-path)))
+(defn prepare-agent-overlay!
+  "Seed benchmark case correction facts and return the resolved overlay."
+  [xtdb case prepared opts]
+  (prepare-agent-corrections! xtdb case prepared opts)
+  (corrections/overlay xtdb (:project-id prepared)))
 
 (defn sync-inspect-summary
   "Return a bounded sync/check-equivalent evidence summary for one benchmark case."
   [xtdb suite case prepared opts]
   (let [project (benchmark-agent-packet/agent-project prepared)
-        config-path (fs/canonical-path (benchmark-paths/agent-project-path suite case opts))
-        map-path (fs/canonical-path (benchmark-paths/agent-map-path suite case opts))]
+        config-path (fs/canonical-path (benchmark-paths/agent-project-path suite case opts))]
     (try
       (assoc (select-keys (evidence/summarize xtdb
                                               project
                                               {:config-path config-path
-                                               :map-path map-path
-                                               :map-overlay (agent-map-overlay map-path)})
+                                               :correction-overlay (corrections/overlay
+                                                             xtdb
+                                                             (:id project))})
                           [:schema
                            :project-id
                            :freshness
@@ -232,10 +230,10 @@
   [suite case prepared opts agent-result result-file run-status]
   (let [xtdb-dir (benchmark-paths/xtdb-dir suite case opts)]
     (when (.exists (io/file xtdb-dir))
-      (prepare-agent-map! suite case prepared opts)
       (try
         (store/with-node xtdb-dir
           (fn [xtdb]
+            (prepare-agent-corrections! xtdb case prepared opts)
             (record-benchmark-agent-activity! xtdb
                                               suite
                                               case

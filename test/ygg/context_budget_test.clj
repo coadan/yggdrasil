@@ -432,14 +432,14 @@
                                               :path "src/candidate"
                                               :kind "candidate-system"}
                                       :reason "review rejected this boundary"}]
-                            :edges [{:id "map-edge:billing-worker"
+                            :edges [{:id "correction-edge:billing-worker"
                                      :source "system:billing"
                                      :target "system:candidate"
                                      :relation "shares-runtime-config"
                                      :status "accepted"
                                      :reason "reviewed boundary evidence"
                                      :evidence ["work:edge"]}
-                                    {:id "map-edge:rejected"
+                                    {:id "correction-edge:rejected"
                                      :source "system:billing"
                                      :target "system:ignored"
                                      :relation "uses"
@@ -449,7 +449,7 @@
                               :kind "service"
                               :repo "app"
                               :pathPrefix "src/billing"
-                              :source "map-overlay"
+                              :source "correction-overlay"
                               :score 1.0}
                              {:id "system:candidate"
                               :label "Candidate"
@@ -556,22 +556,22 @@
                                   :host "api.example.test"}]
              :why "graph label match"}]
            (:candidateSystems section)))
-    (is (= [{:kind "map-reject"
-             :id "map-reject:1"
+    (is (= [{:kind "correction-reject"
+             :id "correction-reject:1"
              :status "rejected"
-             :provenance "map-overlay"
+             :provenance "correction-overlay"
              :match {:repo "app"
                      :kind "candidate-system"
                      :path "src/candidate"}
              :reason "review rejected this boundary"}]
            (:rejectedCorrections section)))
-    (is (= [{:kind "map-edge"
-             :id "map-edge:billing-worker"
+    (is (= [{:kind "correction-edge"
+             :id "correction-edge:billing-worker"
              :source "system:billing"
              :target "system:candidate"
              :relation "shares-runtime-config"
              :status "accepted"
-             :provenance "map-overlay"
+             :provenance "correction-overlay"
              :reason "reviewed boundary evidence"
              :evidence ["work:edge"]}
             {:kind "graph-edge"
@@ -746,7 +746,7 @@
              :rowCount 3
              :sourceCounts [{:key "acceptedSystems"
                              :count 1}
-                            {:key "mapEdges"
+                            {:key "correctionEdges"
                              :count 1}
                             {:key "rejectedCorrections"
                              :count 1}]}
@@ -852,7 +852,7 @@
                   :activity []
                   :evidence {:available [:source-graph
                                          :system-graph
-                                         :map-overlay]
+                                         :correction-overlay]
                              :missing [:dependencies
                                        :system-evidence
                                        :docs
@@ -1018,7 +1018,7 @@
   (let [section (#'context/architecture-section
                  {:overlay {:systems [{:id "system:alpha"
                                        :label "Alpha"}]
-                            :edges [{:id "map-edge:alpha-beta"
+                            :edges [{:id "correction-edge:alpha-beta"
                                      :source "system:alpha"
                                      :target "system:beta"
                                      :relation "reviewed-boundary"
@@ -1054,7 +1054,7 @@
                   :docs []
                   :activity []
                   :evidence {}})]
-    (is (= ["map-edge:alpha-beta"
+    (is (= ["correction-edge:alpha-beta"
             "edge:dense"
             "edge:medium"
             "edge:weak"]

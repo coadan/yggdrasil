@@ -237,7 +237,7 @@
 
 (defn- usage
   []
-  (println "Usage: clojure -M:run -m ygg.benchmark-repos check [--manifest PATH] [--suite PATH] [--repo ID] [--json]"))
+  (println "Usage: ygg bench repos check [--manifest PATH] [--suite PATH] [--repo ID] [--json]"))
 
 (defn -main
   [& args]

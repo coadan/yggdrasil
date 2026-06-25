@@ -5,7 +5,7 @@
   "ygg.benchmark.maintenance-preflight/v1")
 
 (def blocking-sync-planes
-  #{"dependencies" "activity" "validation-history" "map-overlay"})
+  #{"dependencies" "activity" "validation-history" "correction-overlay"})
 
 (def blocking-sync-statuses
   #{"failed" "missing" "stale" "weak"})
@@ -97,7 +97,7 @@
     "dependencies" #{"dependencies" "dependency-review" "dependency-correction"}
     "activity" #{"activity"}
     "validation-history" #{"activity" "validation-history"}
-    "map-overlay" #{"map-overlay"}
+    "correction-overlay" #{"correction-overlay"}
     #{}))
 
 (defn- matching-family-actions

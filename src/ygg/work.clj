@@ -13,16 +13,16 @@
   "ygg.sync.work.apply/v1")
 
 (defn- apply-result-without-validation!
-  [root id map-path payload-schema]
+  [xtdb root id payload-schema]
   (case payload-schema
     "ygg.infra.review-packet/v1"
-    (infra-review/apply-work-result! root id map-path)
+    (infra-review/apply-work-result! xtdb root id)
 
     "ygg.dependency.review-packet/v1"
-    (dependency-review/apply-work-result! root id map-path)
+    (dependency-review/apply-work-result! xtdb root id)
 
     "ygg.frontier.decision/v1"
-    (decision-classifier/apply-work-result! root id map-path)
+    (decision-classifier/apply-work-result! xtdb root id)
 
     {:schema apply-schema
      :status "failed"
@@ -104,13 +104,13 @@
              (:item validation))}))
 
 (defn apply-result!
-  "Validate and apply a completed queue item result to a map file."
-  [root id map-path]
+  "Validate and apply a completed queue item result as correction facts."
+  [xtdb root id]
   (let [validation (validate-result root id)]
     (if (= "valid" (:status validation))
-      (assoc (apply-result-without-validation! root
+      (assoc (apply-result-without-validation! xtdb
+                                               root
                                                id
-                                               map-path
                                                (:payload-schema validation))
              :validation validation)
       (fail-invalid-result! root id validation))))

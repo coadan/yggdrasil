@@ -77,12 +77,10 @@
   (str "ygg view systems --project " (command/shell-token project-id)))
 
 (defn- next-actions
-  [project-id config-path map-path]
+  [project-id config-path]
   (cond-> [{:kind :sync
             :label "Index and validate project graph"
-            :command (str (sync-command project-id config-path "--check")
-                          (when map-path
-                            (str " --map " (command/shell-token map-path))))}
+            :command (sync-command project-id config-path "--check")}
            {:kind :query
             :label "Query graph-grounded implementation context"
             :command (query-command project-id)}
@@ -97,6 +95,10 @@
 (defn- next-commands
   [actions]
   (mapv :command actions))
+
+(defn- write-project-ref!
+  [project-id root]
+  (registry/write-project-ref! root project-id))
 
 (defn plain-config
   "Return project config data for a normal repo root."
@@ -124,7 +126,7 @@
 
 (defn init!
   "Register a project or write a portable project config when :out is provided."
-  [root {:keys [out force? map-path workbench?] :as opts}]
+  [root {:keys [out force? workbench?] :as opts}]
   (let [config (if workbench?
                  (workbench-config root opts)
                  (plain-config root opts))
@@ -134,16 +136,20 @@
         registry-result (when registry-mode?
                           (registry/upsert-project! config))
         project-id (:id config)
+        project-ref (write-project-ref! project-id
+                                        (or (:workbench-root config)
+                                            (get-in config [:repos 0 :root])))
         repo-count (if workbench?
                      (+ (count (:repos config))
                         (or (repos-json-count (:workbench-root config)) 0))
                      (count (:repos config)))
-        actions (next-actions project-id config-path map-path)]
+        actions (next-actions project-id config-path)]
     (cond-> {:schema schema
              :project-id project-id
              :name (:name config)
              :mode (if workbench? "workbench" "repo")
              :root (or (:workbench-root config) (get-in config [:repos 0 :root]))
+             :project-ref project-ref
              :repos repo-count
              :next (next-commands actions)
              :nextActions actions}

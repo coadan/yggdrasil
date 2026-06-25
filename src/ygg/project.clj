@@ -30,11 +30,6 @@
        file
        (io/file base root)))))
 
-(defn- relative-path?
-  [path]
-  (let [file (io/file path)]
-    (not (.isAbsolute file))))
-
 (defn- read-json-file
   [path]
   (json/read-json (slurp (io/file path)) :key-fn keyword))
@@ -208,6 +203,9 @@
 (def ^:private index-maintenance-apply-modes
   #{:complete-only :validate-only})
 
+(def ^:private maintenance-schedule-tasks
+  #{:sync :sync-check})
+
 (defn- deepseek-v4+-model?
   [model]
   (boolean
@@ -287,29 +285,82 @@
                        :supported (sort index-maintenance-apply-modes)})))
     (assoc apply-config :mode mode)))
 
+(defn- normalize-maintenance-schedule
+  [schedule]
+  (let [task (keyword (or (:task schedule) :sync))
+        id (str (or (:id schedule) (name task)))
+        every-minutes (long (or (:every-minutes schedule) 60))]
+    (when (str/blank? id)
+      (throw (ex-info "Maintenance schedule requires an id." {:schedule schedule})))
+    (when-not (contains? maintenance-schedule-tasks task)
+      (throw (ex-info "Maintenance schedule task is not supported."
+                      {:schedule-id id
+                       :task task
+                       :supported (sort maintenance-schedule-tasks)})))
+    (when-not (pos? every-minutes)
+      (throw (ex-info "Maintenance schedule interval must be positive."
+                      {:schedule-id id
+                       :every-minutes every-minutes})))
+    (assoc schedule
+           :id id
+           :task task
+           :enabled (boolean (:enabled schedule))
+           :every-minutes every-minutes
+           :enqueue (if (contains? schedule :enqueue)
+                      (boolean (:enqueue schedule))
+                      true)
+           :check (if (contains? schedule :check)
+                    (boolean (:check schedule))
+                    true)
+           :query-index (boolean (:query-index schedule))
+           :run-on-start (boolean (:run-on-start schedule)))))
+
+(defn- normalize-maintenance-schedules
+  [schedules]
+  (let [schedules (mapv normalize-maintenance-schedule (or schedules []))]
+    (when-let [ids (seq (duplicate-values :id schedules))]
+      (throw (ex-info "Maintenance schedule ids must be unique."
+                      {:schedule-ids ids})))
+    schedules))
+
 (defn- normalize-index-maintenance-worker
-  [base data]
-  (when-let [worker (:index-maintenance-worker data)]
+  [base _project-id maintenance]
+  (when-let [worker (:worker maintenance)]
     (let [executors (:executors worker)]
       (when-not (and (sequential? executors) (seq executors))
         (throw (ex-info "Index maintenance worker requires non-empty :executors." {})))
-      (cond-> (assoc worker
-                     :enabled (boolean (:enabled worker))
-                     :agent-id (str (or (:agent-id worker) "ygg-auto"))
-                     :queue-dir (resolve-root base (or (:queue-dir worker)
-                                                       ".dev/ygg/queue"))
-                     :report-dir (resolve-root base (or (:report-dir worker)
-                                                        ".dev/reports/index-maintenance"))
-                     :lease-minutes (long (or (:lease-minutes worker) 10))
-                     :max-items-per-run (long (or (:max-items-per-run worker) 25))
-                     :max-failures-per-run (long (or (:max-failures-per-run worker) 3))
-                     :apply (normalize-index-maintenance-apply (:apply worker))
-                     :executors (mapv normalize-index-maintenance-executor executors)
-                     :base-dir (fs/canonical-path base))
-        (:map-path worker)
-        (assoc :map-path (if (relative-path? (:map-path worker))
-                           (resolve-root base (:map-path worker))
-                           (fs/canonical-path (:map-path worker))))))))
+      (assoc worker
+             :enabled (boolean (:enabled worker))
+             :agent-id (str (or (:agent-id worker) "ygg-auto"))
+             :queue-dir (:queue-dir maintenance)
+             :report-dir (:report-dir maintenance)
+             :lease-minutes (long (or (:lease-minutes worker) 10))
+             :max-items-per-run (long (or (:max-items-per-run worker) 25))
+             :max-failures-per-run (long (or (:max-failures-per-run worker) 3))
+             :apply (normalize-index-maintenance-apply (:apply worker))
+             :executors (mapv normalize-index-maintenance-executor executors)
+             :base-dir (fs/canonical-path base)))))
+
+(defn- normalize-maintenance
+  [base project-id data]
+  (when-let [maintenance (:maintenance data)]
+    (let [maintenance (assoc maintenance
+                             :enabled (boolean (:enabled maintenance))
+                             :queue-dir (if (:queue-dir maintenance)
+                                          (resolve-root base (:queue-dir maintenance))
+                                          (store/project-sqlite-path project-id))
+                             :report-dir (if (:report-dir maintenance)
+                                           (resolve-root base (:report-dir maintenance))
+                                           (store/project-data-path project-id
+                                                                    "reports"
+                                                                    "maintenance"))
+                             :schedules (normalize-maintenance-schedules
+                                         (:schedules maintenance)))]
+      (cond-> maintenance
+        (:worker maintenance)
+        (assoc :worker (normalize-index-maintenance-worker base
+                                                           project-id
+                                                           maintenance))))))
 
 (defn plugin-packages
   "Return normalized installed plugin package summaries for a project."
@@ -339,21 +390,21 @@
   "Normalize project config data using base as the directory for relative paths."
   [base data {:keys [path]}]
   (let [base (or base (io/file "."))
-        plugins (plugin-config base data)
-        index-maintenance-worker (normalize-index-maintenance-worker base data)
         project-id (some-> (:id data) str)]
     (when (str/blank? project-id)
       (throw (ex-info "Project config is missing :id."
                       (cond-> {}
                         path (assoc :path path)))))
-    (cond-> {:id project-id
-             :name (str (or (:name data) project-id))
-             :repos (normalize-repos base data)}
-      path (assoc :path path)
-      (some seq (vals plugins))
-      (assoc :plugins plugins)
-      index-maintenance-worker
-      (assoc :index-maintenance-worker index-maintenance-worker))))
+    (let [plugins (plugin-config base data)
+          maintenance (normalize-maintenance base project-id data)]
+      (cond-> {:id project-id
+               :name (str (or (:name data) project-id))
+               :repos (normalize-repos base data)}
+        path (assoc :path path)
+        (some seq (vals plugins))
+        (assoc :plugins plugins)
+        maintenance
+        (assoc :maintenance maintenance)))))
 
 (defn add-repo-to-config!
   "Add a repo entry to project config and return the normalized project.
@@ -384,6 +435,70 @@
                                :root canonical-root
                                :role role})))
     (read-project config-path)))
+
+(defn- update-config-data!
+  [config-path f]
+  (let [file (io/file config-path)
+        data (read-config-data file)]
+    (write-config-data! file (f data))
+    (read-project config-path)))
+
+(defn- ensure-maintenance
+  [data]
+  (update data :maintenance #(or % {})))
+
+(defn- require-maintenance-worker
+  [data config-path]
+  (when-not (get-in data [:maintenance :worker])
+    (throw (ex-info "Project config has no [:maintenance :worker] block."
+                    {:config-path (str config-path)
+                     :hint "Add [:maintenance :worker :executors] before enabling the auto-completion worker."})))
+  data)
+
+(defn set-maintenance-enabled!
+  "Enable or disable project maintenance schedules."
+  [config-path enabled?]
+  (update-config-data!
+   config-path
+   (fn [data]
+     (assoc-in (ensure-maintenance data) [:maintenance :enabled] (boolean enabled?)))))
+
+(defn set-maintenance-worker-enabled!
+  "Enable or disable the project-configured maintenance worker."
+  [config-path enabled?]
+  (update-config-data!
+   config-path
+   (fn [data]
+     (-> (require-maintenance-worker data config-path)
+         (assoc-in [:maintenance :worker :enabled] (boolean enabled?))))))
+
+(defn- upsert-schedule
+  [schedules schedule-id patch]
+  (let [schedule-id (str schedule-id)
+        schedules (vec schedules)
+        match? #(= schedule-id (str (:id %)))]
+    (if (some match? schedules)
+      (mapv #(if (match? %) (merge % patch) %) schedules)
+      (conj schedules (assoc patch :id schedule-id)))))
+
+(defn set-maintenance-schedule!
+  "Upsert a project maintenance schedule."
+  [config-path schedule-id {:keys [enabled every-minutes task enqueue check query-index run-on-start]}]
+  (update-config-data!
+   config-path
+   (fn [data]
+     (update-in (ensure-maintenance data)
+                [:maintenance :schedules]
+                upsert-schedule
+                schedule-id
+                (cond-> {}
+                  (some? enabled) (assoc :enabled (boolean enabled))
+                  (some? every-minutes) (assoc :every-minutes (long every-minutes))
+                  task (assoc :task (keyword task))
+                  (some? enqueue) (assoc :enqueue (boolean enqueue))
+                  (some? check) (assoc :check (boolean check))
+                  (some? query-index) (assoc :query-index (boolean query-index))
+                  (some? run-on-start) (assoc :run-on-start (boolean run-on-start)))))))
 
 (defn- project-row
   [{:keys [id name]} updated-at-ms]
@@ -419,12 +534,12 @@
 
 (defn index-project!
   "Index every repo in project config into XTDB."
-  [xtdb project {:keys [dry-run? index-profile map-overlay index-timeout-ms index-deadline-ns
+  [xtdb project {:keys [dry-run? index-profile correction-overlay index-timeout-ms index-deadline-ns
                         progress-fn progress-interval]
                  :or {dry-run? false
                       index-profile index/default-index-profile}}]
   (let [index-opts (with-index-deadline {:index-profile index-profile
-                                         :map-overlay map-overlay
+                                         :correction-overlay correction-overlay
                                          :index-timeout-ms index-timeout-ms
                                          :index-deadline-ns index-deadline-ns
                                          :progress-fn progress-fn
@@ -457,7 +572,7 @@
 
 (defn index-project-repo!
   "Index one repo from a project config into XTDB."
-  [xtdb project repo-id {:keys [dry-run? index-profile map-overlay
+  [xtdb project repo-id {:keys [dry-run? index-profile correction-overlay
                                 index-timeout-ms index-deadline-ns
                                 progress-fn progress-interval]
                          :or {dry-run? false
@@ -467,7 +582,7 @@
                                  {:project-id (:id project)
                                   :repo-id repo-id})))
         index-opts (with-index-deadline {:index-profile index-profile
-                                         :map-overlay map-overlay
+                                         :correction-overlay correction-overlay
                                          :index-timeout-ms index-timeout-ms
                                          :index-deadline-ns index-deadline-ns
                                          :progress-fn progress-fn

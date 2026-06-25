@@ -23,11 +23,15 @@
     (.mkdirs repo)
     (project/normalize-project
      (io/file root)
-     {:id "demo"
-      :repos [{:id "app"
-               :root (.getPath repo)
-               :role :application}]
-      :index-maintenance-worker worker}
+     (let [maintenance (cond-> {:enabled true
+                                :worker (dissoc worker :queue-dir :report-dir)}
+                         (:queue-dir worker) (assoc :queue-dir (:queue-dir worker))
+                         (:report-dir worker) (assoc :report-dir (:report-dir worker)))]
+       {:id "demo"
+        :repos [{:id "app"
+                 :root (.getPath repo)
+                 :role :application}]
+        :maintenance maintenance})
      {:path (.getPath (io/file root "project.edn"))})))
 
 (defn- decision-packet
@@ -57,8 +61,8 @@
    :decisionId "maintenance-decision:test"
    :recommendation "investigate"
    :confidence 0.7
-   :reason "Evidence is insufficient for an automatic map patch."
-   :mapPatch []})
+   :reason "Evidence is insufficient for an automatic correction patch."
+   :correctionPatch []})
 
 (deftest disabled-worker-does-not-claim-ready-work
   (let [root (temp-dir "ygg-index-maintenance-worker-disabled")
@@ -195,7 +199,7 @@
                                                    :decisionId "wrong"
                                                    :recommendation "investigate"
                                                    :reason "Wrong id."
-                                                   :mapPatch []})})}]
+                                                   :correctionPatch []})})}]
       (let [result (index-maintenance-worker/run! project)]
         (is (= "completed" (:status result)))
         (is (= {:claimed 1

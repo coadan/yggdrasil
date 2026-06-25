@@ -67,7 +67,7 @@
   "ygg.plugin.edn")
 
 (def default-cache-root
-  ".dev/ygg/plugins/cache")
+  ".ygg/plugins/cache")
 
 (def ^:private public-foss-licenses
   #{"MIT"

@@ -2,9 +2,9 @@
   "Minimal MCP stdio server for Yggdrasil packets."
   (:require [ygg.activity :as activity]
             [ygg.context :as context]
+            [ygg.corrections :as corrections]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
-            [ygg.map-store :as map-store]
             [ygg.plugin-package-view :as plugin-package-view]
             [ygg.project :as project]
             [ygg.project-registry :as registry]
@@ -81,7 +81,6 @@
    :config-path (or (option-value args "--config")
                     (option-value args "--project-config"))
    :project-id (option-value args "--project")
-   :map-path (option-value args "--map")
    :queue-dir (or (option-value args "--queue-dir") queue/default-root)
    :storage-path (option-value args "--storage")
    :tool-groups (parse-tool-groups (configured-tool-groups args))})
@@ -101,7 +100,6 @@
                   {:query {:type "string"}
                    :projectId {:type "string"}
                    :configPath {:type "string"}
-                   :mapPath {:type "string"}
                    :retriever {:type "string"
                                :enum ["lexical" "auto" "hybrid" "semantic"]}
                    :budget {:type "integer"
@@ -114,7 +112,6 @@
                   {:target {:type "string"}
                    :projectId {:type "string"}
                    :configPath {:type "string"}
-                   :mapPath {:type "string"}
                    :limit {:type "integer"
                            :minimum 1}
                    :sourceLines {:type "integer"
@@ -126,7 +123,6 @@
     :inputSchema (json-schema
                   {:projectId {:type "string"}
                    :configPath {:type "string"}
-                   :mapPath {:type "string"}
                    :detail {:type "string"
                             :enum ["primary" "expanded" "evidence" "raw"]}
                    :limit {:type "integer"
@@ -136,22 +132,19 @@
     :groups #{:sync}
     :description "Return project config plus the current mechanical evidence surface without syncing."
     :inputSchema (json-schema
-                  {:configPath {:type "string"}
-                   :mapPath {:type "string"}}
+                  {:configPath {:type "string"}}
                   [])}
    {:name "ygg_status"
     :groups #{:default}
     :description "Return agent-facing freshness, query-index readiness, evidence surface, coverage, and next actions without syncing."
     :inputSchema (json-schema
-                  {:configPath {:type "string"}
-                   :mapPath {:type "string"}}
+                  {:configPath {:type "string"}}
                   [])}
    {:name "ygg_sync_check"
     :groups #{:sync}
     :description "Return the read-only maintenance check report for a project."
     :inputSchema (json-schema
                   {:configPath {:type "string"}
-                   :mapPath {:type "string"}
                    :minConfidence {:type "number"}}
                   [])}
    {:name "ygg_sync_activity"
@@ -293,22 +286,35 @@
   [project args]
   (or (:projectId args) (:id project)))
 
-(defn- map-overlay
+(defn- queue-project-id
   [ctx args]
-  (let [path (or (:mapPath args) (:map-path ctx))]
-    (when (and path (map-store/file-exists? path))
-      (map-store/read-map path))))
+  (or (:projectId args)
+      (:project-id ctx)
+      (when-let [path (config-path ctx args)]
+        (try
+          (:id (project/read-project path))
+          (catch Exception _
+            nil)))))
+
+(defn- queue-root
+  [ctx args]
+  (or (:queueDir args)
+      (some-> (queue-project-id ctx args) store/project-sqlite-path)
+      (:queue-dir ctx)))
+
+(defn- correction-overlay
+  [xtdb project args]
+  (corrections/overlay xtdb (project-id project args)))
 
 (defn- context-packet-freshness
   [xtdb project ctx args overlay]
   (let [config-path (config-path ctx args)
         summary (evidence/summarize xtdb
                                     project
-                                    {:map-overlay overlay
+                                    {:correction-overlay overlay
                                      :config-path (or config-path
                                                       (:path project))
-                                     :map-path (or (:mapPath args)
-                                                   (:map-path ctx))})]
+                                     :summary? true})]
     (evidence/packet-freshness summary)))
 
 (defn- with-xtdb
@@ -352,23 +358,23 @@
 (defn- context-query-packet
   [ctx args]
   (let [query (require-string! args :query "Yggdrasil context query requires query.")
-        project (read-project! ctx args)
-        overlay (map-overlay ctx args)]
+        project (read-project! ctx args)]
     (with-xtdb
       (assoc ctx :project-id (:id project))
       (fn [xtdb]
-        (context/context-packet xtdb
-                                query
-                                {:project-id (project-id project args)
-                                 :retriever (keyword (or (:retriever args) "lexical"))
-                                 :map-overlay overlay
-                                 :budget (or (:budget args) context/default-budget)
-                                 :plugins (:plugins project)
-                                 :freshness (context-packet-freshness xtdb
-                                                                      project
-                                                                      ctx
-                                                                      args
-                                                                      overlay)})))))
+        (let [overlay (correction-overlay xtdb project args)]
+          (context/context-packet xtdb
+                                  query
+                                  {:project-id (project-id project args)
+                                   :retriever (keyword (or (:retriever args) "lexical"))
+                                   :correction-overlay overlay
+                                   :budget (or (:budget args) context/default-budget)
+                                   :plugins (:plugins project)
+                                   :freshness (context-packet-freshness xtdb
+                                                                        project
+                                                                        ctx
+                                                                        args
+                                                                        overlay)}))))))
 
 (defn- query-context
   [ctx args]
@@ -862,7 +868,7 @@
                                  project-id
                                  {:detail :expanded
                                   :limit graph/default-node-limit
-                                  :map-overlay overlay})
+                                  :correction-overlay overlay})
         nodes-by-id (into {} (map (juxt :id identity)) (:nodes data))
         incident-edges (->> (:edges data)
                             (filter #(or (= system-id (:source %))
@@ -927,7 +933,7 @@
                                               source-lines
                                               {:center-line (doc-source-line doc)})))))
 
-(defn- map-attachments
+(defn- correction-attachments
   [project source-lines overlay target match]
   (let [values (target-values target match)
         row (:row match)
@@ -964,13 +970,13 @@
   (let [target (require-string! args :target "ygg_node requires target.")
         project (read-project! ctx args)
         project-id (project-id project args)
-        overlay (map-overlay ctx args)
         limit (long (or (:limit args) default-node-inspect-limit))
         source-lines (long (or (:sourceLines args) default-node-source-lines))]
     (with-xtdb
       (assoc ctx :project-id (:id project))
       (fn [xtdb]
-        (let [files (target-file-candidates xtdb project-id target)
+        (let [overlay (correction-overlay xtdb project args)
+              files (target-file-candidates xtdb project-id target)
               nodes (node-target-candidates xtdb project-id target)
               evidence (->> (query/system-evidence-by-ids xtdb
                                                           [target]
@@ -1040,12 +1046,12 @@
                                                   (if (= :file target-kind)
                                                     {}
                                                     {:center-line (:source-line row)})))
-                overlay (assoc :map
-                               (map-attachments project
-                                                source-lines
-                                                overlay
-                                                target
-                                                selected))))))))))
+                overlay (assoc :corrections
+                               (correction-attachments project
+                                                       source-lines
+                                                       overlay
+                                                       target
+                                                       selected))))))))))
 
 (defn- view-systems
   [ctx args]
@@ -1057,7 +1063,7 @@
                             (project-id project args)
                             {:detail (keyword (or (:detail args) "primary"))
                              :limit (or (:limit args) graph/default-node-limit)
-                             :map-overlay (map-overlay ctx args)})))))
+                             :correction-overlay (correction-overlay xtdb project args)})))))
 
 (defn- plugin-package-caveats
   [project]
@@ -1072,11 +1078,12 @@
       (fn [xtdb]
         (let [evidence-summary (evidence/summarize xtdb
                                                    project
-                                                   {:map-overlay (map-overlay ctx args)
+                                                   {:correction-overlay (correction-overlay xtdb
+                                                                                            project
+                                                                                            args)
                                                     :config-path (or config-path
                                                                      (:path project))
-                                                    :map-path (or (:mapPath args)
-                                                                  (:map-path ctx))})]
+                                                    :summary? true})]
           {:schema "ygg.project.inspect/v1"
            :project {:id (:id project)
                      :name (:name project)
@@ -1096,7 +1103,7 @@
       #(project/maintain-project %
                                  project
                                  {:low-confidence-threshold (or (:minConfidence args) 0.60)
-                                  :map-overlay (map-overlay ctx args)}))))
+                                  :correction-overlay (correction-overlay % project args)}))))
 
 (defn- sync-activity
   [ctx args]
@@ -1105,12 +1112,13 @@
       (assoc ctx :project-id (:id project))
       #(activity/sync-queue! %
                              project
-                             {:queue-root (or (:queueDir args)
-                                              (:queue-dir ctx))}))))
+                             {:queue-root (queue-root
+                                           (assoc ctx :project-id (:id project))
+                                           args)}))))
 
 (defn- work-list
   [ctx args]
-  (let [root (or (:queueDir args) (:queue-dir ctx))]
+  (let [root (queue-root ctx args)]
     (queue/list-summary root
                         {:status (:status args)
                          :project-id (:projectId args)
@@ -1119,7 +1127,7 @@
 
 (defn- work-show
   [ctx args]
-  (let [root (or (:queueDir args) (:queue-dir ctx))
+  (let [root (queue-root ctx args)
         work-id (require-string! args :workId "ygg_work_show requires workId.")]
     (if-let [found (queue/find-item root work-id)]
       (assoc (queue/item-summary found) :item (:item found))
@@ -1129,7 +1137,7 @@
 
 (defn- work-pull
   [ctx args]
-  (let [root (or (:queueDir args) (:queue-dir ctx))
+  (let [root (queue-root ctx args)
         found (queue/claim-next! root
                                  {:agent-id (or (:agentId args)
                                                 (System/getProperty "user.name")
@@ -1146,14 +1154,14 @@
 
 (defn- work-complete
   [ctx args]
-  (let [root (or (:queueDir args) (:queue-dir ctx))
+  (let [root (queue-root ctx args)
         work-id (require-string! args :workId "ygg_work_complete requires workId.")
         result (require-result! args)]
     (queue/item-summary (queue/complete! root work-id result))))
 
 (defn- work-heartbeat
   [ctx args]
-  (let [root (or (:queueDir args) (:queue-dir ctx))
+  (let [root (queue-root ctx args)
         work-id (require-string! args :workId "ygg_work_heartbeat requires workId.")]
     (queue/item-summary
      (queue/heartbeat! root
@@ -1165,7 +1173,7 @@
 
 (defn- work-release
   [ctx args]
-  (let [root (or (:queueDir args) (:queue-dir ctx))
+  (let [root (queue-root ctx args)
         work-id (require-string! args :workId "ygg_work_release requires workId.")]
     (queue/item-summary
      (queue/release! root
@@ -1174,7 +1182,7 @@
 
 (defn- work-reject
   [ctx args]
-  (let [root (or (:queueDir args) (:queue-dir ctx))
+  (let [root (queue-root ctx args)
         work-id (require-string! args :workId "ygg_work_reject requires workId.")
         reason (require-string! args :reason "ygg_work_reject requires reason.")]
     (queue/item-summary (queue/reject! root work-id reason))))

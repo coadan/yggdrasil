@@ -13,15 +13,11 @@ done
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
 REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-EDN_REPO_DIR=$(printf '%s' "$REPO_DIR" | sed 's/\\/\\\\/g; s/"/\\"/g')
 export YGG_HOME=${YGG_HOME:-$REPO_DIR}
 
-exec clojure \
-  -Srepro \
-  -Sdeps "{:deps {local/ygg {:local/root \"$EDN_REPO_DIR\"}}}" \
-  "-J-Dygg.home=$YGG_HOME" \
-  -J--add-opens=java.base/java.nio=ALL-UNNAMED \
-  -J--enable-native-access=ALL-UNNAMED \
-  -J-Dio.netty.tryReflectionSetAccessible=true \
-  -M \
-  -m ygg.mcp "$@"
+if ! command -v python3 >/dev/null 2>&1; then
+  printf '%s\n' "python3 is required for server-backed ygg-mcp." >&2
+  exit 75
+fi
+
+exec python3 "$REPO_DIR/scripts/ygg-server-client.py" mcp "$@"

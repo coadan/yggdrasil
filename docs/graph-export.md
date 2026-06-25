@@ -10,8 +10,6 @@ ygg view deps my.namespace --format json --depth 2 --out deps.json
 ygg view query "where is auth handled" --format json --retriever lexical --out query.json
 ygg view systems --project my-project --format json --out systems.json
 ygg view systems --project my-project --format json --detail expanded --out systems-expanded.json
-ygg view systems --project my-project --format json --map ygg.map.json --out systems.json
-ygg view systems --project my-project --format json --no-map --out raw-systems.json
 ygg view systems --project my-project --format json --view view:runtime --out runtime.json
 ```
 
@@ -93,9 +91,9 @@ Generated report viewers consume this canonical graph shape and transform it
 internally for their renderer. External tools should consume `ygg.graph/v2`
 rather than depending on Cytoscape, Sigma, or another renderer-specific format.
 
-`ygg report <project.edn> --map ygg.map.json --out ygg-out` writes a
-local report bundle for humans and agents. The bundle includes `index.html`,
-`report.json`, `REPORT.mdx`, `graph.json`, `systems.json`, and
+`ygg report <project.edn> --out ygg-out` writes a local report bundle for
+humans and agents. The bundle includes `index.html`, `report.json`,
+`REPORT.mdx`, `graph.json`, `systems.json`, and
 `context-example.json`. `index.html` is the unified report and graph viewer.
 `report.json` is the structured report packet. `graph.json` and `systems.json`
 use this same `ygg.graph/v2` contract. `REPORT.mdx` is readable narrative
@@ -150,16 +148,13 @@ ygg sync view show view:platform --project my-project
 Stored graph views can filter exports with metadata and relation constraints.
 Use `--view <id-or-label>` on `ygg view ...` commands to apply a stored view.
 
-## System Graph Maps
+## Accepted Corrections
 
-System graph exports apply `ygg.map.json` from the current directory when it
-exists. The map is an agent-maintained correction layer that merges accepted systems,
-rejects known false positives, and adds accepted system relationships before the
-canonical graph is written. Use `--no-map` to export generated candidates
-without the map and `--detail raw` to export raw relation-level edges.
-Raw candidates are evidence-derived structure, not final architecture labels.
-Consumers should treat accepted corrections and metadata as the place where
-project-specific semantics enter the graph.
+System graph exports include accepted correction facts from XTDB.
+Use `--detail raw` to inspect raw relation-level edges. Raw candidates are
+evidence-derived structure, not final architecture labels. Consumers should
+treat accepted corrections and metadata as the place where project-specific
+semantics enter the graph.
 
 ## Compatibility
 

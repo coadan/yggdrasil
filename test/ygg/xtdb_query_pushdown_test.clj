@@ -2,11 +2,13 @@
   (:require [ygg.activity :as activity]
             [ygg.cli :as cli]
             [ygg.context :as context]
+            [ygg.corrections :as corrections]
+            [ygg.corrections-api :as corrections-api]
             [ygg.coverage :as coverage]
             [ygg.dependency :as dependency]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
-            [ygg.map-api :as map-api]
+            [ygg.correction-overlay :as correction-overlay]
             [ygg.query :as query]
             [ygg.xtdb :as store]
             [clojure.string :as str]
@@ -771,7 +773,7 @@
     (is (some #{:metrics} (:return-fields (first @calls))))
     (is (not-any? #{'*} (:return-fields (first @calls))))))
 
-(deftest map-review-uses-paged-system-read-and-count-pushdown
+(deftest corrections-review-uses-paged-system-read-and-count-pushdown
   (let [page-calls (atom [])
         count-calls (atom [])]
     (with-redefs [store/ordered-rows
@@ -790,13 +792,16 @@
                     (case table
                       :ygg/system-nodes 9
                       :ygg/system-edges 7))
+                  corrections/overlay
+                  (fn [_ project-id]
+                    (correction-overlay/empty-overlay project-id))
                   store/constrained-rows
                   (fn [& _]
-                    (throw (ex-info "map review should not hydrate all system rows"
+                    (throw (ex-info "corrections review should not hydrate all system rows"
                                     {})))]
-      (let [review (map-api/review {:node :stub}
-                                   {:id "project-a"}
-                                   {:limit 1})]
+      (let [review (corrections-api/review {:node :stub}
+                                           {:id "project-a"}
+                                           {:limit 1})]
         (is (= 7 (get-in review [:candidates :totalEdges])))
         (is (= 9 (get-in review [:candidates :totalSystems])))
         (is (= ["system:app"]
@@ -2047,12 +2052,12 @@
                          {:node :stub}
                          "system:billing"
                          {:project-id "project-a"
-                          :map-overlay overlay
+                          :correction-overlay overlay
                           :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}})
             audit-result (context/docs-audit
                           {:node :stub}
                           {:project-id "project-a"
-                           :map-overlay overlay
+                           :correction-overlay overlay
                            :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}})]
         (is (= ["accepted" "stale"] (mapv :status (:docs docs-result))))
         (is (= ["docs/missing.md"] (mapv #(get-in % [:source :path])

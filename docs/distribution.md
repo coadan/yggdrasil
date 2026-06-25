@@ -35,12 +35,14 @@ scripts/install-macos.sh --install-deps
 Verify the installed entrypoints:
 
 ```sh
+ygg start
 ygg help
-ygg-mcp --config project.edn --map ygg.map.json
+ygg-mcp --config project.edn
 ```
 
-`ygg-mcp` is the stdio MCP server for editor and agent integrations. It
-lists the primary `ygg_query`, `ygg_node`, `ygg_status`, and
+`ygg-mcp` is the stdio MCP proxy for editor and agent integrations. It requires
+the local Yggdrasil server started by `ygg start`, then lists the primary
+`ygg_query`, `ygg_node`, `ygg_status`, and
 `ygg_systems` tools by default. Use `--tools default,sync,work` or
 `YGG_MCP_TOOLS=all` to list bounded advanced packet tools for sync
 inspection/checks and filesystem queue handoff. Use the CLI for explicit map
@@ -60,7 +62,7 @@ Inspect a mounted project config:
 docker run --rm \
   -v "$PWD:/workspace:ro" \
   -v "$HOME/.cache/ygg:/data" \
-  yggdrasil:dev status /workspace/project.edn
+  yggdrasil:dev start
 ```
 
 For first-run onboarding in a mounted repo, write generated project files to a
@@ -70,7 +72,7 @@ writable mounted directory:
 docker run --rm \
   -v "$PWD:/workspace:ro" \
   -v "$HOME/.cache/ygg:/data" \
-  yggdrasil:dev start /workspace --out /data/project.edn --map /data/ygg.map.json --report-out /data/ygg-out
+  yggdrasil:dev sh -lc 'ygg start & until ygg status >/dev/null 2>&1; do sleep 1; done; ygg init /workspace --out /data/project.edn --sync; ygg stop'
 ```
 
 For worktrees, mount the wrapper/workbench root rather than a nested worktree so

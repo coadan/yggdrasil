@@ -39,7 +39,85 @@
       (registry/use-project! "demo" other)
       (let [resolved (registry/resolve-project {:cwd other})]
         (is (= "demo" (:project-id resolved)))
-        (is (= :active-dir (:source resolved)))))))
+        (is (= :project-ref (:source resolved)))))))
+
+(deftest registry-resolves-nearest-repo-local-project-reference
+  (let [root (temp-dir "ygg-registry-ref")
+        checkout (io/file root "checkout")
+        nested (io/file checkout "src" "app")
+        registry-path (.getPath (io/file root ".config" "projects.edn"))]
+    (.mkdirs nested)
+    (with-redefs [registry/registry-path (constantly registry-path)]
+      (registry/upsert-project! {:id "demo"
+                                 :repos [{:id "canonical"
+                                          :root (temp-dir "ygg-registry-canonical")
+                                          :role :application}]})
+      (let [ref-path (registry/write-project-ref! (.getPath checkout) "demo")
+            resolved (registry/resolve-project {:cwd (.getPath nested)})]
+        (is (= ref-path (:project-ref resolved)))
+        (is (= "demo" (:project-id resolved)))
+        (is (= :project-ref (:source resolved)))
+        (is (= (fs/canonical-path (.getPath checkout)) (:root resolved)))))))
+
+(deftest registry-repo-local-project-reference-wins-over-root-match
+  (let [root (temp-dir "ygg-registry-ref-precedence")
+        nested (io/file root "src" "app")
+        registry-path (.getPath (io/file root ".config" "projects.edn"))]
+    (.mkdirs nested)
+    (with-redefs [registry/registry-path (constantly registry-path)]
+      (registry/upsert-project! {:id "demo"
+                                 :repos [{:id "app"
+                                          :root (fs/canonical-path root)
+                                          :role :application}]})
+      (let [ref-path (registry/write-project-ref! root "demo")
+            resolved (registry/resolve-project {:cwd (.getPath nested)})]
+        (is (= "demo" (:project-id resolved)))
+        (is (= :project-ref (:source resolved)))
+        (is (= ref-path (:project-ref resolved)))
+        (is (= (fs/canonical-path root) (:root resolved)))))))
+
+(deftest registry-use-project-writes-repo-local-reference
+  (let [root (temp-dir "ygg-registry-use-ref")
+        checkout (io/file root "checkout")
+        registry-path (.getPath (io/file root ".config" "projects.edn"))]
+    (.mkdirs checkout)
+    (with-redefs [registry/registry-path (constantly registry-path)]
+      (registry/upsert-project! {:id "demo"
+                                 :repos [{:id "app"
+                                          :root (temp-dir "ygg-registry-app")
+                                          :role :application}]})
+      (let [result (registry/use-project! "demo" (.getPath checkout))]
+        (is (= (registry/project-ref-path (.getPath checkout))
+               (:project-ref result)))
+        (is (= "demo"
+               (:project-id (read-string (slurp (:project-ref result))))))))))
+
+(deftest registry-registers-existing-project-config-by-reference
+  (let [root (temp-dir "ygg-registry-config-ref")
+        config-path (.getPath (io/file root "project.edn"))
+        registry-path (.getPath (io/file root ".config" "projects.edn"))]
+    (spit config-path
+          (pr-str {:id "demo"
+                   :name "Demo"
+                   :repos [{:id "app"
+                            :root (fs/canonical-path root)
+                            :role :application}]}))
+    (with-redefs [registry/registry-path (constantly registry-path)]
+      (let [result (registry/register-project-config! config-path)]
+        (is (= "ygg.project.registry.register/v1" (:schema result)))
+        (is (= "demo" (:project-id result)))
+        (is (= (fs/canonical-path config-path) (:config-path result)))
+        (is (= {:id "demo"
+                :config-path (fs/canonical-path config-path)}
+               (get-in (registry/read-registry) [:projects "demo"])))
+        (is (= :cwd (:source (registry/resolve-project {:cwd root}))))
+        (spit config-path
+              (pr-str {:id "demo"
+                       :name "Renamed"
+                       :repos [{:id "app"
+                                :root (fs/canonical-path root)
+                                :role :application}]}))
+        (is (= "Renamed" (:name (registry/read-project "demo"))))))))
 
 (deftest registry-project-option-wins-over-cwd
   (let [left (temp-dir "ygg-registry-left")

@@ -245,11 +245,9 @@
   (is (= ["sync" "project.edn" "--repo" "app" "--check"]
          (watch/sync-args {:config-path "project.edn"
                            :repo-id "app"})))
-  (is (= ["sync" "project.edn" "--repo" "app" "--check"
-          "--map" "ygg.map.json" "--query-index"]
+  (is (= ["sync" "project.edn" "--repo" "app" "--check" "--query-index"]
          (watch/sync-args {:config-path "project.edn"
                            :repo-id "app"
-                           :map-path "ygg.map.json"
                            :query-index? true}))))
 
 (deftest refresh-runs-ygg-sync-command
@@ -260,8 +258,6 @@
       (is (= {:exit 0 :out "ok" :err ""}
              (watch/refresh! {:ygg-bin "bin/ygg"
                               :config-path "project.edn"
-                              :repo-id "app"
-                              :map-path "ygg.map.json"})))
-      (is (= [["bin/ygg" "sync" "project.edn" "--repo" "app" "--check"
-               "--map" "ygg.map.json"]]
+                              :repo-id "app"})))
+      (is (= [["bin/ygg" "sync" "project.edn" "--repo" "app" "--check"]]
              @calls)))))

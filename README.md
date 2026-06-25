@@ -26,14 +26,14 @@ should come from repeatable benchmarks.
 ## Quickstart
 
 ```sh
-ygg start . --project my-project
+ygg start
+ygg init . --project my-project --out project.edn --sync
+ygg query "where is auth handled" --project my-project
 ```
 
-`start` writes or reuses `project.edn`, syncs the repo into local XTDB state,
-imports local queue activity, and writes an `ygg-out/` report bundle. Open
-`ygg-out/index.html` for the generated report and graph viewer. `ygg.map.json`
-is a portability format for explicit import/export, not a required handle for
-normal local use.
+`start` starts the long-lived local Yggdrasil server. Other `ygg` commands
+expect that server to be running and fail fast if it is not available.
+Project graph state, correction facts, memory, and activity are stored in XTDB.
 
 For lower-level setup, use the explicit commands behind that flow:
 
@@ -43,7 +43,9 @@ ygg sync project.edn --check
 ygg query "where is auth handled" --project my-project
 ```
 
-Default local data lives under `.dev/`. Use `YGG_XTDB_PATH` when you need a
+Default repo-local Yggdrasil data lives under `.ygg/`. Project-shared state,
+including XTDB, lives under the central Yggdrasil storage root by project id.
+Use `YGG_XTDB_PATH` when you need a
 different XTDB directory.
 
 `ygg query` returns compact graph-grounded evidence by default. Exact literals
@@ -72,12 +74,12 @@ ygg embed --project my-project
 ygg query "where is auth handled" --project my-project
 ```
 
-`ygg embed setup` creates `.dev/ygg/local-embedding-venv` and installs the
+`ygg embed setup` creates `.ygg/local-embedding-venv` and installs the
 bundled Python requirements used by the local worker. If you need a custom
 interpreter or venv path, pass it during setup:
 
 ```sh
-ygg embed setup --python python3.12 --venv .dev/ygg/local-embedding-venv
+ygg embed setup --python python3.12 --venv .ygg/local-embedding-venv
 ```
 
 Remote providers are optional add-on embedding lanes. Set an API key, index that
@@ -103,7 +105,7 @@ ygg query "where is auth handled" --project my-project --provider openrouter
   stops helping in complex environments.
 - Progressive disclosure: agents start with a compact view, then open more
   detail only when the current task needs it.
-- Local handoff: queued work moves through local files with explicit results
+- Local handoff: queued work moves through local state with explicit results
   that can be reviewed before they change project memory.
 - Measured claims: improvements in speed, cost, or effectiveness should point
   to repeatable comparisons.

@@ -58,7 +58,7 @@
 
 (def value-options
   #{"--limit" "--retriever" "--model" "--batch-size" "--provider" "--depth" "--out"
-    "--project" "--repo" "--config" "--min-confidence" "--map" "--reason" "--budget"
+    "--project" "--repo" "--config" "--min-confidence" "--reason" "--budget"
     "--entity-limit" "--edge-limit" "--doc-limit" "--snippet-chars" "--role"
     "--heading" "--start-line" "--end-line" "--valid-at" "--known-at"
     "--snapshot-token" "--type" "--source" "--confidence" "--view" "--query"
@@ -67,6 +67,7 @@
     "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode" "--tools"
     "--files" "--since"
     "--id" "--plugin" "--file-kind" "--path-glob" "--scan-glob" "--fixture"
+    "--text" "--target" "--tag" "--owner" "--visibility" "--scope" "--summary"
     "--ecosystem" "--package" "--prompt-profile" "--report-out" "--command"
     "--python" "--venv"
     "--vector-command" "--vector-model" "--codebase-memory-command"
@@ -115,12 +116,12 @@
     "--require-parser-worker" "--regression-tolerance" "--skip-existing"})
 
 (def boolean-options
-  #{"--dry-run" "--systems" "--no-map" "--json" "--index" "--infer" "--enqueue"
+  #{"--dry-run" "--systems" "--json" "--index" "--infer" "--enqueue"
     "--check" "--query-index" "--force" "--hooks" "--sync" "--allow-missing"
     "--allow-duplicate-runs" "--allow-unverified-scores"
     "--skip-existing" "--with-conflicts" "--without-import-evidence"
     "--no-progress" "--extractor" "--report" "--tests" "--proof-commands"
-    "--changed-only"})
+    "--changed-only" "--reviewed"})
 
 (defn positional-args
   [args]

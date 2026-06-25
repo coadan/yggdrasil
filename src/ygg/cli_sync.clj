@@ -1,11 +1,11 @@
 (ns ygg.cli-sync
   (:require [ygg.activity :as activity]
             [ygg.cli-options :refer [dry-run? json-output? option-value parse-double-option parse-limit positional-args]]
+            [ygg.corrections :as corrections]
             [ygg.coverage :as coverage]
             [ygg.index :as index]
             [ygg.index-maintenance :as index-maintenance]
             [ygg.index-maintenance-worker :as index-maintenance-worker]
-            [ygg.map-store :as map-store]
             [ygg.project :as project]
             [ygg.project-registry :as registry]
             [ygg.queue :as queue]
@@ -22,7 +22,6 @@
 
 (defn- usage [] (call-dep :usage))
 (defn- print-json [data] (call-dep :print-json data))
-(defn- default-map-path [args] (call-dep :default-map-path args))
 (defn- enqueue-output? [args] (call-dep :enqueue-output? args))
 (defn- queue-root [args] (call-dep :queue-root args))
 (defn- queue-priority
@@ -33,8 +32,12 @@
 (defn- print-project-add-repo-summary [result] (call-dep :print-project-add-repo-summary result))
 (defn- queue-agent [args] (call-dep :queue-agent args))
 (defn- queue-lease-ms [args] (call-dep :queue-lease-ms args))
-(defn- required-map-path [args] (call-dep :required-map-path args))
-(defn- apply-work-result! [root id map-path] (call-dep :apply-work-result! root id map-path))
+(defn- apply-work-result! [xtdb root id] (call-dep :apply-work-result! xtdb root id))
+
+(defn- correction-overlay
+  [xtdb project-id]
+  (when (store/xtdb-handle? xtdb)
+    (corrections/overlay xtdb project-id)))
 (defn- validate-work-result [root id] (call-dep :validate-work-result root id))
 (defn- dispatch [command args] (call-dep :dispatch command args))
 (defn- print-project-status!
@@ -64,8 +67,8 @@
     (when graph-basis
       (println "- graph-basis" (:hash graph-basis)))
     (when map
-      (println "- map-rejects" (:rejects map))
-      (println "- map-rejected-systems" (:rejected-systems map)))
+      (println "- correction-rejects" (:rejects map))
+      (println "- correction-rejected-systems" (:rejected-systems map)))
     (doseq [[k v] counts]
       (println "-" (name k) v))
     (when scale
@@ -283,12 +286,10 @@
             (flush)))))))
 (defn sync-index-project!
   ([xtdb project args]
-   (let [map-path (default-map-path args)
-         progress-fn (sync-progress-fn args)
+   (let [progress-fn (sync-progress-fn args)
          opts (cond-> {:dry-run? (dry-run? args)
                        :index-profile (sync-index-profile args)
-                       :map-overlay (when map-path
-                                      (map-store/read-map map-path))}
+                       :correction-overlay (correction-overlay xtdb (:id project))}
                 progress-fn (assoc :progress-fn progress-fn))]
      (if-let [repo-id (option-value args "--repo")]
        (let [run (project/index-project-repo! xtdb project repo-id opts)]
@@ -301,14 +302,12 @@
      (sync-index-project! xtdb project args))))
 (defn maintenance-report
   ([xtdb project args]
-   (let [map-path (default-map-path args)]
-     (index-maintenance/from-graph-report
-      (project/maintain-project
-       xtdb
-       project
-       {:low-confidence-threshold (parse-double-option args "--min-confidence" 0.60)
-        :map-overlay (when map-path
-                       (map-store/read-map map-path))}))))
+   (index-maintenance/from-graph-report
+    (project/maintain-project
+     xtdb
+     project
+     {:low-confidence-threshold (parse-double-option args "--min-confidence" 0.60)
+      :correction-overlay (correction-overlay xtdb (:id project))})))
   ([xtdb project args deps]
    (binding [*deps* deps]
      (maintenance-report xtdb project args))))
@@ -317,11 +316,21 @@
   (queue/item-summary
    (queue/enqueue!
     payload
-    {:root (queue-root args)
+    {:root (or (option-value args "--queue-dir")
+               (when-not (str/blank? (str project-id))
+                 (store/project-sqlite-path project-id))
+               (queue-root args))
      :kind kind
      :project-id project-id
      :priority (queue-priority args priority)
      :source source})))
+
+(defn- project-queue-root
+  [args project-id]
+  (or (option-value args "--queue-dir")
+      (when-not (str/blank? (str project-id))
+        (store/project-sqlite-path project-id))
+      (queue-root args)))
 
 (defn enqueue-sync-work!
   ([args report]
@@ -330,24 +339,6 @@
   ([args report deps]
    (binding [*deps* deps]
      (enqueue-sync-work! args report))))
-(defn- maintenance-result
-  [args report]
-  (let [enqueued (when (enqueue-output? args)
-                   (enqueue-sync-work! args report))]
-    (cond-> {:schema "ygg.sync.check/v1"
-             :report report}
-      enqueued (assoc :enqueued enqueued))))
-(defn- print-maintenance-result
-  [args result]
-  (if (json-output? args)
-    (print-json result)
-    (do
-      (print-maintenance-report (:report result))
-      (when-let [enqueued (:enqueued result)]
-        (println)
-        (println "## Enqueued")
-        (doseq [item enqueued]
-          (println "-" (:id item) (:kind item) (:status item)))))))
 
 (defn- config-path
   [args]
@@ -362,15 +353,6 @@
     (registry/resolve-project {:project-id (option-value args "--project")
                                :cwd (System/getProperty "user.dir")})))
 
-(defn- sync-check!
-  [args]
-  (let [{:keys [project]} (resolve-project-ref args)]
-    (store/with-node (store/storage-path (:id project))
-      (fn [xtdb]
-        (print-maintenance-result args
-                                  (maintenance-result
-                                   args
-                                   (maintenance-report xtdb project args)))))))
 (defn- sync-coverage!
   [args]
   (let [{:keys [project]} (resolve-project-ref args)]
@@ -410,7 +392,8 @@
       (fn [xtdb]
         (let [result (activity/sync-queue! xtdb
                                            project
-                                           {:queue-root (queue-root args)})]
+                                           {:queue-root (project-queue-root args
+                                                                            (:id project))})]
           (if (json-output? args)
             (print-json result)
             (print-activity-sync result)))))))
@@ -463,16 +446,33 @@
        {:project project
         :repo repo
         :next [(str "ygg sync " config-path)]}))))
+
+(defn- work-project-id
+  [root args id]
+  (or (some-> (queue/find-item root id) :item :project-id)
+      (option-value args "--project")
+      (try
+        (:project-id (registry/resolve-project {:cwd (System/getProperty "user.dir")}))
+        (catch Exception _
+          nil))))
+
+(defn- require-work-project-id
+  [root args id]
+  (or (work-project-id root args id)
+      (throw (ex-info "Unable to resolve project id for sync work apply."
+                      {:id id
+                       :usage (usage)}))))
+
 (defn- sync-work!
   [args]
   (let [action (keyword (first args))
         work-args (vec (rest args))
         positional (positional-args work-args)
-        root (queue-root work-args)]
+        root (delay (queue-root work-args))]
     (case action
       :list
       (print-json
-       (queue/list-summary root
+       (queue/list-summary @root
                            {:status (option-value work-args "--status")
                             :project-id (option-value work-args "--project")
                             :kind (option-value work-args "--kind")
@@ -481,7 +481,7 @@
       :pull
       (print-json
        (if-let [found (queue/claim-next!
-                       root
+                       @root
                        {:agent-id (queue-agent work-args)
                         :lease-ms (queue-lease-ms work-args)
                         :project-id (option-value work-args "--project")
@@ -489,13 +489,13 @@
          (assoc (queue/item-summary found) :item (:item found))
          {:schema queue/summary-schema
           :status "empty"
-          :root root}))
+          :root @root}))
 
       :show
       (let [id (first positional)]
         (when-not id
           (throw (ex-info "Missing sync work id." {:usage (usage)})))
-        (print-json (if-let [found (queue/find-item root id)]
+        (print-json (if-let [found (queue/find-item @root id)]
                       (assoc (queue/item-summary found) :item (:item found))
                       {:schema "ygg.queue.error/v1"
                        :error "sync work item not found"
@@ -509,7 +509,7 @@
                           {:usage (usage)})))
         (print-json
          (queue/item-summary
-          (queue/complete! root id (queue/read-json-file result-path)))))
+          (queue/complete! @root id (queue/read-json-file result-path)))))
 
       :validate
       (let [id (first positional)]
@@ -517,16 +517,19 @@
           (throw (ex-info "Missing sync work id."
                           {:usage (usage)})))
         (print-json
-         (validate-work-result root id)))
+         (validate-work-result @root id)))
 
       :apply
-      (let [id (first positional)
-            map-path (required-map-path work-args)]
+      (let [id (first positional)]
         (when-not id
           (throw (ex-info "Missing sync work id."
                           {:usage (usage)})))
-        (print-json
-         (apply-work-result! root id map-path)))
+        (let [root @root
+              project-id (require-work-project-id root work-args id)]
+          (store/with-node (store/storage-path project-id)
+            (fn [xtdb]
+              (print-json
+               (apply-work-result! xtdb root id))))))
 
       :reject
       (let [id (first positional)
@@ -534,7 +537,7 @@
         (when-not (and id reason)
           (throw (ex-info "Missing sync work id or --reason."
                           {:usage (usage)})))
-        (print-json (queue/item-summary (queue/reject! root id reason))))
+        (print-json (queue/item-summary (queue/reject! @root id reason))))
 
       :release
       (let [id (first positional)]
@@ -542,8 +545,8 @@
           (throw (ex-info "Missing sync work id." {:usage (usage)})))
         (print-json
          (queue/item-summary
-          (queue/release! root id (or (option-value work-args "--reason")
-                                      "manual release")))))
+          (queue/release! @root id (or (option-value work-args "--reason")
+                                       "manual release")))))
 
       :heartbeat
       (let [id (first positional)]
@@ -551,7 +554,7 @@
           (throw (ex-info "Missing sync work id." {:usage (usage)})))
         (print-json
          (queue/item-summary
-          (queue/heartbeat! root
+          (queue/heartbeat! @root
                             id
                             {:agent-id (queue-agent work-args)
                              :lease-ms (queue-lease-ms work-args)}))))
@@ -568,9 +571,9 @@
                                                     :usage (usage)})))))
 (defn- retired-sync-map-command!
   [action]
-  (throw (ex-info "Map corrections are handled by the ygg map API."
+  (throw (ex-info "Correction writes are handled by ygg corrections."
                   {:command (name action)
-                   :replacement "ygg map"
+                   :replacement "ygg corrections"
                    :usage (usage)})))
 
 (defn- sync-docs!
@@ -578,9 +581,9 @@
   (let [action (keyword (first args))]
     (case action
       :attach
-      (throw (ex-info "Map doc attachments are handled by the ygg map API."
+      (throw (ex-info "Doc attachment corrections are handled by ygg corrections."
                       {:command "sync docs attach"
-                       :replacement "ygg map docs attach"
+                       :replacement "ygg corrections docs attach"
                        :usage (usage)}))
 
       (:candidates :for :audit)
@@ -600,9 +603,6 @@
 
        :add-repo
        (sync-add-repo! action-args)
-
-       :check
-       (sync-check! action-args)
 
        :coverage
        (sync-coverage! action-args)

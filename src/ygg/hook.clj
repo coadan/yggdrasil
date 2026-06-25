@@ -66,22 +66,20 @@
   (io/file (hook-dir repo-root) hook-name))
 
 (defn- sync-command
-  [{:keys [ygg-bin config-path map-path query-index? repo-id]}]
+  [{:keys [ygg-bin config-path query-index? repo-id]}]
   (str (shell-quote (or ygg-bin "ygg"))
        " sync "
        (shell-quote (absolute-path config-path))
        " --repo "
        (shell-quote repo-id)
        " --check"
-       (when map-path
-         (str " --map " (shell-quote (absolute-path map-path))))
        (when query-index?
          " --query-index")))
 
 (defn- hook-section
   [{:keys [repo-id] :as opts}]
   (str begin-marker "\n"
-       "YGG_HOOK_LOG_DIR=\".dev/ygg/hooks\"\n"
+       "YGG_HOOK_LOG_DIR=\".ygg/hooks\"\n"
        "mkdir -p \"$YGG_HOOK_LOG_DIR\" 2>/dev/null || true\n"
        "YGG_HOOK_LOG=\"$YGG_HOOK_LOG_DIR/" repo-id "-$(date +%Y%m%d%H%M%S).log\"\n"
        "if [ -z \"${YGG_HOOK_RUNNING:-}\" ]; then\n"

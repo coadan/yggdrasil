@@ -1,8 +1,8 @@
 (ns ygg.dependency-review
   "Bounded dependency import review packets and result application."
   (:require [ygg.hash :as hash]
-            [ygg.map :as graph-map]
-            [ygg.map-api :as map-api]
+            [ygg.corrections-api :as corrections-api]
+            [ygg.correction-overlay :as correction-overlay]
             [ygg.queue :as queue]
             [charred.api :as json]
             [clojure.string :as str]))
@@ -251,13 +251,13 @@
                          :recommendation "add-package-import|no-change|needs-human|needs-scanner"
                          :confidence 0.0
                          :reason "brief rationale"
-                         :mapPatch []}]
+                         :correctionPatch []}]
     {:schema packet-schema
      :reviewId review-id
      :project-id project-id
      :goal "Review one unresolved source import and return explicit JSON only."
      :kind "unresolved-import"
-     :question "Does this unresolved import require an accepted import-to-package map correction?"
+     :question "Does this unresolved import require an accepted import-to-package correction?"
      :basis basis
      :facts facts
      :allowedActions ["add-package-import" "none"]
@@ -270,7 +270,7 @@
                 {:role "user"
                  :content (str "Return this JSON shape:\n"
                                (json/write-json-str expected-output {:indent-str "  "})
-                               "\n\nIf evidence is insufficient, return no mapPatch and add a finding."
+                               "\n\nIf evidence is insufficient, return no correctionPatch and add a finding."
                                "\n\nPacket:\n"
                                (json/write-json-str {:reviewId review-id
                                                      :kind "unresolved-import"
@@ -309,11 +309,9 @@
   [item]
   (:result item))
 
-(defn- map-patch
+(defn- correction-patch
   [result]
-  (vec (or (:mapPatch result)
-           (:map-patch result)
-           [])))
+  (vec (or (:correctionPatch result) [])))
 
 (defn- patch-evidence
   [patch]
@@ -346,35 +344,35 @@
     (vec
      (remove nil?
              [(when-not (contains? #{"add-package-import" "none"} op)
-                {:path [:mapPatch idx :op]
+                {:path [:correctionPatch idx :op]
                  :error "Patch op is not allowed by the packet."
                  :value op})
               (when (and (= "add-package-import" op)
                          (not (import-prefix? import-name unresolved-import)))
-                {:path [:mapPatch idx :import]
+                {:path [:correctionPatch idx :import]
                  :error "Patch import must be the unresolved import or a segment prefix of it."
                  :value import-name})
               (when (and (= "add-package-import" op)
                          (not (contains? package-keys [ecosystem package])))
-                {:path [:mapPatch idx :package]
+                {:path [:correctionPatch idx :package]
                  :error "Patch package must be one of facts.packages[]."
                  :value {:ecosystem ecosystem
                          :package package}})
               (when (and (= "add-package-import" op)
                          (empty? evidence))
-                {:path [:mapPatch idx :evidence]
+                {:path [:correctionPatch idx :evidence]
                  :error "Package import patch must cite at least one facts.evidence[].id."})
               (when-let [missing (seq (remove evidence-ids evidence))]
-                {:path [:mapPatch idx :evidence]
+                {:path [:correctionPatch idx :evidence]
                  :error "Patch evidence must come from facts.evidence[].id."
                  :value (vec missing)})
               (when (and (= "add-package-import" op)
                          (not (present? (:reason patch))))
-                {:path [:mapPatch idx :reason]
+                {:path [:correctionPatch idx :reason]
                  :error "Patch reason is required."})
               (when (and (contains? patch :confidence)
                          (not (bounded-confidence? (:confidence patch))))
-                {:path [:mapPatch idx :confidence]
+                {:path [:correctionPatch idx :confidence]
                  :error "Confidence must be between 0 and 1."
                  :value (:confidence patch)})]))))
 
@@ -417,7 +415,7 @@
                   :value (:confidence result)})])
       (mapcat (fn [[idx patch]]
                 (patch-errors packet patch idx))
-              (map-indexed vector (map-patch result)))))))
+              (map-indexed vector (correction-patch result)))))))
 
 (defn- patch->package-import
   [packet result patch]
@@ -439,18 +437,18 @@
 (defn- apply-patch
   [overlay packet result patch]
   (if-let [package-import (patch->package-import packet result patch)]
-    (graph-map/add-package-import overlay package-import)
+    (correction-overlay/add-package-import overlay package-import)
     overlay))
 
 (defn- apply-patches
   [overlay packet result]
   (reduce #(apply-patch %1 packet result %2)
           overlay
-          (map-patch result)))
+          (correction-patch result)))
 
 (defn apply-work-result!
-  "Validate and apply a completed dependency-review queue item to a map file."
-  [root id map-path]
+  "Validate and apply a completed dependency-review queue item as correction facts."
+  [xtdb root id]
   (let [found (or (queue/find-item root id)
                   (throw (ex-info "Queue item not found." {:id id})))
         item (:item found)
@@ -466,14 +464,16 @@
          :item (queue/item-summary failed)})
       (let [packet (payload item)
             result (result item)
-            write-result (map-api/apply-overlay!
-                          map-path
+            write-result (corrections-api/apply-overlay!
+                          xtdb
                           (:project-id packet)
-                          #(apply-patches % packet result))]
+                          #(apply-patches % packet result)
+                          {:source (:reviewId packet)})]
         {:schema apply-schema
          :status "applied"
          :workId (:id item)
          :reviewId (:reviewId packet)
-         :mapPath (:path write-result)
+         :projectId (:project-id packet)
+         :correctionFacts (count (:rows write-result))
          :patchesApplied (max 0 (- (get-in write-result [:after :packageImports] 0)
                                    (get-in write-result [:before :packageImports] 0)))}))))

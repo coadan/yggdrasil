@@ -15,16 +15,16 @@
                                        :path "src/billing/api.clj"
                                        :sourceLine 4}]
                     :boundary-evidence [{:id "edge:billing-worker"
-                                         :kind "map-edge"
+                                         :kind "correction-edge"
                                          :source "system:billing"
                                          :target "system:worker"
                                          :relation "shares-config"
                                          :status "accepted"
-                                         :provenance "map-overlay"}]
-                    :rejected-corrections [{:id "map-reject:1"
-                                            :kind "map-reject"
+                                         :provenance "correction-overlay"}]
+                    :rejected-corrections [{:id "correction-reject:1"
+                                            :kind "correction-reject"
                                             :status "rejected"
-                                            :provenance "map-overlay"
+                                            :provenance "correction-overlay"
                                             :match {:repo "app"
                                                     :path "src/noise"}
                                             :reason "reviewed false positive"}]
@@ -80,32 +80,32 @@
                         :fileKind "clojure"
                         :section "sourceEvidence"}
                        {:id "edge:billing-worker"
-                        :kind "map-edge"
+                        :kind "correction-edge"
                         :relation "shares-config"
                         :target "system:worker"
                         :source "system:billing"
                         :status "accepted"
-                        :provenance "map-overlay"
+                        :provenance "correction-overlay"
                         :section "boundaryEvidence"}]}
             {:kind "map-corrections"
              :basis "selected-architecture-evidence"
              :facts 2
-             :topEvidenceTypes [{:kind "map-reject"
+             :topEvidenceTypes [{:kind "correction-reject"
                                  :count 1}
                                 {:kind "shares-config"
                                  :count 1}]
              :samples [{:id "edge:billing-worker"
-                        :kind "map-edge"
+                        :kind "correction-edge"
                         :relation "shares-config"
                         :target "system:worker"
                         :source "system:billing"
                         :status "accepted"
-                        :provenance "map-overlay"
+                        :provenance "correction-overlay"
                         :section "boundaryEvidence"}
-                       {:id "map-reject:1"
-                        :kind "map-reject"
+                       {:id "correction-reject:1"
+                        :kind "correction-reject"
                         :status "rejected"
-                        :provenance "map-overlay"
+                        :provenance "correction-overlay"
                         :match {:repo "app"
                                 :path "src/noise"}
                         :reason "reviewed false positive"
@@ -216,7 +216,7 @@
                                                         :count 1
                                                         :samples [{:repo-id "app"
                                                                    :path "assets/app.wasm"}]}]}
-                 :map-overlay {:docs [{:target "system:billing"
+                 :correction-overlay {:docs [{:target "system:billing"
                                        :role "overview"
                                        :source {:path "docs/billing.md"}}]}
                  :rows {:files [{:xt/id "file:src"

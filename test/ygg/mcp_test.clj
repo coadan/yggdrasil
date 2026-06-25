@@ -1,6 +1,7 @@
 (ns ygg.mcp-test
   (:require [ygg.activity :as activity]
             [ygg.context :as context]
+            [ygg.corrections :as corrections]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
             [ygg.mcp :as mcp]
@@ -170,10 +171,10 @@
         schemas (into {} (map (juxt :name :inputSchema)) (get-in listed [:result :tools]))]
     (is (= ["query"] (get-in schemas ["ygg_query" :required])))
     (is (= ["target"] (get-in schemas ["ygg_node" :required])))
-    (is (contains? (set (keys (get-in schemas ["ygg_sync_inspect" :properties])))
-                   :mapPath))
-    (is (contains? (set (keys (get-in schemas ["ygg_status" :properties])))
-                   :mapPath))
+    (is (= #{:configPath}
+           (set (keys (get-in schemas ["ygg_sync_inspect" :properties])))))
+    (is (= #{:configPath}
+           (set (keys (get-in schemas ["ygg_status" :properties])))))
     (is (contains? (set (keys (get-in schemas ["ygg_sync_activity" :properties])))
                    :queueDir))
     (is (= ["workId"]
@@ -191,6 +192,7 @@
 (deftest query-tool-returns-context-packet
   (let [summaries (atom [])]
     (with-redefs [project/read-project (constantly project-with-plugin-package)
+                  corrections/overlay (fn [_ _] nil)
                   store/with-node (fn [_ f] (f :xtdb))
                   evidence/summarize (fn [xtdb project opts]
                                        (swap! summaries conj [xtdb project opts])
@@ -223,9 +225,9 @@
                (:pluginPackages packet)))
         (is (= [[:xtdb
                  project-with-plugin-package
-                 {:map-overlay nil
+                 {:correction-overlay nil
                   :config-path "project.edn"
-                  :map-path nil}]]
+                  :summary? true}]]
                @summaries))
         (is (= context/schema
                (:schema (json/read-json (get-in response [:result :content 0 :text])
@@ -233,6 +235,7 @@
 
 (deftest query-tool-returns-primary-context-packet
   (with-redefs [project/read-project (constantly project-with-plugin-package)
+                corrections/overlay (fn [_ _] nil)
                 store/with-node (fn [_ f] (f :xtdb))
                 context/context-packet (fn [xtdb query-text opts]
                                          {:schema context/schema
@@ -247,22 +250,21 @@
                                           :freshness (:freshness opts)
                                           :drilldowns ["ygg query \"where auth\" --project fixture"]})
                 evidence/summarize (fn [xtdb project opts]
-                                     {:schema evidence/schema
-                                      :xtdb xtdb
-                                      :project-id (:id project)
-                                      :map-path (:map-path opts)
-                                      :freshness {:status :stale
+	                                     {:schema evidence/schema
+	                                      :xtdb xtdb
+	                                      :project-id (:id project)
+	                                      :freshness {:status :stale
                                                   :counts {:indexed 2
                                                            :current 2
                                                            :changed 1
                                                            :missing 0
                                                            :unindexed 0}}
-                                      :nextActions [{:kind :freshness
-                                                     :label "Refresh indexed graph basis"
-                                                     :count 1
-                                                     :command "ygg sync project.edn --check --map ygg.map.json"}
-                                                    {:kind :query
-                                                     :command "ygg query \"where is this handled?\" --project fixture --json"}]})]
+	                                      :nextActions [{:kind :freshness
+	                                                     :label "Refresh indexed graph basis"
+	                                                     :count 1
+	                                                     :command "ygg sync project.edn --check"}
+	                                                    {:kind :query
+	                                                     :command "ygg query \"where is this handled?\" --project fixture --json"}]})]
     (let [response (mcp/handle-message
                     (mcp/server-context ["--config" "project.edn"])
                     (tool-call 8
@@ -282,14 +284,14 @@
       (is (= {:status :stale
               :counts {:indexed 2
                        :current 2
-                       :changed 1
-                       :missing 0
-                       :unindexed 0}
-              :nextActions [{:kind :freshness
-                             :label "Refresh indexed graph basis"
-                             :count 1
-                             :command "ygg sync project.edn --check --map ygg.map.json"}]}
-             (:freshness packet)))
+	                       :changed 1
+	                       :missing 0
+	                       :unindexed 0}
+	              :nextActions [{:kind :freshness
+	                             :label "Refresh indexed graph basis"
+	                             :count 1
+	                             :command "ygg sync project.edn --check"}]}
+	             (:freshness packet)))
       (is (= ["ygg query \"where auth\" --project fixture"]
              (:drilldowns packet))))))
 
@@ -537,11 +539,10 @@
                  :text "(defn tail [])"}]
                (get-in packet [:source :lines])))))))
 
-(deftest node-tool-inspects-exact-map-system-target
-  (let [root (temp-dir "ygg-mcp-map-system")
-        map-path (str root "/ygg.map.json")
+(deftest node-tool-inspects-exact-correction-system-target
+  (let [root (temp-dir "ygg-mcp-correction-system")
         doc-file (java.io.File. root "docs/billing.md")
-        overlay {:schema "ygg.map/v1"
+        overlay {:schema "ygg.correction-overlay/v1"
                  :project "fixture"
                  :systems [{:id "system:billing"
                             :label "Billing"
@@ -551,7 +552,7 @@
                                         :path "src/billing"}]
                             :reason "accepted in review"}]
                  :reject []
-                 :edges [{:id "map-edge:billing-db"
+                 :edges [{:id "correction-edge:billing-db"
                           :source "system:billing"
                           :target "system:database"
                           :relation "uses"
@@ -566,10 +567,10 @@
                  :updated-at-ms 1}]
     (.mkdirs (.getParentFile doc-file))
     (spit doc-file "# Billing\n\nContract text.\n")
-    (spit map-path (json/write-json-str overlay))
     (with-redefs [project/read-project (constantly (assoc-in project-fixture
                                                              [:repos 0 :root]
                                                              root))
+                  corrections/overlay (fn [_ _] overlay)
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ _] [])
                   query/all-nodes (fn [_ _] [])
@@ -599,8 +600,7 @@
                       (mcp/server-context ["--config" "project.edn"])
                       (tool-call 15
                                  "ygg_node"
-                                 {:target "Billing"
-                                  :mapPath map-path}))
+                                 {:target "Billing"}))
             packet (get-in response [:result :structuredContent])]
         (is (= "ygg.node.inspect/v1" (:schema packet)))
         (is (= :found (:status packet)))
@@ -613,30 +613,29 @@
                  :includes [{:repo "app"
                              :path "src/billing"}]
                  :reason "accepted in review"}]
-               (get-in packet [:map :systems])))
+               (get-in packet [:corrections :systems])))
         (is (= ["docs/billing.md"]
                (mapv #(get-in % [:source :path])
-                     (get-in packet [:map :docs]))))
+                     (get-in packet [:corrections :docs]))))
         (is (= :available
-               (get-in packet [:map :docs 0 :sourceWindow :status])))
+               (get-in packet [:corrections :docs 0 :sourceWindow :status])))
         (is (= [{:line 1
                  :text "# Billing"}
                 {:line 2
                  :text ""}
                 {:line 3
                  :text "Contract text."}]
-               (get-in packet [:map :docs 0 :sourceWindow :lines])))
-        (is (= ["map-edge:billing-db"]
-               (mapv :id (get-in packet [:map :edges]))))
+               (get-in packet [:corrections :docs 0 :sourceWindow :lines])))
+        (is (= ["correction-edge:billing-db"]
+               (mapv :id (get-in packet [:corrections :edges]))))
         (is (= ["system:billing" "system:database"]
                (mapv :id (get-in packet [:systemRelationships :nodes]))))
         (is (= ["system-edge:billing-db"]
                (mapv :id (get-in packet [:systemRelationships :edges]))))))))
 
 (deftest node-tool-returns-choices-for-system-and-node-label-collision
-  (let [root (temp-dir "ygg-mcp-map-ambiguous")
-        map-path (str root "/ygg.map.json")
-        overlay {:schema "ygg.map/v1"
+  (let [root (temp-dir "ygg-mcp-correction-ambiguous")
+        overlay {:schema "ygg.correction-overlay/v1"
                  :project "fixture"
                  :systems [{:id "system:handler"
                             :label "Handler"
@@ -656,8 +655,8 @@
                 :path "src/handler.clj"
                 :active? true
                 :run-id "run"}]]
-    (spit map-path (json/write-json-str overlay))
     (with-redefs [project/read-project (constantly project-fixture)
+                  corrections/overlay (fn [_ _] overlay)
                   store/with-node (fn [_ f] (f :xtdb))
                   store/all-rows (fn [_ _] [])
                   query/all-nodes (fn [& _]
@@ -677,8 +676,7 @@
                       (mcp/server-context ["--config" "project.edn"])
                       (tool-call 16
                                  "ygg_node"
-                                 {:target "Handler"
-                                  :mapPath map-path}))
+                                 {:target "Handler"}))
             packet (get-in response [:result :structuredContent])]
         (is (= :ambiguous (:status packet)))
         (is (= [:system :node] (mapv :targetKind (:choices packet))))
@@ -998,6 +996,7 @@
 
 (deftest systems-tool-returns-canonical-graph
   (with-redefs [project/read-project (constantly project-fixture)
+                corrections/overlay (fn [_ _] nil)
                 store/with-node (fn [_ f] (f :xtdb))
                 graph/system-graph (fn [xtdb project-id opts]
                                      {:schema graph/schema
@@ -1018,13 +1017,13 @@
 
 (deftest sync-inspect-tool-returns-project-evidence-surface
   (with-redefs [project/read-project (constantly project-with-plugin-package)
+                corrections/overlay (fn [_ _] nil)
                 store/with-node (fn [_ f] (f :xtdb))
                 evidence/summarize (fn [xtdb project opts]
                                      {:schema evidence/schema
                                       :xtdb xtdb
                                       :project-id (:id project)
                                       :config-path (:config-path opts)
-                                      :map-path (:map-path opts)
                                       :available [:source-graph :docs]
                                       :families [{:family :source-files
                                                   :status :weak
@@ -1058,13 +1057,13 @@
                                                      :label "Inspect result schema mismatch activity"
                                                      :count 1
                                                      :command "ygg sync activity project.edn --json"}]})]
-    (let [response (mcp/handle-message
-                    (mcp/server-context ["--config" "project.edn"
-                                         "--tools" "default,sync"])
-                    (tool-call 11
-                               "ygg_sync_inspect"
-                               {:mapPath "ygg.map.json"}))
-          packet (get-in response [:result :structuredContent])]
+	    (let [response (mcp/handle-message
+	                    (mcp/server-context ["--config" "project.edn"
+	                                         "--tools" "default,sync"])
+	                    (tool-call 11
+	                               "ygg_sync_inspect"
+	                               {}))
+	          packet (get-in response [:result :structuredContent])]
       (is (= "ygg.project.inspect/v1" (:schema packet)))
       (is (= "fixture" (get-in packet [:project :id])))
       (is (= [{:id "app"
@@ -1078,10 +1077,9 @@
                        :nonAuthoritative 1}
               :packages [compact-plugin-package-fixture]}
              (:pluginPackages packet)))
-      (is (= evidence/schema (get-in packet [:evidence :schema])))
-      (is (= "project.edn" (get-in packet [:evidence :config-path])))
-      (is (= "ygg.map.json" (get-in packet [:evidence :map-path])))
-      (is (= [{:family :source-files
+	      (is (= evidence/schema (get-in packet [:evidence :schema])))
+	      (is (= "project.edn" (get-in packet [:evidence :config-path])))
+	      (is (= [{:family :source-files
                :status :weak
                :counts {:files 2
                         :skipped-files 1
@@ -1123,26 +1121,24 @@
 
 (deftest status-tool-returns-project-evidence-surface
   (with-redefs [project/read-project (constantly project-with-plugin-package)
+                corrections/overlay (fn [_ _] nil)
                 store/with-node (fn [_ f] (f :xtdb))
-                evidence/summarize (fn [xtdb project opts]
-                                     {:schema evidence/schema
-                                      :xtdb xtdb
-                                      :project-id (:id project)
-                                      :config-path (:config-path opts)
-                                      :map-path (:map-path opts)
-                                      :available [:source-graph]
+	        evidence/summarize (fn [xtdb project opts]
+	                             {:schema evidence/schema
+	                              :xtdb xtdb
+	                              :project-id (:id project)
+	                              :config-path (:config-path opts)
+	                              :available [:source-graph]
                                       :families [{:family :source-files
                                                   :status :available
                                                   :counts {:files 2
                                                            :skipped-files 0
                                                            :diagnostics 0}}]
-                                      :freshness {:status :current
-                                                  :basis "indexed-graph"
-                                                  :missingQueryIndex false
-                                                  :projectConfig "project.edn"
-                                                  :map "ygg.map.json"
-                                                  :mapExists true
-                                                  :counts {:changed 0}}
+	                              :freshness {:status :current
+	                                          :basis "indexed-graph"
+	                                          :missingQueryIndex false
+	                                          :projectConfig "project.edn"
+	                                          :counts {:changed 0}}
                                       :counts {:files 2
                                                :nodes 3
                                                :edges 4
@@ -1160,11 +1156,11 @@
                                                            :count 1}]
                                       :nextActions [{:kind :query
                                                      :command "ygg query \"where is this handled?\" --project fixture --json"}]})]
-    (let [response (mcp/handle-message
-                    (mcp/server-context ["--config" "project.edn"])
-                    (tool-call 12
-                               "ygg_status"
-                               {:mapPath "ygg.map.json"}))
+	    (let [response (mcp/handle-message
+	                    (mcp/server-context ["--config" "project.edn"])
+	                    (tool-call 12
+	                               "ygg_status"
+	                               {}))
           packet (get-in response [:result :structuredContent])]
       (is (= "ygg.project.inspect/v1" (:schema packet)))
       (is (= "fixture" (get-in packet [:project :id])))
@@ -1175,10 +1171,9 @@
                        :nonAuthoritative 1}
               :packages [compact-plugin-package-fixture]}
              (:pluginPackages packet)))
-      (is (= evidence/schema (get-in packet [:evidence :schema])))
-      (is (= "project.edn" (get-in packet [:evidence :config-path])))
-      (is (= "ygg.map.json" (get-in packet [:evidence :map-path])))
-      (is (= [{:family :source-files
+	      (is (= evidence/schema (get-in packet [:evidence :schema])))
+	      (is (= "project.edn" (get-in packet [:evidence :config-path])))
+	      (is (= [{:family :source-files
                :status :available
                :counts {:files 2
                         :skipped-files 0
@@ -1198,14 +1193,12 @@
               :skippedByReason [{:reason "binary"
                                  :count 1}]}
              (:coverage packet)))
-      (is (= {:status :current
-              :basis "indexed-graph"
-              :missingQueryIndex false
-              :projectConfig "project.edn"
-              :map "ygg.map.json"
-              :mapExists true
-              :counts {:changed 0}}
-             (:freshness packet)))
+	      (is (= {:status :current
+	              :basis "indexed-graph"
+	              :missingQueryIndex false
+	              :projectConfig "project.edn"
+	              :counts {:changed 0}}
+	             (:freshness packet)))
       (is (= [{:kind :query
                :command "ygg query \"where is this handled?\" --project fixture --json"}]
              (:nextActions packet))))))

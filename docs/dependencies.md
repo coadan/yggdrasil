@@ -33,7 +33,7 @@ For hot-reload development of that viewer, use the Vite server from
 `report-ui/` and point it at a generated report directory:
 
 ```sh
-bb report project.edn --map ygg.map.json --out .dev/reports/live --force
+bb report project.edn --out .dev/reports/live --force
 bb report-ui:dev -- --host 0.0.0.0 --port 5173
 open "http://localhost:5173/?reportDir=$(pwd)/.dev/reports/live"
 ```
@@ -76,14 +76,14 @@ executable `command`.
 `sync check --enqueue` turns unresolved imports into
 `ygg.dependency.review-packet/v1` queue items. A completed
 `ygg.dependency.review-result/v1` can apply an explicit `packageImports`
-correction to `ygg.map.json`; the result must cite packet evidence and choose
+correction; the result must cite packet evidence and choose
 one package from the packet. Applied corrections retain the dependency review id,
 rules source, evidence ids, reason, and result or patch confidence for audit.
 Use `ygg sync work validate <work-id>` before `apply` when a human or agent
 has written the result JSON and wants a non-mutating schema/evidence check.
-When the reviewer already knows the mapping, `ygg map package import
-<import-prefix> <ecosystem>:<package> --map ygg.map.json` records the same
-accepted correction path directly.
+When the reviewer already knows the mapping, `ygg corrections package import
+<import-prefix> <ecosystem>:<package>` records the same accepted correction
+path directly.
 Packets include `facts.packageSelection` with total package rows, included rows,
 packet limit, truncation flag, `matchingPackages`, and the mechanical selection
 basis. Candidate packages are ranked before the bound is applied using only
@@ -109,12 +109,11 @@ dependencies = ["beautifulsoup4>=4"]
 beautifulsoup4 = ["bs4"]
 ```
 
-JVM package imports are resolved only through accepted map corrections because
+JVM package imports are resolved only through accepted correction facts because
 Maven coordinates do not mechanically imply Java package roots:
 
 ```sh
-ygg map package import org.slf4j maven:org.slf4j:slf4j-api \
-  --map ygg.map.json \
+ygg corrections package import org.slf4j maven:org.slf4j:slf4j-api \
   --reason "slf4j-api exports org.slf4j"
 ```
 

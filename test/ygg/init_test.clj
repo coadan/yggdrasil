@@ -1,7 +1,6 @@
 (ns ygg.init-test
   (:require [ygg.fs :as fs]
             [ygg.init :as init]
-            [ygg.map-store :as map-store]
             [ygg.project :as project]
             [ygg.project-registry :as registry]
             [charred.api :as json]
@@ -36,7 +35,10 @@
                        :role :application}]}
              raw))
       (is (= "demo" (:id project)))
-      (is (= canonical-root (get-in project [:repos 0 :root]))))))
+      (is (= canonical-root (get-in project [:repos 0 :root])))
+      (is (= {:schema registry/project-ref-schema
+              :project-id "demo"}
+             (edn/read-string (slurp (:project-ref result))))))))
 
 (deftest init-registers-project-by-default
   (let [root (temp-dir "ygg-init-registry")
@@ -51,7 +53,9 @@
         (is (= true (:registered result)))
         (is (not (.exists (io/file root "project.edn"))))
         (is (= "demo" (:id registered)))
-        (is (= canonical-root (get-in registered [:repos 0 :root])))))))
+        (is (= canonical-root (get-in registered [:repos 0 :root])))
+        (is (= "demo"
+               (:project-id (edn/read-string (slurp (:project-ref result))))))))))
 
 (deftest init-detects-git-root-when-run-from-subdirectory
   (let [root (temp-dir "ygg-init-git")
@@ -103,28 +107,25 @@
                       :force? true})
     (is (= "second" (:id (edn/read-string (slurp out)))))))
 
-(deftest next-commands-include-explicit-map-when-provided
+(deftest next-commands-use-config-path-when-provided
   (let [root (temp-dir "ygg-init-next")
         out (.getPath (io/file root "project.edn"))
         result (init/init! root {:out out
-                                 :project-id "demo"
-                                 :map-path "ygg.map.json"})]
-    (is (some #(= (str "ygg sync " out " --check --map ygg.map.json") %)
+                                 :project-id "demo"})]
+    (is (some #(= (str "ygg sync " out " --check") %)
               (:next result)))
     (is (some #(= {:kind :sync
                    :label "Index and validate project graph"
-                   :command (str "ygg sync " out " --check --map ygg.map.json")}
+                   :command (str "ygg sync " out " --check")}
                   %)
-              (:nextActions result)))
-    (is (not (map-store/file-exists? (io/file root "ygg.map.json"))))))
+              (:nextActions result)))))
 
 (deftest next-actions-quote-shell-sensitive-paths
   (let [root (temp-dir "ygg-init next")
         out (.getPath (io/file root "Project Files" "project.edn"))
         result (init/init! root {:out out
-                                 :project-id "demo project"
-                                 :map-path "Maps/ygg map.json"})]
-    (is (some #(= (str "ygg sync '" out "' --check --map 'Maps/ygg map.json'")
+                                 :project-id "demo project"})]
+    (is (some #(= (str "ygg sync '" out "' --check")
                   (:command %))
               (:nextActions result)))
     (is (some #(= "ygg query \"where is this handled?\" --project 'demo project' --json"

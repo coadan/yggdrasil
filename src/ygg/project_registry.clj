@@ -10,6 +10,9 @@
 (def schema
   "ygg.projects/v1")
 
+(def project-ref-schema
+  "ygg.project-ref/v1")
+
 (defn config-home
   "Return the user-level Yggdrasil config directory."
   []
@@ -74,14 +77,26 @@
    (when-let [data (get (:projects registry) (str project-id))]
      (project-entry project-id data))))
 
+(defn- normalize-project-entry
+  [registry project-id data]
+  (if-let [config-path (:config-path data)]
+    (let [project (project/read-project config-path)]
+      (when-not (= (str project-id) (:id project))
+        (throw (ex-info "Registered project config id does not match registry id."
+                        {:project-id (str project-id)
+                         :config-path config-path
+                         :config-project-id (:id project)})))
+      project)
+    (project/normalize-project (registry-base (registry-path))
+                               (project-entry project-id data)
+                               {:path (str (registry-path) "#" project-id)})))
+
 (defn read-project
   "Return a normalized project by id from the user registry."
   ([project-id] (read-project (read-registry) project-id))
   ([registry project-id]
    (if-let [data (project-config registry project-id)]
-     (project/normalize-project (registry-base (registry-path))
-                                data
-                                {:path (str (registry-path) "#" project-id)})
+     (normalize-project-entry registry project-id data)
      (throw (ex-info "Project is not registered."
                      {:project-id project-id
                       :registry (registry-path)})))))
@@ -100,6 +115,18 @@
        :project-id project-id
        :registry (registry-path)
        :project (read-project updated project-id)})))
+
+(defn register-project-config!
+  "Register an existing project config by reference and return a summary."
+  [config-path]
+  (let [config-path (fs/canonical-path config-path)
+        project (project/read-project config-path)
+        project-id (:id project)
+        result (upsert-project! {:id project-id
+                                 :config-path config-path})]
+    (assoc result
+           :schema "ygg.project.registry.register/v1"
+           :config-path config-path)))
 
 (defn remove-project!
   "Remove project id from registry and return a compact summary."
@@ -123,6 +150,48 @@
   [path]
   (fs/canonical-path (or path ".")))
 
+(defn project-ref-path
+  "Return the repo-local Yggdrasil project reference path below root."
+  [root]
+  (str (io/file (canonical-dir root) ".ygg" "project.edn")))
+
+(defn write-project-ref!
+  "Write a repo-local project reference and return its path."
+  [root project-id]
+  (let [path (project-ref-path root)
+        file (io/file path)
+        value {:schema project-ref-schema
+               :project-id (str project-id)}]
+    (when-let [parent (.getParentFile file)]
+      (.mkdirs parent))
+    (with-open [writer (io/writer file)]
+      (binding [*out* writer
+                *print-namespace-maps* false]
+        (pprint/pprint value)))
+    path))
+
+(defn- parent-dirs
+  [path]
+  (->> (iterate #(.getParentFile ^java.io.File %) (.getCanonicalFile (io/file path)))
+       (take-while some?)
+       (map #(.getPath ^java.io.File %))))
+
+(defn- read-project-ref
+  [root]
+  (let [path (project-ref-path root)
+        file (io/file path)]
+    (when (.isFile file)
+      (let [data (edn/read-string (slurp file))]
+        (when-let [project-id (or (:project-id data) (:projectId data))]
+          {:project-id (str project-id)
+           :root (canonical-dir root)
+           :path path})))))
+
+(defn project-ref-for-cwd
+  "Return the nearest repo-local project reference for cwd, if present."
+  [cwd]
+  (first (keep read-project-ref (parent-dirs (or cwd ".")))))
+
 (defn- descendant-or-same?
   [root path]
   (let [root (canonical-dir root)
@@ -133,9 +202,7 @@
 (defn- repo-root-matches
   [cwd [project-id data]]
   (try
-    (let [project (project/normalize-project (registry-base (registry-path))
-                                             (project-entry project-id data)
-                                             {})]
+    (let [project (normalize-project-entry (read-registry) project-id data)]
       (keep (fn [{:keys [root]}]
               (when (descendant-or-same? root cwd)
                 {:project-id (str project-id)
@@ -185,6 +252,17 @@
           :source :active-dir
           :registry (registry-path)})))))
 
+(defn referenced-project
+  "Resolve the nearest repo-local project reference for cwd through the registry."
+  [registry cwd]
+  (when-let [{:keys [project-id root path]} (project-ref-for-cwd cwd)]
+    {:project-id project-id
+     :root root
+     :project (read-project registry project-id)
+     :source :project-ref
+     :project-ref path
+     :registry (registry-path)}))
+
 (defn use-project!
   "Bind cwd to project-id in the user registry."
   [project-id cwd]
@@ -192,11 +270,13 @@
         registry (read-registry)
         project (read-project registry project-id)
         root (canonical-dir cwd)
+        project-ref (write-project-ref! root project-id)
         updated (assoc-in registry [:active-by-dir root] project-id)]
     (write-registry! updated)
     {:schema "ygg.project.use/v1"
      :project-id project-id
      :root root
+     :project-ref project-ref
      :registry (registry-path)
      :project project}))
 
@@ -214,7 +294,8 @@
        :registry (registry-path)}
 
       :else
-      (or (project-for-cwd registry cwd)
+      (or (referenced-project registry cwd)
+          (project-for-cwd registry cwd)
           (active-project registry cwd)
           (when config-path
             (let [project (project/read-project config-path)]

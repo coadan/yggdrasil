@@ -175,12 +175,12 @@
   (:kind (get files-by-path path)))
 
 (defn- resolve-package-import
-  [packages-by-id packages-by-source manifest-paths files-by-path map-overlay repo-id edge]
+  [packages-by-id packages-by-source manifest-paths files-by-path correction-overlay repo-id edge]
   (dependency-resolve/resolve-import {:packages-by-id packages-by-id
                                       :packages-by-source packages-by-source
                                       :manifest-paths manifest-paths
                                       :files-by-path files-by-path
-                                      :map-overlay map-overlay
+                                      :correction-overlay correction-overlay
                                       :repo-id repo-id
                                       :edge edge}))
 
@@ -212,17 +212,17 @@
   [edge]
   [(:source-id edge) (:target-id edge) (:path edge)])
 
-(defn- map-overlay-import-edges
-  [project-id packages-by-id files-by-path map-overlay source-edges imports]
+(defn- correction-overlay-import-edges
+  [project-id packages-by-id files-by-path correction-overlay source-edges imports]
   (let [existing-keys (set (map import-edge-key imports))]
     (->> source-edges
          (keep (fn [edge]
                  (when-let [result (dependency-resolve/resolve-map-import
                                     packages-by-id
-                                    map-overlay
+                                    correction-overlay
                                     (:repo-id edge)
                                     (import-common/namespace-target (:target-id edge)))]
-                   (let [derived (import-package-edge "report:map-overlay"
+                   (let [derived (import-package-edge "report:correction-overlay"
                                                       project-id
                                                       (:repo-id edge)
                                                       (source-kind files-by-path (:path edge))
@@ -237,7 +237,7 @@
   "Return mechanically resolved source-import to external-package edges."
   ([xtdb project-id repo-id run-id]
    (resolve-import-package-edges xtdb project-id repo-id run-id {}))
-  ([xtdb project-id repo-id run-id {:keys [map-overlay]}]
+  ([xtdb project-id repo-id run-id {:keys [correction-overlay]}]
    (let [scope {:project-id project-id
                 :repo-id repo-id}
          files (active-scope-rows xtdb (:files store/tables) scope)
@@ -256,7 +256,7 @@
                              (into {}))
          packages-by-source (package-by-source nodes dependency-source-edges)
          manifest-paths (set (keys packages-by-source))]
-     (if-not (dependency-resolve/can-resolve-import-packages? packages-by-source map-overlay)
+     (if-not (dependency-resolve/can-resolve-import-packages? packages-by-source correction-overlay)
        []
        (let [source-edges (active-scope-edge-rows xtdb
                                                   scope
@@ -275,7 +275,7 @@
                                                                 packages-by-source
                                                                 manifest-paths
                                                                 files-by-path
-                                                                map-overlay
+                                                                correction-overlay
                                                                 repo-id
                                                                 edge)]
                         (import-package-edge run-id
@@ -462,7 +462,7 @@
     (conj {:kind :dependency-review
            :label "Queue unresolved import review work"
            :count (:unresolved-imports counts)
-           :command "ygg sync check <project.edn> --enqueue"})
+           :command "ygg sync <project.edn> --check --enqueue"})
 
     (pos? (long (or (:unresolved-imports counts) 0)))
     (conj {:kind :dependency-review
@@ -475,15 +475,97 @@
     (pos? (long (or (:unresolved-imports counts) 0)))
     (conj {:kind :package-import
            :label "Record a reviewed import-package correction directly"
-           :command (str "ygg map package import <import-prefix> <ecosystem>:<package>"
-                         " --map ygg.map.json --reason <reason>")})))
+           :command (str "ygg corrections package import <import-prefix> <ecosystem>:<package>"
+                         " --reason <reason>")})))
+
+(defn- count-active-rows
+  [xtdb table constraints]
+  (store/active-row-count xtdb table constraints))
+
+(defn- count-field-values
+  [xtdb table field constraints]
+  (->> (store/active-row-counts-by-field xtdb table field constraints)
+       (keep (fn [{:keys [value count]}]
+               (when (some? value)
+                 [value (long count)])))
+       (into {})))
+
+(defn- ecosystem-counts
+  [xtdb table constraints]
+  (count-field-values xtdb table :ecosystem constraints))
+
+(defn- count-for
+  [counts k]
+  (long (or (get counts k) 0)))
+
+(defn- ecosystem-summary
+  [package-counts version-counts import-counts]
+  (->> (set (concat (keys package-counts)
+                    (keys version-counts)
+                    (keys import-counts)))
+       (sort-by str)
+       (mapv (fn [ecosystem]
+               {:ecosystem ecosystem
+                :packages (count-for package-counts ecosystem)
+                :versions (count-for version-counts ecosystem)
+                :imports (count-for import-counts ecosystem)}))))
+
+(defn- package-report-summary
+  [xtdb {:keys [project-id repo-id]} opts]
+  (let [scope (cond-> {:project-id project-id}
+                repo-id (assoc :repo-id repo-id))
+        package-scope (assoc scope :kind :external-package)
+        version-scope (assoc scope :kind :external-package-version)
+        relation-counts (count-field-values xtdb
+                                            (:edges store/tables)
+                                            :relation
+                                            scope)
+        package-counts (ecosystem-counts xtdb (:nodes store/tables) package-scope)
+        version-counts (ecosystem-counts xtdb (:nodes store/tables) version-scope)
+        import-counts (ecosystem-counts xtdb
+                                        (:edges store/tables)
+                                        (assoc scope :relation :imports-package))
+        counts {:packages (count-active-rows xtdb (:nodes store/tables) package-scope)
+                :versions (count-active-rows xtdb (:nodes store/tables) version-scope)
+                :requires (count-for relation-counts :requires)
+                :resolves (count-for relation-counts :resolves)
+                :imports-package (count-for relation-counts :imports-package)
+                ;; The exact source-candidate and unresolved counts require the
+                ;; rich resolver path. Keep inspect summaries conservative so
+                ;; status output does not emit false blocking dependency work.
+                :source-import-candidates (count-for relation-counts :imports-package)
+                :unresolved-imports 0
+                :declared-without-import-evidence 0
+                :version-conflicts 0}
+        next-actions (package-next-actions project-id counts)]
+    {:schema "ygg.dependency.report/v1"
+     :project-id project-id
+     :repo-id repo-id
+     :filters (select-keys opts [:ecosystem :package :with-conflicts? :without-import-evidence?])
+     :counts counts
+     :ecosystems (ecosystem-summary package-counts version-counts import-counts)
+     :packages []
+     :declared-without-import-evidence []
+     :unresolved-imports []
+     :version-conflicts []
+     :nextActions next-actions
+     :next (mapv :command next-actions)}))
 
 (defn package-report
   "Return a mechanical external package dependency report for a project/repo scope."
   ([xtdb scope] (package-report xtdb scope {}))
   ([xtdb {:keys [project-id repo-id] :as scope}
-    {:keys [limit map-overlay ecosystem package with-conflicts? without-import-evidence?] :as opts}]
-   (let [files (active-scope-rows xtdb (:files store/tables) scope)
+    {:keys [limit correction-overlay ecosystem package with-conflicts? without-import-evidence?
+            summary?]
+     :as opts}]
+   (if (and summary?
+            (store/xtdb-handle? xtdb)
+            (not ecosystem)
+            (not package)
+            (not with-conflicts?)
+            (not without-import-evidence?))
+     (package-report-summary xtdb scope opts)
+     (let [files (active-scope-rows xtdb (:files store/tables) scope)
          nodes (active-scope-rows xtdb (:nodes store/tables) scope)
          edges (active-scope-report-edge-rows xtdb scope package-report-edge-relations)
          files-by-path (into {} (map (juxt :path identity)) files)
@@ -511,10 +593,10 @@
                                            :edge %})
                                         source-edges)
          report-imports (vec (concat imports
-                                     (map-overlay-import-edges project-id
+                                     (correction-overlay-import-edges project-id
                                                                packages-by-id
                                                                files-by-path
-                                                               map-overlay
+                                                               correction-overlay
                                                                candidate-source-edges
                                                                imports)))
          requires-by-package (group-by :target-id requires)
@@ -564,7 +646,7 @@
                                                                           packages-by-source
                                                                           manifest-paths
                                                                           files-by-path
-                                                                          map-overlay
+                                                                          correction-overlay
                                                                           (:repo-id %)
                                                                           %)))
                                    (mapv #(unresolved-import-row nodes-by-id
@@ -595,4 +677,4 @@
       :unresolved-imports (limit-report-entries unresolved-imports limit)
       :version-conflicts (limit-report-entries filtered-conflicts limit)
       :nextActions next-actions
-      :next (mapv :command next-actions)})))
+      :next (mapv :command next-actions)}))))

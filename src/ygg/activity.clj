@@ -392,9 +392,9 @@
     (:completed-at-ms item) (assoc :completedAtMs (:completed-at-ms item))))
 
 (defn sync-queue!
-  "Import local filesystem queue items as durable activity rows."
+  "Import project SQLite queue items as durable activity rows."
   [xtdb project {:keys [queue-root now]}]
-  (let [queue-root (or queue-root queue/default-root)
+  (let [queue-root (or queue-root (store/project-sqlite-path (:id project)))
         now (long (or now (now-ms)))
         run-id (str "activity-run:" (hash/short-hash [(:id project) queue-root now]))
         founds (queue/list-items queue-root {:project-id (:id project)})

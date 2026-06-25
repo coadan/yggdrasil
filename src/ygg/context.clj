@@ -5,11 +5,12 @@
             [ygg.command :as command]
             [ygg.context-architecture :as context-architecture]
             [ygg.context-budget :as context-budget]
+            [ygg.corrections :as corrections]
             [ygg.coverage :as coverage]
             [ygg.dependency :as dependency]
             [ygg.graph :as graph]
-            [ygg.map :as graph-map]
-            [ygg.map-store :as map-store]
+            [ygg.correction-overlay :as correction-overlay]
+            [ygg.memory :as memory]
             [ygg.plugin-package-view :as plugin-package-view]
             [ygg.query :as query]
             [ygg.text :as text]
@@ -161,9 +162,10 @@
    :embeddings
    :system-evidence
    :system-graph
+   :memory
    :activity
    :validation-history
-   :map-overlay
+   :correction-overlay
    :remote-work
    :session-history])
 
@@ -181,6 +183,10 @@
    :embeddings [:embeddings]
    :system-evidence [:system-evidence]
    :system-graph [:system-nodes :system-edges]
+   :memory [:memories
+            :suggested-memories
+            :observed-memories
+            :reviewed-memories]
    :activity [:activity-items :activity-events]
    :validation-history [:validation-events
                         :result-schema-status-items
@@ -189,7 +195,7 @@
                         :result-schema-missing-result-items
                         :result-schema-unexpected-result-items
                         :result-schema-mismatch-events]
-   :map-overlay [:map-systems :map-docs :map-edges :map-rejects]})
+   :correction-overlay [:correction-systems :correction-docs :correction-edges :correction-rejects]})
 
 (def role-weight
   {"overview" 0.35
@@ -1043,7 +1049,7 @@
    :searchDocs (long (or (:search-docs counts) 0))
    :chunks (long (or (:chunks counts) 0))
    :embeddings (long (or (:embeddings counts) 0))
-   :mapSystems (long (or (:map-systems counts) 0))
+   :correctionSystems (long (or (:correction-systems counts) 0))
    :activityItems (long (or (:activity-items counts) 0))})
 
 (defn- retrieval-shape
@@ -1859,9 +1865,9 @@
   (context-architecture/systems-section architecture))
 
 (defn- base-packet
-  [query-text budget graph-data entities edges activity warnings drilldowns evidence
-   search-instrumentation freshness source-coverage architecture systems audit-scopes
-   relationships blast-radius candidate-files source-declarations plugin-packages]
+  [{:keys [query-text budget graph-data entities edges activity warnings drilldowns evidence
+           search-instrumentation freshness source-coverage architecture systems audit-scopes
+           relationships blast-radius candidate-files source-declarations plugin-packages memories]}]
   (cond-> {:schema schema
            :query query-text
            :graph (graph-summary graph-data evidence search-instrumentation)
@@ -1881,6 +1887,7 @@
     systems (assoc :systems systems)
     (seq audit-scopes) (assoc :auditScopes audit-scopes)
     (seq plugin-packages) (assoc :pluginPackages (plugin-package-view/caveats plugin-packages))
+    (seq memories) (assoc :memories memories)
     (seq relationships) (assoc :relationships relationships)
     blast-radius (assoc :blastRadius blast-radius)
     source-coverage (assoc :sourceCoverage source-coverage)))
@@ -2310,6 +2317,7 @@
       :lanes (compact-lanes packet results)
       :results results
       :evidence evidence
+      :memories (:memories packet)
       :warnings (:warnings packet)
       :search (compact-search packet)
       :actions (when action [action])})))
@@ -2327,12 +2335,13 @@
                     {:output output
                      :supported [:compact :snippets :evidence :full]}))))
 
-(defn- resolve-map-overlay
-  [path overlay project-id]
+(defn- resolve-correction-overlay
+  [xtdb _path overlay project-id]
   (cond
     overlay overlay
-    (and path (map-store/file-exists? path)) (map-store/read-map path)
-    :else (graph-map/empty-map project-id)))
+    (and (store/xtdb-handle? xtdb)
+         (not (str/blank? (str project-id)))) (corrections/overlay xtdb project-id)
+    :else (correction-overlay/empty-overlay project-id)))
 
 (defn- count-scope-constraints
   [{:keys [project-id repo-id]}]
@@ -2360,10 +2369,10 @@
 
 (defn- overlay-counts
   [overlay]
-  {:map-systems (count (:systems overlay))
-   :map-docs (count (:docs overlay))
-   :map-edges (count (:edges overlay))
-   :map-rejects (count (:reject overlay))})
+  {:correction-systems (count (:systems overlay))
+   :correction-docs (count (:docs overlay))
+   :correction-edges (count (:edges overlay))
+   :correction-rejects (count (:reject overlay))})
 
 (defn- precomputed-count
   [value fallback-fn]
@@ -2378,7 +2387,20 @@
                                           {:project-id project-id
                                            :repo-id repo-id}
                                           {:limit 0
-                                           :map-overlay overlay}))))
+                                           :correction-overlay overlay}))))
+
+(def empty-memory-counts
+  {:memories 0
+   :memory-statuses {}
+   :suggested-memories 0
+   :observed-memories 0
+   :reviewed-memories 0})
+
+(defn- memory-counts
+  [xtdb scope {:keys [memory-counts]}]
+  (if (some? memory-counts)
+    memory-counts
+    (memory/counts xtdb scope)))
 
 (defn- fallback-capability-counts
   [xtdb overlay {:keys [project-id repo-id read-context
@@ -2429,6 +2451,7 @@
                      activity-events))
       :diagnostics (scoped-active-count xtdb (:diagnostics store/tables) scope)}
      (activity/result-schema-counts activity-items)
+     (memory-counts xtdb scope opts)
      (overlay-counts overlay))))
 
 (defn- xtdb-capability-counts
@@ -2515,6 +2538,7 @@
       :result-schema-mismatch-events result-schema-mismatch-event-count
       :diagnostics (scoped-active-count xtdb (:diagnostics store/tables) scope)}
      activity-schema-counts
+     (memory-counts xtdb scope opts)
      (overlay-counts overlay))))
 
 (defn- capability-counts
@@ -2569,12 +2593,13 @@
       (pos? (+ (:chunks counts) (:search-docs counts))) (conj :docs)
       (pos? (:embeddings counts)) (conj :embeddings)
       (pos? (+ (:system-nodes counts) (:system-edges counts))) (conj :system-graph)
+      (pos? (:memories counts 0)) (conj :memory)
       (pos? (+ (:activity-items counts) (:activity-events counts))) (conj :activity)
       (pos? validation-history-events) (conj :validation-history)
-      (pos? (+ (:map-systems counts)
-               (:map-docs counts)
-               (:map-edges counts)
-               (:map-rejects counts))) (conj :map-overlay))))
+      (pos? (+ (:correction-systems counts)
+               (:correction-docs counts)
+               (:correction-edges counts)
+               (:correction-rejects counts))) (conj :correction-overlay))))
 
 (defn- missing-planes
   [counts]
@@ -2593,7 +2618,8 @@
       (zero? validation-history-events) (conj :validation-history))))
 
 (defn- weak-planes
-  [counts {:keys [entity-count doc-count activity-count validation-count runtime-count]}]
+  [counts {:keys [entity-count doc-count activity-count validation-count runtime-count
+                  memory-count]}]
   (let [validation-history-events (validation-history-count counts)]
     (cond-> []
       (or (pos? (:skipped-files counts 0))
@@ -2611,6 +2637,10 @@
       (and (pos? (+ (:system-nodes counts) (:system-edges counts)))
            (zero? entity-count))
       (conj :system-graph)
+
+      (and (pos? (:memories counts 0))
+           (zero? memory-count))
+      (conj :memory)
 
       (and (pos? (:system-evidence counts 0))
            (zero? runtime-count))
@@ -2731,6 +2761,9 @@
      (some #{:system-graph} weak)
      (conj "System graph rows are indexed, but no graph entities matched this query.")
 
+     (some #{:memory} weak)
+     (conj "Memory rows are indexed, but no memory matched this query.")
+
      (some #{:docs} weak)
      (conj "Search docs are indexed, but no docs matched this query.")
 
@@ -2794,19 +2827,13 @@
        " --json"))
 
 (defn- docs-audit-command
-  [project-id map-path]
+  [project-id]
   (str "ygg sync docs audit --project "
-       (command/shell-token (or project-id "<project-id>"))
-       " --map "
-       (command/shell-token map-path)))
+       (command/shell-token (or project-id "<project-id>"))))
 
 (defn- inspect-command
-  [map-path]
-  (apply command/command
-         (concat ["ygg" "sync" "inspect" "<project.edn>"]
-                 (when map-path
-                   ["--map" map-path])
-                 ["--json"])))
+  []
+  (command/command "ygg" "sync" "inspect" "<project.edn>" "--json"))
 
 (defn- drilldown
   [kind label command mcp-tool mcp-args]
@@ -2817,32 +2844,29 @@
     (seq mcp-args) (assoc :mcpArgs mcp-args)))
 
 (defn- context-drilldowns
-  [query-text project-id map-path]
-  (cond-> [(drilldown :query
-                      "Continue graph query"
-                      (query-command query-text project-id)
-                      "ygg_query"
-                      (cond-> {:query query-text}
-                        project-id (assoc :projectId project-id)
-                        map-path (assoc :mapPath map-path)))
-           (drilldown :systems
-                      "Inspect project systems graph"
-                      (project-command "view systems" project-id)
-                      "ygg_systems"
-                      (cond-> {}
-                        project-id (assoc :projectId project-id)
-                        map-path (assoc :mapPath map-path)))
-           (drilldown :status
-                      "Inspect graph freshness and evidence status"
-                      (inspect-command map-path)
-                      "ygg_status"
-                      (cond-> {}
-                        map-path (assoc :mapPath map-path)))]
-    map-path (conj (drilldown :docs
-                              "Audit accepted documentation attachments"
-                              (docs-audit-command project-id map-path)
-                              nil
-                              nil))))
+  [query-text project-id]
+  [(drilldown :query
+              "Continue graph query"
+              (query-command query-text project-id)
+              "ygg_query"
+              (cond-> {:query query-text}
+                project-id (assoc :projectId project-id)))
+   (drilldown :systems
+              "Inspect project systems graph"
+              (project-command "view systems" project-id)
+              "ygg_systems"
+              (cond-> {}
+                project-id (assoc :projectId project-id)))
+   (drilldown :status
+              "Inspect graph freshness and evidence status"
+              (inspect-command)
+              "ygg_status"
+              nil)
+   (drilldown :docs
+              "Audit accepted documentation attachments"
+              (docs-audit-command project-id)
+              nil
+              nil)])
 
 (defn- sync-command
   [& args]
@@ -2869,9 +2893,8 @@
     50))
 
 (defn- status-mcp
-  [map-path]
-  (cond-> {:mcpTool "ygg_status"}
-    map-path (assoc :mcpArgs {:mapPath map-path})))
+  []
+  {:mcpTool "ygg_status"})
 
 (defn- extractor-plugin-registry-command
   []
@@ -2886,9 +2909,8 @@
   "bb plugin gap extractor <package-dir> <repo-root> <file> --json")
 
 (defn- next-actions
-  ([counts retrieval project-id] (next-actions counts retrieval project-id nil nil))
-  ([counts retrieval project-id freshness] (next-actions counts retrieval project-id freshness nil))
-  ([counts retrieval project-id freshness map-path]
+  ([counts retrieval project-id] (next-actions counts retrieval project-id nil))
+  ([counts retrieval project-id freshness]
    (->> (cond-> (freshness-actions freshness)
           (zero? (:files counts 0))
           (conj {:kind :source-files
@@ -2906,7 +2928,7 @@
                         :label "Inspect extractor diagnostics"
                         :count (:diagnostics counts)
                         :command (command/command "ygg" "sync" "coverage" "<project.edn>" "--json")}
-                       (status-mcp map-path)))
+                       (status-mcp)))
 
           (pos? (:skipped-files counts 0))
           (conj (merge {:kind :coverage
@@ -2916,7 +2938,7 @@
                         :pluginRegistryCommand (extractor-plugin-registry-command)
                         :pluginScaffoldCommand (extractor-plugin-scaffold-command)
                         :pluginGapCommand (extractor-plugin-gap-command)}
-                       (status-mcp map-path)))
+                       (status-mcp)))
 
           (zero? (:search-docs counts))
           (conj {:kind :docs
@@ -3021,7 +3043,7 @@
                                  :unsupported unsupported-planes
                                  :counts counts})
         freshness (:freshness opts)
-        actions (next-actions counts retrieval (:project-id opts) freshness (:map-path opts))]
+        actions (next-actions counts retrieval (:project-id opts) freshness)]
     {:basis "query-scoped-mechanical-readiness"
      :status (evidence-readiness-status missing weak retrieval match-counts freshness)
      :available available
@@ -3038,8 +3060,8 @@
   "Return compact graph/doc context for an agent query."
   [xtdb query-text {:keys [budget entity-limit edge-limit doc-limit snippet-chars
                            retrieval-limit
-                           retriever embedding-client project-id repo-id map-path
-                           map-overlay min-confidence read-context freshness plugins
+                           retriever embedding-client project-id repo-id
+                           correction-overlay min-confidence read-context freshness plugins
                            output proof-commands? query-input]
                     :or {budget default-budget
                          entity-limit default-entity-limit
@@ -3054,7 +3076,7 @@
     (throw (ex-info "Missing context query text." {})))
   (when (str/blank? (str project-id))
     (throw (ex-info "Context query requires --project." {})))
-  (let [overlay (resolve-map-overlay map-path map-overlay project-id)
+  (let [overlay (resolve-correction-overlay xtdb nil correction-overlay project-id)
         query-tokens (text/tokenize query-text)
         search-report (query/search-report xtdb
                                            query-text
@@ -3087,8 +3109,7 @@
                                        project-id
                                        {:limit graph/default-node-limit
                                         :min-confidence min-confidence
-                                        :map-path map-path
-                                        :map-overlay map-overlay
+                                        :correction-overlay correction-overlay
                                         :read-context read-context})
         entities (select-entities query-tokens results graph-data entity-limit)
         edges (select-edges query-tokens entities graph-data edge-limit)
@@ -3108,6 +3129,12 @@
                                            {:project-id project-id
                                             :read-context read-context
                                             :target-ids targets})
+        memories (memory/context-memories xtdb
+                                          query-text
+                                          {:project-id project-id
+                                           :repo-id repo-id
+                                           :read-context read-context
+                                           :target-ids targets})
         selected-system-ids (concat (map :id entities)
                                     (map :id accepted-systems))
         system-evidence (selected-system-evidence
@@ -3120,7 +3147,7 @@
         dependency-report (dependency/package-report xtdb
                                                      {:project-id project-id
                                                       :repo-id repo-id}
-                                                     {:map-overlay overlay})
+                                                     {:correction-overlay overlay})
         runtime-evidence (select-system-evidence query-tokens
                                                  selected-system-ids
                                                  candidate-inputs
@@ -3129,7 +3156,7 @@
         warnings (cond-> []
                    (empty? entities)
                    (conj "no graph entities matched the query"))
-        drilldowns (context-drilldowns query-text project-id map-path)
+        drilldowns (context-drilldowns query-text project-id)
         docs (->> (concat (attached-docs overlay chunks snippet-chars targets)
                           (inferred-docs query-tokens
                                          candidate-inputs
@@ -3170,6 +3197,7 @@
                                                              :durable-search-docs])}
                                  {:entity-count (count entities)
                                   :doc-count (count docs)
+                                  :memory-count (count memories)
                                   :activity-count (count activity)
                                   :runtime-count (count runtime-evidence)
                                   :validation-count (count (filter #(some (fn [event]
@@ -3203,26 +3231,27 @@
         plugin-packages (get plugins :packages)
         blast-radius (blast-radius entities edges)
         output-mode (keyword (or output default-output))
-        packet (cond-> (base-packet query-text
-                                    budget
-                                    graph-data
-                                    entities
-                                    edges
-                                    activity
-                                    warnings
-                                    drilldowns
-                                    evidence
-                                    search-context
-                                    freshness
-                                    source-coverage
-                                    architecture
-                                    systems
-                                    audit-scopes
-                                    (relationship-groups edges)
-                                    blast-radius
-                                    candidate-file-rows
-                                    source-declarations
-                                    plugin-packages)
+        packet (cond-> (base-packet {:query-text query-text
+                                     :budget budget
+                                     :graph-data graph-data
+                                     :entities entities
+                                     :edges edges
+                                     :activity activity
+                                     :warnings warnings
+                                     :drilldowns drilldowns
+                                     :evidence evidence
+                                     :search-instrumentation search-context
+                                     :freshness freshness
+                                     :source-coverage source-coverage
+                                     :architecture architecture
+                                     :systems systems
+                                     :audit-scopes audit-scopes
+                                     :relationships (relationship-groups edges)
+                                     :blast-radius blast-radius
+                                     :candidate-files candidate-file-rows
+                                     :source-declarations source-declarations
+                                     :plugin-packages plugin-packages
+                                     :memories memories})
                  (seq (compact-query-input query-input))
                  (assoc :input query-input))
         packet (if (= :compact output-mode)
@@ -3261,10 +3290,10 @@
 
 (defn docs-for
   "Return attached docs for target with resolved snippets where possible."
-  [xtdb target {:keys [project-id map-path map-overlay snippet-chars read-context]
+  [xtdb target {:keys [project-id correction-overlay snippet-chars read-context]
                 :or {snippet-chars default-snippet-chars}}]
-  (let [overlay (resolve-map-overlay map-path map-overlay project-id)
-        attachments (graph-map/docs-for-target overlay target)
+  (let [overlay (resolve-correction-overlay xtdb nil correction-overlay project-id)
+        attachments (correction-overlay/docs-for-target overlay target)
         chunks (attachment-chunks xtdb
                                   attachments
                                   {:project-id project-id
@@ -3276,8 +3305,8 @@
 
 (defn docs-audit
   "Return maintenance findings for doc attachments and mapped systems."
-  [xtdb {:keys [project-id map-path map-overlay read-context]}]
-  (let [overlay (resolve-map-overlay map-path map-overlay project-id)
+  [xtdb {:keys [project-id correction-overlay read-context]}]
+  (let [overlay (resolve-correction-overlay xtdb nil correction-overlay project-id)
         systems (:systems overlay)
         docs (:docs overlay)
         chunks (attachment-chunks xtdb

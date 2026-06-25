@@ -67,9 +67,8 @@
 
 (defn sync-args
   "Return canonical sync args for watch-triggered refresh."
-  [{:keys [config-path repo-id map-path query-index?]}]
+  [{:keys [config-path repo-id query-index?]}]
   (cond-> ["sync" config-path "--repo" repo-id "--check"]
-    map-path (into ["--map" map-path])
     query-index? (conj "--query-index")))
 
 (defn refresh!

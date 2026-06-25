@@ -2,7 +2,7 @@
 
 Plugin packages make extractor and report plugins shareable over git without
 promoting them into Yggdrasil core. A package is trusted local code: install pins a
-git revision into `.dev/ygg/plugins/cache`, records the package in
+git revision into `.ygg/plugins/cache`, records the package in
 `project.edn`, and ordinary `sync` / `report` commands load the resolved local
 manifest.
 
@@ -23,7 +23,7 @@ Useful flags:
 
 - `--ref REF`: branch, tag, or commit to check out before pinning.
 - `--subdir DIR`: package directory inside a larger git repo.
-- `--cache-dir DIR`: local clone cache; defaults to `.dev/ygg/plugins/cache`
+- `--cache-dir DIR`: local clone cache; defaults to `.ygg/plugins/cache`
   relative to `project.edn`.
 - `--force`: replace an already installed package with the same package id.
 - `--json`: emit machine-readable install/update/list output.
@@ -51,7 +51,7 @@ Install writes a `:kind :package` entry under `:plugins` in `project.edn`:
             :ref "v0.1.0"
             :rev "..."
             :subdir "packages/datastar-hiccup"}
-   :path "/abs/project/.dev/ygg/plugins/cache/.../packages/datastar-hiccup"
+   :path "/abs/project/.ygg/plugins/cache/.../packages/datastar-hiccup"
    :manifest "ygg.plugin.edn"
    :manifest-fingerprint "sha256:..."
    :installed-at-ms 1790000000000}]}
@@ -68,7 +68,7 @@ or commit.
 
 Remove a package from a project with `bb plugin remove <project.edn>
 <package-id>`. This edits only the package entries under `:plugins` in `project.edn`;
-cached git checkouts stay under `.dev/ygg/plugins/cache` and can be reused by
+cached git checkouts stay under `.ygg/plugins/cache` and can be reused by
 installing again.
 
 Yggdrasil recomputes the manifest fingerprint when a package is read. If the
@@ -81,18 +81,18 @@ when an installed entry id no longer matches the package manifest id.
 Start with a local scaffold:
 
 ```sh
-bb plugin new .dev/ygg/plugins/datastar-hiccup --id datastar-hiccup
-bb plugin validate .dev/ygg/plugins/datastar-hiccup
-bb plugin diagnose .dev/ygg/plugins/datastar-hiccup
-bb plugin core-check .dev/ygg/plugins/datastar-hiccup
-bb plugin input extractor .dev/ygg/plugins/datastar-hiccup . src/page.clj --json
-bb plugin input report .dev/ygg/plugins/datastar-hiccup --json
-bb plugin gap extractor .dev/ygg/plugins/datastar-hiccup . src/page.clj --json
-bb plugin gap report .dev/ygg/plugins/datastar-hiccup --json
-bb plugin dry-run extractor .dev/ygg/plugins/datastar-hiccup . src/page.clj --json
-bb plugin dry-run report .dev/ygg/plugins/datastar-hiccup --json
-bb plugin registry validate .dev/ygg/plugins/registry.edn
-bb plugin registry install .dev/ygg/plugins/registry.edn project.edn datastar-hiccup
+bb plugin new .ygg/plugins/datastar-hiccup --id datastar-hiccup
+bb plugin validate .ygg/plugins/datastar-hiccup
+bb plugin diagnose .ygg/plugins/datastar-hiccup
+bb plugin core-check .ygg/plugins/datastar-hiccup
+bb plugin input extractor .ygg/plugins/datastar-hiccup . src/page.clj --json
+bb plugin input report .ygg/plugins/datastar-hiccup --json
+bb plugin gap extractor .ygg/plugins/datastar-hiccup . src/page.clj --json
+bb plugin gap report .ygg/plugins/datastar-hiccup --json
+bb plugin dry-run extractor .ygg/plugins/datastar-hiccup . src/page.clj --json
+bb plugin dry-run report .ygg/plugins/datastar-hiccup --json
+bb plugin registry validate .ygg/plugins/registry.edn
+bb plugin registry install .ygg/plugins/registry.edn project.edn datastar-hiccup
 ```
 
 `plugin new` writes `ygg.plugin.edn`, Python extractor/report examples, a
@@ -108,7 +108,7 @@ For unsupported file families, keep the package external and pass explicit
 scaffold options instead of adding project-specific rules to core:
 
 ```sh
-bb plugin new .dev/ygg/plugins/htmx \
+bb plugin new .ygg/plugins/htmx \
   --id htmx \
   --extractor \
   --file-kind htmx \
@@ -346,7 +346,7 @@ Run:
 ```sh
 bb plugin registry list registry.edn --query datastar
 bb plugin registry validate registry.edn --json
-bb plugin registry install registry.edn project.edn datastar-hiccup --cache-dir .dev/ygg/plugins/cache
+bb plugin registry install registry.edn project.edn datastar-hiccup --cache-dir .ygg/plugins/cache
 ```
 
 `plugin registry list` is the consumer-facing discovery command. It reads the

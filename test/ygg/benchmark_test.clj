@@ -14,7 +14,6 @@
                                                 spit-file!
                                                 spit-json!
                                                 temp-dir]]
-            [ygg.map-store :as map-store]
             [ygg.xtdb :as store]
             [charred.api :as json]
             [clojure.edn :as edn]
@@ -1382,10 +1381,10 @@
                                :acceptedSystems [{:id "system:repo:path/src"
                                                   :label "src"
                                                   :status "accepted"}]
-                               :rejectedCorrections [{:kind "map-reject"
-                                                      :id "map-reject:1"
+                               :rejectedCorrections [{:kind "correction-reject"
+                                                      :id "correction-reject:1"
                                                       :status "rejected"
-                                                      :provenance "map-overlay"
+                                                      :provenance "correction-overlay"
                                                       :match {:path "old/src"}
                                                       :reason "old boundary was rejected"}]
                                :boundaryEvidence [{:id "edge:src-db"
@@ -1427,9 +1426,9 @@
                                                                {:kind :dependency-review
                                                                 :label "Queue unresolved import review"
                                                                 :command "ygg sync project.edn --check --enqueue"}]}]
-                               :nextActions [{:kind :inspect
-                                              :target "system:repo:path/src"
-                                              :command "ygg sync explain system:repo:path/src --map ygg.map.json"}]}
+	                               :nextActions [{:kind :inspect
+	                                              :target "system:repo:path/src"
+	                                              :command "ygg corrections explain system:repo:path/src --project project"}]}
                 :auditScopes [{:kind "source-structure"
                                :basis "selected-architecture-evidence"
                                :facts 1
@@ -1560,11 +1559,11 @@
                                   :host "api.example.test"}]
              :metrics {:file-count 2}}]
            (:candidateSystems hints)))
-    (is (= ["ygg query 'broken app' --project project"
-            "ygg packages --project project --json"
-            "ygg sync explain system:repo:path/src --map ygg.map.json"
-            "ygg sync project.edn --check --enqueue"]
-           (:commands hints)))
+	    (is (= ["ygg query 'broken app' --project project"
+	            "ygg packages --project project --json"
+	            "ygg corrections explain system:repo:path/src --project project"
+	            "ygg sync project.edn --check --enqueue"]
+	           (:commands hints)))
     (is (= {:rawCandidateFiles 1
             :candidateFiles 1
             :coverageFilteredCandidateFiles 0
@@ -1580,10 +1579,10 @@
                                :label "src"
                                :status "accepted"}]
             :candidateSystems []
-            :rejectedCorrections [{:kind "map-reject"
-                                   :id "map-reject:1"
+            :rejectedCorrections [{:kind "correction-reject"
+                                   :id "correction-reject:1"
                                    :status "rejected"
-                                   :provenance "map-overlay"
+                                   :provenance "correction-overlay"
                                    :match {:path "old/src"}
                                    :reason "old boundary was rejected"}]
             :boundaryEvidence [{:id "edge:src-db"
@@ -1628,10 +1627,10 @@
                                              :label "Queue unresolved import review"
                                              :command "ygg sync project.edn --check --enqueue"}]}]
             :warnings []
-            :nextActions [{:kind :inspect
-                           :target "system:repo:path/src"
-                           :command "ygg sync explain system:repo:path/src --map ygg.map.json"}]}
-           (:architecture hints)))
+	            :nextActions [{:kind :inspect
+	                           :target "system:repo:path/src"
+	                           :command "ygg corrections explain system:repo:path/src --project project"}]}
+	           (:architecture hints)))
     (is (= [{:kind "source-structure"
              :basis "selected-architecture-evidence"
              :facts 1
@@ -2434,7 +2433,7 @@
                                   :status "available"}
                                  {:family "validation-history"
                                   :status "available"}
-                                 {:family "map-overlay"
+                                 {:family "correction-overlay"
                                   :status "available"}]}]
     (spit-json! root
                 "suite/cases/case-1/agent-results/codex.json"
@@ -2568,16 +2567,13 @@
               :result-schema-missing-result-items 0
               :result-schema-unexpected-result-items 0
               :result-schema-mismatch-events 0}
-             (get-in family-by-name [:validation-history :counts])))
-      (is (= :available (get-in family-by-name [:map-overlay :status])))
-      (is (= 1 (get-in family-by-name [:map-overlay :counts :map-file])))
-      (is (.isFile (io/file (benchmark-paths/agent-map-path suite case opts)))))))
+             (get-in family-by-name [:validation-history :counts]))))))
 
-(deftest benchmark-agent-map-includes-case-map-overlay-package-imports
-  (let [root (temp-dir "ygg-bench-case-map-overlay")
+(deftest benchmark-agent-corrections-include-case-overlay-package-imports
+  (let [root (temp-dir "ygg-bench-case-correction-overlay")
         suite {:id "suite"}
         case {:id "case-1"
-              :map-overlay {:packageImports [{:repo "repo"
+              :correction-overlay {:packageImports [{:repo "repo"
                                               :import "LinqToDB"
                                               :ecosystem :nuget
                                               :package "linq2db.SqlServer"
@@ -2588,38 +2584,47 @@
                                               :package "linq2db.SqlServer"
                                               :reason "Duplicate should be ignored."}]}}
         opts {:out root}
-        prepared {:project-id "suite-case-1"}
-        map-path (benchmark-maintenance/prepare-agent-map! suite case prepared opts)
-        _ (benchmark-maintenance/prepare-agent-map! suite case prepared opts)
-        overlay (map-store/read-map map-path)]
-    (is (= "suite-case-1" (:project overlay)))
-    (is (= [{:import "LinqToDB"
-             :ecosystem "nuget"
-             :package "linq2db.SqlServer"
-             :status "accepted"
-             :repo "repo"
-             :reason "Reviewed package import mapping."}]
-           (:packageImports overlay)))))
+        prepared {:project-id "suite-case-1"}]
+    (store/with-node (benchmark-paths/xtdb-dir suite case opts)
+      (fn [xtdb]
+        (let [_ (benchmark-maintenance/prepare-agent-corrections! xtdb case prepared opts)
+              _ (benchmark-maintenance/prepare-agent-corrections! xtdb case prepared opts)
+              overlay (benchmark-maintenance/prepare-agent-overlay! xtdb case prepared opts)]
+          (is (= "suite-case-1" (:project overlay)))
+          (is (= [{:import "LinqToDB"
+                   :ecosystem "nuget"
+                   :package "linq2db.SqlServer"
+                   :status "accepted"
+                   :repo "repo"
+                   :reason "Reviewed package import mapping."
+                   :confidence 1.0
+                   :rules "agent"}]
+                 (:packageImports overlay))))))))
 
-(deftest benchmark-agent-map-rejects-incomplete-case-map-overlay-package-imports
-  (let [root (temp-dir "ygg-bench-case-map-overlay-invalid")
+(deftest benchmark-agent-corrections-reject-incomplete-case-overlay-package-imports
+  (let [root (temp-dir "ygg-bench-case-correction-overlay-invalid")
         suite {:id "suite"}
         case {:id "case-1"
-              :map-overlay {:packageImports [{:repo "repo"
+              :correction-overlay {:packageImports [{:repo "repo"
                                               :import "LinqToDB"
                                               :ecosystem :nuget
                                               :reason "Missing package should fail."}]}}
         opts {:out root}
-        prepared {:project-id "suite-case-1"}
-        map-path (benchmark-paths/agent-map-path suite case opts)]
-    (try
-      (benchmark-maintenance/prepare-agent-map! suite case prepared opts)
-      (is false "expected incomplete package import to fail")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= {:missing-fields [:package]
-                :required-fields [:import :ecosystem :package]}
-               (select-keys (ex-data e) [:missing-fields :required-fields])))))
-    (is (not (.exists (io/file map-path))))))
+        prepared {:project-id "suite-case-1"}]
+    (store/with-node (benchmark-paths/xtdb-dir suite case opts)
+      (fn [xtdb]
+        (try
+          (benchmark-maintenance/prepare-agent-corrections! xtdb case prepared opts)
+          (is false "expected incomplete package import to fail")
+          (catch clojure.lang.ExceptionInfo e
+            (is (= {:missing-fields [:package]
+                    :required-fields [:import :ecosystem :package]}
+                   (select-keys (ex-data e) [:missing-fields :required-fields])))))
+        (is (= [] (:packageImports (benchmark-maintenance/prepare-agent-overlay!
+                                     xtdb
+                                     {:id "empty"}
+                                     prepared
+                                     opts))))))))
 
 (deftest context-ground-truth-ranks-show-context-misses-separately
   (let [root (temp-dir "ygg-bench-context-ground-truth")

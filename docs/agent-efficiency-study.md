@@ -24,7 +24,7 @@ chosen problem-class tags such as `:problem-localization`,
 `:problem-cross-file-change`, `:problem-architecture`,
 `:problem-dependency-upgrade`, `:problem-runtime-config`,
 `:problem-api-contract`, or `:problem-refactor`. These are benchmark labels, not
-Yggdrasil core semantics. `bb efficiency` compares the shared `byTag` groups from
+Yggdrasil core semantics. `bb bench efficiency` compares the shared `byTag` groups from
 each `agent-report.json`, so the summary can show which classes improve,
 regress, or remain shell-sufficient.
 
@@ -112,7 +112,7 @@ bb bench agent-run benchmarks/agent-efficiency-broad.edn \
 Set `YGG_CODEX_MODEL`, `YGG_CODEX_EXTRA_ARGS`, or `YGG_CODEX_BIN` to tune the
 Codex invocation without changing benchmark commands. The wrapper reads Codex
 JSONL output and writes `$YGG_BENCH_TOKEN_USAGE` when usage telemetry is present,
-so `bb efficiency` can compare end-to-end task tokens for the shell-only and
+so `bb bench efficiency` can compare end-to-end task tokens for the shell-only and
 Yggdrasil lanes.
 
 For the common broad comparison, prefer the helper:
@@ -200,7 +200,7 @@ bb bench agent-report benchmarks/agent-efficiency-broad.edn \
 Compare the two reports without changing benchmark scoring:
 
 ```sh
-bb efficiency \
+bb bench efficiency \
   .dev/ygg/agent-efficiency/shell-only/agent-report.json \
   .dev/ygg/agent-efficiency/ygg/agent-report.json \
   --out .dev/ygg/agent-efficiency/summary.json \
@@ -218,7 +218,7 @@ writes `claim-pack.json`, `CLAIM-PACK.md`, `efficiency-summary.json`,
 `efficiency-summary.md`, and `system-improvement-report.json` under the local
 headline output root. Use `bb headline all --skip-token-check` only for
 diagnostic runs that are not making token-use claims. Use the lower-level
-`bb efficiency` command only when you need a raw shell-only versus Yggdrasil
+`bb bench efficiency` command only when you need a raw shell-only versus Yggdrasil
 comparison without the bundled proof artifacts.
 
 Read `claim-pack.json` `summary.verdict` first, then inspect
@@ -246,13 +246,13 @@ Use existing benchmark report fields first:
   `yggArtifactProjectionCommandCount` is lower-is-better because it measures
   agent work spent projecting Ygg hint/context artifacts instead of using a
   compact packet directly. If only observed metrics are available,
-  `bb efficiency` reports `observed-only` instead of a win or loss, and broad
+  `bb bench efficiency` reports `observed-only` instead of a win or loss, and broad
   claim readiness remains blocked until directional metrics are available.
-  When reports include compound-command segment counters, `bb efficiency`
+  When reports include compound-command segment counters, `bb bench efficiency`
   compares broad search, file-read, and projection segment counts as
   lower-is-better command telemetry too.
 - token cost: `agentDiagnostics.tokenTelemetry` input, output, total token, and
-  cost totals when agent results include `tokenUsage`. `bb efficiency` compares
+  cost totals when agent results include `tokenUsage`. `bb bench efficiency` compares
   these as lower-is-better and emits a `qualityCostTradeoff` summary when token
   telemetry is present. It also emits per-shared-task token comparisons under
   `caseDeltas[].taskTokenDeltas`, and the Markdown report includes
@@ -266,7 +266,7 @@ Use existing benchmark report fields first:
   `--max-cost-usd`, `--max-case-total-tokens`, `--max-case-input-tokens`,
   `--max-case-output-tokens`, and `--max-case-cost-usd`; configured token gates
   fail when token usage is absent.
-- task fit: `bb efficiency` `classSignals` for compact problem-class and
+- task fit: `bb bench efficiency` `classSignals` for compact problem-class and
   architecture-class rows. Use each row's `measured` flag to distinguish a
   shared class-shaped tag from a class that counts toward claim readiness; fall
   back to `byTag.groups` only when inspecting arbitrary non-class tags. Use

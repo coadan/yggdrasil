@@ -88,9 +88,7 @@
         result-path (benchmark-paths/agent-baseline-result-path suite case opts)
         context-path (benchmark-paths/agent-baseline-context-path suite case opts)
         progress-path (benchmark-paths/progress-path suite case opts)
-        agent-id (benchmark-paths/agent-baseline-id opts)
-        map-path (benchmark-maintenance/prepare-agent-map! suite case prepared opts)
-        map-overlay (benchmark-maintenance/agent-map-overlay map-path)]
+        agent-id (benchmark-paths/agent-baseline-id opts)]
     (benchmark-progress/progress-stage!
      suite
      case
@@ -102,6 +100,11 @@
     (store/with-node (benchmark-paths/xtdb-dir suite case opts)
       (fn [xtdb]
         (let [parser-worker (benchmark-agent-packet/parser-worker-profile opts)
+              correction-overlay (benchmark-maintenance/prepare-agent-overlay!
+                           xtdb
+                           case
+                           prepared
+                           opts)
               index-summary (benchmark-progress/progress-stage!
                              suite
                              case
@@ -113,7 +116,7 @@
                                   (project/index-project! xtdb
                                                           bench-project
                                                           (assoc (benchmark-index-options opts)
-                                                                 :map-overlay map-overlay))))
+                                                                 :correction-overlay correction-overlay))))
                              #(select-keys % [:files :repos :rows :extractors]))
               system-summary (benchmark-progress/progress-stage!
                               suite
@@ -132,8 +135,7 @@
                         xtdb
                         (get-in prepared [:input :queryText])
                         (assoc (agent-baseline-context-options prepared opts)
-                               :map-path map-path
-                               :map-overlay map-overlay))
+                               :correction-overlay correction-overlay))
                       (fn [packet]
                         {:docs (count (:docs packet))
                          :entities (count (:entities packet))
@@ -227,7 +229,6 @@
                         :parserWorker parser-worker
                         :suspectLimit (agent-baseline-suspect-limit opts)
                         :artifacts {:projectConfig project-path
-                                    :mapPath map-path
                                     :agentResultPath (fs/canonical-path result-path)
                                     :contextPacketPath (fs/canonical-path context-path)
                                     :agentScorePath (fs/canonical-path score-path)

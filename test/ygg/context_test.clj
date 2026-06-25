@@ -3,6 +3,8 @@
             [ygg.context-architecture :as context-architecture]
             [ygg.activity :as activity]
             [ygg.coverage :as coverage]
+            [ygg.correction-overlay :as correction-overlay]
+            [ygg.corrections :as corrections]
             [ygg.dependency :as dependency]
             [ygg.graph :as graph]
             [ygg.query :as query]
@@ -593,26 +595,22 @@
            :command "ygg query 'billing flow' --project 'fixture project' --json"
            :mcpTool "ygg_query"
            :mcpArgs {:query "billing flow"
-                     :projectId "fixture project"
-                     :mapPath "maps/ygg map.json"}}
+                     :projectId "fixture project"}}
           {:kind :systems
            :label "Inspect project systems graph"
            :command "ygg view systems --project 'fixture project'"
            :mcpTool "ygg_systems"
-           :mcpArgs {:projectId "fixture project"
-                     :mapPath "maps/ygg map.json"}}
+           :mcpArgs {:projectId "fixture project"}}
           {:kind :status
            :label "Inspect graph freshness and evidence status"
-           :command "ygg sync inspect <project.edn> --map 'maps/ygg map.json' --json"
-           :mcpTool "ygg_status"
-           :mcpArgs {:mapPath "maps/ygg map.json"}}
+           :command "ygg sync inspect <project.edn> --json"
+           :mcpTool "ygg_status"}
           {:kind :docs
            :label "Audit accepted documentation attachments"
-           :command "ygg sync docs audit --project 'fixture project' --map 'maps/ygg map.json'"}]
+           :command "ygg sync docs audit --project 'fixture project'"}]
          (#'context/context-drilldowns
           "billing flow"
-          "fixture project"
-          "maps/ygg map.json"))))
+          "fixture project"))))
 
 (deftest evidence-next-actions-keep-coverage-when-capped
   (let [actions (#'context/next-actions
@@ -663,7 +661,7 @@
           {:retriever :auto
            :retriever-effective :lexical}))))
 
-(deftest evidence-coverage-actions-include-status-mcp-when-map-path-is-known
+(deftest evidence-coverage-actions-include-status-mcp
   (let [actions (#'context/next-actions
                  {:files 1
                   :nodes 1
@@ -684,14 +682,12 @@
                   :effective :lexical
                   :fallback? false}
                  "fixture"
-                 nil
-                 "ygg.map.json")]
+                 nil)]
     (is (= [{:kind :coverage
              :label "Inspect extractor diagnostics"
              :count 2
              :command "ygg sync coverage <project.edn> --json"
-             :mcpTool "ygg_status"
-             :mcpArgs {:mapPath "ygg.map.json"}}
+             :mcpTool "ygg_status"}
             {:kind :coverage
              :label "Inspect skipped source candidates"
              :count 3
@@ -699,8 +695,7 @@
              :pluginRegistryCommand "bb plugin registry list <registry.edn> --kind extractor --query <file-kind-or-extension>"
              :pluginScaffoldCommand "bb plugin new <package-dir> --extractor --file-kind <file-kind> --path-glob '<glob>' --fixture fixtures/sample.<ext>"
              :pluginGapCommand "bb plugin gap extractor <package-dir> <repo-root> <file> --json"
-             :mcpTool "ygg_status"
-             :mcpArgs {:mapPath "ygg.map.json"}}]
+             :mcpTool "ygg_status"}]
            (filterv #(= :coverage (:kind %)) actions)))))
 
 (deftest evidence-surfaces-stale-freshness
@@ -711,7 +706,7 @@
                    :nextActions [{:kind :freshness
                                   :label "Refresh indexed graph basis"
                                   :count 2
-                                  :command "ygg sync project.edn --check --map ygg.map.json"}]}
+                                  :command "ygg sync project.edn --check"}]}
         counts {:files 1
                 :nodes 1
                 :edges 1
@@ -1290,7 +1285,7 @@
                                                    :search-docs 1
                                                    :chunks 3
                                                    :embeddings 0
-                                                   :map-systems 1
+                                                   :correction-systems 1
                                                    :activity-items 0}
                                           :missing [:embeddings]
                                           :weak []})
@@ -1325,7 +1320,7 @@
                           :searchDocs 1
                           :chunks 3
                           :embeddings 0
-                          :mapSystems 1
+                          :correctionSystems 1
                           :activityItems 0}
               :systemGraph {:nodeKinds [{:value "accepted-system"
                                          :count 1}
@@ -1402,7 +1397,7 @@
                                                :kind "service"
                                                :repo "app"
                                                :pathPrefix "src/billing"
-                                               :source "map-overlay"}
+                                               :source "correction-overlay"}
                                               {:id "system:worker"
                                                :label "Worker"
                                                :kind "candidate-system"
@@ -1518,7 +1513,7 @@
                   "billing worker boundary"
                   {:project-id "fixture"
                    :retriever :lexical
-                   :map-overlay {:systems [{:id "system:billing"
+                   :correction-overlay {:systems [{:id "system:billing"
                                             :label "Billing"
                                             :kind "service"
                                             :repo "app"
@@ -1574,10 +1569,10 @@
                                     :candidateEvidence
                                     :why])
                    (:candidateSystems architecture))))
-      (is (= [{:kind "map-reject"
-               :id "map-reject:1"
+      (is (= [{:kind "correction-reject"
+               :id "correction-reject:1"
                :status "rejected"
-               :provenance "map-overlay"
+               :provenance "correction-overlay"
                :match {:repo "app"
                        :kind "candidate-system"
                        :path "src/worker"}
@@ -1643,7 +1638,7 @@
               {:kind "map-corrections"
                :basis "selected-architecture-evidence"
                :facts 1
-               :topEvidenceTypes [{:kind "map-reject"
+               :topEvidenceTypes [{:kind "correction-reject"
                                    :count 1}]}
               {:kind "dependencies"
                :basis "selected-architecture-evidence"
@@ -1687,10 +1682,10 @@
                :section "boundaryEvidence"}]
              (mapv #(dissoc % :score)
                    (get-in packet [:auditScopes 0 :samples]))))
-      (is (= [{:id "map-reject:1"
-               :kind "map-reject"
+      (is (= [{:id "correction-reject:1"
+               :kind "correction-reject"
                :status "rejected"
-               :provenance "map-overlay"
+               :provenance "correction-overlay"
                :match {:repo "app"
                        :kind "candidate-system"
                        :path "src/worker"}
@@ -1844,7 +1839,7 @@
                   "billing api"
                   {:project-id "fixture"
                    :retriever :lexical
-                   :map-overlay {:systems [{:id "system:billing"
+                   :correction-overlay {:systems [{:id "system:billing"
                                             :label "Billing"
                                             :repo "app"
                                             :includes [{:repo "app"
@@ -1935,7 +1930,7 @@
                     {:project-id "fixture"
                      :repo-id "app"
                      :retriever :lexical
-                     :map-overlay {:systems [{:id "system:billing"
+                     :correction-overlay {:systems [{:id "system:billing"
                                               :label "Billing"
                                               :repo "app"
                                               :includes [{:repo "app"
@@ -3752,6 +3747,8 @@
 
 (deftest context-packet-loads-docs-for-source-graph-file-candidates
   (with-redefs [store/xtdb-handle? (constantly true)
+                corrections/overlay (fn [_ project-id]
+                                      (correction-overlay/empty-overlay project-id))
                 query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema
                                        :query-run-id "query:test"
@@ -3918,6 +3915,8 @@
 (deftest context-packet-ranks-source-graph-candidates-before-low-score-results
   (with-redefs [context/candidate-input-retrieval-prefix-limit 0
                 store/xtdb-handle? (constantly true)
+                corrections/overlay (fn [_ project-id]
+                                      (correction-overlay/empty-overlay project-id))
                 query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema
                                        :query-run-id "query:test"

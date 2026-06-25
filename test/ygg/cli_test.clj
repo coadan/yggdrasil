@@ -1,9 +1,12 @@
 (ns ygg.cli-test
   (:require [ygg.affected :as affected]
+            [ygg.agent-efficiency :as agent-efficiency]
             [ygg.agent-install :as agent-install]
             [ygg.benchmark :as benchmark]
+            [ygg.benchmark-repos :as benchmark-repos]
             [ygg.cli :as cli]
             [ygg.cli-bench :as cli-bench]
+            [ygg.cli-sync :as cli-sync]
             [ygg.embedding.local :as local-embedding]
             [ygg.evidence :as evidence]
             [ygg.hook :as hook]
@@ -11,6 +14,7 @@
             [ygg.index-maintenance-worker :as index-maintenance-worker]
             [ygg.plugin-package :as plugin-package]
             [ygg.project :as project]
+            [ygg.project-registry :as registry]
             [ygg.report :as report]
             [ygg.watch :as watch]
             [ygg.xtdb :as store]
@@ -47,9 +51,11 @@
     (is (str/includes? usage "Plugins:"))
     (is (str/includes? usage "Agent integration:"))
     (is (str/includes? usage "Server integration:"))
-    (is (str/includes? usage "start <repo-root>"))
-    (is (str/includes? usage "sync inspect [<project.edn>] [--project ID] [--map PATH] [--json]"))
-    (is (str/includes? usage "daemon start|status|stop|<cli-command>"))
+    (is (str/includes? usage "init <repo-root>"))
+    (is (str/includes? usage "projects list|show <project-id>|register <project.edn>|remove <project-id>"))
+    (is (str/includes? usage "sync inspect [<project.edn>] [--project ID] [--json]"))
+    (is (str/includes? usage "  start"))
+    (is (str/includes? usage "status [--json]"))
     (is (str/includes? usage "audit-scope [<project.edn>] [--project ID]"))
     (is (str/includes? usage "sync [<project.edn>] [--project ID]"))
     (is (str/includes? usage "init <repo-root>"))
@@ -101,6 +107,10 @@
     (is (str/includes? usage "bench agent-check"))
     (is (str/includes? usage "bench agent-compare"))
     (is (str/includes? usage "bench claim-pack"))
+    (is (str/includes? usage "bench repos check"))
+    (is (str/includes? usage "bench efficiency"))
+    (is (str/includes? usage "memory add --text TEXT"))
+    (is (not (str/includes? usage "memory search")))
     (is (str/includes? usage "sync work heartbeat"))
     (is (str/includes? usage "sync work auto <project.edn>"))
     (is (str/includes? usage "embed setup [--venv PATH] [--python PYTHON] [--json]"))
@@ -118,6 +128,26 @@
     (is (str/includes? usage "--max-missed-and-absent-from-context-runs N"))
     (is (str/includes? usage "--require-parser-worker none|java|dotnet|javascript|typescript|all"))
     (is (not (str/includes? usage "overlay")))))
+
+(deftest projects-register-command-registers-existing-config
+  (let [root (temp-dir "ygg-cli-projects-register")
+        config-path (.getPath (io/file root "project.edn"))
+        registry-path (.getPath (io/file root ".config" "projects.edn"))]
+    (spit config-path
+          (pr-str {:id "demo"
+                   :name "Demo"
+                   :repos [{:id "app"
+                            :root root
+                            :role :application}]}))
+    (with-redefs [registry/registry-path (constantly registry-path)]
+      (let [out (with-out-str
+                  (cli/dispatch "projects" ["register" config-path "--json"]))
+            result (read-json-output out)]
+        (is (= "ygg.project.registry.register/v1" (:schema result)))
+        (is (= "demo" (:project-id result)))
+        (is (= "demo" (get-in result [:project :id])))
+        (is (= (get-in (registry/read-registry) [:projects "demo" :config-path])
+               (:config-path result)))))))
 
 (deftest sync-work-auto-dispatches-to-index-maintenance-worker
   (let [calls (atom [])]
@@ -1102,7 +1132,7 @@
 
 (deftest maintenance-summary-prints-decision-breakdown
   (let [out (with-out-str
-              (#'cli/print-maintenance-report
+              (cli-sync/print-maintenance-report
                (index-maintenance/from-graph-report
                 {:project-id "fixture"
                  :graph-basis {:hash "basis123"}
@@ -1463,11 +1493,11 @@
       (is (str/includes? first-content "unbenchmarked or project-local plugin output as useful review evidence"))
       (is (str/includes? first-content "base-scoped, FOSS/non-commercial packages with benchmark artifacts"))
       (is (str/includes? first-content "ygg query \"<question>\" --project <project-id> --json"))
-      (is (str/includes? first-content "ygg sync check <project.edn> --enqueue"))
+      (is (str/includes? first-content "ygg sync <project.edn> --check --enqueue"))
       (is (str/includes? first-content "ygg sync work list --project <project-id> --status ready"))
       (is (str/includes? first-content "ygg sync work show <work-id>"))
       (is (str/includes? first-content "ygg sync work heartbeat <work-id> --agent codex --lease-minutes 30"))
-      (is (str/includes? first-content "Use `ygg.map.json` only as an explicit portability format"))
+      (is (str/includes? first-content "XTDB-backed correction facts"))
       (is (str/includes? first-content "ygg-mcp --config project.edn"))
       (is (str/includes? first-content "`ygg_query`"))
       (is (str/includes? first-content "`ygg_node`"))
@@ -1549,12 +1579,10 @@
                                                  :opts opts}))]
       (with-out-str
         (cli/dispatch "watch" ["project.edn"
-                               "--map" "ygg.map.json"
                                "--query-index"
                                "--debounce-ms" "25"]))
       (is (= "fixture" (get-in @called [:project :id])))
       (is (= {:config-path "project.edn"
-              :map-path "ygg.map.json"
               :query-index? true
               :debounce-ms 25}
              (:opts @called))))))
@@ -1573,7 +1601,6 @@
                                     :files {:index "/tmp/ygg-out/index.html"}})]
       (let [out (with-out-str
                   (cli/dispatch "report" ["project.edn"
-                                          "--map" "ygg.map.json"
                                           "--out" "bundle"
                                           "--detail" "expanded"
                                           "--force"]))
@@ -1581,7 +1608,6 @@
         (is (= report/schema (:schema parsed)))
         (is (= [[:read "project.edn"]
                 [:report :xtdb "fixture" {:out "bundle"
-                                          :map-path "ygg.map.json"
                                           :detail :expanded
                                           :force? true}]]
                @calls))))))
@@ -2082,4 +2108,66 @@
                   :shell-report "shell/agent-report.json"
                   :ygg-report "ygg/agent-report.json"
                   :min-shared-cases 4}]]
+               @calls))))))
+
+(deftest bench-repos-check-dispatches-to-benchmark-repo-preflight
+  (let [calls (atom [])]
+    (with-redefs [benchmark-repos/check-repos
+                  (fn [opts]
+                    (swap! calls conj [:check opts])
+                    {:schema "ygg.benchmark.repo-check/v1"
+                     :status "passed"
+                     :counts {:repos 1
+                              :ready 1
+                              :missing 0
+                              :not-git 0
+                              :missing-shas 0
+                              :unknown 0}
+                     :repos []})
+                  benchmark-repos/print-human
+                  (fn [check]
+                    (swap! calls conj [:print (:status check)])
+                    (println (str "repo-check=" (:status check))))]
+      (let [out (with-out-str
+                  (cli/dispatch "bench"
+                                ["repos"
+                                 "check"
+                                 "--manifest" "benchmarks/repos.edn"
+                                 "--suite" "benchmarks/custom.edn"
+                                 "--repo" "repo-a"
+                                 "--repo" "repo-b"]))]
+        (is (= "repo-check=passed\n" out))
+        (is (= [[:check {:manifest-path "benchmarks/repos.edn"
+                         :suite-path "benchmarks/custom.edn"
+                         :repo-ids ["repo-a" "repo-b"]}]
+                [:print "passed"]]
+               @calls))))))
+
+(deftest bench-efficiency-dispatches-to-agent-efficiency-comparison
+  (let [calls (atom [])]
+    (with-redefs [agent-efficiency/compare-report-files!
+                  (fn [shell-report ygg-report opts]
+                    (swap! calls conj [:compare shell-report ygg-report opts])
+                    {:schema "ygg.agent-efficiency/v1"
+                     :status "observed"
+                     :byTag {:comparability {:sharedTags 2}}
+                     :classSignals {:summary {:measuredProblemClasses 1
+                                              :measuredArchitectureClasses 1}}})]
+      (let [out (with-out-str
+                  (cli/dispatch "bench"
+                                ["efficiency"
+                                 "shell/agent-report.json"
+                                 "ygg/agent-report.json"
+                                 "--out" ".dev/reports/efficiency.json"
+                                 "--markdown-out" ".dev/reports/efficiency.md"
+                                 "--min-shared-cases" "2"
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= "ygg.agent-efficiency/v1" (:schema parsed)))
+        (is (= [[:compare
+                 "shell/agent-report.json"
+                 "ygg/agent-report.json"
+                 {:out ".dev/reports/efficiency.json"
+                  :markdown-out ".dev/reports/efficiency.md"
+                  :min-shared-cases 2}]]
                @calls))))))

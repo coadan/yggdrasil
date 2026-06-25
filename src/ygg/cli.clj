@@ -3,33 +3,29 @@
   (:require [ygg.agent-install :as agent-install]
             [ygg.audit-scope :as audit-scope]
             [ygg.cli-bench :as cli-bench]
-            [ygg.cli-options :refer [dry-run?
-                                     json-output?
+            [ygg.cli-options :refer [json-output?
                                      option-value
                                      option-values
-                                     parse-depth
                                      parse-double-option
                                      parse-limit
                                      parse-long-option
                                      parse-optional-long
                                      positional-args
-                                     project-scope
-                                     system-path?]]
+                                     project-scope]]
             [ygg.cli-query :as cli-query]
             [ygg.cli-start :as cli-start]
             [ygg.cli-sync :as cli-sync]
             [ygg.context :as context]
+            [ygg.corrections :as corrections]
+            [ygg.corrections-api :as corrections-api]
             [ygg.dependency :as dependency]
             [ygg.embedding :as embedding]
             [ygg.embedding.local :as local-embedding]
             [ygg.evidence :as evidence]
-            [ygg.graph :as graph]
             [ygg.hook :as hook]
-            [ygg.index :as index]
             [ygg.index-maintenance :as index-maintenance]
-            [ygg.map :as graph-map]
-            [ygg.map-api :as map-api]
-            [ygg.map-store :as map-store]
+            [ygg.index-maintenance-worker :as index-maintenance-worker]
+            [ygg.memory :as memory]
             [ygg.metadata :as metadata]
             [ygg.mcp :as mcp]
             [ygg.cli-plugin :as cli-plugin]
@@ -37,8 +33,6 @@
             [ygg.project :as project]
             [ygg.project-registry :as registry]
             [ygg.queue :as queue]
-            [ygg.query :as query]
-            [ygg.report :as report]
             [ygg.system :as system]
             [ygg.system.decision-classifier :as decision-classifier]
             [ygg.watch :as watch]
@@ -63,14 +57,6 @@
     (option-value args "--known-at") (assoc :known-at (option-value args "--known-at"))
     (option-value args "--snapshot-token") (assoc :snapshot-token
                                                   (option-value args "--snapshot-token"))))
-
-(defn- default-map-path
-  [args]
-  (cond
-    (some #{"--no-map"} args) nil
-    (option-value args "--map") (option-value args "--map")
-    (map-store/file-exists? graph-map/default-path) graph-map/default-path
-    :else nil))
 
 (defn- context-config-ref
   [args]
@@ -111,15 +97,15 @@
           nil)))))
 
 (defn- context-packet-freshness
-  [xtdb project-info map-path]
+  [xtdb project-info]
   (when-let [{:keys [project config-path]} project-info]
-    (let [overlay (when (and map-path (map-store/file-exists? map-path))
-                    (map-store/read-map map-path))
+    (let [overlay (when (store/xtdb-handle? xtdb)
+                    (corrections/overlay xtdb (:id project)))
           summary (evidence/summarize xtdb
                                       project
-                                      {:map-overlay overlay
+                                      {:correction-overlay overlay
                                        :config-path config-path
-                                       :map-path map-path})]
+                                       :summary? true})]
       (evidence/packet-freshness summary))))
 
 (defn- comma-keywords
@@ -145,15 +131,13 @@
 
 (defn- context-packet-options
   [xtdb args {:keys [project-id repo-id retriever embedding-client read-context]}]
-  (let [map-path (default-map-path args)
-        project-info (matching-context-project args project-id)
-        freshness (context-packet-freshness xtdb project-info map-path)
+  (let [project-info (matching-context-project args project-id)
+        freshness (context-packet-freshness xtdb project-info)
         plugins (not-empty (get-in project-info [:project :plugins]))]
     (cond-> {:project-id project-id
              :repo-id repo-id
              :retriever retriever
              :embedding-client embedding-client
-             :map-path map-path
              :read-context read-context
              :output (keyword (or (option-value args "--output") "compact"))
              :proof-commands? (boolean (some #{"--proof-commands"} args))
@@ -182,27 +166,214 @@
       plugins
       (assoc :plugins plugins))))
 
-(defn- required-map-path
-  [args]
-  (or (default-map-path args)
-      (throw (ex-info "Missing --map and ygg.map.json was not found."
-                      {:usage (usage)}))))
-
 (defn- validate-work-result
   [root id]
   (work/validate-result root id))
 
 (defn- apply-work-result!
-  [root id map-path]
-  (work/apply-result! root id map-path))
+  [xtdb root id]
+  (work/apply-result! xtdb root id))
 
 (defn- print-json
   [value]
   (println (json/write-json-str value {:indent-str "  "})))
 
-(defn- queue-root
+(defn- queue-project-id
   [args]
-  (or (option-value args "--queue-dir") queue/default-root))
+  (or (option-value args "--project")
+      (try
+        (:project-id (registry/resolve-project {:cwd (System/getProperty "user.dir")}))
+        (catch Exception _
+          nil))))
+
+(defn- project-queue-root
+  [project-id]
+  (when-not (str/blank? (str project-id))
+    (store/project-sqlite-path project-id)))
+
+(defn- queue-root
+  ([args]
+   (or (option-value args "--queue-dir")
+       (some-> (queue-project-id args) project-queue-root)
+       queue/default-root))
+  ([args project-id]
+   (or (option-value args "--queue-dir")
+       (project-queue-root project-id)
+       (queue-root args))))
+
+(defn- corrections-project-ref
+  [args]
+  (if-let [config-path (option-value args "--config")]
+    {:project (project/read-project config-path)
+     :config-path config-path
+     :source :config-path}
+    (registry/resolve-project {:project-id (option-value args "--project")
+                               :cwd (System/getProperty "user.dir")})))
+
+(defn- with-corrections-project
+  [args f]
+  (let [{:keys [project]} (corrections-project-ref args)]
+    (store/with-node (store/storage-path (:id project))
+      (fn [xtdb]
+        (f xtdb project)))))
+
+(defn- with-memory-project
+  [args f]
+  (with-corrections-project args f))
+
+(defn- memory-status-option
+  [args]
+  (cond
+    (some #{"--reviewed"} args) :reviewed
+    (option-value args "--status") (keyword (option-value args "--status"))
+    :else nil))
+
+(defn- memory-add!
+  [args]
+  (let [text (or (option-value args "--text")
+                 (not-empty (str/join " " (positional-args args))))]
+    (when (str/blank? (str text))
+      (throw (ex-info "Missing memory text."
+                      {:usage (usage)})))
+    (with-memory-project
+      args
+      (fn [xtdb project]
+        (print-json
+         {:schema memory/write-schema
+          :action "add"
+          :project-id (:id project)
+          :memory (memory/packet-row
+                   (memory/add!
+                    xtdb
+                    (:id project)
+                    (cond-> {:repo-id (option-value args "--repo")
+                             :scope (option-value args "--scope")
+                             :visibility (option-value args "--visibility")
+                             :owner (option-value args "--owner")
+                             :agent-id (option-value args "--agent")
+                             :kind (option-value args "--kind")
+                             :status (or (memory-status-option args) :suggested)
+                             :target-ids (option-values args "--target")
+                             :tags (option-values args "--tag")
+                             :text text
+                             :summary (option-value args "--summary")
+                             :source {:kind :human}}
+                      (option-value args "--reason")
+                      (assoc :reason (option-value args "--reason")))))})))))
+
+(defn- memory-review!
+  [args]
+  (with-memory-project
+    args
+    (fn [xtdb project]
+      (print-json
+       (memory/review xtdb
+                      {:project-id (:id project)
+                       :repo-id (option-value args "--repo")
+                       :owner (option-value args "--owner")
+                       :status (keyword (or (option-value args "--status")
+                                            "suggested"))
+                       :limit (or (parse-limit args) 50)})))))
+
+(defn- memory-write-one!
+  [args action f]
+  (let [id (first (positional-args args))]
+    (when (str/blank? (str id))
+      (throw (ex-info "Missing memory id."
+                      {:usage (usage)})))
+    (with-memory-project
+      args
+      (fn [xtdb project]
+        (print-json
+         {:schema memory/write-schema
+          :action action
+          :project-id (:id project)
+          :memory (memory/packet-row (f xtdb id))})))))
+
+(defn- memory-supersede!
+  [args]
+  (let [id (first (positional-args args))
+        text (option-value args "--text")]
+    (when (str/blank? (str id))
+      (throw (ex-info "Missing memory id."
+                      {:usage (usage)})))
+    (when (str/blank? (str text))
+      (throw (ex-info "Missing replacement memory text."
+                      {:usage (usage)})))
+    (with-memory-project
+      args
+      (fn [xtdb project]
+        (let [replacement (cond-> {:text text
+                                   :reason (option-value args "--reason")
+                                   :source {:kind :human}}
+                            (option-value args "--repo")
+                            (assoc :repo-id (option-value args "--repo"))
+                            (option-value args "--scope")
+                            (assoc :scope (option-value args "--scope"))
+                            (option-value args "--visibility")
+                            (assoc :visibility (option-value args "--visibility"))
+                            (option-value args "--owner")
+                            (assoc :owner (option-value args "--owner"))
+                            (option-value args "--agent")
+                            (assoc :agent-id (option-value args "--agent"))
+                            (option-value args "--kind")
+                            (assoc :kind (option-value args "--kind"))
+                            (memory-status-option args)
+                            (assoc :status (memory-status-option args))
+                            (seq (option-values args "--target"))
+                            (assoc :target-ids (option-values args "--target"))
+                            (seq (option-values args "--tag"))
+                            (assoc :tags (option-values args "--tag"))
+                            (option-value args "--summary")
+                            (assoc :summary (option-value args "--summary")))
+              result (memory/supersede! xtdb id replacement)]
+          (print-json (assoc result :project-id (:id project))))))))
+
+(defn- memory-attach!
+  [args]
+  (let [[id positional-target] (positional-args args)
+        targets (cond-> (option-values args "--target")
+                  positional-target (conj positional-target))]
+    (when (str/blank? (str id))
+      (throw (ex-info "Missing memory id."
+                      {:usage (usage)})))
+    (with-memory-project
+      args
+      (fn [xtdb project]
+        (print-json
+         {:schema memory/write-schema
+          :action "attach"
+          :project-id (:id project)
+          :memory (memory/packet-row
+                   (memory/attach! xtdb
+                                   id
+                                   targets
+                                   (option-value args "--reason")))})))))
+
+(defn- memory!
+  [args]
+  (let [action (keyword (first args))
+        memory-args (vec (rest args))]
+    (case action
+      :add (memory-add! memory-args)
+      :review (memory-review! memory-args)
+      :accept (memory-write-one! memory-args
+                                 "accept"
+                                 #(memory/accept! %1
+                                                  %2
+                                                  (option-value memory-args
+                                                                "--reason")))
+      :reject (memory-write-one! memory-args
+                                 "reject"
+                                 #(memory/reject! %1
+                                                  %2
+                                                  (option-value memory-args
+                                                                "--reason")))
+      :supersede (memory-supersede! memory-args)
+      :attach (memory-attach! memory-args)
+      (throw (ex-info "Unknown memory command."
+                      {:command action
+                       :usage (usage)})))))
 
 (defn- enqueue-output?
   [args]
@@ -242,7 +413,7 @@
     (print-json
      (queue-enqueued-result
       (queue/enqueue! payload
-                      {:root (queue-root args)
+                      {:root (queue-root args project-id)
                        :kind kind
                        :project-id project-id
                        :priority (queue-priority args)})))
@@ -318,7 +489,6 @@
   []
   {:usage usage
    :print-json print-json
-   :default-map-path default-map-path
    :temporal-options temporal-options})
 
 (defn- print-project-status!
@@ -328,10 +498,6 @@
   ([project config-path args]
    (binding [cli-project/*deps* (project-deps)]
      (cli-project/print-project-status! project config-path args))))
-
-(defn- print-project-index-summary
-  [result]
-  (cli-project/print-project-index-summary result))
 
 (defn- print-project-add-repo-summary
   [result]
@@ -353,29 +519,10 @@
   [result]
   (cli-project/print-sync-summary result))
 
-(defn- print-system-summary
-  [result]
-  (cli-project/print-system-summary result))
-
-(defn- print-map-summary
-  [path data]
-  (cli-project/print-map-summary path data))
-
-(defn- print-map-system
-  [system]
-  (cli-project/print-map-system system))
-
-(defn- print-map-write-result
-  [args result]
-  (if (json-output? args)
-    (print-json result)
-    (print-map-summary (:path result) (map-store/read-map (:path result)))))
-
 (defn sync-deps
   []
   {:usage usage
    :print-json print-json
-   :default-map-path default-map-path
    :enqueue-output? enqueue-output?
    :queue-root queue-root
    :queue-priority queue-priority
@@ -385,15 +532,10 @@
    :print-project-add-repo-summary print-project-add-repo-summary
    :queue-agent queue-agent
    :queue-lease-ms queue-lease-ms
-   :required-map-path required-map-path
    :apply-work-result! apply-work-result!
    :validate-work-result validate-work-result
    :dispatch dispatch
    :print-project-status! print-project-status!})
-
-(defn- print-maintenance-report
-  [report]
-  (cli-sync/print-maintenance-report report))
 
 (defn- query-index?
   [args]
@@ -419,10 +561,8 @@
   []
   {:usage usage
    :print-json print-json
-   :default-map-path default-map-path
    :temporal-options temporal-options
-   :context-packet-options context-packet-options
-   :dispatch dispatch})
+   :context-packet-options context-packet-options})
 
 (defn- print-embed-summary [result] (cli-query/print-embed-summary result))
 (defn- print-local-embedding-setup-summary
@@ -443,19 +583,9 @@
 (defn- llm-provider-option [args] (cli-query/llm-provider-option args))
 (defn- llm-model [provider args] (cli-query/llm-model provider args))
 (defn- llm-client [provider model args] (cli-query/llm-client provider model args))
-(defn- print-deps [result] (cli-query/print-deps result))
 (defn- print-package-report [result] (cli-query/print-package-report result))
-(defn- print-path [nodes] (cli-query/print-path nodes))
-(defn- graph-output [args mode value] (cli-query/graph-output args mode value))
-(defn- graph-json-output [args mode value] (cli-query/graph-json-output args mode value))
 (defn- query-embedding-client [retriever provider model]
   (cli-query/query-embedding-client retriever provider model))
-(defn- print-graph-output [path data] (cli-query/print-graph-output path data))
-(defn- print-canonical-output [path data] (cli-query/print-canonical-output path data))
-(defn- graph-output-value [mode graph-args] (cli-query/graph-output-value mode graph-args))
-(defn- graph-data-for-mode [xtdb mode graph-args limit depth]
-  (binding [cli-query/*deps* (query-deps)]
-    (cli-query/graph-data-for-mode xtdb mode graph-args limit depth)))
 (defn- query! [args]
   (binding [cli-query/*deps* (query-deps)]
     (cli-query/query! args)))
@@ -539,13 +669,14 @@
 
 (defn- current!
   [args]
-  (let [{:keys [project source root registry]} (registry/resolve-project
-                                                {:project-id (option-value args "--project")
-                                                 :cwd (System/getProperty "user.dir")})
+  (let [{:keys [project source root registry project-ref]} (registry/resolve-project
+                                                            {:project-id (option-value args "--project")
+                                                             :cwd (System/getProperty "user.dir")})
         result {:schema "ygg.current/v1"
                 :project (project-summary project)
                 :source source
                 :matched-root root
+                :project-ref project-ref
                 :storage-path (store/storage-path (:id project))
                 :registry registry}]
     (if (json-output? args)
@@ -555,6 +686,8 @@
         (println "- source" (name source))
         (when root
           (println "- matched-root" root))
+        (when project-ref
+          (println "- project-ref" project-ref))
         (println "- storage" (:storage-path result))
         (println "- registry" registry)))))
 
@@ -570,6 +703,7 @@
           (println "# Active Project")
           (println "- project" (:project-id result))
           (println "- root" (:root result))
+          (println "- project-ref" (:project-ref result))
           (println "- registry" (:registry result)))))))
 
 (defn- project-list!
@@ -608,6 +742,20 @@
                          :project (project-summary project)})
             (print-project-summary project))))
 
+      :register
+      (let [config-path (first (positional-args project-args))]
+        (when (str/blank? (str config-path))
+          (throw (ex-info "Missing project config path."
+                          {:usage "projects register <project.edn>"})))
+        (let [result (registry/register-project-config! config-path)]
+          (if (json-output? project-args)
+            (print-json result)
+            (do
+              (println "# Project Registered")
+              (println "- project" (:project-id result))
+              (println "- config" (:config-path result))
+              (println "- registry" (:registry result))))))
+
       :remove
       (let [project-id (first (positional-args project-args))]
         (when (str/blank? (str project-id))
@@ -622,7 +770,210 @@
 
       (throw (ex-info "Unknown projects command."
                       {:command (name action)
-                       :usage "projects list|show <project-id>|remove <project-id>"})))))
+                       :usage "projects list|show <project-id>|register <project.edn>|remove <project-id>"})))))
+
+(defn- maintenance-status-result
+  [project config-path]
+  {:schema "ygg.maintenance.config/v1"
+   :config-path config-path
+   :status (index-maintenance-worker/config-status project)})
+
+(defn- executor-label
+  [{:keys [id type provider model kinds available missing-env]}]
+  (str id
+       " "
+       (name type)
+       (when provider
+         (str "/" (name provider)))
+       (when model
+         (str " " model))
+       " kinds="
+       (str/join "," kinds)
+       " "
+       (if available "available" (str "missing-env=" missing-env))))
+
+(defn- schedule-label
+  [{:keys [id enabled every-minutes task check enqueue query-index run-on-start]}]
+  (if task
+    (str (if enabled "enabled" "disabled")
+         " "
+         id
+         " "
+         (name task)
+         " every="
+         every-minutes
+         "m"
+         " check="
+         check
+         " enqueue="
+         enqueue
+         " query-index="
+         query-index
+         " run-on-start="
+         run-on-start)
+    "not-configured"))
+
+(defn- print-maintenance-status
+  [{:keys [config-path status]}]
+  (println "# Auto Maintenance")
+  (println "- project" (:project-id status))
+  (println "- config" config-path)
+  (println "- maintenance" (cond
+                             (not (:configured status)) "not-configured"
+                             (:enabled status) "enabled"
+                             :else "disabled"))
+  (println "- schedules" (count (:schedules status)))
+  (doseq [schedule (:schedules status)]
+    (println "  schedule" (schedule-label schedule)))
+  (println "- worker" (cond
+                        (not (get-in status [:worker :configured])) "not-configured"
+                        (get-in status [:worker :enabled]) "enabled"
+                        :else "disabled"))
+  (println "- executors"
+           (str (get-in status [:worker :availableExecutorCount])
+                "/"
+                (get-in status [:worker :executorCount])
+                " available"))
+  (when (:queueRoot status)
+    (println "- queue" (:queueRoot status)))
+  (when (:reportDir status)
+    (println "- reports" (:reportDir status)))
+  (doseq [executor (get-in status [:worker :executors])]
+    (println "  uses" (executor-label executor))))
+
+(defn- print-maintenance-result
+  [args result]
+  (if (json-output? args)
+    (print-json result)
+    (print-maintenance-status result)))
+
+(defn- schedule-options
+  [args]
+  (let [disable? (boolean (some #{"--disable"} args))
+        every-minutes (parse-optional-long args "--every-minutes")]
+    (cond-> {:enabled (not disable?)}
+      every-minutes (assoc :every-minutes every-minutes)
+      (some #{"--check"} args) (assoc :check true)
+      (some #{"--no-check"} args) (assoc :check false)
+      (some #{"--enqueue"} args) (assoc :enqueue true)
+      (some #{"--no-enqueue"} args) (assoc :enqueue false)
+      (some #{"--query-index"} args) (assoc :query-index true)
+      (some #{"--no-query-index"} args) (assoc :query-index false)
+      (some #{"--run-on-start"} args) (assoc :run-on-start true)
+      (some #{"--no-run-on-start"} args) (assoc :run-on-start false))))
+
+(defn- maintenance-candidates!
+  [args]
+  (let [{:keys [project-id]} (project-scope args)
+        limit (or (parse-limit args) 50)]
+    (when (str/blank? (str project-id))
+      (throw (ex-info "Missing --project for maintenance candidates."
+                      {:usage "maintenance candidates --project ID"})))
+    (store/with-node (store/storage-path project-id)
+      (fn [xtdb]
+        (print-candidate-systems
+         (->> (candidate-system-rows xtdb project-id)
+              (filter candidate-system?)
+              (sort-by (juxt :repo-id :label))
+              vec)
+         limit)))))
+
+(defn- maintenance-classify!
+  [args]
+  (let [decision-id (first (positional-args args))
+        {:keys [project-id]} (project-scope args)
+        provider (llm-provider-option args)
+        model (llm-model provider args)]
+    (when-not decision-id
+      (throw (ex-info "Missing decision id."
+                      {:usage "maintenance classify <decision-id> --project ID"})))
+    (when (str/blank? (str project-id))
+      (throw (ex-info "Missing --project for maintenance classification."
+                      {:usage "maintenance classify <decision-id> --project ID"})))
+    (store/with-node (store/storage-path project-id)
+      (fn [xtdb]
+        (let [report (system/maintenance-report
+                      xtdb
+                      project-id
+                      {:low-confidence-threshold
+                       (parse-double-option args "--min-confidence" 0.60)})
+              decision (decision-classifier/decision-by-id
+                        (:decision-queue report)
+                        decision-id)]
+          (when-not decision
+            (throw (ex-info "Maintenance decision not found."
+                            {:decision-id decision-id
+                             :project-id project-id})))
+          (if (enqueue-output? args)
+            (print-json
+             (queue-enqueued-result
+              (queue/enqueue!
+               (decision-classifier/decision-packet decision)
+               {:root (queue-root args project-id)
+                :kind "maintenance-decision"
+                :project-id project-id
+                :source {:schema index-maintenance/source-schema
+                         :producer index-maintenance/producer
+                         :lane index-maintenance/graph-lane}
+                :priority (queue-priority args
+                                          (severity-priority (:severity decision)))})))
+            (print-json
+             (decision-classifier/classify
+              {:client (llm-client provider model args)
+               :decision decision}))))))))
+
+(defn- maintenance!
+  [args]
+  (let [action (keyword (or (first args) "status"))
+        maintenance-args (vec (rest args))]
+    (cond
+      (= :worker action)
+      (let [worker-action (keyword (first maintenance-args))
+            worker-args (vec (rest maintenance-args))
+            config-path (first (positional-args worker-args))]
+        (when-not config-path
+          (throw (ex-info "Missing project config path."
+                          {:usage "maintenance worker enable|disable <project.edn>"})))
+        (let [project (case worker-action
+                        :enable (project/set-maintenance-worker-enabled! config-path true)
+                        :disable (project/set-maintenance-worker-enabled! config-path false)
+                        (throw (ex-info "Unknown maintenance worker command."
+                                        {:command worker-action
+                                         :usage "maintenance worker enable|disable <project.edn>"})))]
+          (print-maintenance-result worker-args
+                                    (maintenance-status-result project config-path))))
+
+      (= :candidates action)
+      (maintenance-candidates! maintenance-args)
+
+      (= :classify action)
+      (maintenance-classify! maintenance-args)
+
+      :else
+      (let [config-path (first (positional-args maintenance-args))]
+        (when-not config-path
+          (throw (ex-info "Missing project config path."
+                          {:usage (str "maintenance status|enable|disable|schedule <project.edn>"
+                                       " | maintenance candidates|classify ...")})))
+        (let [project (case action
+                        :status (project/read-project config-path)
+                        :enable (project/set-maintenance-enabled! config-path true)
+                        :disable (project/set-maintenance-enabled! config-path false)
+                        :schedule (let [opts (schedule-options maintenance-args)
+                                        task (or (:task opts) "sync")
+                                        schedule-id (or (option-value maintenance-args "--id")
+                                                        task)]
+                                    (project/set-maintenance-schedule!
+                                     config-path
+                                     schedule-id
+                                     opts))
+                        (throw (ex-info "Unknown maintenance command."
+                                        {:command action
+                                         :usage (str "maintenance status|enable|disable|schedule|worker"
+                                                     " <project.edn>"
+                                                     " | maintenance candidates|classify ...")})))
+              result (maintenance-status-result project config-path)]
+          (print-maintenance-result maintenance-args result))))))
 
 (defn usage
   []
@@ -631,24 +982,22 @@
    ["Usage:"
     ""
     "Setup:"
-    "  start <repo-root> [--project ID] [--name NAME] [--out project.edn] [--map ygg.map.json] [--report-out ygg-out] [--force] [--query-index]"
-    "  init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force] [--sync] [--map ygg.map.json]"
+    "  init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force] [--sync]"
     "  init --workbench <root> [--task TASK] [--project ID] [--name NAME] [--out project.edn] [--force]"
     "  current [--project ID] [--json]"
     "  use <project-id> [--json]"
-    "  projects list|show <project-id>|remove <project-id> [--json]"
+    "  projects list|show <project-id>|register <project.edn>|remove <project-id> [--json]"
     ""
     "Sync and maintenance:"
-    "  audit-scope [<project.edn>] [--project ID] [--repo ID] [--map PATH] [--json]"
-    "  sync [<project.edn>] [--project ID] [--repo ID] [--map PATH] [--check] [--enqueue] [--query-index] [--dry-run] [--json]"
-    "  sync inspect [<project.edn>] [--project ID] [--map PATH] [--json]"
+    "  audit-scope [<project.edn>] [--project ID] [--repo ID] [--json]"
+    "  sync [<project.edn>] [--project ID] [--repo ID] [--check] [--enqueue] [--query-index] [--dry-run] [--json]"
+    "  sync inspect [<project.edn>] [--project ID] [--json]"
     "  sync coverage [<project.edn>] [--project ID] [--json]"
     "  sync activity [<project.edn>] [--project ID] [--queue-dir DIR] [--json]"
     "  sync add-repo <project.edn> <repo-path> [--repo ID] [--role ROLE]"
-    "  sync check <project.edn> [--map PATH] [--json] [--enqueue] [--queue-dir DIR]"
     "  sync docs candidates <target> [--project ID] [--limit N] [--snippet-chars N]"
-    "  sync docs for <target> [--project ID] [--map PATH] [--snippet-chars N]"
-    "  sync docs audit [--project ID] [--map PATH]"
+    "  sync docs for <target> [--project ID] [--snippet-chars N]"
+    "  sync docs audit [--project ID]"
     "  sync meta defs|set|get|unset ..."
     "  sync view list|show ..."
     "  sync work list [--queue-dir DIR] [--status ready|claimed|done|rejected|failed] [--project ID] [--kind KIND] [--limit N]"
@@ -656,31 +1005,41 @@
     "  sync work show <work-id> [--queue-dir DIR]"
     "  sync work complete <work-id> --result result.json [--queue-dir DIR]"
     "  sync work validate <work-id> [--queue-dir DIR]"
-    "  sync work apply <work-id> --map ygg.map.json [--queue-dir DIR]"
+    "  sync work apply <work-id> [--queue-dir DIR] [--project ID]"
     "  sync work reject <work-id> --reason TEXT [--queue-dir DIR]"
     "  sync work release <work-id> [--reason TEXT] [--queue-dir DIR]"
     "  sync work heartbeat <work-id> [--queue-dir DIR] [--agent ID] [--lease-minutes N]"
     "  sync work auto <project.edn> [--json]"
-    "  map init <project.edn> [--map ygg.map.json]"
-    "  map status <project.edn> [--map ygg.map.json] [--json]"
-    "  map review <project.edn> [--map ygg.map.json] [--limit N] [--json]"
-    "  map accept system <target> --kind KIND --label LABEL --include repo:path --reason TEXT [--map ygg.map.json]"
-    "  map set-kind <target> <kind> --reason TEXT [--map ygg.map.json]"
-    "  map include <target> <repo>:<path> --reason TEXT [--map ygg.map.json]"
-    "  map reject <kind> <value> --reason TEXT [--map ygg.map.json]"
-    "  map edge add <source> <target> <relation> --reason TEXT [--map ygg.map.json]"
-    "  map docs attach <target> <repo>:<path> --role ROLE --reason TEXT [--map ygg.map.json]"
-    "  map package import <import-prefix> <ecosystem>:<package> [--repo ID] --reason TEXT [--map ygg.map.json]"
-    "  map work apply <work-id> --map ygg.map.json [--queue-dir DIR]"
+    "  maintenance status <project.edn> [--json]"
+    "  maintenance enable|disable <project.edn> [--json]"
+    "  maintenance worker enable|disable <project.edn> [--json]"
+    "  maintenance schedule <project.edn> [--id ID] [--every-minutes N] [--check|--no-check] [--enqueue|--no-enqueue] [--query-index|--no-query-index] [--run-on-start|--no-run-on-start] [--disable] [--json]"
+    "  maintenance candidates --project ID [--limit N]"
+    "  maintenance classify <decision-id> --project ID [--enqueue] [--provider local|openrouter|openai] [--model MODEL]"
+    "  corrections status [--project ID] [--json]"
+    "  corrections review [--project ID] [--limit N] [--json]"
+    "  corrections accept system <target> --kind KIND --label LABEL --include repo:path --reason TEXT [--project ID]"
+    "  corrections set-kind <target> <kind> --reason TEXT [--project ID]"
+    "  corrections include <target> <repo>:<path> --reason TEXT [--project ID]"
+    "  corrections reject <kind> <value> --reason TEXT [--project ID]"
+    "  corrections edge add <source> <target> <relation> --reason TEXT [--project ID]"
+    "  corrections docs attach <target> <repo>:<path> --role ROLE --reason TEXT [--project ID]"
+    "  corrections package import <import-prefix> <ecosystem>:<package> [--repo ID] --reason TEXT [--project ID]"
+    "  memory add --text TEXT [--target ID] [--tag TAG] [--kind KIND] [--scope developer|project|repo] [--project ID]"
+    "  memory review [--status suggested|observed|reviewed] [--project ID] [--json]"
+    "  memory accept <memory-id> --reason TEXT [--project ID]"
+    "  memory reject <memory-id> --reason TEXT [--project ID]"
+    "  memory supersede <memory-id> --text TEXT --reason TEXT [--project ID]"
+    "  memory attach <memory-id> <target-id> --reason TEXT [--project ID]"
     ""
     "Query:"
-    "  query <text> [--project ID] [--repo ID] [--config project.edn] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider local|openrouter|openai] [--model MODEL] [--map PATH] [--valid-at INSTANT]"
+    "  query <text> [--project ID] [--repo ID] [--config project.edn] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider local|openrouter|openai] [--model MODEL] [--valid-at INSTANT]"
     "  affected <project.edn> [--files PATH,PATH | --since REV] [--repo ID] [--tests] [--json]"
     ""
     "View and report:"
-    "  view overview|deps|query|systems|clusters|cluster [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--detail primary|expanded|evidence|raw] [--map PATH] [--no-map] [--view ID] [--format html|json] [--out PATH] [--valid-at INSTANT]"
+    "  view overview|deps|query|systems|clusters|cluster [args] [--project ID] [--repo ID] [--depth N] [--limit N] [--detail primary|expanded|evidence|raw] [--view ID] [--format html|json] [--out PATH] [--valid-at INSTANT]"
     "  packages [--project ID] [--repo ID] [--ecosystem npm|cargo|go] [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N] [--json]"
-    "  report [<project.edn>] [--project ID] [--map ygg.map.json] [--out ygg-out] [--detail primary|expanded|evidence|raw] [--force]"
+    "  report [<project.edn>] [--project ID] [--out ygg-out] [--detail primary|expanded|evidence|raw] [--force]"
     ""
     "Plugins:"
     "  plugin new <dir> [--id ID] [--file-kind KIND] [--path-glob GLOB] [--scan-glob GLOB] [--fixture PATH] [--extractor] [--report] [--public-base] [--force] [--json]"
@@ -705,14 +1064,16 @@
     "  agent install --platform codex --project [--hooks] [--print-config]"
     "  agent uninstall --platform codex --project"
     "  agent list"
-    "  watch <project.edn> [--map ygg.map.json] [--query-index] [--debounce-ms N]"
-    "  hook install <project.edn> [--map ygg.map.json] [--query-index]"
+    "  watch <project.edn> [--query-index] [--debounce-ms N]"
+    "  hook install <project.edn> [--query-index]"
     "  hook uninstall <project.edn>"
     "  hook status <project.edn>"
     ""
     "Server integration:"
-    "  daemon start|status|stop|<cli-command> ..."
-    "  mcp [--root DIR] [--config project.edn] [--map ygg.map.json] [--queue-dir DIR] [--tools default,sync,work|all]"
+    "  start"
+    "  status [--json]"
+    "  stop"
+    "  mcp [--root DIR] [--config project.edn] [--queue-dir DIR] [--tools default,sync,work|all]"
     ""
     "Benchmarks:"
     "  bench prepare|run|report <benchmark.edn> [--case ID] [--cases ID,ID] [--parser-worker none|java|dotnet|javascript|typescript|all] [--index-timeout-ms N] [--out DIR] [--json]"
@@ -727,10 +1088,10 @@
     "  bench agent-check <benchmark.edn> [--case ID] [--cases ID,ID] [--mode ygg|shell-only] [--agent ID] [--min-cases N] [--min-runs N] [--min-file-recall-at-5 N] [--min-file-recall-at-10 N] [--min-file-recall-at-20 N] [--min-case-file-recall-at-5 N] [--min-case-file-recall-at-10 N] [--min-case-file-recall-at-20 N] [--min-mrr N] [--min-case-mrr N] [--min-evidence-citation-rate N] [--min-path-evidence-citation-rate N] [--min-decision-f1 N] [--min-decision-evidence-citation-rate N] [--min-case-evidence-citation-rate N] [--min-case-path-evidence-citation-rate N] [--min-case-decision-f1 N] [--max-total-tokens N] [--max-input-tokens N] [--max-output-tokens N] [--max-cost-usd N] [--max-case-total-tokens N] [--max-case-input-tokens N] [--max-case-output-tokens N] [--max-case-cost-usd N] [--max-noise-at-20 N] [--max-case-noise-at-20 N] [--max-input-hinted-cases N] [--max-unsupported-ground-truth-files N] [--max-empty-result-runs N] [--max-missing-predicted-file-runs N] [--max-missing-decision-runs N] [--max-commandless-runs N] [--max-warning-runs N] [--max-hint-diagnostic-runs N] [--max-identity-mismatch-runs N] [--max-unverified-score-runs N] [--max-graph-expectation-failures N] [--max-maintenance-preflight-blockers N] [--max-missing-declared-source-kind-runs N] [--max-missed-runs N] [--max-context-rank-missing-runs N] [--max-missed-but-present-in-context-runs N] [--max-missed-and-absent-from-context-runs N] [--max-ranked-outside-top-5-runs N] [--max-ranked-outside-top-10-runs N] [--max-ranked-outside-top-20-runs N] [--max-improvement-target-runs N] [--max-improvement-target-kind-runs KIND=N] [--max-active-stage-ms N] [--max-parser-worker-profiles N] [--min-measured-problem-classes N] [--min-measured-architecture-classes N] [--require-parser-worker none|java|dotnet|javascript|typescript|all] [--allow-missing] [--allow-duplicate-runs] [--allow-unverified-scores] [--out DIR] [--json]"
     "  bench agent-compare <benchmark.edn> --baseline-report before.json --candidate-report after.json [--regression-tolerance N] [--out DIR] [--json]"
     "  bench claim-pack <benchmark.edn> --shell-report shell/agent-report.json --ygg-report ygg/agent-report.json [--min-shared-cases N] [--out DIR] [--json]"
+    "  bench repos check [--manifest PATH] [--suite PATH] [--repo ID] [--json]"
+    "  bench efficiency <shell-agent-report.json> <ygg-agent-report.json> [--out report.json] [--markdown-out REPORT.md] [--json] [--min-shared-cases N]"
     "  embed setup [--venv PATH] [--python PYTHON] [--json]"
-    "  embed [--provider local|openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"
-    ""
-    "Compatibility commands remain during migration: index, project, systems, classify, queue, map, docs, meta, views, context, graph, deps, path."]))
+    "  embed [--provider local|openrouter|openai] [--model MODEL] [--batch-size N] [--limit N]"]))
 
 (defn dispatch
   [command args]
@@ -756,6 +1117,9 @@
     "sync"
     (sync-dispatch! args)
 
+    "maintenance"
+    (maintenance! args)
+
     "status"
     (print-project-status! (first (positional-args args)) args)
 
@@ -769,7 +1133,6 @@
                                             :cwd (System/getProperty "user.dir")}))
           opts {:config-path config-path
                 :repo-id (option-value args "--repo")
-                :map-path (default-map-path args)
                 :read-context (temporal-options args)}]
       (store/with-node (store/storage-path (:id project))
         (fn [xtdb]
@@ -802,7 +1165,6 @@
         (throw (ex-info "Missing project config path." {:usage (usage)})))
       (watch/watch! (project/read-project config-path)
                     {:config-path config-path
-                     :map-path (default-map-path args)
                      :query-index? (boolean (query-index? args))
                      :debounce-ms (parse-long-option args
                                                      "--debounce-ms"
@@ -816,7 +1178,6 @@
         (throw (ex-info "Missing project config path." {:usage (usage)})))
       (let [project (project/read-project config-path)
             opts {:config-path config-path
-                  :map-path (default-map-path hook-args)
                   :query-index? (boolean (query-index? hook-args))
                   :ygg-bin (System/getenv "YGG_BIN")}]
         (case action
@@ -832,363 +1193,187 @@
           (throw (ex-info "Unknown hook command." {:command action
                                                    :usage (usage)})))))
 
-    "index"
-    (let [root (first args)]
-      (when-not root
-        (throw (ex-info "Missing repo path." {:usage (usage)})))
-      (if (dry-run? args)
-        (pprint/pprint (index/index-repo! nil root {:dry-run? true}))
-        (store/with-node (store/storage-path)
-          (fn [xtdb]
-            (pprint/pprint (index/index-repo! xtdb root {}))))))
-
-    "systems"
+    "corrections"
     (let [action (keyword (first args))
-          system-args (vec (rest args))]
-      (case action
-        :candidates
-        (let [{:keys [project-id]} (project-scope system-args)
-              limit (or (parse-limit system-args) 50)]
-          (when (str/blank? (str project-id))
-            (throw (ex-info "Missing --project for system candidates." {:usage (usage)})))
-          (store/with-node (store/storage-path project-id)
-            (fn [xtdb]
-              (print-candidate-systems
-               (->> (candidate-system-rows xtdb project-id)
-                    (filter candidate-system?)
-                    (sort-by (juxt :repo-id :label))
-                    vec)
-               limit))))
-
-        (throw (ex-info "Unknown systems command." {:command action
-                                                    :usage (usage)}))))
-
-    "classify"
-    (let [action (keyword (first args))
-          classify-args (vec (rest args))]
-      (case action
-        :decision
-        (let [decision-id (first (positional-args classify-args))
-              {:keys [project-id]} (project-scope classify-args)
-              provider (llm-provider-option classify-args)
-              model (llm-model provider classify-args)]
-          (when-not decision-id
-            (throw (ex-info "Missing decision id." {:usage (usage)})))
-          (when (str/blank? (str project-id))
-            (throw (ex-info "Missing --project for decision classification."
-                            {:usage (usage)})))
-          (store/with-node (store/storage-path project-id)
-            (fn [xtdb]
-              (let [report (system/maintenance-report
-                            xtdb
-                            project-id
-                            {:low-confidence-threshold
-                             (parse-double-option classify-args "--min-confidence" 0.60)})
-                    decision (decision-classifier/decision-by-id
-                              (:decision-queue report)
-                              decision-id)]
-                (when-not decision
-                  (throw (ex-info "Maintenance decision not found."
-                                  {:decision-id decision-id
-                                   :project-id project-id})))
-                (if (enqueue-output? classify-args)
-                  (print-json
-                   (queue-enqueued-result
-                    (queue/enqueue!
-                     (decision-classifier/decision-packet decision)
-                     {:root (queue-root classify-args)
-                      :kind "maintenance-decision"
-                      :project-id project-id
-                      :source {:schema index-maintenance/source-schema
-                               :producer index-maintenance/producer
-                               :lane index-maintenance/graph-lane}
-                      :priority (queue-priority classify-args
-                                                (severity-priority (:severity decision)))})))
-                  (print-json
-                   (decision-classifier/classify
-                    {:client (llm-client provider model classify-args)
-                     :decision decision})))))))
-
-        (throw (ex-info "Unknown classify command." {:command action
-                                                     :usage (usage)}))))
-
-    "queue"
-    (let [action (keyword (first args))
-          queue-args (vec (rest args))
-          positional (positional-args queue-args)
-          root (queue-root queue-args)]
-      (case action
-        :add
-        (let [path (first positional)]
-          (when-not path
-            (throw (ex-info "Missing packet JSON path." {:usage (usage)})))
-          (print-json
-           (queue-enqueued-result
-            (queue/enqueue! (queue/read-json-file path)
-                            {:root root
-                             :kind (option-value queue-args "--kind")
-                             :project-id (option-value queue-args "--project")
-                             :priority (queue-priority queue-args)
-                             :source {:kind "file"
-                                      :path path}}))))
-
-        :list
-        (print-json
-         (queue/list-summary root
-                             {:status (option-value queue-args "--status")
-                              :project-id (option-value queue-args "--project")
-                              :kind (option-value queue-args "--kind")
-                              :limit (parse-limit queue-args)}))
-
-        :show
-        (let [id (first positional)]
-          (when-not id
-            (throw (ex-info "Missing queue item id." {:usage (usage)})))
-          (print-json (or (queue/find-item root id)
-                          {:schema "ygg.queue.error/v1"
-                           :error "queue item not found"
-                           :id id})))
-
-        :claim
-        (let [target (first positional)]
-          (when-not (= "next" target)
-            (throw (ex-info "Only `queue claim next` is supported."
-                            {:usage (usage)})))
-          (print-json (or (some-> (queue/claim-next!
-                                   root
-                                   {:agent-id (queue-agent queue-args)
-                                    :lease-ms (queue-lease-ms queue-args)
-                                    :project-id (option-value queue-args "--project")
-                                    :kind (option-value queue-args "--kind")})
-                                  queue/item-summary)
-                          {:schema queue/summary-schema
-                           :status "empty"
-                           :root root})))
-
-        :complete
-        (let [id (first positional)
-              result-path (option-value queue-args "--result")]
-          (when-not (and id result-path)
-            (throw (ex-info "Missing queue item id or --result path."
-                            {:usage (usage)})))
-          (print-json
-           (queue/item-summary
-            (queue/complete! root id (queue/read-json-file result-path)))))
-
-        :reject
-        (let [id (first positional)
-              reason (option-value queue-args "--reason")]
-          (when-not (and id reason)
-            (throw (ex-info "Missing queue item id or --reason."
-                            {:usage (usage)})))
-          (print-json (queue/item-summary (queue/reject! root id reason))))
-
-        :fail
-        (let [id (first positional)
-              reason (option-value queue-args "--reason")]
-          (when-not (and id reason)
-            (throw (ex-info "Missing queue item id or --reason."
-                            {:usage (usage)})))
-          (print-json (queue/item-summary (queue/fail! root id reason))))
-
-        :release
-        (let [id (first positional)]
-          (when-not id
-            (throw (ex-info "Missing queue item id." {:usage (usage)})))
-          (print-json
-           (queue/item-summary
-            (queue/release! root id (or (option-value queue-args "--reason")
-                                        "manual release")))))
-
-        :heartbeat
-        (let [id (first positional)]
-          (when-not id
-            (throw (ex-info "Missing queue item id." {:usage (usage)})))
-          (print-json
-           (queue/item-summary
-            (queue/heartbeat! root
-                              id
-                              {:agent-id (queue-agent queue-args)
-                               :lease-ms (queue-lease-ms queue-args)}))))
-
-        (throw (ex-info "Unknown queue command." {:command action
-                                                  :usage (usage)}))))
-
-    "map"
-    (let [action (keyword (first args))
-          map-args (vec (rest args))]
+          correction-args (vec (rest args))]
       (case action
         :init
-        (let [config-path (first (positional-args map-args))
-              out (or (option-value map-args "--map")
-                      (option-value map-args "--out")
-                      graph-map/default-path)]
-          (when-not config-path
-            (throw (ex-info "Missing project config path." {:usage (usage)})))
-          (let [project (project/read-project config-path)]
-            (print-map-write-result map-args (map-api/init! out (:id project)))))
+        (with-corrections-project
+          correction-args
+          (fn [xtdb project]
+            (print-json (corrections-api/init! xtdb (:id project)))))
 
         :status
-        (let [config-path (first (positional-args map-args))
-              map-path (or (option-value map-args "--map") graph-map/default-path)]
-          (when-not config-path
-            (throw (ex-info "Missing project config path." {:usage (usage)})))
-          (let [project (project/read-project config-path)]
-            (print-json (map-api/status map-path (:id project)))))
+        (with-corrections-project
+          correction-args
+          (fn [xtdb project]
+            (print-json (corrections-api/status xtdb (:id project)))))
 
         :review
-        (let [config-path (first (positional-args map-args))
-              map-path (default-map-path map-args)
-              limit (parse-limit map-args)]
-          (when-not config-path
-            (throw (ex-info "Missing project config path." {:usage (usage)})))
-          (let [project (project/read-project config-path)]
-            (store/with-node (store/storage-path (:id project))
-              (fn [xtdb]
-                (print-json (map-api/review xtdb
-                                            project
-                                            {:map-path map-path
-                                             :limit limit}))))))
+        (with-corrections-project
+          correction-args
+          (fn [xtdb project]
+            (print-json (corrections-api/review xtdb
+                                                project
+                                                {:limit (parse-limit correction-args)}))))
 
         :explain
-        (let [value (first (positional-args map-args))
-              map-path (required-map-path map-args)]
+        (let [value (first (positional-args correction-args))]
           (when-not value
             (throw (ex-info "Missing system id/label." {:usage (usage)})))
-          (print-map-system (map-api/explain map-path value)))
+          (with-corrections-project
+            correction-args
+            (fn [xtdb project]
+              (print-json (or (corrections-api/explain xtdb (:id project) value)
+                              {:schema corrections-api/status-schema
+                               :status "not-found"
+                               :project-id (:id project)
+                               :target value})))))
 
         :accept
-        (let [[kind target] (positional-args map-args)
-              map-path (required-map-path map-args)]
+        (let [[kind target] (positional-args correction-args)]
           (case (keyword kind)
             :system
             (do
               (when-not target
                 (throw (ex-info "Missing system target." {:usage (usage)})))
-              (print-map-write-result
-               map-args
-               (map-api/accept-system!
-                map-path
-                target
-                {:kind (option-value map-args "--kind")
-                 :label (option-value map-args "--label")
-                 :include (some-> (option-value map-args "--include")
-                                  map-api/parse-include)
-                 :reason (option-value map-args "--reason")})))
+              (with-corrections-project
+                correction-args
+                (fn [xtdb project]
+                  (print-json
+                   (corrections-api/accept-system!
+                    xtdb
+                    (:id project)
+                    target
+                    {:kind (option-value correction-args "--kind")
+                     :label (option-value correction-args "--label")
+                     :include (some-> (option-value correction-args "--include")
+                                      corrections-api/parse-include)
+                     :reason (option-value correction-args "--reason")})))))
 
-            (throw (ex-info "Unknown map accept kind." {:kind kind
-                                                        :usage (usage)}))))
+            (throw (ex-info "Unknown corrections accept kind."
+                            {:kind kind
+                             :usage (usage)}))))
 
         :set-kind
-        (let [[value kind] (positional-args map-args)
-              map-path (required-map-path map-args)]
+        (let [[value kind] (positional-args correction-args)]
           (when-not (and value kind)
             (throw (ex-info "Missing system id/label or kind." {:usage (usage)})))
-          (print-map-write-result
-           map-args
-           (map-api/set-kind! map-path value kind (option-value map-args "--reason"))))
+          (with-corrections-project
+            correction-args
+            (fn [xtdb project]
+              (print-json
+               (corrections-api/set-kind! xtdb
+                                          (:id project)
+                                          value
+                                          kind
+                                          (option-value correction-args "--reason"))))))
 
         :include
-        (let [[value include] (positional-args map-args)
-              map-path (required-map-path map-args)]
+        (let [[value include] (positional-args correction-args)]
           (when-not (and value include)
             (throw (ex-info "Missing system id/label or repo:path include."
                             {:usage (usage)})))
-          (print-map-write-result
-           map-args
-           (map-api/include! map-path
-                             value
-                             (map-api/parse-include include)
-                             (option-value map-args "--reason"))))
+          (with-corrections-project
+            correction-args
+            (fn [xtdb project]
+              (print-json
+               (corrections-api/include! xtdb
+                                         (:id project)
+                                         value
+                                         (corrections-api/parse-include include)
+                                         (option-value correction-args "--reason"))))))
 
         :reject
-        (let [[kind value] (positional-args map-args)
-              map-path (required-map-path map-args)
-              reason (option-value map-args "--reason")]
+        (let [[kind value] (positional-args correction-args)
+              reason (option-value correction-args "--reason")]
           (when-not (and kind value)
             (throw (ex-info "Missing reject kind or reject value."
                             {:usage (usage)})))
-          (print-map-write-result map-args (map-api/reject! map-path kind value reason)))
+          (with-corrections-project
+            correction-args
+            (fn [xtdb project]
+              (print-json
+               (corrections-api/reject! xtdb (:id project) kind value reason)))))
 
         :package
-        (let [[subcommand import-prefix package-target] (positional-args map-args)
-              map-path (required-map-path map-args)]
+        (let [[subcommand import-prefix package-target] (positional-args correction-args)]
           (when-not (= "import" subcommand)
-            (throw (ex-info "Unknown map package command." {:command subcommand
-                                                            :usage (usage)})))
+            (throw (ex-info "Unknown corrections package command."
+                            {:command subcommand
+                             :usage (usage)})))
           (when-not (and import-prefix package-target)
             (throw (ex-info "Missing import prefix or ecosystem:package target."
                             {:usage (usage)})))
-          (print-map-write-result
-           map-args
-           (map-api/package-import! map-path
-                                    import-prefix
-                                    package-target
-                                    {:repo (option-value map-args "--repo")
-                                     :reason (option-value map-args "--reason")})))
-
-        :package-import
-        (throw (ex-info "Package import corrections use map package import."
-                        {:command "map package-import"
-                         :replacement "ygg map package import"
-                         :usage (usage)}))
+          (with-corrections-project
+            correction-args
+            (fn [xtdb project]
+              (print-json
+               (corrections-api/package-import!
+                xtdb
+                (:id project)
+                import-prefix
+                package-target
+                {:repo (option-value correction-args "--repo")
+                 :reason (option-value correction-args "--reason")})))))
 
         :docs
-        (let [[subcommand target source-value] (positional-args map-args)
-              map-path (required-map-path map-args)]
+        (let [[subcommand target source-value] (positional-args correction-args)]
           (when-not (= "attach" subcommand)
-            (throw (ex-info "Unknown map docs command." {:command subcommand
-                                                         :usage (usage)})))
+            (throw (ex-info "Unknown corrections docs command."
+                            {:command subcommand
+                             :usage (usage)})))
           (when-not (and target source-value)
             (throw (ex-info "Missing docs target or repo:path source."
                             {:usage (usage)})))
-          (print-map-write-result
-           map-args
-           (map-api/docs-attach! map-path
-                                 target
-                                 (map-api/parse-source source-value)
-                                 {:role (option-value map-args "--role")
-                                  :heading (option-value map-args "--heading")
-                                  :start-line (parse-optional-long map-args "--start-line")
-                                  :end-line (parse-optional-long map-args "--end-line")
-                                  :reason (option-value map-args "--reason")})))
+          (with-corrections-project
+            correction-args
+            (fn [xtdb project]
+              (print-json
+               (corrections-api/docs-attach!
+                xtdb
+                (:id project)
+                target
+                (corrections-api/parse-source source-value)
+                {:role (option-value correction-args "--role")
+                 :heading (option-value correction-args "--heading")
+                 :start-line (parse-optional-long correction-args "--start-line")
+                 :end-line (parse-optional-long correction-args "--end-line")
+                 :reason (option-value correction-args "--reason")})))))
 
         :edge
-        (let [[subcommand source target relation] (positional-args map-args)
-              map-path (required-map-path map-args)]
+        (let [[subcommand source target relation] (positional-args correction-args)]
           (when-not (= "add" subcommand)
-            (throw (ex-info "Unknown map edge command." {:command subcommand
-                                                         :usage (usage)})))
+            (throw (ex-info "Unknown corrections edge command."
+                            {:command subcommand
+                             :usage (usage)})))
           (when-not (and source target relation)
             (throw (ex-info "Missing source, target, or relation." {:usage (usage)})))
-          (print-map-write-result
-           map-args
-           (map-api/edge-add! map-path
-                              (cond-> {:source source
-                                       :target target
-                                       :relation relation
-                                       :reason (option-value map-args "--reason")}
-                                (option-value map-args "--visibility")
-                                (assoc :visibility (option-value map-args "--visibility"))
-                                (option-value map-args "--importance")
-                                (assoc :importance (option-value map-args "--importance"))
-                                (option-value map-args "--confidence")
-                                (assoc :confidence (Double/parseDouble
-                                                    (option-value map-args "--confidence")))))))
+          (with-corrections-project
+            correction-args
+            (fn [xtdb project]
+              (print-json
+               (corrections-api/edge-add!
+                xtdb
+                (:id project)
+                (cond-> {:source source
+                         :target target
+                         :relation relation
+                         :reason (option-value correction-args "--reason")}
+                  (option-value correction-args "--visibility")
+                  (assoc :visibility (option-value correction-args "--visibility"))
+                  (option-value correction-args "--importance")
+                  (assoc :importance (option-value correction-args "--importance"))
+                  (option-value correction-args "--confidence")
+                  (assoc :confidence (Double/parseDouble
+                                      (option-value correction-args "--confidence")))))))))
 
-        :work
-        (let [[subcommand id] (positional-args map-args)
-              map-path (required-map-path map-args)
-              root (queue-root map-args)]
-          (when-not (= "apply" subcommand)
-            (throw (ex-info "Unknown map work command." {:command subcommand
-                                                         :usage (usage)})))
-          (when-not id
-            (throw (ex-info "Missing work id." {:usage (usage)})))
-          (print-json (apply-work-result! root id map-path)))
+        (throw (ex-info "Unknown corrections command."
+                        {:command action
+                         :usage (usage)}))))
 
-        (throw (ex-info "Unknown map command." {:command action
-                                                :usage (usage)}))))
+    "memory"
+    (memory! args)
 
     "docs"
     (let [action (keyword (first args))
@@ -1213,14 +1398,13 @@
                                                    :snippet-chars snippet-chars})))))
 
         :attach
-        (throw (ex-info "Map doc attachments are handled by the ygg map API."
+        (throw (ex-info "Doc attachment corrections are handled by ygg corrections."
                         {:command "docs attach"
-                         :replacement "ygg map docs attach"
+                         :replacement "ygg corrections docs attach"
                          :usage (usage)}))
 
         :for
         (let [target (first positional)
-              map-path (default-map-path docs-args)
               snippet-chars (parse-long-option docs-args
                                                "--snippet-chars"
                                                context/default-snippet-chars)]
@@ -1231,16 +1415,13 @@
               (print-json (context/docs-for xtdb
                                             target
                                             {:project-id project-id
-                                             :map-path map-path
                                              :snippet-chars snippet-chars})))))
 
         :audit
-        (let [map-path (default-map-path docs-args)]
-          (store/with-node (store/storage-path)
-            (fn [xtdb]
-              (print-json (context/docs-audit xtdb
-                                              {:project-id project-id
-                                               :map-path map-path})))))
+        (store/with-node (store/storage-path)
+          (fn [xtdb]
+            (print-json (context/docs-audit xtdb
+                                            {:project-id project-id}))))
 
         (throw (ex-info "Unknown docs command." {:command action
                                                  :usage (usage)}))))
@@ -1373,129 +1554,8 @@
                                             :project-id project-id
                                             :repo-id repo-id}))))))
 
-    "project"
-    (let [action (keyword (first args))
-          project-args (vec (rest args))
-          config-path (first (positional-args project-args))]
-      (when-not config-path
-        (throw (ex-info "Missing project config path." {:usage (usage)})))
-      (case action
-        :add-repo
-        (let [[_ repo-root] (positional-args project-args)]
-          (when-not repo-root
-            (throw (ex-info "Missing repo path for project add-repo."
-                            {:usage (usage)})))
-          (let [project (project/add-repo-to-config!
-                         config-path
-                         repo-root
-                         {:repo-id (option-value project-args "--repo")
-                          :role (some-> (option-value project-args "--role") keyword)})
-                repo (last (:repos project))
-                index? (or (some #{"--index"} project-args)
-                           (some #{"--infer"} project-args))
-                infer? (some #{"--infer"} project-args)
-                next-commands (cond-> []
-                                (not index?)
-                                (conj (str "ygg project index " config-path))
-                                (not infer?)
-                                (conj (str "ygg project infer " config-path))
-                                true
-                                (conj (str "ygg project maintain " config-path)))]
-            (if index?
-              (store/with-node (store/storage-path (:id project))
-                (fn [xtdb]
-                  (let [index-summary (project/index-project-repo! xtdb
-                                                                   project
-                                                                   (:id repo)
-                                                                   {})
-                        system-summary (when infer?
-                                         (project/infer-project! xtdb project))]
-                    (print-project-add-repo-summary
-                     {:project project
-                      :repo repo
-                      :index-summary index-summary
-                      :system-summary system-summary
-                      :next next-commands}))))
-              (print-project-add-repo-summary
-               {:project project
-                :repo repo
-                :next next-commands}))))
-
-        (let [project (project/read-project config-path)]
-          (case action
-            :inspect
-            (print-project-status! project config-path project-args)
-
-            :index
-            (if (dry-run? project-args)
-              (print-project-index-summary (project/index-project! nil project {:dry-run? true}))
-              (store/with-node (store/storage-path (:id project))
-                (fn [xtdb]
-                  (print-project-index-summary (project/index-project! xtdb project {})))))
-
-            :infer
-            (store/with-node (store/storage-path (:id project))
-              (fn [xtdb]
-                (print-system-summary (project/infer-project! xtdb project))))
-
-            :maintain
-            (store/with-node (store/storage-path (:id project))
-              (fn [xtdb]
-                (let [map-path (default-map-path project-args)
-                      report (index-maintenance/from-graph-report
-                              (project/maintain-project
-                               xtdb
-                               project
-                               {:low-confidence-threshold
-                                (parse-double-option project-args
-                                                     "--min-confidence"
-                                                     0.60)
-                                :map-overlay (when map-path
-                                               (map-store/read-map map-path))}))]
-                  (if (json-output? project-args)
-                    (print-json report)
-                    (print-maintenance-report report)))))
-
-            (throw (ex-info "Unknown project command." {:command action
-                                                        :usage (usage)}))))))
-
-    "graph"
-    (let [raw-mode (keyword (first args))
-          raw-graph-args (vec (rest args))
-          export? (= :export raw-mode)
-          mode (if export?
-                 (keyword (first raw-graph-args))
-                 raw-mode)
-          graph-args (if export?
-                       (vec (rest raw-graph-args))
-                       raw-graph-args)
-          limit (or (parse-limit graph-args)
-                    (case mode :query 40 graph/default-node-limit))
-          depth (parse-depth graph-args)
-          value (graph-output-value mode graph-args)]
-      (store/with-node (store/storage-path)
-        (fn [xtdb]
-          (let [data (graph-data-for-mode xtdb mode graph-args limit depth)]
-            (if export?
-              (print-canonical-output
-               (graph/write-canonical! (graph-json-output graph-args mode value) data)
-               data)
-              (print-graph-output
-               (report/write-graph-viewer! (graph-output graph-args mode value) data)
-               data))))))
-
-    "deps"
-    (let [value (first (positional-args args))
-          scope (assoc (project-scope args) :read-context (temporal-options args))]
-      (when-not value
-        (throw (ex-info "Missing node query." {:usage (usage)})))
-      (store/with-node (store/storage-path)
-        (fn [xtdb]
-          (print-deps (query/deps xtdb value scope)))))
-
     "packages"
     (let [scope (project-scope args)
-          map-path (default-map-path args)
           opts (cond-> {:limit (parse-limit args)}
                  (option-value args "--ecosystem") (assoc :ecosystem
                                                           (option-value args "--ecosystem"))
@@ -1503,25 +1563,17 @@
                                                         (option-value args "--package"))
                  (some #{"--with-conflicts"} args) (assoc :with-conflicts? true)
                  (some #{"--without-import-evidence"} args)
-                 (assoc :without-import-evidence? true)
-                 map-path (assoc :map-overlay (map-store/read-map map-path)))]
+                 (assoc :without-import-evidence? true))]
       (store/with-node (store/storage-path)
         (fn [xtdb]
-          (let [report (dependency/package-report xtdb scope opts)]
+          (let [project-id (:project-id scope)
+                opts (cond-> opts
+                       project-id (assoc :correction-overlay
+                                         (corrections/overlay xtdb project-id)))
+                report (dependency/package-report xtdb scope opts)]
             (if (json-output? args)
               (print-json report)
               (print-package-report report))))))
-
-    "path"
-    (let [[source target] (positional-args args)
-          scope (assoc (project-scope args) :read-context (temporal-options args))]
-      (when-not (and source target)
-        (throw (ex-info "Missing source or target." {:usage (usage)})))
-      (store/with-node (store/storage-path)
-        (fn [xtdb]
-          (print-path (if (system-path? args)
-                        (query/system-path xtdb source target scope)
-                        (query/graph-path xtdb source target scope))))))
 
     "report"
     (report! args)

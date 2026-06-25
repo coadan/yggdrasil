@@ -3,11 +3,11 @@
   (:require [ygg.audit-scope :as audit-scope]
             [ygg.command :as command]
             [ygg.context :as context]
+            [ygg.corrections :as corrections]
             [ygg.coverage :as coverage]
             [ygg.dependency :as dependency]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
-            [ygg.map-store :as map-store]
             [ygg.project :as project]
             [ygg.report-plugin :as report-plugin]
             [charred.api :as json]
@@ -398,7 +398,7 @@
       (conj {:kind :dependency-correction
              :label "Apply accepted import-to-package correction"
              :count (get package-counts :unresolved-imports 0)
-             :command "ygg map package import <import-prefix> <ecosystem>:<package>"})
+             :command "ygg corrections package import <import-prefix> <ecosystem>:<package> --reason <reason>"})
 
       (pos? (long (get package-counts :version-conflicts 0)))
       (conj {:kind :dependency-review
@@ -484,7 +484,7 @@
      :next-actions (atlas-next-actions project package-report maintenance coverage evidence)}))
 
 (defn- maintenance-work-commands
-  [project-id map-path maintenance]
+  [project-id maintenance]
   (let [queue (queue-summary maintenance)
         pull (fn [kind]
                (str "ygg sync work pull --project " (command/shell-token project-id)
@@ -509,30 +509,24 @@
       (some pos? (vals queue))
       (conj "ygg sync work heartbeat <work-id> --agent <agent-id> --lease-minutes 30"
             "ygg sync work complete <work-id> --result result.json"
-            (str "ygg sync work apply <work-id> --map "
-                 (command/shell-token (or map-path "ygg.map.json")))))))
+            "ygg sync work validate <work-id>"))))
 
 (defn- suggested-commands
-  [project map-path maintenance]
+  [project maintenance]
   (let [project-id (:id project)
         config-path (or (:path project) "<project.edn>")]
     (vec
      (concat
-      [(str "ygg sync " (command/shell-token config-path) " --check"
-            (when map-path (str " --map " (command/shell-token map-path))))
-       (str "ygg sync inspect " (command/shell-token config-path)
-            (when map-path (str " --map " (command/shell-token map-path)))
-            " --json")
+      [(str "ygg sync " (command/shell-token config-path) " --check")
+       (str "ygg sync inspect " (command/shell-token config-path) " --json")
        (str "ygg query \"where is this handled?\" --project "
             (command/shell-token project-id)
             " --json")
-       (str "ygg view systems --project " (command/shell-token project-id)
-            (when map-path (str " --map " (command/shell-token map-path))))
+       (str "ygg view systems --project " (command/shell-token project-id))
        (str "ygg packages --project " (command/shell-token project-id) " --json")
        (str "ygg report " (command/shell-token config-path)
-            (when map-path (str " --map " (command/shell-token map-path)))
             " --out " default-output-dir)]
-      (maintenance-work-commands project-id map-path maintenance)))))
+      (maintenance-work-commands project-id maintenance)))))
 
 (defn- operator-caveats
   [evidence package-report maintenance]
@@ -595,7 +589,7 @@
 
 (defn report-data
   "Return the canonical project report packet for a generated report bundle."
-  [{:keys [project map-path detail generated-at-ms graph-data systems-data coverage
+  [{:keys [project detail generated-at-ms graph-data systems-data coverage
            maintenance context-example evidence package-report audit-report artifacts plugin-bundle]}]
   (let [audit-report (or audit-report
                          {:schema audit-scope/report-schema
@@ -617,7 +611,6 @@
      :project {:id (:id project)
                :name (:name project)
                :config-path (:path project)
-               :map-path map-path
                :detail (name detail)}
      :basis (cond-> {:generated-at-ms generated-at-ms}
               (get-in maintenance [:graph-basis :hash])
@@ -672,7 +665,7 @@
                        :evidence (:evidence context-example)}
      :plugins plugins
      :artifacts artifacts
-     :commands (suggested-commands project map-path maintenance)}))
+     :commands (suggested-commands project maintenance)}))
 
 (defn- hub-line
   [{:keys [label kind repo-id degree salience] :as hub}]
@@ -729,7 +722,7 @@
          "\n  id: `" reviewId "`")))
 
 (defn- report-mdx
-  [{:keys [project map-path detail generated-at-ms graph-data systems-data coverage maintenance
+  [{:keys [project detail generated-at-ms graph-data systems-data coverage maintenance
            evidence]}]
   (let [nodes-by-id (into {} (map (juxt :id identity)) (:nodes systems-data))
         hubs (or (get-in maintenance [:graph-health :high-degree-hubs])
@@ -740,7 +733,7 @@
         queue (concat (:decision-queue maintenance)
                       (:infra-review-queue maintenance)
                       (:dependency-review-queue maintenance))
-        commands (suggested-commands project map-path maintenance)
+        commands (suggested-commands project maintenance)
         config-path (:path project)]
     (str "import { EvidenceSurface, MetricGrid, GraphSummary, PackageSummary, "
          "MaintenanceQueue, CommandList } from './components'\n\n"
@@ -749,7 +742,6 @@
          "## Basis\n\n"
          "- project: `" (:id project) "`\n"
          "- config: `" (or config-path "not provided") "`\n"
-         "- map: `" (or map-path "none") "`\n"
          "- detail: `" (name detail) "`\n"
          "- generated-at-ms: " generated-at-ms "\n"
          (when-let [hash (get-in maintenance [:graph-basis :hash])]
@@ -807,48 +799,45 @@
          "\n")))
 
 (defn- context-example
-  [xtdb project map-path]
+  [xtdb project]
   (context/context-packet xtdb
                           "where is this handled?"
                           {:project-id (:id project)
                            :retriever :lexical
-                           :map-path map-path
                            :plugins (:plugins project)
                            :budget context/default-budget}))
 
 (defn bundle!
   "Write a local report bundle and return the generated file paths."
-  [xtdb project {:keys [out map-path detail force? generated-at-ms]
+  [xtdb project {:keys [out detail force? generated-at-ms]
                  :or {out default-output-dir
                       detail default-detail}}]
   (let [detail (keyword detail)
         generated-at-ms (or generated-at-ms (now-ms))
         out-dir (prepare-output-dir! out force?)
-        overlay (when map-path (map-store/read-map map-path))
+        overlay (corrections/overlay xtdb (:id project))
         graph-data (graph/overview-graph xtdb {:project-id (:id project)})
         systems-data (graph/system-graph xtdb
                                          (:id project)
                                          {:detail detail
-                                          :map-overlay overlay})
+                                          :correction-overlay overlay})
         coverage (coverage/project-coverage xtdb project {})
         maintenance (project/maintain-project xtdb
                                               project
-                                              {:map-overlay overlay})
-        ctx (context-example xtdb project map-path)
+                                              {:correction-overlay overlay})
+        ctx (context-example xtdb project)
         package-report (dependency/package-report xtdb
                                                   {:project-id (:id project)}
-                                                  {:map-overlay overlay
+                                                  {:correction-overlay overlay
                                                    :limit report-package-diagnostic-limit})
         evidence-summary (evidence/summarize xtdb
                                              project
-                                             {:map-overlay overlay
-                                              :config-path (:path project)
-                                              :map-path map-path})
+                                             {:correction-overlay overlay
+                                              :config-path (:path project)})
         audit-report (audit-scope/report xtdb
                                          project
-                                         {:map-overlay overlay
-                                          :config-path (:path project)
-                                          :map-path map-path})
+                                         {:correction-overlay overlay
+                                          :config-path (:path project)})
         plugin-packages (plugin-package-summary project)
         artifacts {:index (artifact "index.html")
                    :report (artifact "REPORT.mdx")
@@ -858,7 +847,6 @@
                    :context-example (artifact "context-example.json")
                    :plugins (artifact "report-plugins.json")}
         base-report-packet (report-data {:project project
-                                         :map-path map-path
                                          :detail detail
                                          :generated-at-ms generated-at-ms
                                          :graph-data graph-data
@@ -887,7 +875,6 @@
                                              :plugins (project/reports project)})
         report-packet (assoc base-report-packet :plugins plugin-bundle)
         report (report-mdx {:project project
-                            :map-path map-path
                             :detail detail
                             :generated-at-ms generated-at-ms
                             :graph-data graph-data

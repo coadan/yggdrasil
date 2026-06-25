@@ -1161,9 +1161,7 @@
           hints-path (:hints-path paths)
           full-hints-path (:full-hints-path paths)
           project-path (benchmark-paths/agent-project-path suite case opts)
-          bench-project (agent-project prepared)
-          map-path (benchmark-maintenance/prepare-agent-map! suite case prepared opts)
-          map-overlay (benchmark-maintenance/agent-map-overlay map-path)]
+          bench-project (agent-project prepared)]
       (benchmark-progress/progress-stage!
        suite
        case
@@ -1174,7 +1172,12 @@
          {:path (fs/canonical-path path)}))
       (store/with-node (benchmark-paths/xtdb-dir suite case opts)
         (fn [xtdb]
-          (let [index-summary (benchmark-progress/progress-stage!
+          (let [correction-overlay (benchmark-maintenance/prepare-agent-overlay!
+                             xtdb
+                             case
+                             prepared
+                             opts)
+                index-summary (benchmark-progress/progress-stage!
                                suite
                                case
                                opts
@@ -1186,7 +1189,7 @@
                                      xtdb
                                      bench-project
                                      (assoc (benchmark-index-options opts)
-                                            :map-overlay map-overlay))))
+                                            :correction-overlay correction-overlay))))
                                #(select-keys % [:files :repos :rows :extractors]))
                 system-summary (benchmark-progress/progress-stage!
                                 suite
@@ -1216,8 +1219,7 @@
                           (assoc (agent-baseline-context-options
                                   prepared
                                   opts)
-                                 :map-path map-path
-                                 :map-overlay map-overlay))
+                                 :correction-overlay correction-overlay))
                         (fn [packet]
                           {:docs (count (:docs packet))
                            :entities (count (:entities packet))
@@ -1371,10 +1373,13 @@
   [suite case prepared opts]
   (let [xtdb-dir (benchmark-paths/xtdb-dir suite case opts)]
     (when (.exists (io/file xtdb-dir))
-      (benchmark-maintenance/prepare-agent-map! suite case prepared opts)
       (try
         (store/with-node xtdb-dir
           (fn [xtdb]
+            (benchmark-maintenance/prepare-agent-corrections! xtdb
+                                                              case
+                                                              prepared
+                                                              opts)
             (benchmark-maintenance/sync-inspect-summary xtdb
                                                         suite
                                                         case

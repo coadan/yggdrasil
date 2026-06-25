@@ -301,7 +301,7 @@
 
 (defn index-repo!
   "Index root into XTDB. Returns run summary."
-  [xtdb root {:keys [dry-run? project-id repo-id repo-role index-profile map-overlay
+  [xtdb root {:keys [dry-run? project-id repo-id repo-role index-profile correction-overlay
                      index-timeout-ms index-deadline-ns extractors
                      progress-fn progress-interval]
               :or {dry-run? false
@@ -627,7 +627,7 @@
                                              {:valid-from valid-from
                                               :project-id project-id
                                               :repo-id repo-id
-                                              :map-overlay map-overlay}))
+                                              :correction-overlay correction-overlay}))
               _ (progress! progress-fn
                            project-id
                            repo-id

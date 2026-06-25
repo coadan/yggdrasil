@@ -23,7 +23,7 @@ Examples of forbidden core logic: "docs-like host", "service-like path",
 "library-like folder", "test/example URL means non-runtime", or similar
 semantic shortcuts. When such judgment is useful, expose a bounded decision with
 ids, evidence rows, graph neighborhood, and recommended actions so a human or
-LLM can decide and write the accepted result into metadata or `ygg.map.json`.
+LLM can decide and write the accepted result into metadata or correction facts.
 Deterministic code may rank by mechanical facts such as relation type,
 evidence count, degree, file kind, parser output, and graph topology; it must
 not pretend those facts are final architecture semantics.
@@ -31,7 +31,7 @@ not pretend those facts are final architecture semantics.
 Use the filesystem queue as the durable provider-agnostic handoff for agent
 packets. Queue items are transport and lease state only; embedded payloads stay
 explicit JSON, and semantic results must return as auditable JSON artifacts that
-can be validated and folded into `ygg.map.json` or metadata. Do not make Yggdrasil core
+can be validated and folded into correction facts or metadata. Do not make Yggdrasil core
 depend on one LLM provider, hidden agent loop, or semantic classifier path.
 
 Keep implementation local-first and deterministic. XTDB stores durable graph
@@ -39,7 +39,7 @@ facts and audit history; semantic/vector providers are optional later backends.
 
 Do not justify Yggdrasil agent-efficiency work with hand-wavy claims. Any claim
 that Yggdrasil makes agents faster, easier, or more effective must point to
-replayable shell-only versus Yggdrasil evidence: benchmark reports, `bb efficiency`
+replayable shell-only versus Yggdrasil evidence: benchmark reports, `bb bench efficiency`
 summaries, command counts, timing, localization, citation rates, or patch
 success. Efficiency suites must include manually tagged problem classes, not
 only simple file-localization issues, and claims should name the class where
@@ -63,14 +63,16 @@ uncertain group with a clear message rather than leaving finished work dirty.
 
 Core commands:
 
-- `bb start <repo-root> --project <project-id>`
+- `bb start`
+- `bb init <repo-root> --project <project-id> --sync`
+- `bb status`
 - `bb sync <project.edn>`
 - `bb sync <project.edn> --check`
 - `bb sync work pull --project <project-id> --agent <agent-id>`
 - `bb query "text" --project <project-id>`
 - `bb view systems --project <project-id>`
 - `bb packages --project <project-id> --json`
-- `bb efficiency <shell-agent-report.json> <ygg-agent-report.json> --json`
+- `bb bench efficiency <shell-agent-report.json> <ygg-agent-report.json> --json`
 - `bb report <project.edn> --out ygg-out`
 - `ygg-mcp --config project.edn`
 - `bb test`
@@ -92,8 +94,8 @@ flow.
 
 When a task depends on project structure, ownership, dependencies, or system
 boundaries, use Yggdrasil inspection only when a relevant project config already
-exists or the user asks to create one. Do not create a root `project.edn` or
-portable map export just to satisfy agent guidance. If a project config exists, prefer:
+exists or the user asks to create one. Do not create a root `project.edn` just
+to satisfy agent guidance. If a project config exists, prefer:
 
 ```sh
 bb sync inspect project.edn
@@ -107,8 +109,7 @@ rendered or exported graph slice helps.
 If sync reports maintenance work, claim one bounded item at a time and inspect
 the evidence. For structured work results, complete the item first, then
 validate or apply it through supported Yggdrasil commands so results stay
-auditable. Treat `ygg.map.json` as a portability format, not the normal working
-state agents should pass around:
+auditable:
 
 ```sh
 bb sync work pull --project <project-id> --agent <agent-id>

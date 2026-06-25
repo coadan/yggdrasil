@@ -1,5 +1,7 @@
 (ns ygg.cli-bench
-  (:require [ygg.benchmark :as benchmark]
+  (:require [ygg.agent-efficiency :as agent-efficiency]
+            [ygg.benchmark :as benchmark]
+            [ygg.benchmark-repos :as benchmark-repos]
             [ygg.cli-options :refer [json-output? option-value option-values parse-case-ids parse-limit parse-optional-double parse-optional-long positional-args]]
             [ygg.queue :as queue]
             [clojure.string :as str]))
@@ -727,56 +729,120 @@
                                    :project-id (:project-id packet)
                                    :priority (queue-priority args 50)})))
                (:packets result))))
+
+(defn- print-efficiency-summary
+  [comparison]
+  (println (str "Agent efficiency: " (:status comparison)))
+  (when-let [compact (:compactSummary comparison)]
+    (println (str "Verdict: " (:verdict compact)))
+    (doseq [reason (:why compact)]
+      (println (str "- " reason))))
+  (println (str "Shared tag groups: "
+                (get-in comparison [:byTag :comparability :sharedTags])))
+  (when-let [summary (get-in comparison [:classSignals :summary])]
+    (println (str "Problem classes: "
+                  (:measuredProblemClasses summary)
+                  " architecture classes: "
+                  (:measuredArchitectureClasses summary)))))
+
+(defn- bench-efficiency!
+  [args {:keys [print-json]}]
+  (let [positions (positional-args args)
+        shell-report-path (first positions)
+        ygg-report-path (second positions)]
+    (when-not (and shell-report-path ygg-report-path)
+      (throw (ex-info "Missing report paths."
+                      {:usage "bench efficiency <shell-agent-report.json> <ygg-agent-report.json> [--out report.json] [--markdown-out REPORT.md] [--json] [--min-shared-cases N]"})))
+    (let [comparison (agent-efficiency/compare-report-files!
+                      shell-report-path
+                      ygg-report-path
+                      {:out (option-value args "--out")
+                       :markdown-out (option-value args "--markdown-out")
+                       :min-shared-cases (parse-optional-long args
+                                                              "--min-shared-cases")})]
+      (if (json-output? args)
+        (print-json comparison)
+        (print-efficiency-summary comparison)))))
+
+(defn- bench-repos!
+  [args {:keys [print-json]}]
+  (let [[command & rest-args] args]
+    (case (keyword command)
+      :check
+      (let [check (benchmark-repos/check-repos
+                   {:manifest-path (option-value rest-args "--manifest")
+                    :suite-path (option-value rest-args "--suite")
+                    :repo-ids (vec (option-values rest-args "--repo"))})]
+        (if (json-output? rest-args)
+          (print-json check)
+          (benchmark-repos/print-human check))
+        (when (= "failed" (:status check))
+          (throw (ex-info "Benchmark repo preflight failed." check))))
+
+      (throw (ex-info "Unknown benchmark repos command."
+                      {:command command
+                       :usage "bench repos check [--manifest PATH] [--suite PATH] [--repo ID] [--json]"})))))
+
 (defn bench!
   [args {:keys [usage print-json enqueue-output?] :as deps}]
   (let [action (keyword (first args))
         bench-args (vec (rest args))
         suite-path (first (positional-args bench-args))]
-    (when-not suite-path
-      (throw (ex-info "Missing benchmark suite path." {:usage (usage)})))
-    (let [suite (benchmark/read-suite suite-path)
-          opts (bench-opts bench-args)
-          result (case action
-                   :prepare (benchmark/prepare-suite! suite opts)
-                   :run (benchmark/run-suite! suite opts)
-                   :report (benchmark/report-suite suite opts)
-                   :agent-report (benchmark/report-agent-suite suite opts)
-                   :improve (benchmark/improve-agent-suite suite opts)
-                   :agent-baseline (benchmark/agent-baselines! suite opts)
-                   :agent-run (benchmark/agent-runs! suite opts)
-                   :agent-rerun (benchmark/rerun-agent-lane! suite opts)
-                   :agent-check (benchmark/check-agent-suite suite opts)
-                   :agent-compare (benchmark/compare-agent-report-files! suite opts)
-                   :claim-pack (benchmark/claim-pack! suite opts)
-                   :show (benchmark/show-case suite
-                                              (or (:case-id opts)
-                                                  (throw (ex-info "Missing --case."
-                                                                  {:usage (usage)})))
-                                              opts)
-                   :agent-packet (let [result (benchmark/agent-packets! suite opts)]
-                                   (if (enqueue-output? bench-args)
-                                     (enqueue-benchmark-agent-packets bench-args result deps)
-                                     result))
-                   :agent-score (benchmark/score-agent-result!
-                                 suite
-                                 (first (benchmark/selected-cases
-                                         suite
-                                         (or (:case-id opts)
-                                             (throw (ex-info "Missing --case."
-                                                             {:usage (usage)})))))
-                                 opts)
-                   (throw (ex-info "Unknown benchmark command."
-                                   {:command action
-                                    :usage (usage)})))]
-      (if (json-output? bench-args)
-        (print-json result)
-        (print-benchmark-summary result))
-      (when (and (or (= benchmark/agent-check-schema (:schema result))
-                     (= benchmark/agent-compare-schema (:schema result)))
-                 (= "failed" (:status result)))
-        (throw (ex-info "Benchmark gate failed."
-                        {:schema (:schema result)
-                         :suite-id (:suite-id result)
-                         :status (:status result)
-                         :failures (or (:failures result)
-                                       (:regressions result))}))))))
+    (case action
+      :efficiency
+      (bench-efficiency! bench-args deps)
+
+      :repos
+      (bench-repos! bench-args deps)
+
+      (do
+        (when-not suite-path
+          (throw (ex-info "Missing benchmark suite path." {:usage (usage)})))
+        (let [suite (benchmark/read-suite suite-path)
+              opts (bench-opts bench-args)
+              result (case action
+                       :prepare (benchmark/prepare-suite! suite opts)
+                       :run (benchmark/run-suite! suite opts)
+                       :report (benchmark/report-suite suite opts)
+                       :agent-report (benchmark/report-agent-suite suite opts)
+                       :improve (benchmark/improve-agent-suite suite opts)
+                       :agent-baseline (benchmark/agent-baselines! suite opts)
+                       :agent-run (benchmark/agent-runs! suite opts)
+                       :agent-rerun (benchmark/rerun-agent-lane! suite opts)
+                       :agent-check (benchmark/check-agent-suite suite opts)
+                       :agent-compare (benchmark/compare-agent-report-files! suite opts)
+                       :claim-pack (benchmark/claim-pack! suite opts)
+                       :show (benchmark/show-case suite
+                                                  (or (:case-id opts)
+                                                      (throw (ex-info "Missing --case."
+                                                                      {:usage (usage)})))
+                                                  opts)
+                       :agent-packet (let [result (benchmark/agent-packets! suite opts)]
+                                       (if (enqueue-output? bench-args)
+                                         (enqueue-benchmark-agent-packets bench-args
+                                                                          result
+                                                                          deps)
+                                         result))
+                       :agent-score (benchmark/score-agent-result!
+                                     suite
+                                     (first (benchmark/selected-cases
+                                             suite
+                                             (or (:case-id opts)
+                                                 (throw (ex-info "Missing --case."
+                                                                 {:usage (usage)})))))
+                                     opts)
+                       (throw (ex-info "Unknown benchmark command."
+                                       {:command action
+                                        :usage (usage)})))]
+          (if (json-output? bench-args)
+            (print-json result)
+            (print-benchmark-summary result))
+          (when (and (or (= benchmark/agent-check-schema (:schema result))
+                         (= benchmark/agent-compare-schema (:schema result)))
+                     (= "failed" (:status result)))
+            (throw (ex-info "Benchmark gate failed."
+                            {:schema (:schema result)
+                             :suite-id (:suite-id result)
+                             :status (:status result)
+                             :failures (or (:failures result)
+                                           (:regressions result))}))))))))

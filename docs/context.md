@@ -277,9 +277,8 @@ semantics from extensions or paths.
 Audit-scope reports group indexed rows into mechanical evidence families such as
 source, docs, dependencies, runtime config, containers, infra, assets,
 map corrections, and unknown text. They do not infer project meaning from path
-names or prose. `map-corrections` is backed by selected accepted map edges and
-selected rejected corrections from `ygg.map.json`, so agents can see prior
-review facts beside source/runtime/dependency evidence. When
+names or prose. `map-corrections` is backed by selected accepted corrections,
+so agents can see prior review facts beside source/runtime/dependency evidence. When
 rows cannot be mapped to a known family, the report includes
 `unclassified-extractor` plus `registryDiagnostics`, grouped by source section
 and evidence type with bounded samples. Treat those diagnostics as reviewable
@@ -309,12 +308,12 @@ bulky audit details such as includes and evidence ids in `architecture`.
 ## Architecture Evidence
 
 When selected facts support an architecture packet, `architecture` separates
-accepted map corrections from neutral mechanical candidates. Accepted systems
-and map edges come from `ygg.map.json`; candidate systems, graph edges,
+accepted correction facts from neutral mechanical candidates. Accepted systems
+and accepted edges come from correction facts; candidate systems, graph edges,
 runtime/config rows, dependency rows, docs, and open decisions remain concrete
 evidence rows, not inferred project meaning.
 `architecture.rejectedCorrections` carries bounded `reject[]` rows from
-`ygg.map.json` when their match criteria mechanically overlap the selected
+correction facts when their match criteria mechanically overlap the selected
 systems, candidate rows, or result paths. These rows are prior review
 corrections with `status: "rejected"` and `provenance: "map-overlay"`; agents
 should treat them as known false-positive evidence to avoid reopening the same
@@ -370,7 +369,7 @@ contract attachment needs repair before relying on it.
 ## Doc Attachments
 
 Docs are indexed as Markdown heading chunks with source lines, end lines,
-heading paths, and content hashes. Accepted docs live in `ygg.map.json` so
+heading paths, and content hashes. Accepted docs live as correction facts so
 agents can maintain them alongside system boundaries.
 
 Find candidate snippets:
@@ -382,8 +381,7 @@ ygg sync docs candidates system:sample:app:path/services/api-gateway --project s
 Attach a reviewed snippet:
 
 ```sh
-ygg map docs attach "API Gateway" app:docs/api-gateway.md \
-  --map ygg.map.json \
+ygg corrections docs attach "API Gateway" app:docs/api-gateway.md \
   --role contract \
   --heading "API Gateway" \
   --reason "Reviewed API contract"
@@ -392,13 +390,13 @@ ygg map docs attach "API Gateway" app:docs/api-gateway.md \
 Read attached docs for one target:
 
 ```sh
-ygg sync docs for "API Gateway" --project sample --map ygg.map.json
+ygg sync docs for "API Gateway" --project sample
 ```
 
 Audit stale or missing docs:
 
 ```sh
-ygg sync docs audit --project sample --map ygg.map.json
+ygg sync docs audit --project sample
 ```
 
 Use roles to tell agents how to treat the snippet:
@@ -436,7 +434,7 @@ ygg agent uninstall --platform codex --project
 For MCP clients, run:
 
 ```sh
-ygg-mcp --config project.edn --map ygg.map.json
+ygg-mcp --config project.edn
 ```
 
 The MCP server returns the same packet schemas as the CLI. By default,
@@ -453,14 +451,15 @@ facts as absent.
 Use `ygg_node` for a single file, evidence row, package, node, or accepted
 system; when map docs are attached, the node packet includes bounded
 line-numbered doc source windows when the file is available.
-`ygg_work_complete` records an explicit result artifact; applying validated
-results to `ygg.map.json` stays a separate CLI step.
+`ygg_work_complete` records an explicit result artifact; validated results can
+then be folded into Yggdrasil correction facts.
 
 ## Filesystem Queue
 
 Use `--enqueue` when a packet should be picked up by another agent, model, tool,
 or human process. Yggdrasil writes an `ygg.queue.item/v1` JSON file to
-`.dev/ygg/queue/ready` and prints a compact receipt.
+the central project queue, or `.ygg/queue/ready` when no project can be
+resolved, and prints a compact receipt.
 Queue listings and claimed work summaries use `ygg.queue.summary/v1` and
 include `actions` rows with executable commands for inspecting payloads,
 claiming, extending leases, completing, releasing, rejecting, or applying work
@@ -473,17 +472,16 @@ Agents should use those commands instead of reconstructing queue paths or item
 ids from payloads.
 
 ```sh
-ygg sync check project.edn --map ygg.map.json --enqueue
+ygg sync project.edn --check --enqueue
 ygg sync work pull --project sample --agent codex
 ygg sync work heartbeat queue:abc123 --agent codex --lease-minutes 30
 ygg sync work complete queue:abc123 --result result.json
 ygg sync activity project.edn
 ygg sync work validate queue:abc123
-ygg sync work apply queue:abc123 --map ygg.map.json
 ```
 
 The queue is only the transport. The embedded payload remains unchanged, and the
-consumer result should be an explicit JSON artifact such as a map patch,
+consumer result should be an explicit JSON artifact such as a correction result,
 classification, or finding. `sync work complete` stores the artifact for audit.
 `sync activity` imports queue item lifecycle and validation-shaped result facts
 into XTDB so future `query --json` packets can include `activity` matches.
@@ -500,6 +498,5 @@ work, and mismatches direct agents to inspect activity before trusting the prior
 result. The `sync activity --json` result also includes a bounded
 `result-schema-mismatches` list with the work source id, item id, expected
 schema, actual schema, status, summary, and timestamps for direct audit.
-`sync work validate` checks supported result schemas without mutating the map.
-`sync work apply` revalidates before writing accepted changes to
-`ygg.map.json`.
+`sync work validate` checks supported result schemas without mutating correction
+facts. Accepted results are folded through explicit correction APIs.

@@ -55,6 +55,13 @@
        (remove str/blank?)
        (str/join "\n")))
 
+(defn- named-value
+  [value]
+  (cond
+    (keyword? value) (name value)
+    (nil? value) nil
+    :else (str value)))
+
 (defn- ->search-doc
   [run-id target-kind target {:keys [text]}]
   (let [input-text (or text (:label target))
@@ -108,3 +115,42 @@
                                                  (:text chunk))}))
                          chunks)]
     (into node-docs chunk-docs)))
+
+(defn build-memory-search-doc
+  "Return the search document for a durable memory row.
+
+  `target-labels-by-id` is a bounded lookup result supplied by the caller; this
+  helper does not infer project semantics from ids or path text."
+  ([run-id memory-row]
+   (build-memory-search-doc run-id memory-row {}))
+  ([run-id memory-row target-labels-by-id]
+   (let [target-ids (mapv str (:target-ids memory-row))
+         target-labels (->> target-ids
+                            (keep target-labels-by-id)
+                            distinct
+                            vec)
+         label (or (:summary memory-row) (:text memory-row) (:xt/id memory-row))
+         input-text (compact (:summary memory-row)
+                             (named-value (:kind memory-row))
+                             (named-value (:status memory-row))
+                             (:tags memory-row)
+                             target-labels
+                             target-ids
+                             (:text memory-row))
+         input-sha (hash/sha256-hex input-text)]
+     (cond-> {:xt/id (search-doc-id (:xt/id memory-row))
+              :project-id (:project-id memory-row)
+              :target-id (:xt/id memory-row)
+              :target-kind :memory
+              :file-id nil
+              :path (:xt/id memory-row)
+              :kind :memory
+              :label label
+              :text input-text
+              :tokens (text/tokenize-all input-text)
+              :input-sha input-sha
+              :source-line 1
+              :active? (and (not= false (:active? memory-row))
+                            (not= :suggested (:status memory-row)))
+              :run-id run-id}
+       (:repo-id memory-row) (assoc :repo-id (:repo-id memory-row))))))

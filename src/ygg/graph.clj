@@ -1,7 +1,7 @@
 (ns ygg.graph
   "Build and render graph slices."
-  (:require [ygg.map :as graph-map]
-            [ygg.map-store :as map-store]
+  (:require [ygg.corrections :as corrections]
+            [ygg.correction-overlay :as correction-overlay]
             [ygg.metadata :as metadata]
             [ygg.query :as query]
             [ygg.system.cluster :as cluster]
@@ -602,7 +602,7 @@
 
 (defn system-graph
   "Return project-level system graph."
-  [xtdb project-id {:keys [map-path map-overlay min-confidence limit valid-at known-at
+  [xtdb project-id {:keys [correction-overlay min-confidence limit valid-at known-at
                            snapshot-token current-time read-context view-id detail]
                     :or {min-confidence 0.55
                          limit default-node-limit
@@ -648,9 +648,9 @@
                           :view-id view-id
                           :detail detail})
         data (cond
-               map-overlay (graph-map/apply-overlay data map-overlay)
-               map-path (map-store/apply-file data map-path)
-               :else data)]
+               correction-overlay (correction-overlay/apply-overlay data correction-overlay)
+               :else (correction-overlay/apply-overlay data
+                                              (corrections/overlay xtdb project-id)))]
     (enrich-graph xtdb
                   (if (= :raw detail)
                     data
@@ -670,7 +670,7 @@
 
 (defn system-neighborhood
   "Return a bounded system graph slice for explicit focus/frontier ids."
-  [xtdb project-id {:keys [focus-ids frontier-ids map-path map-overlay min-confidence
+  [xtdb project-id {:keys [focus-ids frontier-ids correction-overlay min-confidence
                            edge-limit valid-at known-at snapshot-token current-time
                            read-context view-id detail]
                     :or {min-confidence 0.55
@@ -710,9 +710,9 @@
                           :view-id view-id
                           :detail detail})
         data (cond
-               map-overlay (graph-map/apply-overlay data map-overlay)
-               map-path (map-store/apply-file data map-path)
-               :else data)]
+               correction-overlay (correction-overlay/apply-overlay data correction-overlay)
+               :else (correction-overlay/apply-overlay data
+                                              (corrections/overlay xtdb project-id)))]
     (enrich-graph xtdb
                   (if (= :raw detail)
                     data

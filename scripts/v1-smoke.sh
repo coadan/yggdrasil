@@ -34,8 +34,13 @@ done
 WORK_DIR="${YGG_V1_SMOKE_DIR:-$(mktemp -d)}"
 PREFIX="$WORK_DIR/prefix"
 FIXTURE_REPO="$WORK_DIR/repo"
+SERVER_PID=""
 
 cleanup() {
+  if [ -n "$SERVER_PID" ]; then
+    "$PREFIX/bin/ygg" stop >/dev/null 2>&1 || true
+    wait "$SERVER_PID" >/dev/null 2>&1 || true
+  fi
   if [ "$KEEP" -eq 0 ] && [ -z "${YGG_V1_SMOKE_DIR:-}" ]; then
     rm -rf "$WORK_DIR"
   fi
@@ -53,7 +58,30 @@ install_wrappers() {
   fi
 }
 
+start_server() {
+  export YGG_SERVER_PORT="${YGG_SERVER_PORT:-$((62122 + ($$ % 1000)))}"
+  export YGG_XTDB_PATH="$WORK_DIR/xtdb"
+  "$PREFIX/bin/ygg" start > "$WORK_DIR/server.log" 2>&1 &
+  SERVER_PID=$!
+  for _ in $(seq 1 30); do
+    if "$PREFIX/bin/ygg" status > "$WORK_DIR/status.txt" 2> "$WORK_DIR/status.err"; then
+      return
+    fi
+    if ! kill -0 "$SERVER_PID" >/dev/null 2>&1; then
+      cat "$WORK_DIR/server.log" >&2 || true
+      cat "$WORK_DIR/status.err" >&2 || true
+      return 1
+    fi
+    sleep 1
+  done
+  cat "$WORK_DIR/server.log" >&2 || true
+  cat "$WORK_DIR/status.err" >&2 || true
+  echo "Timed out waiting for ygg server." >&2
+  return 1
+}
+
 install_wrappers
+start_server
 "$PREFIX/bin/ygg" help > "$WORK_DIR/help.txt"
 test -x "$PREFIX/bin/ygg"
 test -x "$PREFIX/bin/ygg-mcp"
@@ -77,13 +105,14 @@ def bucket_client():
 EOF
 
 pushd "$FIXTURE_REPO" >/dev/null
-export YGG_XTDB_PATH="$WORK_DIR/xtdb"
-"$PREFIX/bin/ygg" start . \
+"$PREFIX/bin/ygg" init . \
   --project v1-smoke \
   --out project.edn \
-  --map ygg.map.json \
-  --report-out ygg-out \
+  --sync \
   --query-index > "$WORK_DIR/start.json"
+"$PREFIX/bin/ygg" report project.edn \
+  --out ygg-out \
+  --force > "$WORK_DIR/report-output.json"
 "$PREFIX/bin/ygg" sync inspect project.edn \
   --map ygg.map.json \
   --json > "$WORK_DIR/inspect.json"
@@ -152,6 +181,12 @@ PY
   --json > "$WORK_DIR/packages-after-apply.json"
 "$PREFIX/bin/ygg" sync activity project.edn \
   --json > "$WORK_DIR/activity.json"
+printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' \
+  | "$PREFIX/bin/ygg-mcp" --config project.edn \
+  > "$WORK_DIR/mcp-tools-list-bin.jsonl"
+printf '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}\n' \
+  | "$PREFIX/bin/ygg" mcp --config project.edn \
+  > "$WORK_DIR/mcp-tools-list-cli.jsonl"
 popd >/dev/null
 
 python3 - "$WORK_DIR" "$REPO_DIR" <<'PY'
@@ -165,6 +200,12 @@ repo = (work_dir / "repo").resolve()
 
 def load_json(name):
     return json.loads((work_dir / name).read_text())
+
+def load_jsonl(name):
+    lines = [line for line in (work_dir / name).read_text().splitlines()
+             if line.strip()]
+    require(len(lines) == 1, f"{name} should contain one JSON-RPC response")
+    return json.loads(lines[0])
 
 def require(condition, message):
     if not condition:
@@ -180,18 +221,27 @@ work_validate = load_json("work-validate.json")
 work_apply = load_json("work-apply.json")
 packages_after_apply = load_json("packages-after-apply.json")
 activity = load_json("activity.json")
+mcp_tools_bin = load_jsonl("mcp-tools-list-bin.jsonl")
+mcp_tools_cli = load_jsonl("mcp-tools-list-cli.jsonl")
 report = json.loads((repo / "ygg-out" / "report.json").read_text())
 
-require(start.get("schema") == "ygg.start/v1", "start schema mismatch")
-require(start.get("project-id") == "v1-smoke", "start project id mismatch")
-require(start.get("readiness", {}).get("status") == "ready", "start readiness is not ready")
-require(start.get("config") == "project.edn", "start config path should stay caller-relative")
-require(start.get("map") == "ygg.map.json", "start map path should stay caller-relative")
-require(start.get("report", {}).get("files", {}).get("index"), "start did not report index artifact")
+def require_mcp_tools(response, label):
+    require(response.get("jsonrpc") == "2.0", f"{label} jsonrpc mismatch")
+    require(response.get("id") == 1, f"{label} id mismatch")
+    tools = {tool.get("name") for tool in response.get("result", {}).get("tools", [])}
+    for tool in ("ygg_query", "ygg_node", "ygg_status", "ygg_systems"):
+        require(tool in tools, f"{label} tools/list missing {tool}")
+
+require_mcp_tools(mcp_tools_bin, "ygg-mcp")
+require_mcp_tools(mcp_tools_cli, "ygg mcp")
+
+require(start.get("schema") == "ygg.init/v1", "init schema mismatch")
+require(start.get("project-id") == "v1-smoke", "init project id mismatch")
+require(start.get("config") == "project.edn", "init config path should stay caller-relative")
 start_actions = {action.get("kind"): action.get("command")
                  for action in start.get("nextActions", [])}
-require(start_actions.get("inspect") == "ygg sync inspect project.edn --map ygg.map.json --json",
-        "start nextActions did not make sync inspect canonical")
+require(start_actions.get("sync") == "ygg sync project.edn --check",
+        "init nextActions did not make sync canonical")
 
 require(inspect.get("schema") == "ygg.project.inspect/v1", "inspect schema mismatch")
 freshness = inspect.get("freshness", {})

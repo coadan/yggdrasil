@@ -1,8 +1,8 @@
 (ns ygg.dependency-review-test
   (:require [ygg.cli :as cli]
+            [ygg.corrections :as corrections]
             [ygg.dependency :as dependency]
             [ygg.dependency-review :as dependency-review]
-            [ygg.map-store :as map-store]
             [ygg.project :as project]
             [ygg.queue :as queue]
             [ygg.xtdb :as store]
@@ -35,8 +35,7 @@
 
 (deftest dependency-review-packet-applies-package-import-correction
   (let [root (temp-dir "ygg-dependency-review-queue")
-        dir (temp-dir "ygg-dependency-review-map")
-        map-path (.getPath (io/file dir "ygg.map.json"))
+        xtdb-path (temp-dir "ygg-dependency-review-corrections")
         report {:packages [{:id "package:maven:org.slf4j:slf4j-api"
                             :label "maven:org.slf4j:slf4j-api"
                             :ecosystem "maven"
@@ -94,29 +93,31 @@
                       :recommendation "add-package-import"
                       :confidence 0.9
                       :reason "The import prefix is provided by the declared package."
-                      :mapPatch [{:op "add-package-import"
+                      :correctionPatch [{:op "add-package-import"
                                   :import "org.slf4j"
                                   :ecosystem "maven"
                                   :package "org.slf4j:slf4j-api"
                                   :evidence [evidence-id]
                                   :reason "The package declares the matching API."}]})
-    (let [applied (dependency-review/apply-work-result! root id map-path)
-          map-data (map-store/read-map map-path)
-          package-import (first (:packageImports map-data))]
-      (is (= dependency-review/apply-schema (:schema applied)))
-      (is (= "applied" (:status applied)))
-      (is (= 1 (:patchesApplied applied)))
-      (is (= {:import "org.slf4j"
-              :ecosystem "maven"
-              :package "org.slf4j:slf4j-api"
-              :status "accepted"
-              :repo "app"
-              :evidence [evidence-id]
-              :rules (:reviewId packet)
-              :reviewId (:reviewId packet)
-              :confidence 0.9
-              :reason "The package declares the matching API."}
-             package-import)))))
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [applied (dependency-review/apply-work-result! xtdb root id)
+              overlay (corrections/overlay xtdb "fixture")
+              package-import (first (:packageImports overlay))]
+          (is (= dependency-review/apply-schema (:schema applied)))
+          (is (= "applied" (:status applied)))
+          (is (= 1 (:patchesApplied applied)))
+          (is (= {:import "org.slf4j"
+                  :ecosystem "maven"
+                  :package "org.slf4j:slf4j-api"
+                  :status "accepted"
+                  :repo "app"
+                  :evidence [evidence-id]
+                  :rules (:reviewId packet)
+                  :reviewId (:reviewId packet)
+                  :confidence 0.9
+                  :reason "The package declares the matching API."}
+                 package-import)))))))
 
 (deftest sync-work-dogfoods-unresolved-import-review-loop
   (let [workspace (temp-dir "ygg-dependency-review-dogfood")
@@ -124,7 +125,6 @@
         project-path (.getPath (io/file workspace "project.edn"))
         xtdb-path (temp-dir "ygg-dependency-review-dogfood-xtdb")
         queue-root (.getPath (io/file workspace "queue"))
-        map-path (.getPath (io/file workspace "ygg.map.json"))
         result-path (.getPath (io/file workspace "result.json"))
         project-id "dependency-review-dogfood"
         project-data {:id project-id
@@ -188,7 +188,7 @@
                 :recommendation "add-package-import"
                 :confidence 0.83
                 :reason "The unresolved import matches the declared package after separator normalization."
-                :mapPatch [{:op "add-package-import"
+                :correctionPatch [{:op "add-package-import"
                             :import "left_pad"
                             :ecosystem "npm"
                             :package "left-pad"
@@ -205,11 +205,11 @@
               applied (sync-dispatch-json "work"
                                           "apply"
                                           work-id
-                                          "--map"
-                                          map-path
                                           "--queue-dir"
                                           queue-root)
-              overlay (map-store/read-map map-path)
+              overlay (store/with-node xtdb-path
+                        (fn [xtdb]
+                          (corrections/overlay xtdb project-id)))
               package-import (first (:packageImports overlay))]
           (is (= "done" (:status completed)))
           (is (= dependency-review/apply-schema (:schema applied)))
@@ -232,7 +232,7 @@
               (let [resolved-report (dependency/package-report
                                      xtdb
                                      {:project-id project-id}
-                                     {:map-overlay overlay})]
+                                     {:correction-overlay overlay})]
                 (is (empty? (:unresolved-imports resolved-report)))
                 (is (= 1 (get-in resolved-report [:counts :imports-package])))
                 (is (= ["left_pad"]
@@ -260,13 +260,13 @@
                           :reviewId (:reviewId packet)
                           :recommendation "add-package-import"
                           :reason "Use a package."
-                          :mapPatch [{:op "add-package-import"
+                          :correctionPatch [{:op "add-package-import"
                                       :import "org.slf4j"
                                       :ecosystem "maven"
                                       :package "org.slf4j:slf4j-api"
                                       :evidence [evidence-id]
                                       :reason "Not in packet."}]}})]
-    (is (= [{:path [:mapPatch 0 :package]
+    (is (= [{:path [:correctionPatch 0 :package]
              :error "Patch package must be one of facts.packages[]."
              :value {:ecosystem "maven"
                      :package "org.slf4j:slf4j-api"}}]
