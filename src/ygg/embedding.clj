@@ -152,7 +152,8 @@
 (defn embed-search-docs!
   "Embed pending search docs with client map and persist rows."
   [xtdb {:keys [provider model embed-batch close] :as client} {:keys [batch-size limit project-id repo-id
-                                                                      input-max-chars]
+                                                                      input-max-chars
+                                                                      on-progress]
                                                                :or {batch-size default-batch-size
                                                                     input-max-chars default-provider-input-max-chars}}]
   (when-not (and provider model embed-batch)
@@ -163,9 +164,11 @@
                                                         :provider provider
                                                         :model model
                                                         :limit limit)))
-          total-search-docs (search-doc-count xtdb scope)]
+          total-search-docs (search-doc-count xtdb scope)
+          batches (vec (partition-all batch-size pending))
+          batch-count (count batches)]
       (reduce
-       (fn [summary batch]
+       (fn [summary [batch-idx batch]]
          (let [vectors (embed-batch (mapv #(provider-input-text % input-max-chars) batch))]
            (when-not (= (count batch) (count vectors))
              (throw (ex-info "Embedding provider returned wrong vector count."
@@ -183,14 +186,21 @@
                             vectors)
                  result (store/commit-embeddings! xtdb rows)]
              (vector-store/upsert-embeddings! rows)
-             (update summary :embedded + (:embeddings result)))))
+             (let [summary (update summary :embedded + (:embeddings result))]
+               (when on-progress
+                 (on-progress (assoc summary
+                                     :batch (inc batch-idx)
+                                     :batches batch-count
+                                     :batch-size (count batch)
+                                     :batch-embedded (:embeddings result))))
+               summary))))
        {:provider provider
         :model model
         :search-docs total-search-docs
         :pending (count pending)
         :embedded 0
         :skipped (- total-search-docs (count pending))}
-       (partition-all batch-size pending)))
+       (map-indexed vector batches)))
     (finally
       (when close
         (close)))))

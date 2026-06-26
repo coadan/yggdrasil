@@ -315,6 +315,74 @@
         (is (= ["abcde"] @seen-inputs))
         (is (= 1 (:embedded summary)))))))
 
+(deftest embed-search-docs-reports-batch-progress
+  (let [progress (atom [])
+        docs [{:xt/id "search-doc:one"
+               :project-id "project-a"
+               :repo-id "app"
+               :target-id "target:one"
+               :input-sha "sha:one"
+               :text "one"
+               :active? true}
+              {:xt/id "search-doc:two"
+               :project-id "project-a"
+               :repo-id "app"
+               :target-id "target:two"
+               :input-sha "sha:two"
+               :text "two"
+               :active? true}
+              {:xt/id "search-doc:three"
+               :project-id "project-a"
+               :repo-id "app"
+               :target-id "target:three"
+               :input-sha "sha:three"
+               :text "three"
+               :active? true}]
+        client {:provider :fake
+                :model "fake-model"
+                :embed-batch (fn [inputs]
+                               (vec (repeat (count inputs) [1.0 0.0])))}]
+    (with-redefs [embedding/all-search-docs (fn [& _] docs)
+                  store/rows-with-field-tuples (fn [& _] [])
+                  store/count-rows (fn [& _] (count docs))
+                  store/commit-embeddings! (fn [_ rows]
+                                             {:embeddings (count rows)})
+                  vector-store/upsert-embeddings! (fn [_] nil)]
+      (let [summary (embedding/embed-search-docs!
+                     :xtdb
+                     client
+                     {:project-id "project-a"
+                      :repo-id "app"
+                      :batch-size 2
+                      :on-progress #(swap! progress conj
+                                           (select-keys %
+                                                        [:search-docs
+                                                         :pending
+                                                         :embedded
+                                                         :skipped
+                                                         :batch
+                                                         :batches
+                                                         :batch-size
+                                                         :batch-embedded]))})]
+        (is (= 3 (:embedded summary)))
+        (is (= [{:search-docs 3
+                 :pending 3
+                 :embedded 2
+                 :skipped 0
+                 :batch 1
+                 :batches 2
+                 :batch-size 2
+                 :batch-embedded 2}
+                {:search-docs 3
+                 :pending 3
+                 :embedded 3
+                 :skipped 0
+                 :batch 2
+                 :batches 2
+                 :batch-size 1
+                 :batch-embedded 1}]
+               @progress))))))
+
 (deftest openrouter-embedding-data-rejects-2xx-error-payload
   (is (thrown-with-msg?
        clojure.lang.ExceptionInfo

@@ -165,6 +165,22 @@
     (is (= 300 (:retrieval-limit defaults)))
     (is (= 42 (:retrieval-limit override)))))
 
+(deftest agent-baseline-embedding-options-use-context-sized-inputs
+  (let [prepared {:project-id "project"
+                  :repo-id "repo"
+                  :repos [{:id "repo"}]}
+        defaults (#'benchmark-agent-baseline/agent-baseline-embedding-options
+                  prepared
+                  {})
+        override (#'benchmark-agent-baseline/agent-baseline-embedding-options
+                  prepared
+                  {:embedding-input-max-chars 321
+                   :batch-size 9})]
+    (is (= context/default-snippet-chars (:input-max-chars defaults)))
+    (is (= 64 (:batch-size defaults)))
+    (is (= 321 (:input-max-chars override)))
+    (is (= 9 (:batch-size override)))))
+
 (deftest agent-baseline-resolves-semantic-client-from-provider-options
   (let [calls (atom [])]
     (with-redefs [embedding-client/configured-query-client

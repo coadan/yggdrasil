@@ -1745,6 +1745,7 @@
                                  "--provider" "local"
                                  "--model" "fake-embedding-model"
                                  "--batch-size" "9"
+                                 "--embedding-input-max-chars" "321"
                                  "--limit" "3"
                                  "--doc-limit" "12"
                                  "--retrieval-limit" "80"
@@ -1773,6 +1774,7 @@
                   :provider "local"
                   :model "fake-embedding-model"
                   :batch-size 9
+                  :embedding-input-max-chars 321
                   :parser-worker "java"
                   :mode nil
                   :result-path nil

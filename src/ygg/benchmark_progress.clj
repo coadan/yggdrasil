@@ -158,3 +158,15 @@
            (throw t))
          (finally
            (remove-shutdown-hook! hook)))))))
+
+(defn progress-update!
+  "Append an in-flight progress event for a long-running benchmark stage."
+  [suite case opts stage summary]
+  (append-progress-event! suite
+                          case
+                          opts
+                          (progress-event stage
+                                          :progress
+                                          (cond-> {}
+                                            (some? summary)
+                                            (assoc :summary summary)))))

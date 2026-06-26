@@ -38,6 +38,8 @@
   20)
 (def default-agent-baseline-embed-batch-size
   64)
+(def default-agent-baseline-embedding-input-max-chars
+  context/default-snippet-chars)
 (def default-agent-baseline-retriever
   :auto)
 
@@ -97,16 +99,36 @@
   [prepared opts]
   (cond-> {:batch-size (long (or (:batch-size opts)
                                  default-agent-baseline-embed-batch-size))
+           :input-max-chars (long (or (:embedding-input-max-chars opts)
+                                      default-agent-baseline-embedding-input-max-chars))
            :project-id (:project-id prepared)}
     (= 1 (count (:repos prepared)))
     (assoc :repo-id (:repo-id prepared))))
 (defn- embed-search-docs-for-agent-baseline!
-  [xtdb prepared opts]
+  [xtdb suite case prepared opts]
   (when-let [embedding-client (:embedding-client opts)]
     (embedding/embed-search-docs!
      xtdb
      (dissoc embedding-client :close)
-     (agent-baseline-embedding-options prepared opts))))
+     (assoc (agent-baseline-embedding-options prepared opts)
+            :on-progress
+            (fn [summary]
+              (benchmark-progress/progress-update!
+               suite
+               case
+               opts
+               :embed-search-docs
+               (select-keys summary
+                            [:provider
+                             :model
+                             :search-docs
+                             :pending
+                             :embedded
+                             :skipped
+                             :batch
+                             :batches
+                             :batch-size
+                             :batch-embedded])))))))
 (defn agent-baseline-suspect-limit
   [opts]
   (long (or (:limit opts) default-agent-baseline-suspect-limit)))
@@ -161,6 +183,8 @@
                                    :embed-search-docs
                                    #(embed-search-docs-for-agent-baseline!
                                      xtdb
+                                     suite
+                                     case
                                      prepared
                                      opts)
                                    #(select-keys %

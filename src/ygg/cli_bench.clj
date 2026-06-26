@@ -54,6 +54,9 @@
     (parse-optional-long args "--batch-size") (assoc :batch-size
                                                      (parse-optional-long args
                                                                           "--batch-size"))
+    (parse-optional-long args "--embedding-input-max-chars")
+    (assoc :embedding-input-max-chars
+           (parse-optional-long args "--embedding-input-max-chars"))
     (option-value args "--codebase-memory-command") (assoc :codebase-memory-command
                                                            (option-value args
                                                                          "--codebase-memory-command"))
