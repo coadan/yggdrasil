@@ -85,6 +85,18 @@
 (def ^:private source-graph-file-fact-candidate-limit
   80)
 
+(def ^:private candidate-file-sibling-query-limit
+  32)
+
+(def ^:private candidate-file-sibling-token-limit
+  96)
+
+(def ^:private candidate-file-sibling-limit
+  32)
+
+(def ^:private candidate-file-sibling-per-candidate-limit
+  4)
+
 (def ^:private source-graph-neighbor-scan-limit
   160)
 
@@ -1665,6 +1677,199 @@
                (assoc constraints :active? true)
                read-context))
          source-graph-file-fact-candidate-limit))))))
+
+(defn- candidate-file-name
+  [path]
+  (let [path (str path)
+        idx (.lastIndexOf path "/")]
+    (if (neg? idx)
+      path
+      (subs path (inc idx)))))
+
+(defn- candidate-file-directory
+  [path]
+  (let [path (str path)
+        idx (.lastIndexOf path "/")]
+    (if (neg? idx)
+      ""
+      (subs path 0 idx))))
+
+(defn- candidate-file-family-parts
+  [path]
+  (let [filename (candidate-file-name path)
+        idx (.lastIndexOf filename ".")]
+    (when (pos? idx)
+      (let [stem (subs filename 0 idx)
+            ext (subs filename idx)
+            family (first (str/split stem #"\."))]
+        (when-not (or (str/blank? family)
+                      (str/blank? ext))
+          {:dir (candidate-file-directory path)
+           :filename filename
+           :stem stem
+           :family family
+           :family-key (str/lower-case family)
+           :ext (str/lower-case ext)})))))
+
+(defn- candidate-file-row-repo
+  [row]
+  (some-> (or (:repo row) (:repo-id row)) str not-empty))
+
+(defn- candidate-file-row-key
+  [row]
+  [(candidate-file-row-repo row) (:path row)])
+
+(defn- candidate-file-family-key
+  [repo parts]
+  [repo (:dir parts) (:ext parts) (:family-key parts)])
+
+(defn- candidate-file-sibling-search-tokens
+  [candidate-file-rows]
+  (->> candidate-file-rows
+       (take candidate-file-sibling-query-limit)
+       (keep (comp :family candidate-file-family-parts :path))
+       (mapcat text/tokenize-all)
+       distinct
+       (take candidate-file-sibling-token-limit)
+       vec))
+
+(defn- indexed-candidate-file-family-rows
+  [xtdb candidate-file-rows {:keys [project-id repo-id read-context]}]
+  (let [tokens (candidate-file-sibling-search-tokens candidate-file-rows)]
+    (if (empty? tokens)
+      []
+      (store/rows-matching-any-token
+       xtdb
+       (:files store/tables)
+       [:path]
+       tokens
+       (assoc (source-graph-scope-constraints project-id repo-id)
+              :active? true)
+       read-context))))
+
+(defn- indexed-candidate-file-families
+  [indexed-file-rows]
+  (->> indexed-file-rows
+       (keep (fn [row]
+               (when-let [parts (candidate-file-family-parts (:path row))]
+                 [(candidate-file-family-key (candidate-file-row-repo row)
+                                             parts)
+                  row])))
+       (group-by first)
+       (map (fn [[k rows]]
+              [k (->> rows
+                      (map second)
+                      (sort-by :path)
+                      vec)]))
+       (into {})))
+
+(defn- candidate-file-sibling-support-labels
+  [candidate]
+  (->> (concat [(:path candidate) (:label candidate)]
+               (:supportLabels candidate))
+       (remove #(str/blank? (str %)))
+       distinct
+       (take 4)
+       vec))
+
+(defn- candidate-file-sibling-source-score
+  [candidate]
+  (let [components (:scoreComponents candidate)
+        source-score (or (:sourceGraph components)
+                         (:score candidate)
+                         0.0)]
+    (min source-graph-visible-score-cap
+         (double source-score))))
+
+(defn- candidate-file-sibling-row
+  [candidate indexed-file-row]
+  (let [path (:path indexed-file-row)
+        score (* 0.85 (double (or (:score candidate) 0.0)))
+        source-score (candidate-file-sibling-source-score candidate)
+        repo (or (candidate-file-row-repo indexed-file-row)
+                 (candidate-file-row-repo candidate))]
+    (cond-> {:path path
+             :rank (:rank candidate)
+             :score score
+             :targetKind "file"
+             :resultKind "file"
+             :label path
+             :reason (str "same-stem indexed file sibling of "
+                          (:path candidate))
+             :supportLabels (candidate-file-sibling-support-labels candidate)
+             :scoreComponents {:sourceGraph source-score}}
+      repo (assoc :repo repo)
+      (:kind indexed-file-row) (assoc :kind (display-name
+                                             (:kind indexed-file-row))))))
+
+(defn- candidate-file-sibling-path-score
+  [query-tokens row]
+  (text/token-score query-tokens (text/tokenize-all (:path row))))
+
+(defn- candidate-file-sibling-sort-key
+  [query-tokens row]
+  [(- (candidate-file-sibling-path-score query-tokens row))
+   (:path row)])
+
+(defn- candidate-file-sibling-rows
+  [query-tokens indexed-families seen candidate]
+  (when-let [parts (candidate-file-family-parts (:path candidate))]
+    (let [family-key (candidate-file-family-key (candidate-file-row-repo
+                                                 candidate)
+                                                parts)
+          family-rows (get indexed-families family-key)]
+      (when (seq family-rows)
+        (->> family-rows
+             (remove #(contains? seen (candidate-file-row-key %)))
+             (remove #(= (:path candidate) (:path %)))
+             (sort-by #(candidate-file-sibling-sort-key query-tokens %))
+             (take candidate-file-sibling-per-candidate-limit)
+             (map #(candidate-file-sibling-row candidate %)))))))
+
+(defn- rerank-candidate-files
+  [rows]
+  (->> rows
+       (map-indexed #(assoc %2 :rank (inc %1)))
+       vec))
+
+(defn- expand-candidate-file-siblings
+  [xtdb query-tokens candidate-file-rows scope]
+  (if (or (empty? candidate-file-rows)
+          (not (store/xtdb-handle? xtdb)))
+    candidate-file-rows
+    (let [indexed-families (indexed-candidate-file-families
+                            (indexed-candidate-file-family-rows
+                             xtdb
+                             candidate-file-rows
+                             scope))]
+      (if (empty? indexed-families)
+        candidate-file-rows
+        (loop [remaining (seq candidate-file-rows)
+               seen #{}
+               selected []
+               added 0]
+          (if-let [candidate (first remaining)]
+            (let [candidate-key (candidate-file-row-key candidate)]
+              (if (contains? seen candidate-key)
+                (recur (next remaining) seen selected added)
+                (let [seen (conj seen candidate-key)
+                      siblings (if (< added candidate-file-sibling-limit)
+                                 (vec (candidate-file-sibling-rows
+                                       query-tokens
+                                       indexed-families
+                                       seen
+                                       candidate))
+                                 [])
+                      sibling-count (min (count siblings)
+                                         (- candidate-file-sibling-limit added))
+                      siblings (subvec siblings 0 sibling-count)]
+                  (recur (next remaining)
+                         (into seen (map candidate-file-row-key siblings))
+                         (into (conj selected candidate) siblings)
+                         (+ added sibling-count)))))
+            (if (pos? added)
+              (rerank-candidate-files selected)
+              candidate-file-rows)))))))
 
 (defn- candidate-input-score
   [row]
@@ -3252,6 +3457,13 @@
                                                   results
                                                   source-candidates)
         candidate-file-rows (candidate-files candidate-inputs)
+        candidate-file-rows (expand-candidate-file-siblings
+                             xtdb
+                             query-tokens
+                             candidate-file-rows
+                             {:project-id project-id
+                              :repo-id repo-id
+                              :read-context read-context})
         source-declarations (source-graph-declarations
                              xtdb
                              query-tokens

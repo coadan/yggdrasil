@@ -2694,6 +2694,83 @@
                                  :graph 0.6}}]
              (:candidateFiles packet))))))
 
+(deftest candidate-files-expand-indexed-same-stem-siblings
+  (with-redefs [store/xtdb-handle? (constantly true)
+                store/rows-matching-any-token
+                (fn [_ table fields tokens constraints ctx]
+                  (is (= :ygg/files table))
+                  (is (= [:path] fields))
+                  (is (contains? (set tokens) "sqlmapper"))
+                  (is (= {:project-id "fixture"
+                          :repo-id "dapper"
+                          :active? true}
+                         constraints))
+                  (is (= {:valid-at "t"} ctx))
+                  [{:xt/id "file:mapper"
+                    :project-id "fixture"
+                    :repo-id "dapper"
+                    :path "Dapper/SqlMapper.cs"
+                    :kind :dotnet
+                    :active? true}
+                   {:xt/id "file:mapper-settings"
+                    :project-id "fixture"
+                    :repo-id "dapper"
+                    :path "Dapper/SqlMapper.Settings.cs"
+                    :kind :dotnet
+                    :active? true}
+                   {:xt/id "file:mapper-handler"
+                    :project-id "fixture"
+                    :repo-id "dapper"
+                    :path "Dapper/SqlMapper.ITypeHandler.cs"
+                    :kind :dotnet
+                    :active? true}
+                   {:xt/id "file:other"
+                    :project-id "fixture"
+                    :repo-id "dapper"
+                    :path "Dapper/Other.Settings.cs"
+                    :kind :dotnet
+                    :active? true}])]
+    (let [rows (#'context/expand-candidate-file-siblings
+                :xtdb
+                (text/tokenize-all "settings")
+                [{:path "Dapper/SqlMapper.cs"
+                  :rank 1
+                  :score 1.0
+                  :targetKind "chunk"
+                  :label "Dapper/SqlMapper.ResetTypeHandlers"
+                  :repo "dapper"
+                  :supportLabels ["Dapper/SqlMapper.AddTypeHandlerCore"
+                                  "Dapper/SqlMapper.HasTypeHandler"]
+                  :scoreComponents {:sourceGraph 0.6
+                                    :lexical 0.9}}
+                 {:path "Dapper/Noise.cs"
+                  :rank 2
+                  :score 0.8
+                  :targetKind "file"
+                  :label "Dapper/Noise"
+                  :repo "dapper"}]
+                {:project-id "fixture"
+                 :repo-id "dapper"
+                 :read-context {:valid-at "t"}})
+          by-path (into {} (map (juxt :path identity)) rows)
+          settings (get by-path "Dapper/SqlMapper.Settings.cs")]
+      (is (= ["Dapper/SqlMapper.cs"
+              "Dapper/SqlMapper.Settings.cs"
+              "Dapper/SqlMapper.ITypeHandler.cs"
+              "Dapper/Noise.cs"]
+             (mapv :path rows)))
+      (is (= [1 2 3 4] (mapv :rank rows)))
+      (is (= "file" (:targetKind settings)))
+      (is (= "dotnet" (:kind settings)))
+      (is (= ["Dapper/SqlMapper.cs"
+              "Dapper/SqlMapper.ResetTypeHandlers"
+              "Dapper/SqlMapper.AddTypeHandlerCore"
+              "Dapper/SqlMapper.HasTypeHandler"]
+             (:supportLabels settings)))
+      (is (= {:sourceGraph 0.6} (:scoreComponents settings)))
+      (is (str/includes? (:reason settings)
+                         "same-stem indexed file sibling")))))
+
 (deftest context-packet-compact-output-uses-path-dictionary
   (with-redefs [query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema
