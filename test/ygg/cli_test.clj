@@ -1746,6 +1746,8 @@
                                  "--model" "fake-embedding-model"
                                  "--batch-size" "9"
                                  "--embedding-input-max-chars" "321"
+                                 "--embedding-request-timeout-ms" "12345"
+                                 "--embedding-max-retries" "2"
                                  "--limit" "3"
                                  "--doc-limit" "12"
                                  "--retrieval-limit" "80"
@@ -1775,6 +1777,8 @@
                   :model "fake-embedding-model"
                   :batch-size 9
                   :embedding-input-max-chars 321
+                  :embedding-request-timeout-ms 12345
+                  :embedding-max-retries 2
                   :parser-worker "java"
                   :mode nil
                   :result-path nil

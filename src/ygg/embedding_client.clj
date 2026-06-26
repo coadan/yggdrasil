@@ -7,8 +7,8 @@
             [clojure.string :as str]))
 
 (def ^:dynamic *client-pool*
-  "Optional atom keyed by [provider model]. When bound, provider clients are
-  reused and closed by the pool owner instead of the caller."
+  "Optional atom keyed by provider, model, and provider options. When bound,
+  provider clients are reused and closed by the pool owner instead of the caller."
   nil)
 
 (def supported-providers
@@ -16,6 +16,12 @@
 
 (def ^:private supported-provider-set
   (set supported-providers))
+
+(def default-remote-request-timeout-ms
+  30000)
+
+(def default-remote-max-retries
+  1)
 
 (defn- provider-keyword
   [value]
@@ -44,6 +50,35 @@
     :openai (openai/api-key)
     nil))
 
+(defn- parse-env-long
+  [env-name default-value]
+  (if-let [raw (some-> (env/get-env env-name) str/trim not-empty)]
+    (try
+      (Long/parseLong raw)
+      (catch NumberFormatException ex
+        (throw (ex-info "Embedding client environment value must be an integer."
+                        {:env env-name
+                         :value raw}
+                        ex))))
+    default-value))
+
+(defn- remote-provider?
+  [provider]
+  (contains? #{:openrouter :openai} provider))
+
+(defn- remote-client-defaults
+  []
+  {:request-timeout-ms (parse-env-long "YGG_EMBEDDING_REQUEST_TIMEOUT_MS"
+                                       default-remote-request-timeout-ms)
+   :max-retries (parse-env-long "YGG_EMBEDDING_MAX_RETRIES"
+                                default-remote-max-retries)})
+
+(defn- provider-client-opts
+  [provider opts]
+  (if (remote-provider? provider)
+    (merge (remote-client-defaults) opts)
+    opts))
+
 (defn default-provider
   []
   (or (provider-keyword (env/get-env "YGG_EMBEDDING_PROVIDER"))
@@ -54,14 +89,17 @@
       :local))
 
 (defn provider-client
-  [provider model]
-  (case provider
-    :local (local/client {:model model})
-    :openrouter (openrouter/client {:model model})
-    :openai (openai/client {:model model})
-    (throw (ex-info "Unsupported embedding provider."
-                    {:provider provider
-                     :supported [:local :openrouter :openai]}))))
+  ([provider model] (provider-client provider model {}))
+  ([provider model opts]
+   (let [provider (keyword provider)
+         opts (provider-client-opts provider opts)]
+     (case provider
+       :local (local/client {:model model})
+       :openrouter (openrouter/client (merge {:model model} opts))
+       :openai (openai/client (merge {:model model} opts))
+       (throw (ex-info "Unsupported embedding provider."
+                       {:provider provider
+                        :supported [:local :openrouter :openai]}))))))
 
 (defn missing-key-message
   [provider]
@@ -74,28 +112,33 @@
     "Missing embedding provider API key."))
 
 (defn- client-key
-  [provider model]
-  [(keyword provider) (str model)])
+  [provider model opts]
+  [(keyword provider)
+   (str model)
+   (select-keys opts [:max-retries :request-timeout-ms])])
 
 (defn- pooled-client-view
   [client]
   (dissoc client :close))
 
 (defn pooled-client!
-  [client-pool provider model]
-  (let [k (client-key provider model)]
+  [client-pool provider model opts]
+  (let [k (client-key provider model opts)]
     (locking client-pool
       (pooled-client-view
        (or (get @client-pool k)
-           (let [client (provider-client provider model)]
+           (let [client (provider-client provider model opts)]
              (swap! client-pool assoc k client)
              client))))))
 
 (defn client
-  [provider model]
-  (if *client-pool*
-    (pooled-client! *client-pool* provider model)
-    (provider-client provider model)))
+  ([provider model] (client provider model {}))
+  ([provider model opts]
+   (let [provider (keyword provider)
+         opts (provider-client-opts provider opts)]
+     (if *client-pool*
+       (pooled-client! *client-pool* provider model opts)
+       (provider-client provider model opts)))))
 
 (defn close-client!
   [client]
@@ -110,28 +153,36 @@
     (reset! client-pool {})))
 
 (defn query-embedding-client
-  [retriever provider model]
-  (let [retriever (keyword retriever)
-        provider (keyword provider)
-        model (or model (default-model provider))]
-    (cond
-      (= :lexical retriever)
-      nil
+  ([retriever provider model] (query-embedding-client retriever provider model {}))
+  ([retriever provider model opts]
+   (let [retriever (keyword retriever)
+         provider (keyword provider)
+         model (or model (default-model provider))]
+     (cond
+       (= :lexical retriever)
+       nil
 
-      (provider-api-key provider)
-      (client provider model)
+       (provider-api-key provider)
+       (client provider model opts)
 
-      (= :auto retriever)
-      nil
+       (= :auto retriever)
+       nil
 
-      :else
-      (throw (ex-info (missing-key-message provider)
-                      {:retriever retriever
-                       :provider provider})))))
+       :else
+       (throw (ex-info (missing-key-message provider)
+                       {:retriever retriever
+                        :provider provider}))))))
 
 (defn configured-query-client
-  [retriever {:keys [provider model]}]
+  [retriever {:keys [provider model max-retries request-timeout-ms]}]
   (let [provider (keyword (or provider (default-provider)))
         model (or (some-> model str/trim not-empty)
                   (default-model provider))]
-    (query-embedding-client retriever provider model)))
+    (query-embedding-client retriever
+                            provider
+                            model
+                            (cond-> {}
+                              (some? max-retries)
+                              (assoc :max-retries max-retries)
+                              (some? request-timeout-ms)
+                              (assoc :request-timeout-ms request-timeout-ms)))))

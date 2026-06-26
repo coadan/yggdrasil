@@ -57,6 +57,12 @@
     (parse-optional-long args "--embedding-input-max-chars")
     (assoc :embedding-input-max-chars
            (parse-optional-long args "--embedding-input-max-chars"))
+    (parse-optional-long args "--embedding-request-timeout-ms")
+    (assoc :embedding-request-timeout-ms
+           (parse-optional-long args "--embedding-request-timeout-ms"))
+    (parse-optional-long args "--embedding-max-retries")
+    (assoc :embedding-max-retries
+           (parse-optional-long args "--embedding-max-retries"))
     (option-value args "--codebase-memory-command") (assoc :codebase-memory-command
                                                            (option-value args
                                                                          "--codebase-memory-command"))

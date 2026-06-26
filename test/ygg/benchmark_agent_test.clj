@@ -199,9 +199,13 @@
                          {:provider "openai"
                           :model "fake-default-model"}))))
       (is (= [[:hybrid {:provider "local"
-                        :model "fake-model"}]
+                        :model "fake-model"
+                        :request-timeout-ms 30000
+                        :max-retries 1}]
               [:auto {:provider "openai"
-                      :model "fake-default-model"}]]
+                      :model "fake-default-model"
+                      :request-timeout-ms 30000
+                      :max-retries 1}]]
              @calls)))))
 (deftest benchmark-index-options-are-bounded-by-default
   (is (= {:index-profile :query

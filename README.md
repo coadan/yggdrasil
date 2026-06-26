@@ -107,7 +107,9 @@ Remote providers are optional add-on embedding lanes. Set an API key, index that
 provider, and pass the same provider when querying that lane. When
 `YGG_OPENROUTER_API_KEY` or `YGG_OPENAI_API_KEY` is present, `auto` retrieval
 uses that remote embedding provider by default instead of starting the local
-worker. Set `YGG_EMBEDDING_PROVIDER=local` to force the local lane.
+worker. Set `YGG_EMBEDDING_PROVIDER=local` to force the local lane. Remote
+embedding requests default to a 30s request timeout and one retry; tune with
+`YGG_EMBEDDING_REQUEST_TIMEOUT_MS` and `YGG_EMBEDDING_MAX_RETRIES`.
 
 ```sh
 YGG_OPENAI_API_KEY=... ygg embed --project my-project --provider openai

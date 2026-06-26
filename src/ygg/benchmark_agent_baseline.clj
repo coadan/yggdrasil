@@ -40,6 +40,10 @@
   64)
 (def default-agent-baseline-embedding-input-max-chars
   context/default-snippet-chars)
+(def default-agent-baseline-embedding-request-timeout-ms
+  30000)
+(def default-agent-baseline-embedding-max-retries
+  1)
 (def default-agent-baseline-retriever
   :auto)
 
@@ -94,7 +98,11 @@
    (keyword (or (:retriever opts)
                 default-agent-baseline-retriever))
    {:provider (:provider opts)
-    :model (:model opts)}))
+    :model (:model opts)
+    :request-timeout-ms (long (or (:embedding-request-timeout-ms opts)
+                                  default-agent-baseline-embedding-request-timeout-ms))
+    :max-retries (long (or (:embedding-max-retries opts)
+                           default-agent-baseline-embedding-max-retries))}))
 (defn- agent-baseline-embedding-options
   [prepared opts]
   (cond-> {:batch-size (long (or (:batch-size opts)

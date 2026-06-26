@@ -9,6 +9,8 @@
 
 (def default-base-url "https://openrouter.ai/api/v1")
 (def default-model "openai/text-embedding-3-small")
+(def default-request-timeout-ms
+  60000)
 
 (defn api-key
   "Return the configured OpenRouter API key, without logging or exposing it."
@@ -55,9 +57,10 @@
 
 (defn embed-batch
   "Return embedding vectors for input strings using OpenRouter embeddings."
-  [{:keys [api-key base-url model http-client max-retries]
+  [{:keys [api-key base-url model http-client max-retries request-timeout-ms]
     :or {base-url default-base-url
          model default-model
+         request-timeout-ms default-request-timeout-ms
          max-retries 5}}
    inputs]
   (when-not (seq inputs)
@@ -68,7 +71,7 @@
   (let [client (or http-client (HttpClient/newHttpClient))
         request (fn []
                   (-> (HttpRequest/newBuilder (URI/create (embeddings-url base-url)))
-                      (.timeout (Duration/ofSeconds 60))
+                      (.timeout (Duration/ofMillis (long request-timeout-ms)))
                       (.header "Authorization" (str "Bearer " api-key))
                       (.header "Content-Type" "application/json")
                       (.POST (HttpRequest$BodyPublishers/ofString
@@ -97,7 +100,7 @@
 (defn client
   "Return an OpenRouter embedding client map."
   ([] (client {}))
-  ([{:keys [base-url model http-client max-retries] :as opts
+  ([{:keys [base-url model http-client max-retries request-timeout-ms] :as opts
      :or {model default-model}}]
    (let [configured-api-key (:api-key opts)]
      {:provider :openrouter
@@ -107,5 +110,6 @@
                                    :base-url base-url
                                    :model model
                                    :http-client http-client
-                                   :max-retries max-retries}
+                                   :max-retries max-retries
+                                   :request-timeout-ms request-timeout-ms}
                                   inputs))})))
