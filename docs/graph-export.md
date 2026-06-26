@@ -7,7 +7,7 @@ Create it with:
 ```sh
 ygg view overview --format json --out graph.json
 ygg view deps my.namespace --format json --depth 2 --out deps.json
-ygg view query "where is auth handled" --format json --retriever lexical --out query.json
+ygg view query "where is auth handled" --format json --out query.json
 ygg view systems --project my-project --format json --out systems.json
 ygg view systems --project my-project --format json --detail expanded --out systems-expanded.json
 ygg view systems --project my-project --format json --view view:runtime --out runtime.json

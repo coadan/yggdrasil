@@ -369,6 +369,8 @@
                  (get-in report-json [:maintenance :decision-summary :total])))
           (is (= "ygg.context/v1"
                  (:schema context-example-json)))
+          (is (= "auto"
+                 (get-in context-example-json [:search :retriever-requested])))
           (is (not (str/includes? report-bundle-text
                                   "Private handled report memory secret.")))
           (is (str/includes? report-md "# Yggdrasil Report"))

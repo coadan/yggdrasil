@@ -178,9 +178,8 @@ PY
 "$PREFIX/bin/ygg" query \
   "v1 smoke release memory normal query packets" \
   --config "$PROJECT_EDN" \
-  --retriever lexical \
   --json > "$WORK_DIR/memory-query.json"
-printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ygg_query","arguments":{"query":"v1 smoke release memory normal query packets","retriever":"lexical","budget":20000}}}\n' \
+printf '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ygg_query","arguments":{"query":"v1 smoke release memory normal query packets","budget":20000}}}\n' \
   | "$PREFIX/bin/ygg-mcp" --config "$PROJECT_EDN" \
   > "$WORK_DIR/mcp-memory-query.jsonl"
 "$PREFIX/bin/ygg" sync activity "$PROJECT_EDN" \

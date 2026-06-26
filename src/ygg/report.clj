@@ -803,7 +803,7 @@
   (context/context-packet xtdb
                           "where is this handled?"
                           {:project-id (:id project)
-                           :retriever :lexical
+                           :retriever :auto
                            :plugins (:plugins project)
                            :budget context/default-budget
                            :exclude-private-memory? true}))
