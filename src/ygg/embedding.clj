@@ -8,6 +8,9 @@
 
 (def default-batch-size 64)
 
+(def default-provider-input-max-chars
+  6000)
+
 (defn now-ms
   []
   (System/currentTimeMillis))
@@ -137,16 +140,21 @@
       docs)))
 
 (defn- provider-input-text
-  [doc]
-  (let [text (str (:text doc))]
-    (if (str/blank? text)
-      " "
+  [doc max-chars]
+  (let [text (str (:text doc))
+        text (if (str/blank? text)
+               "[blank search document]"
+               text)]
+    (if (and max-chars (< (long max-chars) (count text)))
+      (subs text 0 (long max-chars))
       text)))
 
 (defn embed-search-docs!
   "Embed pending search docs with client map and persist rows."
-  [xtdb {:keys [provider model embed-batch close] :as client} {:keys [batch-size limit project-id repo-id]
-                                                               :or {batch-size default-batch-size}}]
+  [xtdb {:keys [provider model embed-batch close] :as client} {:keys [batch-size limit project-id repo-id
+                                                                      input-max-chars]
+                                                               :or {batch-size default-batch-size
+                                                                    input-max-chars default-provider-input-max-chars}}]
   (when-not (and provider model embed-batch)
     (throw (ex-info "Invalid embedding client." {:client (select-keys client [:provider :model])})))
   (try
@@ -158,7 +166,7 @@
           total-search-docs (search-doc-count xtdb scope)]
       (reduce
        (fn [summary batch]
-         (let [vectors (embed-batch (mapv provider-input-text batch))]
+         (let [vectors (embed-batch (mapv #(provider-input-text % input-max-chars) batch))]
            (when-not (= (count batch) (count vectors))
              (throw (ex-info "Embedding provider returned wrong vector count."
                              {:expected (count batch)

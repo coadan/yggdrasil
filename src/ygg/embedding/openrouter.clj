@@ -25,15 +25,23 @@
                         "input" (vec inputs)
                         "encoding_format" "float"}))
 
-(defn- embedding-data
-  [body]
-  (->> (get (json/read-json body) "data")
-       (sort-by #(get % "index"))
-       (mapv #(get % "embedding"))))
-
 (defn- preview-body
   [body]
   (subs (str body) 0 (min 500 (count (str body)))))
+
+(defn- embedding-data
+  [body]
+  (let [data (json/read-json body)]
+    (when-let [error (get data "error")]
+      (let [body-preview (preview-body body)]
+        (throw (ex-info (str "OpenRouter embeddings request failed: "
+                             body-preview)
+                        {:status 200
+                         :error error
+                         :body-preview body-preview}))))
+    (->> (get data "data")
+         (sort-by #(get % "index"))
+         (mapv #(get % "embedding")))))
 
 (defn- retryable-status?
   [status]
@@ -80,9 +88,11 @@
             (recur (inc attempt)))
 
           :else
-          (throw (ex-info "OpenRouter embeddings request failed."
-                          {:status status
-                           :body-preview (preview-body body)})))))))
+          (let [body-preview (preview-body body)]
+            (throw (ex-info (str "OpenRouter embeddings request failed: "
+                                 body-preview)
+                            {:status status
+                             :body-preview body-preview}))))))))
 
 (defn client
   "Return an OpenRouter embedding client map."

@@ -1,6 +1,7 @@
 (ns ygg.embedding-query-test
   (:require [ygg.embedding :as embedding]
             [ygg.embedding.local :as local]
+            [ygg.embedding.openrouter :as openrouter]
             [ygg.env :as env]
             [ygg.index :as index]
             [ygg.query :as query]
@@ -276,10 +277,51 @@
                      {:project-id "project-a"
                       :repo-id "app"
                       :batch-size 8})]
-        (is (= [" " " " "alpha"] @seen-inputs))
+        (is (= ["[blank search document]"
+                "[blank search document]"
+                "alpha"]
+               @seen-inputs))
         (is (= 3 (:embedded summary)))
         (is (= ["target:blank" "target:nil" "target:text"]
                (mapv :target-id @committed)))))))
+
+(deftest embed-search-docs-bounds-provider-inputs
+  (let [seen-inputs (atom nil)
+        docs [{:xt/id "search-doc:long"
+               :project-id "project-a"
+               :repo-id "app"
+               :target-id "target:long"
+               :input-sha "sha:long"
+               :text "abcdefghijklmnopqrstuvwxyz"
+               :active? true}]
+        client {:provider :fake
+                :model "fake-model"
+                :embed-batch (fn [inputs]
+                               (reset! seen-inputs inputs)
+                               [[1.0 0.0]])}]
+    (with-redefs [embedding/all-search-docs (fn [& _] docs)
+                  store/rows-with-field-tuples (fn [& _] [])
+                  store/count-rows (fn [& _] (count docs))
+                  store/commit-embeddings! (fn [_ rows]
+                                             {:embeddings (count rows)})
+                  vector-store/upsert-embeddings! (fn [_] nil)]
+      (let [summary (embedding/embed-search-docs!
+                     :xtdb
+                     client
+                     {:project-id "project-a"
+                      :repo-id "app"
+                      :batch-size 8
+                      :input-max-chars 5})]
+        (is (= ["abcde"] @seen-inputs))
+        (is (= 1 (:embedded summary)))))))
+
+(deftest openrouter-embedding-data-rejects-2xx-error-payload
+  (is (thrown-with-msg?
+       clojure.lang.ExceptionInfo
+       #"OpenRouter embeddings request failed"
+       (#'openrouter/embedding-data
+        (json/write-json-str {"error" {"message" "HTTP 400: invalid input"
+                                       "code" 400}})))))
 
 (deftest embed-search-docs-closes-closeable-client
   (let [closed? (atom false)]
