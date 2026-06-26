@@ -80,6 +80,11 @@ versus Yggdrasil task-token comparisons; do not treat a simple
 localization-only suite or synthetic-only slice as representative proof for
 Yggdrasil.
 
+Use `benchmarks/task-category-broad.edn` when the question is narrower and more
+direct: does Yggdrasil win on should-win planning, implementation, and
+review/decision tasks? That selector tags the three categories as measured
+`problem-*` classes and excludes known shell-sufficient controls.
+
 For the bounded architecture benchmark improvement slice, use
 `benchmarks/headline.edn` as the fixed five-case selector. It covers dependency
 and audit-scope evidence, runtime/config evidence, architecture boundaries, and

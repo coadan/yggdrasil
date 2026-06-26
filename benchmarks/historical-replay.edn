@@ -52,6 +52,8 @@
           :repo-id "dapper"
           :coverage {:source-kinds [:dotnet]}
           :tags [:historical
+                 :problem-implementation
+                 :ygg-should-win
                  :problem-cross-file
                  :problem-api-contract
                  :architecture-data-ownership
@@ -93,6 +95,8 @@
                                                        "connector/routingconnector/metadata.yaml"]}}]
           :coverage {:source-kinds [:go :yaml]}
           :tags [:historical
+                 :problem-implementation
+                 :ygg-should-win
                  :problem-architecture
                  :problem-cross-file
                  :architecture-runtime-boundary
@@ -146,6 +150,8 @@
           :repo-id "junit-framework"
           :coverage {:source-kinds [:java]}
           :tags [:historical
+                 :problem-implementation
+                 :ygg-should-win
                  :problem-cross-file
                  :problem-api-contract
                  :architecture-data-ownership
@@ -312,6 +318,8 @@
           :repo-id "axios"
           :coverage {:source-kinds [:javascript]}
           :tags [:historical
+                 :problem-implementation
+                 :ygg-should-win
                  :problem-dependency-boundary
                  :problem-runtime-config
                  :architecture-runtime-boundary

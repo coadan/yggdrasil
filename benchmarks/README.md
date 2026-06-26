@@ -37,6 +37,7 @@ suites need. Check local setup without creating generated artifacts:
 bb bench repos check --suite benchmarks/architecture-synthetic.edn
 bb bench repos check --suite benchmarks/agent-efficiency-broad.edn
 bb bench repos check --suite benchmarks/multi-repo-quality.edn
+bb bench repos check --suite benchmarks/task-category-broad.edn
 bb bench repos check --suite benchmarks/graphify.edn
 bb bench:gate --setup-check
 ```
@@ -47,6 +48,16 @@ Use the quick historical lane for routine shell-only versus Yggdrasil evidence:
 bb agent-efficiency all \
   --suite benchmarks/historical-replay-quick.edn \
   --out .dev/ygg/agent-efficiency/historical-replay-quick
+```
+
+Use the task-category lane to test should-win planning, implementation, and
+review/decision tasks as separate measured problem classes:
+
+```sh
+bb bench repos check --suite benchmarks/task-category-broad.edn
+bb agent-efficiency all \
+  --suite benchmarks/task-category-broad.edn \
+  --out .dev/ygg/agent-efficiency/task-category-broad
 ```
 
 Use the full lane when the heavy multi-repo replay case should be part of the

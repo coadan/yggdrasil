@@ -37,6 +37,8 @@
                                                        "connector/routingconnector/config.go"]}}]
           :coverage {:source-kinds [:go]}
           :tags [:synthetic
+                 :problem-review
+                 :ygg-should-win
                  :problem-architecture
                  :multi-repo-quality
                  :architecture-cross-system-impact

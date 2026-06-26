@@ -1,0 +1,18 @@
+{:id "task-category-broad"
+ :project-id "task-category-broad"
+ :description "Composed should-win suite for planning, implementation, and review/decision tasks where graph-backed Yggdrasil context should generally beat shell-only search."
+ :include-suites [{:path "feature-planning.edn"
+                   :case-ids ["planning-bootstrap-docs-search-integration"
+                              "planning-supabase-trigger-owner-validation"
+                              "planning-dapper-jsonb-string-handling"]}
+                  {:path "historical-replay.edn"
+                   :case-ids ["historical-dapper-prefer-enum-type-handlers"
+                              "historical-otel-routing-default-error-mode"
+                              "historical-junit-system-properties-extension-backup"
+                              "historical-axios-max-body-length-follow-redirects"]}
+                  {:path "decision-quality-pilot.edn"
+                   :case-ids ["decision-bootstrap-docs-route-impact"
+                              "decision-supabase-trigger-maintenance"
+                              "decision-dapper-jsonb-plugin-fit"
+                              "decision-bootstrap-astro-change-plan"]}
+                  {:path "multi-repo-quality.edn"}]}

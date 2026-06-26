@@ -248,6 +248,39 @@
                :cases 2}]
              (:included-suites suite))))))
 
+(deftest task-category-broad-suite-covers-should-win-task-classes
+  (let [suite (benchmark/read-suite "benchmarks/task-category-broad.edn")
+        tags-by-case (into {}
+                           (map (fn [case]
+                                  [(:id case) (set (:tags case))]))
+                           (:cases suite))
+        cases-with-tag (fn [tag]
+                         (->> tags-by-case
+                              (keep (fn [[case-id tags]]
+                                      (when (contains? tags tag)
+                                        case-id)))
+                              sort
+                              vec))]
+    (is (= "task-category-broad" (:id suite)))
+    (is (= 12 (count (:cases suite))))
+    (is (every? #(contains? % "ygg-should-win")
+                (vals tags-by-case)))
+    (is (not-any? #(contains? % "ygg-should-lose")
+                  (vals tags-by-case)))
+    (is (not-any? #(contains? % "shell-sufficient-control")
+                  (vals tags-by-case)))
+    (is (<= 2 (count (cases-with-tag "problem-planning"))))
+    (is (<= 2 (count (cases-with-tag "problem-implementation"))))
+    (is (<= 2 (count (cases-with-tag "problem-review"))))
+    (is (= ["opentelemetry-collector"
+            "opentelemetry-collector-contrib"]
+           (->> (:cases suite)
+                (filter #(= "otel-core-contrib-routing-connector-contract"
+                            (:id %)))
+                first
+                :repos
+                (mapv :repo-id))))))
+
 (deftest read-suite-rejects-unknown-included-case-selection
   (let [suite-dir (temp-dir "ygg-bench-suite-include-case-missing")
         child (.getPath (io/file suite-dir "child.edn"))

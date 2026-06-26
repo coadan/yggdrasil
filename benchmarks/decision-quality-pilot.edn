@@ -18,6 +18,8 @@
           :coverage {:source-kinds [:web-framework]}
           :tags [:decision-quality
                  :synthetic
+                 :problem-review
+                 :ygg-should-win
                  :problem-architecture
                  :architecture-cross-system-impact
                  :audit-scope-docs
@@ -64,6 +66,8 @@
           :coverage {:source-kinds [:env :sql]}
           :tags [:decision-quality
                  :synthetic
+                 :problem-review
+                 :ygg-should-win
                  :problem-maintenance
                  :architecture-data-ownership
                  :architecture-runtime-boundary
@@ -108,6 +112,7 @@
           :coverage {:source-kinds [:javascript]}
           :tags [:decision-quality
                  :synthetic
+                 :problem-review
                  :problem-audit
                  :architecture-runtime-boundary
                  :audit-scope-runtime-config
@@ -153,6 +158,8 @@
           :coverage {:source-kinds [:dotnet :compose]}
           :tags [:decision-quality
                  :synthetic
+                 :problem-review
+                 :ygg-should-win
                  :problem-architecture
                  :plugin-fit
                  :architecture-dependency-flow
@@ -210,6 +217,8 @@
           :coverage {:source-kinds [:manifest :web-framework]}
           :tags [:decision-quality
                  :synthetic
+                 :problem-review
+                 :ygg-should-win
                  :problem-architecture
                  :architecture-dependency-flow
                  :not-one-size-fits-all

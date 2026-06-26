@@ -20,6 +20,7 @@
                  :decision-quality
                  :synthetic
                  :problem-planning
+                 :ygg-should-win
                  :architecture-dependency-flow
                  :audit-scope-dependencies
                  :web-framework-config
@@ -81,6 +82,7 @@
                  :decision-quality
                  :synthetic
                  :problem-planning
+                 :ygg-should-win
                  :architecture-data-ownership
                  :architecture-runtime-boundary
                  :audit-scope-runtime-config
@@ -177,6 +179,7 @@
                  :decision-quality
                  :synthetic
                  :problem-planning
+                 :ygg-should-win
                  :architecture-dependency-flow
                  :audit-scope-dependencies
                  :audit-scope-containers
