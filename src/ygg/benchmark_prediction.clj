@@ -3246,13 +3246,20 @@
         (when (covers-source-kinds? source-kinds kind-by-path compacted)
           (renumber-file-ranks compacted))))))
 
+(defn- compact-output-aggressive-pruning?
+  [limit selected]
+  (or (<= (long limit) compact-output-score-tail-max-limit)
+      (< (count selected) (long limit))))
+
 (defn- compact-output-prune-score-tail
   [selected limit result-scope source-kinds kind-by-path]
   (let [limit (long limit)
         selected (vec selected)]
-    (or (when-not (inspection-files-scope? result-scope)
+    (or (when (and (compact-output-aggressive-pruning? limit selected)
+                   (not (inspection-files-scope? result-scope)))
           (compact-output-core-evidence-rows selected source-kinds kind-by-path))
-        (when-not (inspection-files-scope? result-scope)
+        (when (and (compact-output-aggressive-pruning? limit selected)
+                   (not (inspection-files-scope? result-scope)))
           (compact-output-candidate-only-rows selected source-kinds kind-by-path))
         (if-let [prefix-size (when (and (<= limit compact-output-score-tail-max-limit)
                                         (not (inspection-files-scope? result-scope)))
