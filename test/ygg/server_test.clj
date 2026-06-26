@@ -967,6 +967,78 @@
             (deliver release-project true)
             (is (= true (:ok @project)))))))))
 
+(deftest bench-repos-check-runs-while-project-operation-is-busy
+  (let [lock (java.util.concurrent.locks.ReentrantLock.)
+        called (atom nil)]
+    (.lock lock)
+    (try
+      (with-redefs [cli/dispatch
+                    (fn [command args]
+                      (reset! called {:command command
+                                      :args args})
+                      (println "repos-check-ok"))]
+        (let [response (server/handle-request
+                        {:xtdb :xtdb
+                         :token "token"
+                         :running (atom true)
+                         :operation-locks (atom {"project:demo" lock})
+                         :active-operations (atom {"project:demo"
+                                                   {:schema "ygg.server.active-operation/v1"
+                                                    :op "sync"
+                                                    :projectId "demo"
+                                                    :startedAtMs (System/currentTimeMillis)}})}
+                        {:op "bench"
+                         :token "token"
+                         :args ["repos" "check" "--suite" "benchmarks/task-category-broad.edn"]})]
+          (is (= true (:ok response)))
+          (is (= "repos-check-ok\n" (:out response)))
+          (is (= {:command "bench"
+                  :args ["repos" "check" "--suite" "benchmarks/task-category-broad.edn"]}
+                 @called))))
+      (finally
+        (.unlock lock)))))
+
+(deftest bench-agent-baseline-runs-while-project-operation-is-busy
+  (let [lock (java.util.concurrent.locks.ReentrantLock.)
+        called (atom nil)]
+    (.lock lock)
+    (try
+      (with-redefs [cli/dispatch
+                    (fn [command args]
+                      (reset! called {:command command
+                                      :args args})
+                      (println "agent-baseline-ok"))]
+        (let [response (server/handle-request
+                        {:xtdb :xtdb
+                         :token "token"
+                         :running (atom true)
+                         :operation-locks (atom {"project:demo" lock})
+                         :active-operations (atom {"project:demo"
+                                                   {:schema "ygg.server.active-operation/v1"
+                                                    :op "sync"
+                                                    :projectId "demo"
+                                                    :startedAtMs (System/currentTimeMillis)}})}
+                        {:op "bench"
+                         :token "token"
+                         :args ["agent-baseline"
+                                "benchmarks/task-category-broad.edn"
+                                "--case"
+                                "historical-dapper-prefer-enum-type-handlers"
+                                "--out"
+                                "/tmp/ygg-bench-out"]})]
+          (is (= true (:ok response)))
+          (is (= "agent-baseline-ok\n" (:out response)))
+          (is (= {:command "bench"
+                  :args ["agent-baseline"
+                         "benchmarks/task-category-broad.edn"
+                         "--case"
+                         "historical-dapper-prefer-enum-type-handlers"
+                         "--out"
+                         "/tmp/ygg-bench-out"]}
+                 @called))))
+      (finally
+        (.unlock lock)))))
+
 (deftest sync-work-list-runs-while-project-operation-is-busy
   (let [lock (java.util.concurrent.locks.ReentrantLock.)
         called (atom nil)]

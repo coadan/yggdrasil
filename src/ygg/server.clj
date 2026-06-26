@@ -218,19 +218,43 @@
   (or (:storagePath request)
       (:storage-path request)))
 
+(defn- benchmark-lock-key
+  [cli-args]
+  (let [args (vec cli-args)
+        command (first args)
+        subcommand (second args)
+        suite-path (nth args 2 nil)
+        out-path (option-value args "--out")
+        case-id (option-value args "--case")
+        cases (option-value args "--cases")]
+    (when (and (= "bench" command)
+               (#{"agent-baseline" "agent-run" "agent-check"} subcommand))
+      (str "bench:"
+           subcommand
+           ":"
+           (or out-path suite-path "default")
+           (when case-id
+             (str ":case:" case-id))
+           (when cases
+             (str ":cases:" cases))))))
+
 (defn- request-operation
   ([request cli-args]
    (request-operation request cli-args nil))
   ([request cli-args extra]
    (let [cli-args (vec cli-args)
          project-id (operation-project-id request cli-args)
-         storage-path (operation-storage-path request)]
+         storage-path (operation-storage-path request)
+         lock-key (or (:lockKey extra)
+                      (:lock-key extra)
+                      (benchmark-lock-key cli-args))]
      (cond-> {:schema "ygg.server.active-operation/v1"
               :op (or (:op request) (first cli-args))
               :args cli-args}
        (:cwd request) (assoc :cwd (:cwd request))
        project-id (assoc :projectId project-id)
        storage-path (assoc :storagePath storage-path)
+       lock-key (assoc :lockKey lock-key)
        extra (merge extra)))))
 
 (defn- authorized?
@@ -555,18 +579,23 @@
   (let [args (vec cli-args)
         command (first args)
         subcommand (second args)
-        work-subcommand (nth args 2 nil)]
+        nested-subcommand (nth args 2 nil)]
     (or (contains? unlocked-cli-commands command)
+        (and (= "bench" command)
+             (= "repos" subcommand)
+             (= "check" nested-subcommand))
         (and (= "sync" command)
              (or (#{"activity" "inspect"} subcommand)
                  (and (= "work" subcommand)
-                      (contains? unlocked-sync-work-subcommands work-subcommand)))))))
+                      (contains? unlocked-sync-work-subcommands nested-subcommand)))))))
 
 (defn- operation-lock-key
   [operation]
-  (if-let [project-id (:projectId operation)]
-    (str "project:" project-id)
-    global-operation-lock-key))
+  (if-let [lock-key (:lockKey operation)]
+    lock-key
+    (if-let [project-id (:projectId operation)]
+      (str "project:" project-id)
+      global-operation-lock-key)))
 
 (defn- global-operation-lock?
   [lock-key]
