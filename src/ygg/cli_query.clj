@@ -101,6 +101,25 @@
                                                              :embedding-client embedding-client
                                                              :read-context temporal})
                                     :output :full)))))
+
+(defn- active-indexing
+  []
+  (not-empty (select-keys (:active-indexing *deps*)
+                          [:schema
+                           :op
+                           :projectId
+                           :lockKey
+                           :scheduleId
+                           :task
+                           :startedAtMs
+                           :elapsedMs])))
+
+(defn- print-active-indexing-warning
+  []
+  (when (active-indexing)
+    (binding [*out* *err*]
+      (println "Warning:" context/indexing-degradation-message))))
+
 (defn print-embed-summary
   [{:keys [provider model search-docs pending embedded skipped]}]
   (println "# Embeddings")
@@ -453,8 +472,10 @@
                                            :repo-id repo-id
                                            :read-context temporal})]
         (if (seq results)
-          (doseq [result results]
-            (print-query-result result))
+          (do
+            (print-active-indexing-warning)
+            (doseq [result results]
+              (print-query-result result)))
           (print-query-no-results xtdb
                                   query-text
                                   {:project-id project-id

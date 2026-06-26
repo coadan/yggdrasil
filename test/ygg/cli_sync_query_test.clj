@@ -3,6 +3,7 @@
             [ygg.audit-scope :as audit-scope]
             [ygg.benchmark :as benchmark]
             [ygg.cli :as cli]
+            [ygg.cli-query :as cli-query]
             [ygg.context :as context]
             [ygg.corrections :as corrections]
             [ygg.coverage :as coverage]
@@ -1384,6 +1385,39 @@
       (is (str/includes? out "Auth"))
       (is (str/includes? out "lexical match"))
       (is (= "" (str err))))))
+
+(deftest query-plain-success-warns-when-indexing-is-active
+  (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                query/semantic-query (fn [_ _ _]
+                                       [{:score 1.0
+                                         :result-kind :node
+                                         :label "Auth"
+                                         :path "src/auth.clj"
+                                         :source-line 7
+                                         :reason "lexical match"}])
+                context/context-packet (fn [& _]
+                                         (throw (ex-info "unexpected context packet" {})))]
+    (let [err (java.io.StringWriter.)
+          out (with-out-str
+                (binding [*err* err
+                          cli-query/*deps* {:usage (fn [] "")
+                                            :print-json (fn [_])
+                                            :temporal-options (fn [_] {})
+                                            :context-packet-options
+                                            (fn [_ _ opts] opts)
+                                            :active-indexing
+                                            {:schema
+                                             "ygg.server.active-operation/v1"
+                                             :op "sync"
+                                             :projectId "fixture"
+                                             :lockKey "project:fixture"}}]
+                  (cli-query/query!
+                   ["auth"
+                    "--project" "fixture"
+                    "--retriever" "lexical"])))]
+      (is (str/includes? out "Auth"))
+      (is (str/includes? out "lexical match"))
+      (is (str/includes? (str err) context/indexing-degradation-message)))))
 (deftest view-json-writes-canonical-export
   (let [written (atom nil)]
     (with-redefs [store/with-node (fn [_ f] (f :xtdb))

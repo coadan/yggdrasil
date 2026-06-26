@@ -1149,6 +1149,9 @@
         active-indexing (active-indexing-operation-for-query ctx cli-args)
         query-deps (cond-> (cli/query-deps)
                      active-indexing
+                     (assoc :active-indexing active-indexing)
+
+                     active-indexing
                      (update :context-packet-options
                              (fn [context-packet-options]
                                (fn [xtdb args opts]

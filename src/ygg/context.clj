@@ -2836,13 +2836,16 @@
                            :startedAtMs
                            :elapsedMs])))
 
+(def indexing-degradation-message
+  "Query results are degraded because indexing is still running; rerun after the active operation finishes for complete evidence.")
+
 (defn- indexing-degradation
   [active-indexing]
   (when-let [operation (active-indexing-operation active-indexing)]
     {:schema "ygg.context.degradation/v1"
      :status :degraded
      :reason :active-indexing
-     :message "Query results are degraded because indexing is still running; rerun after the active operation finishes for complete evidence."
+     :message indexing-degradation-message
      :activeOperation operation}))
 
 (defn- evidence-warnings
