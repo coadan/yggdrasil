@@ -4,6 +4,7 @@
  :include-suites [{:path "feature-planning.edn"
                    :case-ids ["planning-bootstrap-docs-search-integration"
                               "planning-supabase-trigger-owner-validation"
+                              "planning-axios-native-proxy-option"
                               "planning-dapper-jsonb-string-handling"]}
                   {:path "historical-replay.edn"
                    :case-ids ["historical-dapper-prefer-enum-type-handlers"
@@ -13,6 +14,7 @@
                   {:path "decision-quality-pilot.edn"
                    :case-ids ["decision-bootstrap-docs-route-impact"
                               "decision-supabase-trigger-maintenance"
+                              "decision-axios-native-proxy-audit"
                               "decision-dapper-jsonb-plugin-fit"
                               "decision-bootstrap-astro-change-plan"]}
                   {:path "multi-repo-quality.edn"}]}

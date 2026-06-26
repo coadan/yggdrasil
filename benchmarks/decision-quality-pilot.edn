@@ -113,6 +113,7 @@
           :tags [:decision-quality
                  :synthetic
                  :problem-review
+                 :ygg-should-win
                  :problem-audit
                  :architecture-runtime-boundary
                  :audit-scope-runtime-config

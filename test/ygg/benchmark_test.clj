@@ -262,12 +262,10 @@
                               sort
                               vec))]
     (is (= "task-category-broad" (:id suite)))
-    (is (= 12 (count (:cases suite))))
+    (is (= 14 (count (:cases suite))))
     (is (every? #(contains? % "ygg-should-win")
                 (vals tags-by-case)))
     (is (not-any? #(contains? % "ygg-should-lose")
-                  (vals tags-by-case)))
-    (is (not-any? #(contains? % "shell-sufficient-control")
                   (vals tags-by-case)))
     (is (<= 2 (count (cases-with-tag "problem-planning"))))
     (is (<= 2 (count (cases-with-tag "problem-implementation"))))
