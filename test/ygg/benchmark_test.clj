@@ -272,6 +272,10 @@
     (is (<= 2 (count (cases-with-tag "problem-planning"))))
     (is (<= 2 (count (cases-with-tag "problem-implementation"))))
     (is (<= 2 (count (cases-with-tag "problem-review"))))
+    (is (every? (fn [case]
+                  (or (not (seq (:repos case)))
+                      (every? #(seq (:index-files %)) (:repos case))))
+                (:cases suite)))
     (is (= ["opentelemetry-collector"
             "opentelemetry-collector-contrib"]
            (->> (:cases suite)

@@ -88,6 +88,11 @@
                   {:repo-id "opentelemetry-collector-contrib"
                    :base-sha "7d830a73d319f33945ac894116a08aa54177b551"
                    :fix-sha "9f0baf6567e7fd72e2e910e3d20652373f7abc60"
+                   :index-files ["connector/routingconnector/config.go"
+                                 "connector/routingconnector/config.schema.yaml"
+                                 "connector/routingconnector/factory.go"
+                                 "connector/routingconnector/factory_test.go"
+                                 "connector/routingconnector/metadata.yaml"]
                    :ground-truth {:localization-files ["connector/routingconnector/config.go"
                                                        "connector/routingconnector/config.schema.yaml"
                                                        "connector/routingconnector/factory.go"
