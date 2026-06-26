@@ -226,6 +226,10 @@
   7)
 (def ^:private compact-output-candidate-only-max-files
   4)
+(def ^:private compact-output-early-source-graph-rank-window
+  25)
+(def ^:private compact-output-early-source-graph-token-min
+  1)
 (def ^:private compact-output-identity-support-min
   4)
 (def ^:private compact-output-architecture-token-min
@@ -3020,6 +3024,39 @@
                   (compact-output-selected-directory-sort-rank selected-rows
                                                                %))))))
 
+(defn- compact-output-early-source-graph-row?
+  [row]
+  (and (candidate-file-only-row? row)
+       (<= (row-candidate-source-rank row)
+           compact-output-early-source-graph-rank-window)
+       (<= compact-output-early-source-graph-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= candidate-file-only-query-evidence-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (pos? (row-metric-double row :candidateGrepScore))))
+
+(defn- compact-output-early-source-graph-key
+  [row]
+  [(row-candidate-source-rank row)
+   (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
+   (- (row-metric-double row :candidateGrepScore))
+   (- (positive-metric row :matchedTokenCount))
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-early-source-graph-row
+  [files selected-keys selected-rows]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (compact-output-early-source-graph-row? %)))
+       (sort-by compact-output-early-source-graph-key)
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  (compact-output-selected-directory-sort-rank selected-rows
+                                                               %))))))
+
 (defn- compact-output-retrieved-label-source-key
   [row]
   [(- (positive-metric row :retrievedSupportLabelCount))
@@ -3135,6 +3172,7 @@
   (or (compact-output-retrieved-label-doc-row? row)
       (compact-output-retrieved-label-source-row? row)
       (compact-output-doc-identity-row? row)
+      (compact-output-early-source-graph-row? row)
       (query-evidence-source-candidate-row? row)
       (candidate-file-only-row? row)))
 
@@ -3277,6 +3315,12 @@
              selected (add-compact-output-row
                        selected
                        (compact-output-query-evidence-source-row
+                        files
+                        (:keys selected)
+                        (:rows selected)))
+             selected (add-compact-output-row
+                       selected
+                       (compact-output-early-source-graph-row
                         files
                         (:keys selected)
                         (:rows selected)))

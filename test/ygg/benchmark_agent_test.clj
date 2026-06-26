@@ -4459,6 +4459,66 @@
     (is (some #{"src/flask/sansio/app.py"} paths))
     (is (not-any? #{"src/head-12.py"} paths))))
 
+(deftest compact-output-anchors-early-source-graph-grep-row
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "Directory.Build.props"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 2
+                     :matchedTokenCount 4
+                     :rankScore 8.8})
+               (row "Dapper.EntityFramework/Dapper.EntityFramework.csproj"
+                    2
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedTokenCount 3
+                     :rankScore 9.2})
+               (row "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"
+                    3
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedTokenCount 2
+                     :rankScore 6.8})
+               (row "Build.csproj"
+                    10
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :candidateSourceRank 14
+                     :matchedTokenCount 0
+                     :sourceGraphCandidateEvidenceScore 0.52
+                     :candidateGrepScore 0.33
+                     :rankScore 4.9})
+               (row "tests/Directory.Build.props"
+                    11
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :candidateSourceRank 49
+                     :matchedTokenCount 1
+                     :sourceGraphCandidateEvidenceScore 0.53
+                     :candidateGrepScore 0.74
+                     :rankScore 2.6})
+               (row "Directory.Packages.props"
+                    14
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :candidateSourceRank 19
+                     :matchedTokenCount 1
+                     :sourceGraphCandidateEvidenceScore 0.44
+                     :candidateGrepScore 0.53
+                     :rankScore 0.83})]
+        selected (compact-output files 10 nil)]
+    (is (= ["Directory.Build.props"
+            "Directory.Packages.props"]
+           (subvec (mapv :path selected) 0 2)))
+    (is (not= "Build.csproj" (second (mapv :path selected))))))
+
 (deftest compact-output-reserves-retrieved-label-source-graph-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]
