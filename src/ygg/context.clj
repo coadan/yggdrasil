@@ -82,6 +82,9 @@
 (def ^:private source-graph-file-candidate-limit
   80)
 
+(def ^:private source-graph-file-fact-candidate-limit
+  80)
+
 (def ^:private source-graph-neighbor-scan-limit
   160)
 
@@ -1274,7 +1277,9 @@
    (compact (:path row)
             (:label row)
             (:name row)
-            (:kind row))))
+            (:kind row)
+            (:file-kind row)
+            (:normalized-value row))))
 
 (defn- matched-source-graph-query-tokens
   [distinct-query-tokens tokens]
@@ -1349,17 +1354,22 @@
                                                             token-data)]
     (when (and path
                (<= source-graph-candidate-min-score score))
-      (let [file-row? (nil? (:label row))]
+      (let [file-row? (nil? (:label row))
+            target-kind (or (::source-graph-target-kind row)
+                            (if file-row? :file :node))
+            result-kind (or (::source-graph-result-kind row)
+                            (if file-row? :file :node))]
         (cond-> {:path path
                  :rank 0
                  :score (source-graph-visible-score score)
                  ::source-graph-raw-score score
-                 :target-kind (if file-row? :file :node)
+                 :target-kind target-kind
                  :target-id (row-id row)
                  :label (or (:label row) path)
                  :kind (:kind row)
-                 :result-kind (if file-row? :file :node)
-                 :reason "query-matched source row"
+                 :result-kind result-kind
+                 :reason (or (::source-graph-reason row)
+                             "query-matched source row")
                  :score-components {:sourceGraph (source-graph-visible-score
                                                   score)}}
           (:repo-id row) (assoc :repo-id (:repo-id row)
@@ -1596,10 +1606,20 @@
 (def ^:private source-graph-file-token-fields
   [:path :kind])
 
+(def ^:private source-graph-file-fact-token-fields
+  [:path :file-kind :kind :label :normalized-value])
+
 (defn- source-graph-scope-constraints
   [project-id repo-id]
   (cond-> {:project-id project-id}
     repo-id (assoc :repo-id repo-id)))
+
+(defn- source-graph-file-fact-candidate-row
+  [row]
+  (assoc row
+         ::source-graph-target-kind :file-fact
+         ::source-graph-result-kind :file
+         ::source-graph-reason "query-matched file fact"))
 
 (defn- source-graph-candidates
   [xtdb query-tokens {:keys [project-id repo-id read-context]}]
@@ -1633,7 +1653,18 @@
                                          query-tokens
                                          (assoc constraints :active? true)
                                          read-context)
-                                        source-graph-file-candidate-limit))))))
+                                        source-graph-file-candidate-limit)
+        (ranked-source-graph-candidates
+         query-tokens
+         (map source-graph-file-fact-candidate-row
+              (store/rows-matching-any-token
+               xtdb
+               (:file-facts store/tables)
+               source-graph-file-fact-token-fields
+               query-tokens
+               (assoc constraints :active? true)
+               read-context))
+         source-graph-file-fact-candidate-limit))))))
 
 (defn- candidate-input-score
   [row]

@@ -979,32 +979,157 @@
          :diagnostics [{:kind :repo-root-read-failed
                         :message (.getMessage e)}]}))))
 
+(defn- normalize-grep-token
+  [token]
+  (some-> (str/lower-case (str token))
+          (str/replace #"^[^a-z0-9_./-]+" "")
+          (str/replace #"[^a-z0-9_./-]+$" "")
+          (str/replace #"[.]+$" "")
+          not-empty))
+
+(defn- hash-like-grep-token?
+  [token]
+  (boolean (re-matches #"[0-9a-f]{16,}" (str token))))
+
+(defn- grep-token-candidate?
+  [token]
+  (and (<= 2 (count (re-seq #"[a-z0-9]" (str token))))
+       (not (hash-like-grep-token? token))))
+
+(defn- grep-token-candidates
+  [query-tokens]
+  (->> query-tokens
+       (map-indexed (fn [idx token]
+                      (when-let [token (normalize-grep-token token)]
+                        {:token token
+                         :idx idx})))
+       (keep identity)
+       (filter #(grep-token-candidate? (:token %)))
+       (reduce (fn [state {:keys [token] :as candidate}]
+                 (if (contains? (:seen state) token)
+                   (update-in state [:candidate-by-token token :frequency]
+                              (fnil inc 1))
+                   (-> state
+                       (update :seen conj token)
+                       (assoc-in [:candidate-by-token token]
+                                 (assoc candidate :frequency 1)))))
+               {:seen #{}
+                :candidate-by-token {}})
+       :candidate-by-token
+       vals))
+
+(defn- grep-doc-token-frequencies
+  [tokens docs]
+  (let [token-set (set tokens)]
+    (reduce
+     (fn [freqs doc]
+       (reduce (fn [freqs token]
+                 (if (contains? token-set token)
+                   (update freqs token (fnil inc 0))
+                   freqs))
+               freqs
+               (->> (:tokens doc)
+                    (keep normalize-grep-token)
+                    set)))
+     {}
+     docs)))
+
+(defn- grep-doc-structured-tokens
+  [doc]
+  (->> [(:path doc)
+        (:label doc)
+        (:kind doc)
+        (:definition-kind doc)
+        (:heading-path doc)]
+       (remove nil?)
+       (str/join "\n")
+       text/tokenize-all
+       (keep normalize-grep-token)
+       set))
+
+(defn- grep-doc-structured-token-frequencies
+  [tokens docs]
+  (let [token-set (set tokens)]
+    (reduce
+     (fn [freqs doc]
+       (reduce (fn [freqs token]
+                 (if (contains? token-set token)
+                   (update freqs token (fnil inc 0))
+                   freqs))
+               freqs
+               (grep-doc-structured-tokens doc)))
+     {}
+     docs)))
+
+(defn- shaped-grep-token?
+  [token]
+  (boolean (re-find #"[._/-]" (str token))))
+
+(defn- grep-token-alnum-count
+  [token]
+  (count (re-seq #"[a-z0-9]" (str token))))
+
+(defn- corpus-grep-pattern-key
+  [doc-count doc-frequencies structured-frequencies {:keys [token idx frequency]}]
+  (let [df (double (get doc-frequencies token 0.0))
+        structured-df (double (get structured-frequencies token 0.0))
+        idf (Math/log1p (/ (double (max 1 doc-count))
+                           (max 1.0 df)))
+        structured-idf (Math/log1p (/ (double (max 1 doc-count))
+                                      (max 1.0 structured-df)))]
+    [(if (pos? structured-df) 0 1)
+     (- (min 64.0 structured-df))
+     (- (long (or frequency 1)))
+     (- structured-idf)
+     (- idf)
+     (if (shaped-grep-token? token) 0 1)
+     (- (grep-token-alnum-count token))
+     idx
+     token]))
+
+(defn- fallback-grep-pattern-key
+  [{:keys [token idx frequency]}]
+  [(- (long (or frequency 1)))
+   (if (shaped-grep-token? token) 0 1)
+   (- (grep-token-alnum-count token))
+   idx
+   token])
+
+(defn- ordered-distinct-tokens
+  [candidates]
+  (->> candidates
+       (reduce (fn [state {:keys [token]}]
+                 (if (contains? (:seen state) token)
+                   state
+                   (-> state
+                       (update :seen conj token)
+                       (update :tokens conj token))))
+               {:seen #{}
+                :tokens []})
+       :tokens))
+
 (defn- grep-patterns
-  [query-tokens opts]
-  (let [base-limit (long (or (:grep-pattern-limit opts) default-grep-patterns))
-        tokens (->> query-tokens
-                    (remove #(str/blank? (str %)))
-                    (filter #(<= 2 (count (re-seq #"[A-Za-z0-9]" (str %)))))
-                    distinct
-                    vec)
-        shaped-count (count (filter #(re-find #"[._/-]" (str %)) tokens))
-        limit (if (<= 2 shaped-count)
-                (min base-limit 4)
-                base-limit)
-        ordered-limit 1
-        ordered (take ordered-limit tokens)
-        specific (->> tokens
-                      (sort-by (fn [token]
-                                 (let [token (str token)
-                                       alnum-count (count (re-seq #"[A-Za-z0-9]" token))
-                                       shaped? (boolean (re-find #"[._/-]" token))]
-                                   [(- (+ alnum-count
-                                          (if shaped? 6 0)))
-                                    token]))))]
-    (->> (concat ordered specific)
-         distinct
-         (take limit)
-         vec)))
+  ([query-tokens opts]
+   (grep-patterns query-tokens [] opts))
+  ([query-tokens docs opts]
+   (let [limit (long (or (:grep-pattern-limit opts) default-grep-patterns))
+         candidates (grep-token-candidates query-tokens)
+         doc-frequencies (grep-doc-token-frequencies (map :token candidates) docs)
+         structured-frequencies (grep-doc-structured-token-frequencies
+                                 (map :token candidates)
+                                 docs)
+         doc-count (count docs)
+         corpus-backed (->> candidates
+                            (filter #(pos? (long (get doc-frequencies (:token %) 0))))
+                            (sort-by #(corpus-grep-pattern-key doc-count
+                                                               doc-frequencies
+                                                               structured-frequencies
+                                                               %)))
+         fallback (sort-by fallback-grep-pattern-key candidates)]
+     (->> (concat corpus-backed fallback)
+          ordered-distinct-tokens
+          (take limit)
+          vec))))
 
 (defn- grep-repo-ids
   [docs repo-roots repo-id]
@@ -1305,7 +1430,7 @@
     (grep-skip-data :semantic-retriever [])
 
     :else
-    (let [patterns (grep-patterns query-tokens opts)]
+    (let [patterns (grep-patterns query-tokens docs opts)]
       (if (empty? patterns)
         (grep-skip-data :no-literal-patterns [])
         (let [{:keys [roots diagnostics]} (repo-root-data xtdb scope opts)
@@ -1326,6 +1451,7 @@
                                  :grep-status (if (seq all-diagnostics) :partial :ok)
                                  :grep-repos (count repo-ids)
                                  :grep-patterns (count patterns)
+                                 :grep-pattern-values patterns
                                  :grep-searches (reduce + 0 (map #(or (:search-count %) 1)
                                                                  search-results))
                                  :grep-raw-matches (reduce + 0 (map :match-count search-results))

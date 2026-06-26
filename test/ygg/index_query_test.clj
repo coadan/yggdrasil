@@ -463,6 +463,52 @@
             (is (= 1 (:grep-indexed-paths instrumentation)))
             (is (= 1 (:grep-candidates instrumentation)))))))))
 
+(deftest grep-patterns-prefer-corpus-backed-normalized-tokens
+  (let [axios-patterns (#'query/grep-patterns
+                        (text/tokenize
+                         "Locate the boundary between Node native proxy handling and Axios proxy rewriting. Identify the Axios adapter and tests.")
+                        [{:path "tests/unit/adapters/http.test.js"
+                          :label "http adapter proxy"
+                          :kind :namespace
+                          :tokens ["proxy" "adapter" "axios" "node" "identify" "cite" "evidence"]}
+                         {:path "lib/adapters/http.js"
+                          :label "native http adapter proxy"
+                          :kind :namespace
+                          :tokens ["proxy" "environment" "native" "adapter"]}
+                         {:path "AGENTS.md"
+                          :label "Agent instructions"
+                          :kind :markdown
+                          :tokens ["identify" "likely" "edit" "evidence" "cite" "natively"]}]
+                        {:grep-pattern-limit 6})
+        dapper-patterns (#'query/grep-patterns
+                         (text/tokenize
+                          "Add ReferenceTrimmer and remove unused references. Historical replay of Dapper commit 72a54c475f75e18cb93cba0809d00a5e6e49efd9. Identify central package files likely to need dependency edits.")
+                         [{:path "Directory.Packages.props"
+                           :label "PackageVersion Dapper.Contrib"
+                           :kind :package-version
+                           :tokens ["reference" "package" "dependency" "dapper" "edit"]}
+                          {:path "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"
+                           :label "PackageReference BenchmarkDotNet"
+                           :kind :package-dependency
+                           :tokens ["reference" "references" "package" "dependency"]}
+                          {:path "Readme.md"
+                           :label "Project notes"
+                           :kind :markdown
+                           :tokens ["identify" "edit" "removed" "files" "diff" "added"]}]
+                         {:grep-pattern-limit 6})]
+    (is (some #{"proxy"} axios-patterns))
+    (is (some #{"adapter"} axios-patterns))
+    (is (not-any? #{"rewriting."} axios-patterns))
+    (is (not-any? #{"cite" "identify" "evidence"} (take 5 axios-patterns)))
+    (is (some #{"reference"} dapper-patterns))
+    (is (some #{"package"} dapper-patterns))
+    (is (some #{"dependency"} dapper-patterns))
+    (is (not-any? #{"references."
+                    "72a54c475f75e18cb93cba0809d00a5e6e49efd9"
+                    "identify"
+                    "edit"}
+                  (take 5 dapper-patterns)))))
+
 (deftest lexical-query-grep-patterns-prefer-specific-late-tokens
   (let [repo-root (temp-dir "ygg-query-specific-grep-repo")]
     (spit-file! repo-root

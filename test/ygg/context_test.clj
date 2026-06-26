@@ -3249,7 +3249,17 @@
                         :repo-id "app"
                         :path "src/other.clj"
                         :kind :clojure
-                        :active? true}])))
+                        :active? true}])
+
+                    :ygg/file-facts
+                    (do
+                      (is (= [:path :file-kind :kind :label :normalized-value]
+                             fields))
+                      (is (= {:project-id "fixture"
+                              :repo-id "app"
+                              :active? true}
+                             constraints))
+                      [])))
                 query/edges-touching-node-ids (fn [& _] [])]
     (let [rows (#'context/source-graph-candidates
                 :xtdb
@@ -3294,6 +3304,93 @@
                                     :repo-id
                                     :repo])
                    (:file by-kind)))))))
+
+(deftest source-graph-candidates-surface-query-matched-file-facts
+  (with-redefs [store/xtdb-handle? (constantly true)
+                store/rows-matching-any-token
+                (fn [_ table fields tokens constraints ctx]
+                  (is (= {:valid-at "t"} ctx))
+                  (is (= #{"reference" "package" "dependency" "dapper"}
+                         (set tokens)))
+                  (case table
+                    :ygg/nodes
+                    (do
+                      (is (= [:path :label :name :kind] fields))
+                      [])
+
+                    :ygg/files
+                    (do
+                      (is (= [:path :kind] fields))
+                      [])
+
+                    :ygg/file-facts
+                    (do
+                      (is (= [:path :file-kind :kind :label :normalized-value]
+                             fields))
+                      (is (= {:project-id "fixture"
+                              :repo-id "app"
+                              :active? true}
+                             constraints))
+                      [{:xt/id "fact:central-package"
+                        :project-id "fixture"
+                        :repo-id "app"
+                        :file-id "file:directory-packages"
+                        :path "Directory.Packages.props"
+                        :file-kind :manifest
+                        :kind :package-version
+                        :label "PackageVersion Dapper.Contrib"
+                        :normalized-value "dapper-contrib"
+                        :source-line 20
+                        :active? true}
+                       {:xt/id "fact:performance-package"
+                        :project-id "fixture"
+                        :repo-id "app"
+                        :file-id "file:performance"
+                        :path "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"
+                        :file-kind :manifest
+                        :kind :package-dependency
+                        :label "PackageReference BenchmarkDotNet"
+                        :normalized-value "benchmarkdotnet"
+                        :source-line 15
+                        :active? true}])))
+                query/edges-touching-node-ids (fn [& _] [])]
+    (let [rows (#'context/source-graph-candidates
+                :xtdb
+                (text/tokenize-all "reference package dependency dapper")
+                {:project-id "fixture"
+                 :repo-id "app"
+                 :read-context {:valid-at "t"}})
+          candidates (->> rows
+                          (filter #(= :file-fact (:target-kind %)))
+                          (map #(select-keys % [:path
+                                                :target-kind
+                                                :result-kind
+                                                :label
+                                                :kind
+                                                :reason
+                                                :source-line
+                                                :repo-id
+                                                :repo]))
+                          vec)]
+      (is (= #{{:path "Directory.Packages.props"
+                :target-kind :file-fact
+                :result-kind :file
+                :label "PackageVersion Dapper.Contrib"
+                :kind :package-version
+                :reason "query-matched file fact"
+                :source-line 20
+                :repo-id "app"
+                :repo "app"}
+               {:path "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"
+                :target-kind :file-fact
+                :result-kind :file
+                :label "PackageReference BenchmarkDotNet"
+                :kind :package-dependency
+                :reason "query-matched file fact"
+                :source-line 15
+                :repo-id "app"
+                :repo "app"}}
+             (set candidates))))))
 
 (deftest source-graph-candidates-preserve-rare-query-token-source-rows
   (let [generic-row (fn [idx]
@@ -3343,6 +3440,16 @@
                       :ygg/files
                       (do
                         (is (= [:path :kind] fields))
+                        (is (= {:project-id "fixture"
+                                :repo-id "app"
+                                :active? true}
+                               constraints))
+                        [])
+
+                      :ygg/file-facts
+                      (do
+                        (is (= [:path :file-kind :kind :label :normalized-value]
+                               fields))
                         (is (= {:project-id "fixture"
                                 :repo-id "app"
                                 :active? true}
@@ -3412,6 +3519,16 @@
                     :ygg/files
                     (do
                       (is (= [:path :kind] fields))
+                      (is (= {:project-id "fixture"
+                              :repo-id "app"
+                              :active? true}
+                             constraints))
+                      [])
+
+                    :ygg/file-facts
+                    (do
+                      (is (= [:path :file-kind :kind :label :normalized-value]
+                             fields))
                       (is (= {:project-id "fixture"
                               :repo-id "app"
                               :active? true}
@@ -3505,6 +3622,9 @@
                         :source-line 1}])
 
                     :ygg/files
+                    []
+
+                    :ygg/file-facts
                     []))
                 query/edges-touching-node-ids
                 (fn [_ ids opts]
@@ -3703,6 +3823,16 @@
                                 :repo-id "app"
                                 :active? true}
                                constraints))
+                        [])
+
+                      :ygg/file-facts
+                      (do
+                        (is (= [:path :file-kind :kind :label :normalized-value]
+                               fields))
+                        (is (= {:project-id "fixture"
+                                :repo-id "app"
+                                :active? true}
+                               constraints))
                         [])))
                   query/edges-touching-node-ids
                   (fn [_ ids opts]
@@ -3802,7 +3932,10 @@
                       :repo-id "app"
                       :path "lib/adapters/http.js"
                       :kind :javascript
-                      :active? true}]))
+                      :active? true}]
+
+                    :ygg/file-facts
+                    []))
                 query/edges-touching-node-ids (fn [& _] [])]
     (let [rows (#'context/source-graph-candidates
                 :xtdb
@@ -3828,7 +3961,10 @@
                                            idx)
                              :kind :javascript
                              :active? true})
-                          (range 45))))
+                          (range 45))
+
+                    :ygg/file-facts
+                    []))
                 query/edges-touching-node-ids (fn [& _] [])]
     (let [rows (#'context/source-graph-candidates
                 :xtdb
@@ -3857,7 +3993,9 @@
                       :repo-id "app"
                       :path "src/contract.go"
                       :kind :go
-                      :active? true}]))
+                      :active? true}]
+                    :ygg/file-facts
+                    []))
                 query/edges-touching-node-ids (fn [& _] [])
                 graph/system-graph (fn [_ project-id _]
                                      {:basis {:project-id project-id}
@@ -4030,7 +4168,8 @@
                       :kind :web-framework-plugin
                       :label "bootstrap setup"
                       :source-line 12}]
-                    :ygg/files []))
+                    :ygg/files []
+                    :ygg/file-facts []))
                 query/edges-touching-node-ids (fn [& _] [])
                 graph/system-graph (fn [_ project-id _]
                                      {:basis {:project-id project-id}
