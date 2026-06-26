@@ -3,7 +3,8 @@
   (:require [ygg.hash :as hash]
             [ygg.text :as text]
             [ygg.vector-store :as vector-store]
-            [ygg.xtdb :as store]))
+            [ygg.xtdb :as store]
+            [clojure.string :as str]))
 
 (def default-batch-size 64)
 
@@ -135,6 +136,13 @@
       (take limit docs)
       docs)))
 
+(defn- provider-input-text
+  [doc]
+  (let [text (str (:text doc))]
+    (if (str/blank? text)
+      " "
+      text)))
+
 (defn embed-search-docs!
   "Embed pending search docs with client map and persist rows."
   [xtdb {:keys [provider model embed-batch close] :as client} {:keys [batch-size limit project-id repo-id]
@@ -150,7 +158,7 @@
           total-search-docs (search-doc-count xtdb scope)]
       (reduce
        (fn [summary batch]
-         (let [vectors (embed-batch (mapv :text batch))]
+         (let [vectors (embed-batch (mapv provider-input-text batch))]
            (when-not (= (count batch) (count vectors))
              (throw (ex-info "Embedding provider returned wrong vector count."
                              {:expected (count batch)

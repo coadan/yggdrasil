@@ -235,6 +235,52 @@
                 :skipped 2}
                summary))))))
 
+(deftest embed-search-docs-normalizes-blank-provider-inputs
+  (let [seen-inputs (atom nil)
+        committed (atom [])
+        docs [{:xt/id "search-doc:blank"
+               :project-id "project-a"
+               :repo-id "app"
+               :target-id "target:blank"
+               :input-sha "sha:blank"
+               :text ""
+               :active? true}
+              {:xt/id "search-doc:nil"
+               :project-id "project-a"
+               :repo-id "app"
+               :target-id "target:nil"
+               :input-sha "sha:nil"
+               :active? true}
+              {:xt/id "search-doc:text"
+               :project-id "project-a"
+               :repo-id "app"
+               :target-id "target:text"
+               :input-sha "sha:text"
+               :text "alpha"
+               :active? true}]
+        client {:provider :fake
+                :model "fake-model"
+                :embed-batch (fn [inputs]
+                               (reset! seen-inputs inputs)
+                               (vec (repeat (count inputs) [1.0 0.0])))}]
+    (with-redefs [embedding/all-search-docs (fn [& _] docs)
+                  store/rows-with-field-tuples (fn [& _] [])
+                  store/count-rows (fn [& _] (count docs))
+                  store/commit-embeddings!
+                  (fn [_ rows]
+                    (reset! committed rows)
+                    {:embeddings (count rows)})]
+      (let [summary (embedding/embed-search-docs!
+                     :xtdb
+                     client
+                     {:project-id "project-a"
+                      :repo-id "app"
+                      :batch-size 8})]
+        (is (= [" " " " "alpha"] @seen-inputs))
+        (is (= 3 (:embedded summary)))
+        (is (= ["target:blank" "target:nil" "target:text"]
+               (mapv :target-id @committed)))))))
+
 (deftest embed-search-docs-closes-closeable-client
   (let [closed? (atom false)]
     (with-redefs [embedding/all-search-docs (fn [& _] [])
