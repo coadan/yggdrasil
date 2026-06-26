@@ -738,6 +738,46 @@
     (is (= (:nextActions freshness)
            (filterv #(= :freshness (:kind %)) actions)))))
 
+(deftest evidence-surfaces-active-indexing-degradation
+  (let [retrieval {:requested :auto
+                   :effective :hybrid
+                   :fallback? false}
+        degradation (#'context/indexing-degradation
+                     {:schema "ygg.server.active-operation/v1"
+                      :op "sync"
+                      :projectId "fixture"
+                      :lockKey "project:fixture"
+                      :elapsedMs 250})
+        counts {:files 1
+                :nodes 1
+                :edges 1
+                :search-docs 1
+                :external-packages 1
+                :package-import-edges 1
+                :unresolved-imports 0
+                :package-evidence-gaps 0
+                :package-conflicts 0
+                :system-nodes 1
+                :system-edges 1
+                :activity-items 1
+                :activity-events 1
+                :diagnostics 0
+                :embeddings 1}
+        warnings (#'context/evidence-warnings counts retrieval [] nil degradation)]
+    (is (= :active-indexing (:reason degradation)))
+    (is (= :limited
+           (#'context/evidence-readiness-status
+            []
+            []
+            retrieval
+            {:entity-count 1
+             :doc-count 1
+             :activity-count 1}
+            nil
+            degradation)))
+    (is (some #{"Query results are degraded because indexing is still running; rerun after the active operation finishes for complete evidence."}
+              warnings))))
+
 (deftest evidence-surfaces-skipped-index-run-files
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table

@@ -648,6 +648,27 @@
                                         (.getQueueLength lock))
                                       locks))}))
 
+(def ^:private indexing-operation-ops
+  #{"embed"
+    "init"
+    "sync"})
+
+(defn- indexing-operation?
+  [{:keys [op task]}]
+  (or (contains? indexing-operation-ops (str op))
+      (and (= "maintenance-schedule" (str op))
+           (= "sync" (str task)))))
+
+(defn- active-indexing-operation-for-query
+  [ctx cli-args]
+  (let [project-id (operation-project-id {} cli-args)
+        project-lock-key (when-not (str/blank? (str project-id))
+                           (str "project:" project-id))]
+    (->> [project-lock-key global-operation-lock-key]
+         (keep #(when % (active-operation-for-lock ctx %)))
+         (filter indexing-operation?)
+         first)))
+
 (defn- start-active-operation!
   [ctx lock-key operation]
   (when-let [active-operations (:active-operations ctx)]
@@ -1124,13 +1145,23 @@
 (defn- cli-query-response
   [ctx request command handler]
   (let [args (absolutize-path-options (:cwd request) (vec (:args request)))
-        cli-args (into [command] args)]
+        cli-args (into [command] args)
+        active-indexing (active-indexing-operation-for-query ctx cli-args)
+        query-deps (cond-> (cli/query-deps)
+                     active-indexing
+                     (update :context-packet-options
+                             (fn [context-packet-options]
+                               (fn [xtdb args opts]
+                                 (context-packet-options
+                                  xtdb
+                                  args
+                                  (assoc opts :active-indexing active-indexing))))))]
     (captured-request-storage-response
      ctx
      request
      cli-args
      #(with-cli-operation ctx cli-args (request-operation request cli-args) %)
-     #(with-bindings {#'cli-query/*deps* (cli/query-deps)}
+     #(with-bindings {#'cli-query/*deps* query-deps}
         (handler args)))))
 
 (defn- sync-subcommand-response

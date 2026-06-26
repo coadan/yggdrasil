@@ -1100,6 +1100,42 @@
         (deliver release true)
         @holder))))
 
+(deftest query-request-reports-active-indexing-degradation
+  (let [lock (java.util.concurrent.locks.ReentrantLock.)
+        active-operations (atom {"project:demo" {:schema "ygg.server.active-operation/v1"
+                                                 :op "sync"
+                                                 :projectId "demo"
+                                                 :startedAtMs (System/currentTimeMillis)}})]
+    (.lock lock)
+    (try
+      (with-redefs [cli/query-deps
+                    (fn []
+                      {:context-packet-options (fn [_ _ opts] opts)})
+                    cli-query/query-with-node!
+                    (fn [xtdb args]
+                      (println
+                       (json/write-json-str
+                        ((:context-packet-options cli-query/*deps*)
+                         xtdb
+                         args
+                         {:project-id "demo"}))))]
+        (let [response (server/handle-request {:xtdb :xtdb
+                                               :token "token"
+                                               :running (atom true)
+                                               :operation-locks (atom {"project:demo" lock})
+                                               :active-operations active-operations}
+                                              {:op "query"
+                                               :token "token"
+                                               :args ["needle" "--project" "demo"]})
+              parsed (json/read-json (:out response) :key-fn keyword)]
+          (is (= true (:ok response)))
+          (is (= "sync" (get-in parsed [:active-indexing :op])))
+          (is (= "demo" (get-in parsed [:active-indexing :projectId])))
+          (is (= "project:demo" (get-in parsed [:active-indexing :lockKey])))
+          (is (integer? (get-in parsed [:active-indexing :elapsedMs])))))
+      (finally
+        (.unlock lock)))))
+
 (deftest locked-command-request-returns-busy-without-waiting
   (let [lock (java.util.concurrent.locks.ReentrantLock.)
         locked (promise)

@@ -130,7 +130,7 @@
     (assoc :since (option-value args "--since"))))
 
 (defn- context-packet-options
-  [xtdb args {:keys [project-id repo-id retriever embedding-client read-context]}]
+  [xtdb args {:keys [project-id repo-id retriever embedding-client read-context active-indexing]}]
   (let [project-info (matching-context-project args project-id)
         freshness (context-packet-freshness xtdb project-info)
         plugins (not-empty (get-in project-info [:project :plugins]))]
@@ -162,6 +162,9 @@
                                                   0.55)}
       freshness
       (assoc :freshness freshness)
+
+      active-indexing
+      (assoc :active-indexing active-indexing)
 
       plugins
       (assoc :plugins plugins))))

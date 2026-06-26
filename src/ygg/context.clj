@@ -1948,7 +1948,8 @@
 (defn- base-packet
   [{:keys [query-text budget graph-data entities edges activity warnings drilldowns evidence
            search-instrumentation freshness source-coverage architecture systems audit-scopes
-           relationships blast-radius candidate-files source-declarations plugin-packages memories]}]
+           relationships blast-radius candidate-files source-declarations plugin-packages memories
+           degradation]}]
   (cond-> {:schema schema
            :query query-text
            :graph (graph-summary graph-data evidence search-instrumentation)
@@ -1964,6 +1965,7 @@
     evidence (assoc :evidence evidence)
     search-instrumentation (assoc :search search-instrumentation)
     freshness (assoc :freshness freshness)
+    degradation (assoc :degradation degradation)
     architecture (assoc :architecture architecture)
     systems (assoc :systems systems)
     (seq audit-scopes) (assoc :auditScopes audit-scopes)
@@ -2352,6 +2354,7 @@
   (compact-map
    {:status (get-in packet [:evidence :status])
     :freshness (get-in packet [:freshness :status])
+    :degraded (boolean (:degradation packet))
     :graph (get-in packet [:graph :basis])}))
 
 (defn- proof-patterns
@@ -2400,6 +2403,7 @@
       :evidence evidence
       :memories (:memories packet)
       :warnings (:warnings packet)
+      :degradation (:degradation packet)
       :search (compact-search packet)
       :actions (when action [action])})))
 
@@ -2789,10 +2793,35 @@
     (vec (:nextActions freshness))
     []))
 
+(defn- active-indexing-operation
+  [active-indexing]
+  (not-empty (select-keys active-indexing
+                          [:schema
+                           :op
+                           :projectId
+                           :lockKey
+                           :scheduleId
+                           :task
+                           :startedAtMs
+                           :elapsedMs])))
+
+(defn- indexing-degradation
+  [active-indexing]
+  (when-let [operation (active-indexing-operation active-indexing)]
+    {:schema "ygg.context.degradation/v1"
+     :status :degraded
+     :reason :active-indexing
+     :message "Query results are degraded because indexing is still running; rerun after the active operation finishes for complete evidence."
+     :activeOperation operation}))
+
 (defn- evidence-warnings
   ([counts retrieval weak] (evidence-warnings counts retrieval weak nil))
-  ([counts retrieval weak freshness]
+  ([counts retrieval weak freshness] (evidence-warnings counts retrieval weak freshness nil))
+  ([counts retrieval weak freshness degradation]
    (cond-> []
+     (:message degradation)
+     (conj (:message degradation))
+
      (freshness-warning freshness)
      (conj (freshness-warning freshness))
 
@@ -3100,16 +3129,19 @@
         vec)))
 
 (defn- evidence-readiness-status
-  [missing weak retrieval {:keys [entity-count doc-count activity-count]} freshness]
-  (let [core-missing? (some #{:source-files :source-graph :docs :system-graph} missing)
-        core-weak? (some #{:source-files :system-graph :docs} weak)]
-    (cond
-      (and (zero? entity-count) (zero? doc-count) (zero? activity-count)) :empty
-      (or (:fallback? retrieval)
-          core-weak?
-          core-missing?
-          (freshness-problem? freshness)) :limited
-      :else :ready)))
+  ([missing weak retrieval match-counts freshness]
+   (evidence-readiness-status missing weak retrieval match-counts freshness nil))
+  ([missing weak retrieval {:keys [entity-count doc-count activity-count]} freshness degradation]
+   (let [core-missing? (some #{:source-files :source-graph :docs :system-graph} missing)
+         core-weak? (some #{:source-files :system-graph :docs} weak)]
+     (cond
+       degradation :limited
+       (and (zero? entity-count) (zero? doc-count) (zero? activity-count)) :empty
+       (or (:fallback? retrieval)
+           core-weak?
+           core-missing?
+           (freshness-problem? freshness)) :limited
+       :else :ready))))
 
 (defn- query-evidence
   [xtdb overlay opts match-counts]
@@ -3124,18 +3156,25 @@
                                  :unsupported unsupported-planes
                                  :counts counts})
         freshness (:freshness opts)
+        degradation (:degradation opts)
         actions (next-actions counts retrieval (:project-id opts) freshness)]
-    {:basis "query-scoped-mechanical-readiness"
-     :status (evidence-readiness-status missing weak retrieval match-counts freshness)
-     :available available
-     :missing missing
-     :weak weak
-     :unsupported unsupported-planes
-     :planes planes
-     :counts counts
-     :retrieval retrieval
-     :warnings (evidence-warnings counts retrieval weak freshness)
-     :nextActions actions}))
+    (cond-> {:basis "query-scoped-mechanical-readiness"
+             :status (evidence-readiness-status missing
+                                                weak
+                                                retrieval
+                                                match-counts
+                                                freshness
+                                                degradation)
+             :available available
+             :missing missing
+             :weak weak
+             :unsupported unsupported-planes
+             :planes planes
+             :counts counts
+             :retrieval retrieval
+             :warnings (evidence-warnings counts retrieval weak freshness degradation)
+             :nextActions actions}
+      degradation (assoc :degradation degradation))))
 
 (defn context-packet
   "Return compact graph/doc context for an agent query."
@@ -3144,7 +3183,7 @@
                            retriever embedding-client project-id repo-id
                            correction-overlay min-confidence read-context freshness plugins
                            output proof-commands? query-input memory-owner
-                           exclude-private-memory?]
+                           exclude-private-memory? active-indexing]
                     :or {budget default-budget
                          entity-limit default-entity-limit
                          edge-limit default-edge-limit
@@ -3238,7 +3277,11 @@
                                                  candidate-inputs
                                                  system-evidence
                                                  12)
+        degradation (indexing-degradation active-indexing)
         warnings (cond-> []
+                   degradation
+                   (conj (:message degradation))
+
                    (empty? entities)
                    (conj "no graph entities matched the query"))
         drilldowns (context-drilldowns query-text project-id)
@@ -3275,6 +3318,7 @@
                                            :auto-lexical-short-circuit-reason])
                                   :embedding-client embedding-client
                                   :freshness freshness
+                                  :degradation degradation
                                   :dependency-counts (:counts dependency-report)
                                   :system-evidence-count (count system-evidence)
                                   :search-doc-count (get-in search-report
@@ -3341,7 +3385,8 @@
                                      :candidate-files candidate-file-rows
                                      :source-declarations source-declarations
                                      :plugin-packages plugin-packages
-                                     :memories memories})
+                                     :memories memories
+                                     :degradation degradation})
                  (seq (compact-query-input query-input))
                  (assoc :input query-input))
         packet (if (= :compact output-mode)
