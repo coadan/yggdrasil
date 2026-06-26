@@ -325,7 +325,7 @@ def record_path(
     rel = normalize_path(value, root, existing)
     if rel is None:
         return
-    evidence = f"graphify:{source} path={rel}"
+    evidence = f"graphify:{source} path: {rel}"
     found.setdefault(rel, [])
     if evidence not in found[rel]:
         found[rel].append(evidence)

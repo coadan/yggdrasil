@@ -5785,7 +5785,7 @@
                           "\"mode\":\"graphify\","
                           "\"suspectedFiles\":[{\"path\":\"src/app.clj\",\"rank\":1,"
                           "\"confidence\":0.9,\"reason\":\"fake graphify match\","
-                          "\"evidence\":[\"fake-graphify path=src/app.clj\"]}],"
+                          "\"evidence\":[\"fake-graphify path: src/app.clj\"]}],"
                           "\"suspectedSymbols\":[],\"commands\":[\"fake-graphify-worker\"],"
                           "\"warnings\":[],\"summary\":\"fake graphify result\"}\n"
                           "JSON\n"))]
@@ -5862,6 +5862,7 @@
           (is (pos? (get-in scored [:agent :tokenUsage :totalTokens])))
           (is (empty? (get-in scored [:agent :warnings])))
           (is (= 1.0 (get-in scored [:scores :evidenceCitationRate])))
+          (is (= 1.0 (get-in scored [:scores :pathEvidenceCitationRate])))
           (is (= ["src/app.clj"]
                  (mapv :path (get-in scored [:agent :topFiles]))))
           (is (= 1 (:skipped resumed)))
