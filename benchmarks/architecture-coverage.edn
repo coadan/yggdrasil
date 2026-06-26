@@ -94,7 +94,7 @@
                  :junit]
           :base-sha "b040e97f4890dc914f41d86ee2caddb2df6b1f68"
           :fix-sha "b040e97f4890dc914f41d86ee2caddb2df6b1f68"
-          :map-overlay {:packageImports [{:repo "junit-framework"
+          :correction-overlay {:packageImports [{:repo "junit-framework"
                                            :import "org.mockito.junit.jupiter"
                                            :ecosystem "maven"
                                            :package "org.mockito:mockito-junit-jupiter"

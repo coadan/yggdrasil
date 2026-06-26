@@ -164,6 +164,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+export YGG_SERVER_REQUEST_TIMEOUT_MS="${YGG_SERVER_REQUEST_TIMEOUT_MS:-3600000}"
+
 run() {
   if [[ "$dry_run" == true ]]; then
     printf '+'

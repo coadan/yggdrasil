@@ -1,5 +1,6 @@
 (ns ygg.benchmark-expectations
-  (:require [ygg.xtdb :as store]))
+  (:require [ygg.xtdb :as store]
+            [clojure.string :as str]))
 
 (def graph-expectations-schema
   "ygg.benchmark.graph-expectations/v1")
@@ -57,25 +58,46 @@
     (symbol? value) (name value)
     (number? value) value
     :else (str value)))
+(def ^:private expectation-template-keys
+  [:project-id :suite-id :case-id :repo-id])
+
+(defn- template-token
+  [k]
+  (str "${" (name k) "}"))
+
+(defn- interpolate-expectation-value
+  [context value]
+  (if (string? value)
+    (reduce (fn [out k]
+              (if-let [replacement (get context k)]
+                (str/replace out (template-token k) (str replacement))
+                out))
+            value
+            expectation-template-keys)
+    value))
+
 (defn- normalize-expectation-map
-  [expectation]
-  (let [expectation (if (and (map? expectation) (:match expectation))
-                      (:match expectation)
-                      expectation)]
-    (cond
-      (map? expectation)
-      (->> expectation
-           (map (fn [[k v]]
-                  [(normalize-expectation-key k) v]))
-           (filter (fn [[k v]]
-                     (and (contains? expectation-match-keys k)
-                          (some? v))))
-           (into (sorted-map)))
+  ([expectation]
+   (normalize-expectation-map expectation {}))
+  ([expectation context]
+   (let [expectation (if (and (map? expectation) (:match expectation))
+                       (:match expectation)
+                       expectation)]
+     (cond
+       (map? expectation)
+       (->> expectation
+            (map (fn [[k v]]
+                   [(normalize-expectation-key k) v]))
+            (keep (fn [[k v]]
+                    (when (and (contains? expectation-match-keys k)
+                               (some? v))
+                      [k (interpolate-expectation-value context v)])))
+            (into (sorted-map)))
 
-      (or (keyword? expectation) (string? expectation) (symbol? expectation))
-      {:relation expectation}
+       (or (keyword? expectation) (string? expectation) (symbol? expectation))
+       {:relation expectation}
 
-      :else {})))
+       :else {}))))
 
 (defn- evidence-expectations
   [expectations]
@@ -135,25 +157,29 @@
                     :confidence
                     :evidence-ids]))
 (defn expected-row-results
-  [rows expectations summarize]
-  (mapv (fn [expectation]
-          (let [normalized (normalize-expectation-map expectation)
-                matches (filter #(row-matches-expectation? % normalized) rows)]
-            {:expectation normalized
-             :found? (boolean (seq matches))
-             :matchCount (count matches)
-             :matches (mapv summarize (take 5 matches))}))
-        expectations))
+  ([rows expectations summarize]
+   (expected-row-results rows expectations summarize {}))
+  ([rows expectations summarize context]
+   (mapv (fn [expectation]
+           (let [normalized (normalize-expectation-map expectation context)
+                 matches (filter #(row-matches-expectation? % normalized) rows)]
+             {:expectation normalized
+              :found? (boolean (seq matches))
+              :matchCount (count matches)
+              :matches (mapv summarize (take 5 matches))}))
+         expectations)))
 (defn forbidden-row-results
-  [rows expectations summarize]
-  (mapv (fn [expectation]
-          (let [normalized (normalize-expectation-map expectation)
-                matches (filter #(row-matches-expectation? % normalized) rows)]
-            {:expectation normalized
-             :violated? (boolean (seq matches))
-             :matchCount (count matches)
-             :matches (mapv summarize (take 5 matches))}))
-        expectations))
+  ([rows expectations summarize]
+   (forbidden-row-results rows expectations summarize {}))
+  ([rows expectations summarize context]
+   (mapv (fn [expectation]
+           (let [normalized (normalize-expectation-map expectation context)
+                 matches (filter #(row-matches-expectation? % normalized) rows)]
+             {:expectation normalized
+              :violated? (boolean (seq matches))
+              :matchCount (count matches)
+              :matches (mapv summarize (take 5 matches))}))
+         expectations)))
 (defn- graph-expectation-status
   [expected-evidence expected-nodes expected-chunks expected-edges forbidden-nodes forbidden-chunks forbidden-edges]
   (if (or (some (complement :found?) expected-evidence)
@@ -211,6 +237,10 @@
               (seq forbidden-chunk-expectations)
               (seq forbidden-edge-expectations))
       (let [project-id (:project-id prepared)
+            expectation-context (select-keys prepared [:project-id
+                                                       :suite-id
+                                                       :case-id
+                                                       :repo-id])
             evidence (project-rows xtdb
                                    (:system-evidence store/tables)
                                    project-id)
@@ -221,25 +251,32 @@
                                 project-id)
             expected-evidence (expected-row-results evidence
                                                     evidence-expectations
-                                                    evidence-match-summary)
+                                                    evidence-match-summary
+                                                    expectation-context)
             expected-nodes (expected-row-results nodes
                                                  node-expectations
-                                                 node-match-summary)
+                                                 node-match-summary
+                                                 expectation-context)
             expected-chunks (expected-row-results chunks
                                                   chunk-expectations
-                                                  chunk-match-summary)
+                                                  chunk-match-summary
+                                                  expectation-context)
             expected-edges (expected-row-results edges
                                                  edge-expectations
-                                                 edge-match-summary)
+                                                 edge-match-summary
+                                                 expectation-context)
             forbidden-nodes (forbidden-row-results nodes
                                                    forbidden-node-expectations
-                                                   node-match-summary)
+                                                   node-match-summary
+                                                   expectation-context)
             forbidden-chunks (forbidden-row-results chunks
                                                     forbidden-chunk-expectations
-                                                    chunk-match-summary)
+                                                    chunk-match-summary
+                                                    expectation-context)
             forbidden-edges (forbidden-row-results edges
                                                    forbidden-edge-expectations
-                                                   edge-match-summary)]
+                                                   edge-match-summary
+                                                   expectation-context)]
         {:schema graph-expectations-schema
          :status (graph-expectation-status expected-evidence
                                            expected-nodes

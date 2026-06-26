@@ -110,7 +110,7 @@
                  :database]
           :base-sha "948b5feb51b9605babc6820475b5ccff44f29552"
           :fix-sha "948b5feb51b9605babc6820475b5ccff44f29552"
-          :map-overlay {:packageImports [{:repo "supabase-postgres"
+          :correction-overlay {:packageImports [{:repo "supabase-postgres"
                                            :import "testinfra"
                                            :ecosystem "pypi"
                                            :package "pytest-testinfra"
@@ -167,7 +167,7 @@
                  :container]
           :base-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
           :fix-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
-          :map-overlay {:packageImports [{:repo "dapper"
+          :correction-overlay {:packageImports [{:repo "dapper"
                                            :import "LinqToDB"
                                            :ecosystem "nuget"
                                            :package "linq2db.SqlServer"
@@ -185,8 +185,8 @@
                                   :path "tests/Dapper.Tests/Dapper.Tests.csproj"
                                   :label "nuget:Npgsql"}]
                          :edges [{:relation :shares-config
-                                  :source-id "system:headline-architecture-headline-dapper-jsonb-test-stack:dapper:path/tests"
-                                  :target-id "system:headline-architecture-headline-dapper-jsonb-test-stack:dapper:path/tests/Dapper.Tests"}]}
+                                  :source-id "system:${project-id}:dapper:path/tests"
+                                  :target-id "system:${project-id}:dapper:path/tests/Dapper.Tests"}]}
           :issue {:id "headline-dapper-jsonb-test-stack"
                   :url "local:headline/dapper/jsonb-test-stack"
                   :title "Trace the PostgreSQL JSONB test stack through Dapper type handling"

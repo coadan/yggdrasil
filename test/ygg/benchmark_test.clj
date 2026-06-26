@@ -883,6 +883,34 @@
            (get-in expected-chunk [0 :expectation])))
     (is (= true (get-in forbidden [0 :violated?])))))
 
+(deftest evaluates-graph-expectation-templates-with-prepared-case-ids
+  (let [prepared {:project-id "agent-efficiency-broad-headline-dapper-jsonb-test-stack"
+                  :suite-id "agent-efficiency-broad"
+                  :case-id "headline-dapper-jsonb-test-stack"
+                  :repo-id "dapper"
+                  :expectations {:edges [{:relation :shares-config
+                                          :source-id "system:${project-id}:${repo-id}:path/tests"
+                                          :target-id "system:${project-id}:${repo-id}:path/tests/Dapper.Tests"}]}}
+        edge {:relation :shares-config
+              :source-id "system:agent-efficiency-broad-headline-dapper-jsonb-test-stack:dapper:path/tests"
+              :target-id "system:agent-efficiency-broad-headline-dapper-jsonb-test-stack:dapper:path/tests/Dapper.Tests"
+              :project-id "agent-efficiency-broad-headline-dapper-jsonb-test-stack"}]
+    (with-redefs [store/constrained-rows
+                  (fn [_ table _constraints]
+                    (cond
+                      (= table (:system-edges store/tables)) [edge]
+                      (= table (:nodes store/tables)) []
+                      (= table (:chunks store/tables)) []
+                      (= table (:system-evidence store/tables)) []
+                      :else []))]
+      (let [result (#'benchmark/evaluate-graph-expectations nil prepared)]
+        (is (= "passed" (:status result)))
+        (is (= 1 (get-in result [:summary :foundEdges])))
+        (is (= {:relation :shares-config
+                :source-id "system:agent-efficiency-broad-headline-dapper-jsonb-test-stack:dapper:path/tests"
+                :target-id "system:agent-efficiency-broad-headline-dapper-jsonb-test-stack:dapper:path/tests/Dapper.Tests"}
+               (get-in result [:expectedEdges 0 :expectation])))))))
+
 (deftest evaluates-source-chunk-graph-expectations
   (let [prepared {:project-id "fixture"
                   :expectations {:nodes [{:kind :web-framework-plugin

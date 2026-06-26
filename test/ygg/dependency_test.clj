@@ -1396,6 +1396,40 @@
       (is (= ["Xunit" "react" "requests"]
              (sort (map :import (:unresolved-imports report))))))))
 
+(deftest package-report-ignores-java-imports-under-local-namespace-prefix
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :ygg/files
+                                        [{:path "src/test/java/example/ConditionDemo.java"
+                                          :kind :java
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :ygg/nodes
+                                        [{:xt/id "node:namespace:org.junit.jupiter.api.condition"
+                                          :kind :namespace
+                                          :path "junit-jupiter-api/src/templates/resources/testFixtures/org/junit/jupiter/api/condition/JRE.java.jte"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :ygg/edges
+                                        [{:source-id "node:namespace:example"
+                                          :target-id "node:namespace:org.junit.jupiter.api.condition.JRE.JAVA_17"
+                                          :relation :imports
+                                          :path "src/test/java/example/ConditionDemo.java"
+                                          :source-line 1
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [& _] [])]
+    (let [report (dependency/package-report :xtdb
+                                            {:project-id "project-a"
+                                             :repo-id "repo-a"}
+                                            {})]
+      (is (zero? (get-in report [:counts :source-import-candidates])))
+      (is (empty? (:unresolved-imports report))))))
+
 (deftest package-report-ignores-python-local-package-and-sibling-imports
   (let [local-target-calls (atom 0)
         local-targets python-imports/local-targets]

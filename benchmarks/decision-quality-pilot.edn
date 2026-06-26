@@ -162,7 +162,7 @@
                  :container]
           :base-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
           :fix-sha "360367ca5475425944fb390433cb0f1817ad2dcb"
-          :map-overlay {:packageImports [{:repo "dapper"
+          :correction-overlay {:packageImports [{:repo "dapper"
                                           :import "LinqToDB"
                                           :ecosystem "nuget"
                                           :package "linq2db.SqlServer"

@@ -62,6 +62,15 @@
   (when-let [node (get nodes-by-id (scoped-symbol-id target-id symbol-label))]
     (predicate node)))
 
+(defn- local-namespace-prefix?
+  [local-namespace-targets target]
+  (let [target (str target)]
+    (boolean
+     (some (fn [namespace-name]
+             (and (seq namespace-name)
+                  (str/starts-with? target (str namespace-name "."))))
+           local-namespace-targets))))
+
 (defn- builtin-prefix?
   [target]
   (let [target (str target)]
@@ -79,9 +88,10 @@
   (not (runtime-import? target)))
 
 (defn local-import?
-  [{:keys [nodes-by-id edge target kind]}]
+  [{:keys [nodes-by-id local-namespace-targets edge target kind]}]
   (and (= :java kind)
-       (or (some #(local-scoped-symbol? nodes-by-id
+       (or (local-namespace-prefix? local-namespace-targets target)
+           (some #(local-scoped-symbol? nodes-by-id
                                         (:target-id edge)
                                         %
                                         local-symbol-node?)

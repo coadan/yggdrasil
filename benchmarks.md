@@ -1,33 +1,36 @@
 # Benchmarks
 
-Generated on 2026-06-25. Artifacts live under `.dev/ygg/server-bench/`,
-`.dev/ygg/performance-benchmarks/`, and the slice-specific `.dev/ygg/`
-subdirectories named below. They are intentionally local generated outputs.
+Updated on 2026-06-26. Artifacts live under `.dev/ygg/server-bench/`,
+`.dev/ygg/server-broad/`, `.dev/ygg/performance-benchmarks/`, and the
+slice-specific `.dev/ygg/` subdirectories named below. They are intentionally
+local generated outputs.
 
 These numbers are for the current synthetic architecture benchmark slices. They
-are useful for regression tracking, but they do not support a broad efficiency
-claim by themselves. The current server-backed deterministic gate passes with
-claim readiness supported for the measured synthetic architecture classes, while
-the headline agent comparison remains `mixed` / `inconclusive`: Yggdrasil
-improved localization, noise, and evidence metrics, but regressed token usage
-and wall-clock time.
+are useful for regression tracking, but they do not support a broad agent
+efficiency claim by themselves. The current server-backed deterministic gate and
+current broad deterministic baseline both pass with claim readiness supported
+for the measured architecture classes. The completed external agent comparisons
+remain `mixed` / `inconclusive`: Yggdrasil improved evidence and reduced broad
+rediscovery in some lanes, but the completed comparisons either regressed first
+prompt size, localization, token use, or wall-clock time, or were run before the
+current maintained-graph fixes.
 
 ## Current Server-backed Gate
 
 Commands run:
 
 ```sh
-YGG_HOME="$PWD/.dev/ygg/server-bench-home" \
-YGG_PROJECTS_FILE="$PWD/.dev/ygg/server-bench-home/projects.edn" \
-YGG_SERVER_PORT=62122 \
-YGG_XTDB_PATH="$PWD/.dev/ygg/server-bench-xtdb" \
-bb bench:gate --out .dev/ygg/server-bench/final-gate
+YGG_HOME="$PWD/.dev/ygg/gate-check-home" \
+YGG_PROJECTS_FILE="$PWD/.dev/ygg/gate-check-home/projects.edn" \
+YGG_SERVER_PORT=62124 \
+YGG_XTDB_PATH="$PWD/.dev/ygg/gate-check-xtdb" \
+bb bench:gate --out .dev/ygg/gate-check/current
 
-YGG_HOME="$PWD/.dev/ygg/server-bench-home" \
-YGG_PROJECTS_FILE="$PWD/.dev/ygg/server-bench-home/projects.edn" \
-YGG_SERVER_PORT=62122 \
-YGG_XTDB_PATH="$PWD/.dev/ygg/server-bench-xtdb" \
-bb bench:gate --check-only --out .dev/ygg/server-bench/final-gate
+YGG_HOME="$PWD/.dev/ygg/gate-check-home" \
+YGG_PROJECTS_FILE="$PWD/.dev/ygg/gate-check-home/projects.edn" \
+YGG_SERVER_PORT=62124 \
+YGG_XTDB_PATH="$PWD/.dev/ygg/gate-check-xtdb" \
+bb bench:gate --check-only --out .dev/ygg/gate-check/current
 ```
 
 The server was run with an isolated home, registry file, port, and XTDB path.
@@ -45,23 +48,23 @@ Deterministic gate result: passed.
 | File recall@5 | 0.83 |
 | File recall@10 | 0.83 |
 | File recall@20 | 0.83 |
-| MRR | 0.80 |
+| MRR | 0.77 |
 | Evidence citation | 1.00 |
 | Expected evidence citation | 0.80 |
 | Path evidence citation | 1.00 |
-| Noise@20 | 0.376 |
+| Noise@20 | 0.70 |
 | Maintenance preflight blockers | 0 |
 | Claim readiness | supported |
-| Warm elapsed | 5,139 ms |
-| Agent-ready elapsed | 1,519 ms |
-| Amortized setup elapsed | 111,189 ms |
-| Total elapsed | 116,328 ms |
+| Warm elapsed | 3,709 ms |
+| Agent-ready elapsed | 1,244 ms |
+| Amortized setup elapsed | 97,993 ms |
+| Total elapsed | 101,702 ms |
 
 The Dapper JSONB test-stack case previously blocked maintenance preflight on
 unresolved `.NET` imports for `LinqToDB.*` with declared package
-`linq2db.SqlServer`. A narrow Dapper-only rerun now reports maintenance
-preflight passed with zero blocked cases; that single-case rerun still fails the
-global recall gate because the case alone has file recall@20 `0.67`.
+`linq2db.SqlServer`. The regenerated five-case gate now reports maintenance
+preflight passed with zero blocked cases. The Dapper case still has only partial
+localization in the deterministic baseline, with file recall@10 `0.67`.
 
 Claim status: supports that the current server-backed deterministic gate passes
 and that the maintenance preflight regression is fixed. It does not support a
@@ -69,10 +72,75 @@ broad wall-clock or agent-efficiency claim by itself; the suite is still wholly
 synthetic, and the existing headline agent comparison remains mixed.
 
 Source artifacts:
-`.dev/ygg/server-bench/final-gate/architecture-synthetic/agent-check.json`,
-`.dev/ygg/server-bench/final-gate/architecture-synthetic/agent-report.json`,
-and the Dapper fix check under
-`.dev/ygg/server-bench/dapper-fix-gate/architecture-synthetic/agent-report.json`.
+`.dev/ygg/gate-check/current/architecture-synthetic/agent-check.json` and
+`.dev/ygg/gate-check/current/architecture-synthetic/agent-report.json`.
+
+## Current Broad Deterministic Baseline
+
+Commands run:
+
+```sh
+YGG_HOME="$PWD/.dev/ygg/server-broad-home" \
+YGG_PROJECTS_FILE="$PWD/.dev/ygg/server-broad-home/projects.edn" \
+YGG_SERVER_PORT=62123 \
+YGG_XTDB_PATH="$PWD/.dev/ygg/server-broad-xtdb" \
+YGG_SERVER_REQUEST_TIMEOUT_MS=3600000 \
+bb bench agent-baseline benchmarks/agent-efficiency-broad.edn \
+  --out .dev/ygg/server-broad/full-fix-2/ygg-baseline
+
+YGG_HOME="$PWD/.dev/ygg/server-broad-home" \
+YGG_PROJECTS_FILE="$PWD/.dev/ygg/server-broad-home/projects.edn" \
+YGG_SERVER_PORT=62123 \
+YGG_XTDB_PATH="$PWD/.dev/ygg/server-broad-xtdb" \
+YGG_SERVER_REQUEST_TIMEOUT_MS=3600000 \
+bb bench agent-report benchmarks/agent-efficiency-broad.edn \
+  --mode ygg \
+  --agent ygg-baseline-lexical \
+  --out .dev/ygg/server-broad/full-fix-2/ygg-baseline
+```
+
+Result: passed. This is the current maintained broad architecture proof over 25
+cases. It is deterministic Yggdrasil baseline evidence, not a shell-only versus
+Yggdrasil external agent comparison.
+
+| Metric | Value |
+| --- | ---: |
+| Completed cases | 25/25 |
+| File recall@10 | 0.770 |
+| MRR | 0.763 |
+| Evidence citation | 1.00 |
+| Expected evidence citation | 0.905 |
+| Path evidence citation | 1.00 |
+| Noise@20 | 0.472 |
+| Maintenance preflight blockers | 0 |
+| Claim readiness | supported |
+| Problem classes measured | 5 |
+| Architecture classes measured | 8 |
+| Warm elapsed | 21,805 ms |
+| Agent-ready elapsed | 6,766 ms |
+| Amortized setup elapsed | 667,209 ms |
+| Total elapsed | 689,014 ms |
+
+Maintenance preflight now passes across all 25 cases: index, inference, graph
+expectations, hint diagnostics, and sync/check-equivalent status all passed.
+The fix was not a semantic shortcut: graph expectations can interpolate prepared
+case ids instead of hard-coding one suite id, fixture overlays use the canonical
+correction-overlay name, and Java dependency validation treats imports under an
+indexed local namespace prefix as local.
+
+Claim status: supports maintained broad deterministic architecture coverage for
+the measured classes. It does not support a broad agent-efficiency claim by
+itself. Localization remains the next quality issue: 15/25 cases found all
+scoreable files, while 10 still missed at least one scoreable file.
+
+Source artifact:
+`.dev/ygg/server-broad/full-fix-2/ygg-baseline/agent-efficiency-broad/agent-report.json`.
+
+A fresh shell-only broad rerun was started under
+`.dev/ygg/server-broad/full-fix-2/shell-only`, but it was stopped after producing
+only 4/25 case artifacts. It is intentionally excluded from claims; the last
+completed shell-only versus Yggdrasil broad agent comparison remains the slice-5
+run below.
 
 ## Ripgrep Query Work Protocol
 
@@ -323,8 +391,9 @@ Initial prompt-token gate:
 Claim status: not supported for a broad efficiency claim. The run supports the
 telemetry direction: broad rediscovery and full-run token use are now visible
 separately from internal literal search and exact-file proof. It also shows the
-next packet work clearly: shrink the first Ygg prompt, fix maintenance preflight
-blockers, and protect direct candidates before graph expansion.
+next packet work clearly: shrink the first Ygg prompt, rerun the external agent
+lane against the current maintained baseline, and protect direct candidates
+before graph expansion.
 
 Source artifacts:
 `.dev/ygg/ripgrep-leverage/slice-5/gate/architecture-synthetic/agent-check.json`,
