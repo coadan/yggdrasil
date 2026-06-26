@@ -21,6 +21,11 @@ Tracked starter suites:
 - `benchmarks/agent-efficiency-broad.edn`: common broad shell-only versus
   Yggdrasil comparison suite composed from tracked selectors with
   `:include-suites`.
+- `benchmarks/task-category-broad.edn`: should-win planning, implementation,
+  and review/decision selector. These cases should require composed recall from
+  graph topology, parser facts, lexical/grep matches, semantic similarity, and
+  accepted correction/history facts where available; lexical-only wins are
+  useful controls but not the target claim.
 
 Tracked benchmark suites use local checkout inputs under
 `.dev/ygg/benchmark-repos/`. The manifest `benchmarks/repos.edn` records the
@@ -131,7 +136,7 @@ bb bench agent-baseline benchmarks/headline.edn \
 
 bb bench agent-report benchmarks/headline.edn \
   --mode ygg \
-  --agent ygg-baseline-lexical \
+  --agent ygg-baseline-auto \
   --out .dev/ygg/headline-bench/ygg-baseline
 ```
 
@@ -236,8 +241,8 @@ bb bench agent-baseline benchmark.edn --case penpot-example --retriever codebase
 bb bench agent-run benchmark.edn --agent codex --command 'codex -a never exec --sandbox read-only --output-schema "$YGG_BENCH_OUTPUT_SCHEMA" -o "$YGG_BENCH_RESULT" "$(cat "$YGG_BENCH_PROMPT")"' --mode ygg --prompt-profile fast --timeout-ms 120000
 bb bench agent-score benchmark.edn --case penpot-example --result agent-result.json
 bb bench agent-report benchmark.edn
-bb bench improve benchmark.edn --mode ygg --agent ygg-baseline-lexical --out .dev/reports/bench
-bb bench agent-check benchmark.edn --mode ygg --agent ygg-baseline-lexical --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --min-evidence-citation-rate 1.0 --min-path-evidence-citation-rate 1.0 --min-case-evidence-citation-rate 1.0 --min-case-path-evidence-citation-rate 1.0 --max-total-tokens 120000 --max-case-total-tokens 30000 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
+bb bench improve benchmark.edn --mode ygg --agent ygg-baseline-auto --out .dev/reports/bench
+bb bench agent-check benchmark.edn --mode ygg --agent ygg-baseline-auto --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --min-evidence-citation-rate 1.0 --min-path-evidence-citation-rate 1.0 --min-case-evidence-citation-rate 1.0 --min-case-path-evidence-citation-rate 1.0 --max-total-tokens 120000 --max-case-total-tokens 30000 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
 bb bench agent-check benchmarks/decision-quality-pilot.edn --mode ygg --agent codex --min-decision-f1 0.8 --min-case-decision-f1 0.6 --min-decision-evidence-citation-rate 0.8 --max-missing-decision-runs 0
 bb bench agent-compare benchmark.edn --baseline-report .dev/ygg/bench-before/agent-report.json --candidate-report .dev/ygg/bench-after/agent-report.json
 bb bench claim-pack benchmark.edn --shell-report .dev/ygg/agent-efficiency/shell-only/agent-report.json --ygg-report .dev/ygg/agent-efficiency/ygg/agent-report.json --out .dev/reports/claim-pack
@@ -281,9 +286,13 @@ plugin-fit choice, not just a shorter suspected-file list.
 - `bench agent-baseline <suite.edn>` generates a deterministic Yggdrasil-assisted
   agent result from the same context docs/entities an agent receives, writes the
   agent-result JSON, and scores it. Use this as the repeatable regression
-  baseline before running slower human or LLM agent trials. By default it keeps
-  a ranked suspected-file list of twenty files and still writes the full
-  context packet; use `--limit <n>` to change the suspected-file shortlist size,
+  baseline before running slower human or LLM agent trials. The default
+  retriever is `auto`: use hybrid semantic/lexical/grep/graph recall when an
+  embedding client is configured, and report explicit lexical fallback when
+  semantic recall is unavailable. By default it keeps a ranked suspected-file
+  list of twenty files and still writes the full context packet; use
+  `--retriever lexical`, `--retriever semantic`, or `--retriever hybrid` for
+  ablation/debug lanes, `--limit <n>` to change the suspected-file shortlist size,
   `--doc-limit <n>` to change the snippet-bearing source context size, and
   `--retrieval-limit <n>` to change the compact candidate-file pool without
   adding more snippets. The default retrieval limit is intentionally wider than
@@ -568,12 +577,12 @@ files, and docs across multiple public repositories. A repeatable deterministic
 baseline gate for that suite is:
 
 ```sh
-bb bench agent-check .dev/ygg/benchmarks/wide.edn --out .dev/ygg/bench-wide-v4 --mode ygg --agent ygg-baseline-lexical --min-cases 14 --min-runs 14 --min-file-recall-at-5 0.55 --min-file-recall-at-10 0.68 --min-file-recall-at-20 0.68 --min-mrr 0.55 --max-noise-at-20 0.82 --max-input-hinted-cases 0 --max-unsupported-ground-truth-files 14
+bb bench agent-check .dev/ygg/benchmarks/wide.edn --out .dev/ygg/bench-wide-v4 --mode ygg --agent ygg-baseline-auto --min-cases 14 --min-runs 14 --min-file-recall-at-5 0.55 --min-file-recall-at-10 0.68 --min-file-recall-at-20 0.68 --min-mrr 0.55 --max-noise-at-20 0.82 --max-input-hinted-cases 0 --max-unsupported-ground-truth-files 14
 ```
 
 The lower wide-suite thresholds are deliberate. New source-kind cases should
-land even when the current lexical baseline misses them, because those misses
-make source-support regressions and ranking gaps visible. The wide gate also
+land even when the current auto/hybrid baseline misses them, because those
+misses make source-support regressions and ranking gaps visible. The wide gate also
 allows more noise than the narrow gate because the default deterministic agent
 baseline now exposes ten candidate files, which is more useful for coding-agent
 triage than a brittle top-three shortlist. Keep the stricter narrow-suite gate
@@ -599,7 +608,7 @@ and tracked as a separate benchmark finding.
 Example narrow gate for the Bootstrap style case:
 
 ```sh
-bb bench agent-check .dev/ygg/benchmarks/wide.edn --out .dev/ygg/bench-bootstrap-style-rules-v1 --case bootstrap-34852-form-select-border-radius --mode ygg --agent ygg-baseline-lexical --min-case-file-recall-at-5 1.0 --min-file-recall-at-5 1.0 --max-missed-runs 0
+bb bench agent-check .dev/ygg/benchmarks/wide.edn --out .dev/ygg/bench-bootstrap-style-rules-v1 --case bootstrap-34852-form-select-border-radius --mode ygg --agent ygg-baseline-auto --min-case-file-recall-at-5 1.0 --min-file-recall-at-5 1.0 --max-missed-runs 0
 ```
 
 When a benchmark miss points at extractor noise or missing syntax facts, prefer

@@ -1,6 +1,6 @@
 {:id "task-category-broad"
  :project-id "task-category-broad"
- :description "Composed should-win suite for planning, implementation, and review/decision tasks where graph-backed Yggdrasil context should generally beat shell-only search."
+ :description "Composed should-win suite for planning, implementation, and review/decision tasks where default auto/hybrid Yggdrasil context should generally beat shell-only and single-mode recall."
  :include-suites [{:path "feature-planning.edn"
                    :case-ids ["planning-bootstrap-docs-search-integration"
                               "planning-supabase-trigger-owner-validation"

@@ -97,8 +97,12 @@
                        "bb bench repos check --manifest benchmarks/custom-repos.edn --suite benchmarks/custom.edn"))
     (is (str/includes? (nth lines 1)
                        "bench agent-baseline benchmarks/custom.edn"))
+    (is (str/includes? (nth lines 1)
+                       "--retriever auto"))
     (is (str/includes? (nth lines 2)
                        "bench agent-check benchmarks/custom.edn"))
+    (is (str/includes? (nth lines 2)
+                       "--agent ygg-baseline-auto"))
     (is (str/includes? (nth lines 2)
                        "--max-maintenance-preflight-blockers 0"))
     (is (str/includes? (nth lines 2)
@@ -119,6 +123,8 @@
     (is (not-any? #(str/includes? % "agent-baseline") lines))
     (is (str/includes? (nth lines 1)
                        "bench agent-check benchmarks/custom.edn --case case-1"))
+    (is (str/includes? (nth lines 1)
+                       "--agent ygg-baseline-auto"))
     (is (str/includes? (nth lines 1) "--min-cases 1"))
     (is (str/includes? (nth lines 1) "--min-runs 1"))
     (is (str/includes? (nth lines 1) "--max-unverified-score-runs 0"))
@@ -131,7 +137,30 @@
   (let [result (run-gate "--help")]
     (is (= 0 (:exit result)))
     (is (str/includes? (:out result) "--check-only"))
+    (is (str/includes? (:out result) "--retriever MODE"))
     (is (str/includes? (:out result) "current artifacts already"))))
+
+(deftest dry-run-passes-retriever-and-semantic-client-options
+  (let [result (run-gate "--dry-run"
+                         "--retriever" "semantic"
+                         "--provider" "local"
+                         "--model" "sentence-transformers/all-MiniLM-L6-v2"
+                         "--batch-size" "128"
+                         "--suite" "benchmarks/custom.edn"
+                         "--manifest" "benchmarks/custom-repos.edn"
+                         "--out" ".dev/ygg/benchmark-gate/custom")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (str/includes? (nth lines 1)
+                       "--retriever semantic"))
+    (is (str/includes? (nth lines 1)
+                       "--provider local"))
+    (is (str/includes? (nth lines 1)
+                       "--model sentence-transformers/all-MiniLM-L6-v2"))
+    (is (str/includes? (nth lines 1)
+                       "--batch-size 128"))
+    (is (str/includes? (nth lines 2)
+                       "--agent ygg-baseline-semantic"))))
 
 (deftest prompt-token-gate-passes-when-ygg-prompt-is-smaller
   (let [root (temp-dir "ygg-prompt-token-gate-pass")

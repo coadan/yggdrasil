@@ -41,7 +41,7 @@
   (io/file (case-output-dir suite case opts) "agent-packet.json"))
 (defn agent-baseline-id
   [opts]
-  (str "ygg-baseline-" (name (keyword (or (:retriever opts) :lexical)))))
+  (str "ygg-baseline-" (name (keyword (or (:retriever opts) :auto)))))
 (defn agent-baseline-result-path
   [suite case opts]
   (io/file (case-output-dir suite case opts)

@@ -288,7 +288,8 @@
   (query/semantic-query xtdb
                         (get-in prepared [:input :queryText])
                         (cond-> {:project-id (:project-id prepared)
-                                 :retriever (keyword (or (:retriever opts) :lexical))
+                                 :retriever (keyword (or (:retriever opts)
+                                                         benchmark-agent-baseline/default-agent-baseline-retriever))
                                  :limit (long (or (:limit opts) default-limit))}
                           (= 1 (count (:repos prepared)))
                           (assoc :repo-id (:repo-id prepared)))))
@@ -323,7 +324,8 @@
                :inputHints (:inputHints prepared)
                :coverage (:coverage prepared)
                :groundTruth (:groundTruth prepared)
-               :ygg {:retriever (name (keyword (or (:retriever opts) :lexical)))
+               :ygg {:retriever (name (keyword (or (:retriever opts)
+                                                   benchmark-agent-baseline/default-agent-baseline-retriever)))
                      :parserWorker (parser-worker-profile opts)
                      :limit (long (or (:limit opts) default-limit))
                      :indexSummary index-summary
@@ -355,7 +357,8 @@
 
 (defn- agent-baseline-mode
   [opts]
-  (case (keyword (or (:retriever opts) :lexical))
+  (case (keyword (or (:retriever opts)
+                     benchmark-agent-baseline/default-agent-baseline-retriever))
     :local-vector "local-vector"
     :codebase-memory "codebase-memory"
     :graphify "graphify"
@@ -379,7 +382,8 @@
    :caseFingerprint (:caseFingerprint score)
    :agentId (get-in score [:agent :agentId])
    :mode (get-in score [:agent :mode])
-   :retriever (name (keyword (or (:retriever opts) :lexical)))
+   :retriever (name (keyword (or (:retriever opts)
+                                 benchmark-agent-baseline/default-agent-baseline-retriever)))
    :parserWorker (:parserWorker score)
    :suspectLimit (agent-baseline-suspect-limit opts)
    :status "skipped"
@@ -534,7 +538,9 @@
                                                           opts)}
                                            (reusable-agent-score suite case opts)
                                            (skipped-agent-baseline suite case opts)))
-                                (let [retriever (keyword (or (:retriever opts) :lexical))]
+                                (let [retriever (keyword
+                                                 (or (:retriever opts)
+                                                     benchmark-agent-baseline/default-agent-baseline-retriever))]
                                   (cond
                                     (= :local-vector retriever)
                                     (local-vector-baseline! suite case opts)

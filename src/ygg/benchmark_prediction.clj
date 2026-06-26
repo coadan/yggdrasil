@@ -3070,10 +3070,20 @@
             selected
             (take remaining-limit remaining))))
 
+(defn- compact-output-doc-identity-row?
+  [row]
+  (and (pos? (positive-metric row :docCount))
+       (pos? (positive-metric row :candidateFileCount))
+       (<= compact-output-identity-support-min
+           (positive-metric row :fileIdentitySupportLabelCount))
+       (<= candidate-file-only-query-evidence-token-min
+           (positive-metric row :matchedTokenCount))))
+
 (defn- compact-output-prune-protected-row?
   [row]
   (or (compact-output-retrieved-label-doc-row? row)
       (compact-output-retrieved-label-source-row? row)
+      (compact-output-doc-identity-row? row)
       (query-evidence-source-candidate-row? row)
       (candidate-file-only-row? row)))
 
@@ -3124,6 +3134,7 @@
   [selected source-kinds kind-by-path]
   (let [base-core (ordered-row-union
                    (filter compact-output-direct-identity-row? selected)
+                   (filter compact-output-doc-identity-row? selected)
                    (filter compact-output-repeated-retrieved-row? selected))
         core (ordered-row-union
               base-core

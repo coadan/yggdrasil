@@ -35,7 +35,11 @@ can be validated and folded into correction facts or metadata. Do not make Yggdr
 depend on one LLM provider, hidden agent loop, or semantic classifier path.
 
 Keep implementation local-first and deterministic. XTDB stores durable graph
-facts and audit history; semantic/vector providers are optional later backends.
+facts and audit history. The canonical query surface is simple `auto` retrieval:
+use balanced hybrid recall when embeddings are configured, and report explicit
+lexical fallback when semantic recall is unavailable. Treat lexical-only,
+semantic-only, graph-only, and external retrievers as explicit ablation lanes,
+not the default product or should-win benchmark path.
 
 Do not justify Yggdrasil agent-efficiency work with hand-wavy claims. Any claim
 that Yggdrasil makes agents faster, easier, or more effective must point to
@@ -102,9 +106,11 @@ bb sync inspect project.edn
 bb sync project.edn --check
 ```
 
-Use `bb query` for graph questions. Do not dump the whole graph into context
-unless the task explicitly needs broad inventory. Use `bb view` only when a
-rendered or exported graph slice helps.
+Use `bb query` for graph questions. Plain query commands should rely on the
+default `auto` retriever; pass `--retriever lexical`, `--retriever semantic`, or
+other retriever overrides only for focused debugging and benchmark ablations. Do
+not dump the whole graph into context unless the task explicitly needs broad
+inventory. Use `bb view` only when a rendered or exported graph slice helps.
 
 If sync reports maintenance work, claim one bounded item at a time and inspect
 the evidence. For structured work results, complete the item first, then

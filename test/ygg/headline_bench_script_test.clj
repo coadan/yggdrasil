@@ -257,6 +257,6 @@
     (is (= 4 (count lines)))
     (is (str/includes? (nth lines 0)
                        "bb bench agent-baseline benchmarks/custom-headline.edn"))
-    (is (str/includes? (nth lines 1) "--agent ygg-baseline-lexical"))
+    (is (str/includes? (nth lines 1) "--agent ygg-baseline-auto"))
     (is (str/includes? (nth lines 2) "--retriever codebase-memory"))
     (is (str/includes? (nth lines 3) "--mode codebase-memory"))))

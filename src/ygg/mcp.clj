@@ -377,7 +377,7 @@
           (context/context-packet xtdb
                                   query
                                   {:project-id (project-id project args)
-                                   :retriever (keyword (or (:retriever args) "lexical"))
+                                   :retriever (keyword (or (:retriever args) "auto"))
                                    :correction-overlay overlay
                                    :budget (or (:budget args) context/default-budget)
                                    :plugins (:plugins project)

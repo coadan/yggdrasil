@@ -38,6 +38,8 @@
   20)
 (def default-agent-baseline-embed-batch-size
   64)
+(def default-agent-baseline-retriever
+  :auto)
 
 (def default-index-timeout-ms
   600000)
@@ -72,7 +74,8 @@
     (context-ground-truth-ranks prepared (benchmark-io/read-json-file path))))
 (defn agent-baseline-context-options
   [prepared opts]
-  (let [retriever (keyword (or (:retriever opts) :lexical))]
+  (let [retriever (keyword (or (:retriever opts)
+                               default-agent-baseline-retriever))]
     (cond-> {:project-id (:project-id prepared)
              :retriever retriever
              :embedding-client (:embedding-client opts)
@@ -86,7 +89,8 @@
 (defn- agent-baseline-embedding-client
   [opts]
   (embedding-client/configured-query-client
-   (keyword (or (:retriever opts) :lexical))
+   (keyword (or (:retriever opts)
+                default-agent-baseline-retriever))
    {:provider (:provider opts)
     :model (:model opts)}))
 (defn- agent-baseline-embedding-options
@@ -272,8 +276,9 @@
                           :agentInputFingerprint (:agentInputFingerprint prepared)
                           :agentId agent-id
                           :mode "ygg"
-                          :retriever (name (keyword (or (:retriever opts)
-                                                        :lexical)))
+                          :retriever (name (keyword
+                                            (or (:retriever opts)
+                                                default-agent-baseline-retriever)))
                           :parserWorker parser-worker
                           :suspectLimit (agent-baseline-suspect-limit opts)
                           :artifacts {:projectConfig project-path

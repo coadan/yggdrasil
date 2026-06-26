@@ -14,6 +14,10 @@ Options:
   --out DIR           Output root. Default: .dev/ygg/benchmark-gate
   --case ID           Run one benchmark case.
   --cases ID,ID       Run selected benchmark cases.
+  --retriever MODE    Baseline retriever. Default: auto.
+  --provider PROVIDER Embedding provider for semantic/hybrid retrievers.
+  --model MODEL       Embedding model for semantic/hybrid retrievers.
+  --batch-size N      Embedding batch size for semantic/hybrid retrievers.
   --setup-check       Only check required local benchmark repos.
   --check-only        Reuse existing score artifacts; skip baseline regeneration.
   --skip-setup-check  Run without checking local benchmark repos first.
@@ -31,6 +35,10 @@ manifest="benchmarks/repos.edn"
 out=".dev/ygg/benchmark-gate"
 case_id=""
 case_ids=""
+retriever="auto"
+provider=""
+model=""
+batch_size=""
 setup_check_only=false
 check_only=false
 skip_setup_check=false
@@ -56,6 +64,22 @@ while [[ $# -gt 0 ]]; do
       ;;
     --cases)
       case_ids="$2"
+      shift 2
+      ;;
+    --retriever)
+      retriever="$2"
+      shift 2
+      ;;
+    --provider)
+      provider="$2"
+      shift 2
+      ;;
+    --model)
+      model="$2"
+      shift 2
+      ;;
+    --batch-size)
+      batch_size="$2"
       shift 2
       ;;
     --setup-check)
@@ -133,13 +157,22 @@ if [[ "$skip_setup_check" != true ]]; then
 fi
 
 if [[ "$check_only" != true ]]; then
-  run_bench agent-baseline \
-    --out "$out"
+  baseline_args=(--out "$out" --retriever "$retriever")
+  if [[ -n "$provider" ]]; then
+    baseline_args+=(--provider "$provider")
+  fi
+  if [[ -n "$model" ]]; then
+    baseline_args+=(--model "$model")
+  fi
+  if [[ -n "$batch_size" ]]; then
+    baseline_args+=(--batch-size "$batch_size")
+  fi
+  run_bench agent-baseline "${baseline_args[@]}"
 fi
 
 run_bench agent-check \
   --mode ygg \
-  --agent ygg-baseline-lexical \
+  --agent "ygg-baseline-$retriever" \
   --min-cases "$min_count" \
   --min-runs "$min_count" \
   --min-file-recall-at-5 0.60 \

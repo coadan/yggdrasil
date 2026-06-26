@@ -141,7 +141,7 @@
        "bb plugin dry-run report . --json\n"
        "bb plugin install /path/to/project.edn . --force\n"
        "bb bench agent-baseline benchmarks/suite.template.edn --out .dev/ygg/plugin-bench/core\n"
-       "bb bench agent-report benchmarks/suite.template.edn --mode ygg --agent ygg-baseline-lexical --out .dev/ygg/plugin-bench/core\n"
+       "bb bench agent-report benchmarks/suite.template.edn --mode ygg --agent ygg-baseline-auto --out .dev/ygg/plugin-bench/core\n"
        "bb plugin registry validate registry.example.edn --json\n"
        "bb plugin registry install registry.example.edn /path/to/project.edn "
        package-id
@@ -200,7 +200,7 @@
        "```sh\n"
        "cp benchmarks/suite.template.edn benchmarks/suite.edn\n"
        "bb bench agent-baseline benchmarks/suite.edn --out .dev/ygg/plugin-bench/core\n"
-       "bb bench agent-report benchmarks/suite.edn --mode ygg --agent ygg-baseline-lexical --out .dev/ygg/plugin-bench/core\n"
+       "bb bench agent-report benchmarks/suite.edn --mode ygg --agent ygg-baseline-auto --out .dev/ygg/plugin-bench/core\n"
        "bb plugin install /path/to/project.edn . --force\n"
        "# Re-run the same benchmark lane against a project config that loads this package.\n"
        "# Then compare core Yggdrasil with plugin-enhanced Yggdrasil:\n"

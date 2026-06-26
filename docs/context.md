@@ -4,6 +4,14 @@
 evidence in its prompt. It returns a compact JSON packet instead of dumping the
 full graph.
 
+Plain `ygg query` requests the `auto` retriever. `auto` uses balanced hybrid
+recall when an embedding client is configured, combining semantic, lexical,
+grep, and graph signals. When semantic recall is unavailable, the packet reports
+an explicit lexical fallback in `evidence.retrieval`; that fallback is a
+capability signal, not a separate query surface. Use `--retriever lexical`,
+`--retriever semantic`, or other overrides only for debugging and benchmark
+ablations.
+
 ```sh
 ygg query "where does the API gateway send requests" --project sample --json --budget 4000
 ```
@@ -148,9 +156,10 @@ audit over exact candidate files. Default packets do not include action rows.
 Project memory is retrieved through the same context packet as graph and docs.
 There is no separate memory query command or default MCP search tool in V1.
 Reviewed and observed memory rows keep `target-kind: memory` search docs, so
-`ygg query --json` can return them in `memories` through lexical retrieval and,
-after `ygg embed`, semantic retrieval. Suggested memory stays out of broad query
-unless it is directly attached to a selected graph target.
+`ygg query --json` can return them in `memories` through the default auto/hybrid
+retrieval path, with lexical fallback when embeddings are unavailable. Suggested
+memory stays out of broad query unless it is directly attached to a selected
+graph target.
 
 Use `ygg memory add/review/accept/reject/supersede/attach` to manage the memory
 lifecycle. See [Project Memory](memory.md) for the command reference and privacy

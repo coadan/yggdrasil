@@ -213,7 +213,7 @@ baseline() {
   args=(bench agent-report "$suite")
   append_case_args
   args+=(--mode ygg
-    --agent ygg-baseline-lexical
+    --agent ygg-baseline-auto
     --out "$out/ygg-baseline")
   run bb "${args[@]}"
 }

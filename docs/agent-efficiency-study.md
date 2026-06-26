@@ -83,7 +83,12 @@ Yggdrasil.
 Use `benchmarks/task-category-broad.edn` when the question is narrower and more
 direct: does Yggdrasil win on should-win planning, implementation, and
 review/decision tasks? That selector tags the three categories as measured
-`problem-*` classes and excludes known shell-sufficient controls.
+`problem-*` classes and excludes known shell-sufficient controls. The default
+Yggdrasil lane should use the simple `auto` query surface: hybrid
+semantic/lexical/grep/graph recall when embeddings are configured, with explicit
+lexical fallback when semantic recall is unavailable. Use lexical-only,
+semantic-only, graph-only, local-vector, Codebase Memory, and Graphify runs as
+ablations or external comparisons, not as the primary should-win claim.
 
 For the bounded architecture benchmark improvement slice, use
 `benchmarks/headline.edn` as the fixed five-case selector. It covers dependency

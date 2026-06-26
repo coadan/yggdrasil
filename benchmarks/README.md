@@ -51,7 +51,12 @@ bb agent-efficiency all \
 ```
 
 Use the task-category lane to test should-win planning, implementation, and
-review/decision tasks as separate measured problem classes:
+review/decision tasks as separate measured problem classes. Should-win cases
+should exercise composed Yggdrasil recall: graph topology, parser facts,
+lexical/grep matches, semantic similarity when embeddings are configured, and
+accepted correction/history facts where relevant. Treat lexical-only,
+semantic-only, graph-only, local-vector, Codebase Memory, and Graphify runs as
+ablation or comparison lanes, not the default should-win path:
 
 ```sh
 bb bench repos check --suite benchmarks/task-category-broad.edn

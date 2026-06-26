@@ -261,6 +261,22 @@
                (:schema (json/read-json (get-in response [:result :content 0 :text])
                                         :key-fn keyword))))))))
 
+(deftest query-tool-defaults-to-auto-retriever
+  (with-redefs [project/read-project (constantly project-with-plugin-package)
+                corrections/overlay (fn [_ _] nil)
+                store/with-node (fn [_ f] (f :xtdb))
+                evidence/summarize (fn [_ _ _]
+                                     {:schema evidence/schema
+                                      :freshness {:status :current}})
+                context/context-packet (fn [_ _ opts]
+                                         {:schema context/schema
+                                          :retriever (:retriever opts)})]
+    (let [response (mcp/handle-message
+                    (mcp/server-context ["--config" "project.edn"])
+                    (tool-call 77 "ygg_query" {:query "where auth"}))
+          packet (get-in response [:result :structuredContent])]
+      (is (= :auto (:retriever packet))))))
+
 (deftest query-tool-returns-primary-context-packet
   (with-redefs [project/read-project (constantly project-with-plugin-package)
                 corrections/overlay (fn [_ _] nil)

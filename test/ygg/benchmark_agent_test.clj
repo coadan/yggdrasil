@@ -161,6 +161,7 @@
                    :retrieval-limit 42})]
     (is (= 24000 (:budget defaults)))
     (is (= 12000 (:budget override)))
+    (is (= :auto (:retriever defaults)))
     (is (= 300 (:retrieval-limit defaults)))
     (is (= 42 (:retrieval-limit override)))))
 
@@ -177,8 +178,14 @@
                          {:retriever "hybrid"
                           :provider "local"
                           :model "fake-model"}))))
+      (is (= :fake
+             (:provider (#'benchmark-agent-baseline/agent-baseline-embedding-client
+                         {:provider "openai"
+                          :model "fake-default-model"}))))
       (is (= [[:hybrid {:provider "local"
-                        :model "fake-model"}]]
+                        :model "fake-model"}]
+              [:auto {:provider "openai"
+                      :model "fake-default-model"}]]
              @calls)))))
 (deftest benchmark-index-options-are-bounded-by-default
   (is (= {:index-profile :query
@@ -225,7 +232,8 @@
                                (map (juxt #(keyword (:family %)) identity))
                                (get-in baseline [:syncInspect :families]))]
       (is (= benchmark/agent-baselines-schema (:schema result)))
-      (is (= "ygg-baseline-lexical" (:agentId baseline)))
+      (is (= "ygg-baseline-auto" (:agentId baseline)))
+      (is (= "auto" (:retriever baseline)))
       (is (= {:items 1
               :events 1
               :deleted-items 0
@@ -285,7 +293,7 @@
                :case-id "case-1"
                :caseFingerprint (#'benchmark/case-fingerprint suite case)
                :agentInputFingerprint (#'benchmark/agent-input-fingerprint suite case)
-               :agent {:agentId "ygg-baseline-lexical"
+               :agent {:agentId "ygg-baseline-auto"
                        :schema benchmark/agent-result-schema
                        :mode "ygg"
                        :agentInputFingerprint (#'benchmark/agent-input-fingerprint suite case)}
@@ -299,7 +307,7 @@
                  suite
                  case
                  java-opts
-                 {:agent-id "ygg-baseline-lexical"
+                 {:agent-id "ygg-baseline-auto"
                   :mode "ygg"
                   :result-path result-path})))
     (is (= 1
@@ -307,7 +315,7 @@
                    suite
                    case
                    dotnet-opts
-                   {:agent-id "ygg-baseline-lexical"
+                   {:agent-id "ygg-baseline-auto"
                     :mode "ygg"
                     :result-path result-path}))))))
 (deftest agent-run-env-carries-explicit-parser-worker-profile
@@ -4497,6 +4505,72 @@
         paths (mapv :path (compact-output files 7 nil))]
     (is (some #{"tests/Dapper.Tests/TypeHandlerTests.cs"} paths))
     (is (not-any? #{"src/head-7.cs"} paths))))
+
+(deftest compact-output-reserves-doc-supported-identity-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        candidate-row (fn [path rank source-rank]
+                        (row path
+                             rank
+                             {:candidateFileCount 1
+                              :docCount 0
+                              :entityCount 0
+                              :candidateSourceRank source-rank
+                              :matchedTokenCount 6
+                              :sourceGraphCandidateEvidenceScore 0.6
+                              :candidateLexicalComponentBoost 0.1
+                              :rankScore (- 12.0 rank)}))
+        files [(row "benchmarks/Dapper.Tests.Performance/Benchmarks.Belgrade.cs"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 2
+                     :retrievedSourceCount 1
+                     :matchedTokenCount 7
+                     :architectureSupportBoost 4.8
+                     :rankScore 13.9})
+               (row "tests/Dapper.Tests/SharedTypes/Enums.cs"
+                    2
+                    {:docCount 2
+                     :candidateFileCount 1
+                     :retrievedSourceCount 2
+                     :repeatedRetrievedSourceBoost 3.2
+                     :matchedTokenCount 6
+                     :rankScore 11.7})
+               (row "Dapper/SqlMapper.cs"
+                    4
+                    {:docCount 1
+                     :candidateFileCount 5
+                     :fileIdentitySupportLabelCount 4
+                     :matchedTokenCount 7
+                     :sourceGraphCandidateEvidenceScore 0.36
+                     :rankScore 8.1})
+               (row "tests/Dapper.Tests/TypeHandlerTests.cs"
+                    5
+                    {:docCount 5
+                     :candidateFileCount 1
+                     :retrievedSourceCount 5
+                     :repeatedRetrievedSourceBoost 3.2
+                     :matchedTokenCount 8
+                     :rankScore 10.8})
+               (candidate-row "benchmarks/Dapper.Tests.Performance/XPO/Post.cs"
+                              8
+                              12)
+               (candidate-row "benchmarks/Dapper.Tests.Performance/Benchmarks.cs"
+                              9
+                              27)
+               (candidate-row "Dapper/SimpleMemberMap.cs" 10 30)
+               (candidate-row "benchmarks/Dapper.Tests.Performance/Post.cs"
+                              11
+                              32)
+               (candidate-row "benchmarks/Dapper.Tests.Performance/Benchmarks.Mighty.cs"
+                              12
+                              23)]
+        paths (mapv :path (compact-output files 20 nil))]
+    (is (some #{"Dapper/SqlMapper.cs"} paths))
+    (is (< (count paths) (count files)))))
 
 (deftest compact-output-anchors-query-evidence-beside-selected-directory
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
