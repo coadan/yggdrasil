@@ -104,7 +104,10 @@ ygg embed setup --python python3.12 --venv .ygg/local-embedding-venv
 ```
 
 Remote providers are optional add-on embedding lanes. Set an API key, index that
-provider, and pass the same provider when querying that lane:
+provider, and pass the same provider when querying that lane. When
+`YGG_OPENROUTER_API_KEY` or `YGG_OPENAI_API_KEY` is present, `auto` retrieval
+uses that remote embedding provider by default instead of starting the local
+worker. Set `YGG_EMBEDDING_PROVIDER=local` to force the local lane.
 
 ```sh
 YGG_OPENAI_API_KEY=... ygg embed --project my-project --provider openai

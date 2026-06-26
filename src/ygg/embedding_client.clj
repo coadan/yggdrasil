@@ -1,6 +1,7 @@
 (ns ygg.embedding-client
   "Embedding provider resolution and server-owned client pooling."
-  (:require [ygg.embedding.local :as local]
+  (:require [ygg.env :as env]
+            [ygg.embedding.local :as local]
             [ygg.embedding.openai :as openai]
             [ygg.embedding.openrouter :as openrouter]
             [clojure.string :as str]))
@@ -10,9 +11,20 @@
   reused and closed by the pool owner instead of the caller."
   nil)
 
-(defn default-provider
-  []
-  :local)
+(def supported-providers
+  [:local :openrouter :openai])
+
+(def ^:private supported-provider-set
+  (set supported-providers))
+
+(defn- provider-keyword
+  [value]
+  (when-let [provider (some-> value str/trim not-empty keyword)]
+    (when-not (supported-provider-set provider)
+      (throw (ex-info "Unsupported embedding provider."
+                      {:provider provider
+                       :supported supported-providers})))
+    provider))
 
 (defn default-model
   [provider]
@@ -31,6 +43,15 @@
     :openrouter (openrouter/api-key)
     :openai (openai/api-key)
     nil))
+
+(defn default-provider
+  []
+  (or (provider-keyword (env/get-env "YGG_EMBEDDING_PROVIDER"))
+      (some (fn [provider]
+              (when (provider-api-key provider)
+                provider))
+            [:openrouter :openai])
+      :local))
 
 (defn provider-client
   [provider model]
