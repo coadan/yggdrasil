@@ -302,6 +302,8 @@
   (cond-> {:id (:xt/id row)
            :path (:path row)
            :line (:source-line edge)}
+    (or (:repo-id edge) (:repo-id row))
+    (assoc :repo-id (or (:repo-id edge) (:repo-id row)))
     (:label row) (assoc :label (:label row))
     (:version-range edge) (assoc :version-range (:version-range edge))
     (:dependency-scope edge) (assoc :dependency-scope (:dependency-scope edge))))
@@ -320,6 +322,8 @@
              :label (:label node)
              :path (:path edge)
              :line (:source-line edge)}
+      (or (:repo-id edge) (:repo-id node))
+      (assoc :repo-id (or (:repo-id edge) (:repo-id node)))
       kind (assoc :kind kind)
       (:import-name edge) (assoc :import-name (:import-name edge))
       (:resolution-source edge) (assoc :resolution-source (:resolution-source edge)))))
@@ -381,6 +385,7 @@
              :declared-by declared-by
              :resolved-versions resolved-versions
              :imported-by imported-by}
+      (:repo-id package) (assoc :repo-id (:repo-id package))
       (:version-range package) (assoc :version-range (:version-range package))
       (:dependency-scope package) (assoc :dependency-scope (:dependency-scope package)))))
 

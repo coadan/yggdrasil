@@ -5456,6 +5456,125 @@
              paths))
       (is (= 5 (get-in compact-result [:selection :compactResultLimit])))
       (is (= 5 (get-in compact-result [:selection :compactResultFiles]))))))
+
+(deftest inspection-file-result-scope-frontloads-query-identity-candidates
+  (let [core-root (temp-dir "ygg-bench-inspection-identity-core")
+        contrib-root (temp-dir "ygg-bench-inspection-identity-contrib")
+        _ (doseq [[root paths] [[core-root ["connector/connector.go"
+                                            "consumer/consumer.go"
+                                            "component/component.go"
+                                            "connector/traces_router.go"]]
+                                [contrib-root ["connector/routingconnector/traces.go"
+                                               "connector/routingconnector/router.go"
+                                               "connector/routingconnector/factory.go"]]]]
+            (doseq [path paths]
+              (spit-file! root path "package fixture\n")))
+        packet {:query "component consumer connector contract inspection"
+                :docs [{:source {:repo "core"
+                                 :path "component/component.go"
+                                 :heading "component/component"}
+                        :score 8.0
+                        :snippet "component consumer connector contract"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:repo "core"
+                                 :path "consumer/consumer.go"
+                                 :heading "consumer/consumer"}
+                        :score 7.9
+                        :snippet "component consumer connector contract"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:repo "core"
+                                 :path "connector/connector.go"
+                                 :heading "connector/connector"}
+                        :score 7.8
+                        :snippet "component consumer connector contract"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]
+                :architecture {:dependencyEvidence [{:repo "contrib"
+                                                     :path "connector/routingconnector/factory.go"
+                                                     :kind "package-import"
+                                                     :label "go:fixture/connector"
+                                                     :relation "imports-package"
+                                                     :score 2.0}]}
+                :candidateFiles [{:repo "contrib"
+                                  :path "connector/routingconnector/traces.go"
+                                  :rank 1
+                                  :score 2.3
+                                  :targetKind "node"
+                                  :label "connector/routingconnector/traces"
+                                  :supportLabels ["connector/routingconnector/traces/tracesConnector"]
+                                  :scoreComponents {:sourceGraph 2.3
+                                                    :grep 0.9
+                                                    :lexical 0.9}}
+                                 {:repo "contrib"
+                                  :path "connector/routingconnector/router.go"
+                                  :rank 2
+                                  :score 2.2
+                                  :targetKind "node"
+                                  :label "connector/routingconnector/router"
+                                  :supportLabels ["connector/routingconnector/router/registerConsumers"]
+                                  :scoreComponents {:sourceGraph 2.2
+                                                    :grep 0.9
+                                                    :lexical 0.9}}
+                                 {:repo "core"
+                                  :path "component/component.go"
+                                  :rank 8
+                                  :score 1.4
+                                  :targetKind "node"
+                                  :label "component/component"
+                                  :scoreComponents {:sourceGraph 1.4
+                                                    :grep 0.4
+                                                    :lexical 0.8}}
+                                 {:repo "core"
+                                  :path "consumer/consumer.go"
+                                  :rank 9
+                                  :score 1.3
+                                  :targetKind "node"
+                                  :label "consumer/consumer"
+                                  :scoreComponents {:sourceGraph 1.3
+                                                    :grep 0.3
+                                                    :lexical 0.8}}
+                                 {:repo "core"
+                                  :path "connector/connector.go"
+                                  :rank 10
+                                  :score 1.2
+                                  :targetKind "chunk"
+                                  :label "connector/connector"
+                                  :scoreComponents {:sourceGraph 1.2
+                                                    :grep 0.2
+                                                    :lexical 0.6}}
+                                 {:repo "contrib"
+                                  :path "connector/routingconnector/factory.go"
+                                  :rank 11
+                                  :score 1.2
+                                  :targetKind "node"
+                                  :label "connector/routingconnector/factory"
+                                  :scoreComponents {:sourceGraph 1.2
+                                                    :grep 0.2
+                                                    :lexical 0.6}}]}
+        result (benchmark/context-packet->agent-result
+                packet
+                {:roots {"core" core-root
+                         "contrib" contrib-root}
+                 :limit 5
+                 :result-scope :inspection-files})]
+    (is (= [{:repo-id "core"
+             :path "component/component.go"
+             :rank 1}
+            {:repo-id "core"
+             :path "consumer/consumer.go"
+             :rank 2}
+            {:repo-id "core"
+             :path "connector/connector.go"
+             :rank 3}
+            {:repo-id "contrib"
+             :path "connector/routingconnector/factory.go"
+             :rank 4}]
+           (mapv #(select-keys % [:repo-id :path :rank])
+                 (take 4 (:suspectedFiles result)))))
+    (is (= 3 (get-in result [:selection :inspectionIdentitySelected])))
+    (is (= 0 (get-in result [:selection :inspectionDirectFileSelected])))))
 (deftest file-ranking-preserves-early-retrieved-source-order
   (let [root (temp-dir "ygg-bench-retrieved-rank")
         _ (spit-file! root "src/early.clj" "(ns early)\n")

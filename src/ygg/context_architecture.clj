@@ -121,6 +121,11 @@
   [source]
   (or (:repo source)
       (:repo-id source)))
+
+(defn- package-repo
+  [package]
+  (or (:repo package)
+      (:repo-id package)))
 (defn- source-path
   [source]
   (:path source))
@@ -886,6 +891,7 @@
 (defn- source-location-row
   [source]
   (cond-> {:path (:path source)}
+    (source-repo source) (assoc :repo (s (source-repo source)))
     (:id source) (assoc :id (:id source))
     (:label source) (assoc :label (:label source))
     (:line source) (assoc :line (:line source))
@@ -907,7 +913,7 @@
 (defn- source-path-selected?
   [{:keys [result-paths system-prefixes]} source]
   (let [path (:path source)
-        repo (:repo source)]
+        repo (source-repo source)]
     (or (contains? result-paths path)
         (some (fn [prefix]
                 (and (path-under? path (:path prefix))
@@ -964,21 +970,24 @@
   [selection query-tokens package]
   (let [sources (package-import-sources selection query-tokens package)]
     (mapv (fn [source]
-            (cond-> {:kind "package-import"
-                     :id (str (:id package) ":import:" (:path source) ":" (:line source))
-                     :packageId (:id package)
-                     :package (:package-name package)
-                     :label (:label package)
-                     :ecosystem (display-name (:ecosystem package))
-                     :relation "imports-package"
-                     :path (:path source)
-                     :sourceLine (:line source)
-                     :score (+ 1.0
-                               (* 0.25
-                                  (:source-score source)))}
-              (:kind source) (assoc :fileKind (display-name (:kind source)))
-              (:import-name source) (assoc :importName (:import-name source))
-              (:resolution-source source) (assoc :resolutionSource (display-name (:resolution-source source)))))
+            (let [repo (or (source-repo source)
+                           (package-repo package))]
+              (cond-> {:kind "package-import"
+                       :id (str (:id package) ":import:" (:path source) ":" (:line source))
+                       :packageId (:id package)
+                       :package (:package-name package)
+                       :label (:label package)
+                       :ecosystem (display-name (:ecosystem package))
+                       :relation "imports-package"
+                       :path (:path source)
+                       :sourceLine (:line source)
+                       :score (+ 1.0
+                                 (* 0.25
+                                    (:source-score source)))}
+                repo (assoc :repo (s repo))
+                (:kind source) (assoc :fileKind (display-name (:kind source)))
+                (:import-name source) (assoc :importName (:import-name source))
+                (:resolution-source source) (assoc :resolutionSource (display-name (:resolution-source source))))))
           sources)))
 (defn- unresolved-import-evidence-row
   [selection query-tokens row]

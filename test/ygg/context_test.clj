@@ -2394,6 +2394,7 @@
   (let [dependency-report (assoc (empty-dependency-report)
                                  :packages
                                  [{:id "node:pkg:proxy-from-env"
+                                   :repo-id "app"
                                    :package-name "proxy-from-env"
                                    :label "npm:proxy-from-env"
                                    :ecosystem :npm
@@ -2415,6 +2416,7 @@
              :label "npm:proxy-from-env"
              :ecosystem "npm"
              :relation "imports-package"
+             :repo "app"
              :path "lib/adapters/http.js"
              :sourceLine 5
              :fileKind "javascript"

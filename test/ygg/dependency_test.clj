@@ -227,19 +227,36 @@
                  :active? true
                  :project-id "project-a"
                  :repo-id "repo-a"}
+        source {:xt/id "node:namespace:src.app"
+                :kind :namespace
+                :label "src.app"
+                :path "src/app.ts"
+                :active? true
+                :project-id "project-a"
+                :repo-id "repo-a"}
         requires-edge {:source-id "manifest:npm"
                        :target-id "pkg:npm:react"
                        :relation :requires
                        :path "package.json"
                        :active? true
                        :project-id "project-a"
-                       :repo-id "repo-a"}]
+                       :repo-id "repo-a"}
+        imports-package-edge {:source-id "node:namespace:src.app"
+                              :target-id "pkg:npm:react"
+                              :relation :imports-package
+                              :path "src/app.ts"
+                              :source-line 4
+                              :source-kind :typescript
+                              :import-name "react"
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
     (with-redefs [store/ordered-rows
                   (fn [_ request]
                     (swap! row-queries conj request)
                     (case (:table request)
                       :ygg/files []
-                      :ygg/nodes [manifest package]
+                      :ygg/nodes [manifest package source]
                       []))
                   store/constrained-rows
                   (fn [& _]
@@ -249,7 +266,7 @@
                   (fn [_ request]
                     (swap! edge-queries conj request)
                     (if (some #{:requires} (:values request))
-                      [requires-edge]
+                      [requires-edge imports-package-edge]
                       []))
                   store/all-rows
                   (fn [& _]
@@ -261,7 +278,20 @@
                      :repo-id "repo-a"}
                     {})]
         (is (= 1 (get-in report [:counts :packages])))
-        (is (= 1 (get-in report [:counts :requires])))))
+        (is (= 1 (get-in report [:counts :requires])))
+        (is (= 1 (get-in report [:counts :imports-package])))
+        (is (= "repo-a"
+               (get-in report [:packages 0 :repo-id])))
+        (is (= [{:repo-id "repo-a"
+                 :path "package.json"}]
+               (mapv #(select-keys % [:repo-id :path])
+                     (get-in report [:packages 0 :declared-by]))))
+        (is (= [{:repo-id "repo-a"
+                 :path "src/app.ts"
+                 :kind :typescript
+                 :import-name "react"}]
+               (mapv #(select-keys % [:repo-id :path :kind :import-name])
+                     (get-in report [:packages 0 :imported-by]))))))
     (is (= [{:table (:files store/tables)
              :constraints {:project-id "project-a"
                            :repo-id "repo-a"

@@ -248,6 +248,8 @@
   0.8)
 (def ^:private inspection-direct-file-quota
   4)
+(def ^:private inspection-query-identity-quota
+  3)
 (def ^:private inspection-missing-repo-source-candidate-reserve
   2)
 (defn- parse-double-safe
@@ -2248,6 +2250,24 @@
 (defn- direct-file-candidate-row?
   [row]
   (pos? (positive-metric row :directFileCandidateCount)))
+(defn- inspection-query-identity-row?
+  [row]
+  (and (source-graph-candidate-row? row)
+       (pos? (row-metric-double row :retrievedPathSelfIdentityBoost))))
+(defn- inspection-query-identity-key
+  [row]
+  [(positive-metric row :firstSourceRank)
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+(defn- inspection-query-identity-candidates
+  [candidate-files selection-limit]
+  (let [quota (min inspection-query-identity-quota selection-limit)]
+    (->> candidate-files
+         (filter inspection-query-identity-row?)
+         (sort-by inspection-query-identity-key)
+         (take quota)
+         vec)))
 (defn- row-candidate-source-rank
   [row]
   (long (or (get-in row [:metrics :candidateSourceRank])
@@ -2441,13 +2461,31 @@
        (into {})))
 (defn- inspection-repo-source-row-key
   [repo-selection-count row]
-  (let [exported-count (row-candidate-exported-support-label-count row)]
-    [(when (pos? (long repo-selection-count))
-       (- exported-count))
-     (row-candidate-source-rank row)
-     (:rank row)
-     (:repo-id row)
-     (:path row)]))
+  (let [repo-selection-count (long repo-selection-count)
+        exported-count (row-candidate-exported-support-label-count row)
+        architecture-supported? (pos? (row-metric-double row
+                                                         :architectureSupportBoost))
+        support-count (positive-metric row :supportCount)
+        candidate-file-count (positive-metric row :candidateFileCount)
+        retrieved-support-count (positive-metric row :retrievedSupportLabelCount)]
+    (if (pos? repo-selection-count)
+      [(- exported-count)
+       (if architecture-supported? 0 1)
+       (if architecture-supported? (- support-count) 0)
+       (if architecture-supported? (- candidate-file-count) 0)
+       (if architecture-supported? (- retrieved-support-count) 0)
+       (row-candidate-source-rank row)
+       (:rank row)
+       (:repo-id row)
+       (:path row)]
+      [(if architecture-supported? 0 1)
+       (if architecture-supported? (- support-count) 0)
+       (if architecture-supported? (- candidate-file-count) 0)
+       (if architecture-supported? (- retrieved-support-count) 0)
+       (row-candidate-source-rank row)
+       (:rank row)
+       (:repo-id row)
+       (:path row)])))
 (defn- best-inspection-repo-source-row
   [repo-selection-count rows]
   (first (sort-by #(inspection-repo-source-row-key repo-selection-count %)
@@ -2498,17 +2536,27 @@
   [candidate-files limit]
   (let [selection-limit (long (or limit (count candidate-files)))]
     (when (and (pos? selection-limit) (seq candidate-files))
-      (let [direct (let [direct (inspection-direct-file-candidates
-                                 candidate-files
-                                 selection-limit)]
-                     (reserve-missing-repo-source-candidate-slots
-                      candidate-files
-                      direct
-                      selection-limit))
+      (let [identity (inspection-query-identity-candidates candidate-files
+                                                           selection-limit)
+            selected-identity-keys (set (map file-row-key identity))
+            remaining-after-identity (max 0 (- selection-limit
+                                               (count identity)))
+            direct-candidates (inspection-direct-file-candidates
+                               (remove #(contains? selected-identity-keys
+                                                   (file-row-key %))
+                                       candidate-files)
+                               remaining-after-identity)
+            direct (->> (reserve-missing-repo-source-candidate-slots
+                         candidate-files
+                         (vec (concat identity direct-candidates))
+                         selection-limit)
+                        (remove #(contains? selected-identity-keys
+                                            (file-row-key %)))
+                        vec)
             repo-candidates (inspection-repo-candidates candidate-files
-                                                        direct
+                                                        (concat identity direct)
                                                         selection-limit)
-            frontloaded (vec (concat direct repo-candidates))]
+            frontloaded (vec (concat identity direct repo-candidates))]
         (when (seq frontloaded)
           (let [selected (->> frontloaded
                               (take selection-limit)
@@ -2516,6 +2564,9 @@
                 skipped (- (count candidate-files) (count selected))]
             (cond-> {:files (renumber-file-ranks selected)
                      :inspectionDirectFileSelected (count direct)}
+              (seq identity)
+              (assoc :inspectionIdentitySelected
+                     (count identity))
               (seq repo-candidates)
               (assoc :inspectionRepoCandidateSelected
                      (count repo-candidates))
@@ -3502,6 +3553,9 @@
                             :scoreElbowTailScoreFloor
                             (:scoreElbowTailScoreFloor selected-files)))
          selection (cond-> selection
+                     (:inspectionIdentitySelected selected-files)
+                     (assoc :inspectionIdentitySelected
+                            (:inspectionIdentitySelected selected-files))
                      (:inspectionDirectFileSelected selected-files)
                      (assoc :inspectionDirectFileSelected
                             (:inspectionDirectFileSelected selected-files))
