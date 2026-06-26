@@ -1,6 +1,7 @@
 (ns ygg.plugin-package
   "Git-shareable plugin packages for extractor and report plugins."
   (:require [ygg.command :as command]
+            [ygg.extract :as extract]
             [ygg.extractor-plugin :as extractor-plugin]
             [ygg.fs :as fs]
             [ygg.hash :as hash]
@@ -1972,8 +1973,7 @@
                                                 plugins)
             file-record (file-record-for-dry-run root-path file plugins)
             run-id "run:plugin-input-sample"
-            extract-file (requiring-resolve 'ygg.extract/extract-file)
-            core (extract-file run-id file-record)
+            core (extract/extract-file run-id file-record)
             applicable (extractor-plugin/applicable-plugins plugins file-record)
             diagnostics (cond
                           (empty? plugins)
@@ -2266,8 +2266,7 @@
              :rows (assoc rows :diagnostics diagnostics)})
           (let [file-record (file-record-for-dry-run root-path file plugins)
                 run-id "run:plugin-dry-run"
-                extract-file (requiring-resolve 'ygg.extract/extract-file)
-                core (extract-file run-id file-record)
+                core (extract/extract-file run-id file-record)
                 transformed (extractor-plugin/transform-extraction
                              {:plugins plugins
                               :run-id run-id
