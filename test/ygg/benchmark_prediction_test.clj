@@ -2,6 +2,37 @@
   (:require [ygg.benchmark-prediction :as benchmark-prediction]
             [clojure.test :refer [deftest is]]))
 
+(deftest file-ranking-boosts-direct-file-in-evidence-dense-directory
+  (let [rank-files @#'benchmark-prediction/ranked-file-predictions
+        doc-row (fn [path source-rank evidence-score tokens]
+                  {:path path
+                   :source-rank source-rank
+                   :evidence-score evidence-score
+                   :evidence-kind :doc
+                   :confidence 1.0
+                   :matched-tokens tokens
+                   :definition-kind "chunk"})
+        direct-row (fn [path source-rank tokens]
+                     {:path path
+                      :source-rank source-rank
+                      :evidence-score 0.36
+                      :evidence-kind :candidate-file
+                      :confidence 0.6
+                      :candidate-source-rank source-rank
+                      :direct-file-candidate? true
+                      :matched-tokens tokens
+                      :definition-kind "file"})
+        files (rank-files [(doc-row "feature/vars.tf" 1 10.0 ["flow" "log"])
+                           (doc-row "feature/resource.tf" 2 9.0 ["flow"])
+                           (direct-row "feature/main.tf" 14 ["flow"])
+                           (doc-row "other/main.tf" 3 3.0 ["flow"])])
+        by-path (into {} (map (juxt :path identity)) files)]
+    (is (pos? (get-in by-path ["feature/main.tf"
+                               :metrics
+                               :directoryEvidenceBoost])))
+    (is (< (:rank (get by-path "feature/main.tf"))
+           (:rank (get by-path "other/main.tf"))))))
+
 (deftest compact-output-keeps-wide-ranked-surface
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]

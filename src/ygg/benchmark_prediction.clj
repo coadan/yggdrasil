@@ -170,6 +170,20 @@
   3)
 (def ^:private rank-score-retrieved-path-self-identity-boost
   0.8)
+(def ^:private rank-score-directory-evidence-doc-min
+  2)
+(def ^:private rank-score-directory-evidence-token-min
+  1)
+(def ^:private rank-score-directory-evidence-candidate-source-rank-window
+  25)
+(def ^:private rank-score-directory-evidence-base
+  2.0)
+(def ^:private rank-score-directory-evidence-doc-weight
+  1.5)
+(def ^:private rank-score-directory-evidence-score-weight
+  0.12)
+(def ^:private rank-score-directory-evidence-cap
+  8.0)
 (def ^:private file-identity-part-min-length
   5)
 (def ^:private retrieved-source-rank-bonus-window
@@ -1549,6 +1563,59 @@
                       (mapcat :matched-tokens)
                       distinct)))
        frequencies))
+(defn- directory-evidence-stats
+  [rows]
+  (reduce (fn [stats row]
+            (if (pos? (long (or (get-in row [:metrics :docCount]) 0)))
+              (let [dir (candidate-path-directory (:path row))]
+                (-> stats
+                    (update-in [dir :doc-count] (fnil inc 0))
+                    (update-in [dir :rank-score-sum]
+                               (fnil + 0.0)
+                               (double (or (:rank-score row) 0.0)))))
+              stats))
+          {}
+          rows))
+
+(defn- directory-evidence-boost
+  [stats row]
+  (let [metrics (:metrics row)
+        doc-count (long (or (:docCount metrics) 0))
+        direct-file-candidate-count (long (or (:directFileCandidateCount metrics) 0))
+        candidate-source-rank (long (or (:candidateSourceRank metrics)
+                                        Long/MAX_VALUE))
+        matched-token-count (long (or (:matchedTokenCount metrics) 0))
+        directory-stats (get stats (candidate-path-directory (:path row)))
+        directory-doc-count (long (or (:doc-count directory-stats) 0))
+        directory-rank-score-sum (double (or (:rank-score-sum directory-stats)
+                                             0.0))]
+    (if (and (zero? doc-count)
+             (pos? direct-file-candidate-count)
+             (<= candidate-source-rank
+                 rank-score-directory-evidence-candidate-source-rank-window)
+             (<= rank-score-directory-evidence-token-min matched-token-count)
+             (<= rank-score-directory-evidence-doc-min directory-doc-count))
+      (min rank-score-directory-evidence-cap
+           (+ rank-score-directory-evidence-base
+              (* rank-score-directory-evidence-doc-weight
+                 (dec directory-doc-count))
+              (* rank-score-directory-evidence-score-weight
+                 (min 40.0 directory-rank-score-sum))))
+      0.0)))
+
+(defn- apply-directory-evidence-boost
+  [rows]
+  (let [stats (directory-evidence-stats rows)]
+    (mapv (fn [row]
+            (let [boost (directory-evidence-boost stats row)]
+              (if (pos? boost)
+                (-> row
+                    (update :rank-score + boost)
+                    (assoc-in [:metrics :directoryEvidenceBoost] boost)
+                    (update-in [:metrics :rankScore] + boost))
+                row)))
+          rows)))
+
 (defn- ranked-file-predictions
   [rows]
   (let [grouped-rows-by-file (group-by file-row-key rows)
@@ -1978,6 +2045,7 @@
     (->> grouped-rows-by-file
          (map (fn [[[_repo-id path] grouped-rows]]
                 (combine-rows path grouped-rows)))
+         apply-directory-evidence-boost
          (sort-by (juxt (comp - :rank-score)
                         :source-rank
                         :repo-id
