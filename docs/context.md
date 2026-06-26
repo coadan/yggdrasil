@@ -143,7 +143,7 @@ Lane roles:
 
 Internal ripgrep evidence is transient retrieval evidence. It does not become a
 system node, ownership claim, or architecture boundary unless a human or agent
-accepts a correction through the normal map/metadata flow.
+accepts a bounded correction fact.
 
 `--output compact|snippets|evidence|full` controls packet size. Compatibility
 flags map onto that selector: `--snippets` to `snippets`, `--evidence` to
@@ -178,7 +178,7 @@ that evidence surface when an agent needs to see available evidence families at
 a glance.
 Its `families` field is a bounded readiness table for source files, file facts,
 source graph rows, dependencies, docs, embeddings, system evidence, system graph
-rows, local activity, validation history, memory, and accepted map overlay
+rows, local activity, validation history, memory, and accepted correction
 evidence.
 Use `ygg query --json` when the agent has a concrete question and needs the
 smaller query-scoped `evidence` packet plus matching entities, edges, docs, and
@@ -195,7 +195,7 @@ benchmark-backed architecture understanding.
 - `status`: `ready`, `limited`, or `empty`
 - `available`: populated evidence planes, such as `source-graph`,
   `dependencies`, `system-evidence`, `docs`, `system-graph`, `embeddings`,
-  `activity`, `memory`, `validation-history`, or `map-overlay`
+  `activity`, `memory`, `validation-history`, or accepted corrections
 - `missing`: supported evidence planes with no useful rows for this project or
   read context
 - `weak`: evidence exists, but did not match this query well
@@ -339,13 +339,12 @@ runtime/config rows, dependency rows, docs, and open decisions remain concrete
 evidence rows, not inferred project meaning.
 `architecture.rejectedCorrections` carries bounded `reject[]` rows from
 correction facts when their match criteria mechanically overlap the selected
-systems, candidate rows, or result paths. These rows are prior review
-corrections with `status: "rejected"` and `provenance: "map-overlay"`; agents
-should treat them as known false-positive evidence to avoid reopening the same
-mistake, not as a new architecture inference.
+systems, candidate rows, or result paths. These rows are prior rejected
+correction facts; agents should treat them as known false-positive evidence to
+avoid reopening the same mistake, not as a new architecture inference.
 Runtime/config rows may be selected by exact result path, query-token match, or
-existing `system-id` membership in a selected graph or accepted map system.
-Accepted map docs and work/activity lookups follow accepted systems selected
+existing `system-id` membership in a selected graph or accepted system
+correction. Accepted docs and work/activity lookups follow accepted systems selected
 directly or through included file paths.
 `architecture.openDecisions` carries selected queue/activity rows that are still
 open. Rows keep bounded audit fields such as `payloadSchema`,
@@ -386,7 +385,7 @@ repair or inspection command beside the missing or weak evidence plane.
 Matching actions are still included in `architecture.nextActions`, and
 freshness warnings are surfaced in `architecture.warnings` before evidence
 warnings so agents see basis problems before trusting missing architecture
-evidence. Accepted map docs whose indexed source is stale or
+evidence. Accepted docs whose indexed source is stale or
 missing remain visible under `architecture.docs`, but also add a
 `docs-contracts` validation gap with bounded samples so agents know the
 contract attachment needs repair before relying on it.
@@ -438,7 +437,7 @@ Use roles to tell agents how to treat the snippet:
 
 Start with `ygg query --json` for the task question. Follow `drilldowns` only when
 the packet is insufficient. During build or maintenance work, promote useful
-candidate docs into accepted map attachments and run `ygg sync docs audit`
+candidate docs into accepted correction-backed attachments and run `ygg sync docs audit`
 before handoff.
 
 Install project-local agent guidance when a coding assistant should discover

@@ -46,7 +46,7 @@
        "review evidence. "
        "Use ygg_systems for a compact systems view. Treat Yggdrasil output as "
        "mechanical facts plus "
-       "accepted map/metadata corrections; do not infer architecture from names "
+       "accepted correction facts/metadata; do not infer architecture from names "
        "or path vocabulary."))
 
 (def default-root
