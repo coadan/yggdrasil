@@ -1863,7 +1863,7 @@
              (mapv :id (get-in packet [:architecture :runtimeEvidence]))))
       (is (= ["system:billing" "evidence:billing-port" "docs/billing.md"]
              (mapv :target (get-in packet [:architecture :nextActions]))))
-      (is (= ["src/billing/api.clj"]
+      (is (= ["src/billing/api.clj" "config/runtime.env"]
              (mapv :path (:candidateFiles packet)))))))
 
 (deftest context-packet-loads-runtime-evidence-from-bounded-keys
@@ -2082,6 +2082,58 @@
     (is (= ["evidence:env-database-url"
             "evidence:sql-security-1"]
            (mapv :id runtime-evidence)))))
+
+(deftest architecture-evidence-candidate-file-rows-carry-runtime-config-paths
+  (let [rows (#'context/architecture-candidate-file-rows
+              {:runtimeEvidence [{:id "evidence:postgres-db"
+                                  :repo "dapper"
+                                  :path "tests/docker-compose.yml"
+                                  :fileKind "compose"
+                                  :kind "env-var"
+                                  :label "POSTGRES_DB"
+                                  :normalizedValue "postgres-db"
+                                  :sourceLine 19
+                                  :score 1.4}]
+               :deployEvidence [{:id "evidence:postgres-image"
+                                 :repo "dapper"
+                                 :path "tests/docker-compose.yml"
+                                 :fileKind "compose"
+                                 :kind "container-image-consumer"
+                                 :label "postgres:alpine"
+                                 :normalizedValue "container-image:postgres"
+                                 :sourceLine 12
+                                 :score 5.15}]
+               :dependencyEvidence [{:id "evidence:npgsql"
+                                     :repo "dapper"
+                                     :path "tests/Dapper.Tests/Dapper.Tests.csproj"
+                                     :fileKind "manifest"
+                                     :kind "external-package"
+                                     :label "nuget:Npgsql"
+                                     :sourceLine 1
+                                     :score 3.2}]
+               :boundaryEvidence [{:id "evidence:ignored"
+                                   :path "tests/ignored.yml"
+                                   :fileKind "compose"
+                                   :kind "container-image-consumer"
+                                   :label "ignored"
+                                   :score 0.0}]}
+              10)
+        by-path (into {} (map (juxt :path identity)) rows)
+        compose-row (get by-path "tests/docker-compose.yml")
+        package-row (get by-path "tests/Dapper.Tests/Dapper.Tests.csproj")]
+    (is (= ["tests/docker-compose.yml"
+            "tests/docker-compose.yml"
+            "tests/Dapper.Tests/Dapper.Tests.csproj"]
+           (mapv :path rows)))
+    (is (= "compose" (:kind compose-row)))
+    (is (= "file" (:targetKind compose-row)))
+    (is (true? (:architectureEvidence compose-row)))
+    (is (= "deployEvidence" (:architectureSection compose-row)))
+    (is (= "container-image-consumer" (:architectureKind compose-row)))
+    (is (= 5.15 (get-in compose-row [:scoreComponents :sourceGraph])))
+    (is (some #{"container-image-consumer"} (:supportLabels compose-row)))
+    (is (= "manifest" (:kind package-row)))
+    (is (not (contains? by-path "tests/ignored.yml")))))
 
 (deftest runtime-evidence-keeps-ranked-result-path-coverage
   (let [runtime-evidence (#'context/select-system-evidence
@@ -4290,6 +4342,59 @@
     (is (contains? paths "src/source_graph_node.py"))
     (is (not (contains? paths "docs/reference.md")))
     (is (not (contains? paths "docs/source_graph_doc.md")))
+    (is (< (count (:candidateFiles fitted))
+           (count (:candidateFiles packet))))
+    (is (<= (context/estimate-tokens fitted) 1250))))
+
+(deftest fit-budget-preserves-late-architecture-evidence-candidate-reserve
+  (let [fit-budget @#'context/fit-budget
+        packet {:schema context/schema
+                :query "jsonb test stack"
+                :graph {:basis {}
+                        :counts {:nodes 0
+                                 :edges 0
+                                 :clusters 0}}
+                :budget {:requested 1250}
+                :entities []
+                :edges []
+                :activity []
+                :warnings []
+                :drilldowns []
+                :candidateFiles (vec
+                                 (concat
+                                  (map (fn [idx]
+                                         {:path (str "src/noise_" idx ".cs")
+                                          :rank (inc idx)
+                                          :kind :code
+                                          :score 1.0
+                                          :targetKind "chunk"
+                                          :label (apply str
+                                                        "verbose candidate "
+                                                        (repeat 60
+                                                                (str "token" idx " ")))
+                                          :scoreComponents {:sourceGraph 0.8}})
+                                       (range 25))
+                                  [{:path "tests/docker-compose.yml"
+                                    :rank 99
+                                    :kind "compose"
+                                    :score 5.15
+                                    :targetKind "file"
+                                    :label "postgres:alpine"
+                                    :supportLabels ["deployEvidence"
+                                                    "container-image-consumer"
+                                                    "postgres:alpine"
+                                                    "container-image:postgres"]
+                                    :architectureEvidence true
+                                    :architectureSection "deployEvidence"
+                                    :architectureKind "container-image-consumer"
+                                    :scoreComponents {:sourceGraph 5.15}}]))
+                :docs []}
+        fitted (fit-budget packet [] 1250)
+        by-path (into {} (map (juxt :path identity)) (:candidateFiles fitted))
+        compose-row (get by-path "tests/docker-compose.yml")]
+    (is (some? compose-row))
+    (is (true? (:architectureEvidence compose-row)))
+    (is (= "deployEvidence" (:architectureSection compose-row)))
     (is (< (count (:candidateFiles fitted))
            (count (:candidateFiles packet))))
     (is (<= (context/estimate-tokens fitted) 1250))))

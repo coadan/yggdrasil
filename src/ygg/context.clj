@@ -1187,6 +1187,87 @@
          (sort-by (juxt :rank :repo :path))
          vec)))
 
+(def ^:private architecture-candidate-file-limit
+  32)
+
+(def ^:private architecture-candidate-sections
+  [[:runtimeEvidence "runtimeEvidence"]
+   [:deployEvidence "deployEvidence"]
+   [:dependencyEvidence "dependencyEvidence"]
+   [:boundaryEvidence "boundaryEvidence"]])
+
+(defn- architecture-candidate-label
+  [row]
+  (compact (:kind row)
+           (:fileKind row)
+           (:file-kind row)
+           (:label row)
+           (:normalizedValue row)
+           (:normalized-value row)
+           (:package row)
+           (:import row)
+           (:importName row)
+           (:relation row)))
+
+(defn- architecture-candidate-kind
+  [row]
+  (or (:fileKind row)
+      (:file-kind row)
+      (:sourceKind row)
+      (:source-kind row)
+      (:kind row)))
+
+(defn- architecture-candidate-support-labels
+  [section row]
+  (->> [(architecture-candidate-label row)
+        section
+        (:kind row)
+        (:label row)
+        (:normalizedValue row)
+        (:normalized-value row)
+        (:package row)
+        (:import row)
+        (:importName row)
+        (:relation row)]
+       (remove #(str/blank? (str %)))
+       distinct
+       vec))
+
+(defn- architecture-candidate-row
+  [base-rank section idx row]
+  (let [path (not-empty (str (:path row)))
+        score (double (or (:score row) 0.0))]
+    (when (and path (pos? score))
+      (cond-> {:path path
+               :rank (+ base-rank idx 1)
+               :score score
+               :targetKind "file"
+               :resultKind "file"
+               :architectureEvidence true
+               :architectureSection section
+               :architectureKind (some-> (:kind row) display-name)
+               :label (or (not-empty (architecture-candidate-label row))
+                          path)
+               :kind (some-> (architecture-candidate-kind row) display-name)
+               :sourceLine (:sourceLine row)
+               :supportLabels (architecture-candidate-support-labels section row)
+               :reason (str "selected architecture " section " evidence")
+               :scoreComponents {:sourceGraph score}}
+        (:repo row) (assoc :repo (:repo row))
+        (:repo-id row) (assoc :repo (:repo-id row))))))
+
+(defn- architecture-candidate-file-rows
+  [architecture base-rank]
+  (->> architecture-candidate-sections
+       (mapcat (fn [[section-key section]]
+                 (keep-indexed #(architecture-candidate-row base-rank
+                                                            section
+                                                            %1
+                                                            %2)
+                               (get architecture section-key))))
+       (take architecture-candidate-file-limit)
+       vec))
+
 (defn- source-graph-candidate-tokens
   [row]
   (text/tokenize-all
@@ -3225,6 +3306,11 @@
                                             :activity activity
                                             :evidence evidence
                                             :freshness freshness})
+        candidate-file-rows (vec
+                             (concat candidate-file-rows
+                                     (architecture-candidate-file-rows
+                                      architecture
+                                      (count candidate-file-rows))))
         systems (systems-section architecture)
         audit-scopes (audit-scope/selected-summaries
                       {:boundary-evidence (:boundaryEvidence architecture)

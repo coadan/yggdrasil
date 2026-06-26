@@ -20,8 +20,9 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
-(deftest deterministic-baseline-uses-tight-compact-surface
-  (is (= 7 @#'benchmark-agent-baseline/default-agent-baseline-compact-result-limit)))
+(deftest deterministic-baseline-uses-full-suspect-compact-surface
+  (is (= @#'benchmark-agent-baseline/default-agent-baseline-suspect-limit
+         @#'benchmark-agent-baseline/default-agent-baseline-compact-result-limit)))
 
 (defn- object-schema?
   [schema]
@@ -2773,6 +2774,32 @@
            (mapv :path files)))
     (is (= ["architecture-evidence:deployEvidence:tests/docker-compose.yml kind=container-image-consumer fileKind=compose label=\"postgres:alpine\" score=1.4"]
            (get-in files [0 :evidence])))))
+
+(deftest file-ranking-recognizes-compacted-architecture-candidate-evidence
+  (let [root (temp-dir "ygg-bench-compacted-architecture-candidate")
+        _ (spit-file! root "tests/docker-compose.yml" "services:\n  db:\n    image: postgres:alpine\n")
+        packet {:query "postgres container runtime setup"
+                :candidateFiles [{:path "tests/docker-compose.yml"
+                                  :rank 99
+                                  :score 5.15
+                                  :kind "compose"
+                                  :targetKind "file"
+                                  :label "postgres:alpine"
+                                  :supportLabels ["deployEvidence"
+                                                  "container-image-consumer"
+                                                  "postgres:alpine"
+                                                  "container-image:postgres"]
+                                  :architectureEvidence true
+                                  :architectureSection "deployEvidence"
+                                  :architectureKind "container-image-consumer"
+                                  :scoreComponents {:sourceGraph 5.15}}]}
+        file (-> (benchmark/context-packet->agent-result packet {:root root})
+                 :suspectedFiles
+                 first)]
+    (is (= "tests/docker-compose.yml" (:path file)))
+    (is (= ["container-image-consumer"]
+           (get-in file [:metrics :definitionKinds])))
+    (is (pos? (get-in file [:metrics :architectureSupportBoost])))))
 (deftest file-ranking-requires-lexical-support-for-graph-neighbor-boost
   (let [root (temp-dir "ygg-bench-candidate-graph-support")
         _ (spit-file! root "src/thin.clj" "(ns thin)\n")

@@ -1054,6 +1054,11 @@
                                    0.0))
             source-graph-score (double (or (parse-double-safe (:sourceGraph score-components))
                                            0.0))
+            architecture-evidence? (true? (:architectureEvidence candidate))
+            architecture-query-supported? (and architecture-evidence?
+                                               (or (<= 2 (count matched-tokens))
+                                                   (seq matched-token-pairs)
+                                                   (seq matched-compound-token-pairs)))
             graph-score-supported? (or (>= (count matched-tokens) 2)
                                        (seq matched-token-pairs)
                                        (and (>= graph-score
@@ -1068,7 +1073,10 @@
                  :evidence-kind :candidate-file
                  :retrieved-source? false
                  :exact-path-source? false
-                 :definition-kind target-kind
+                 :definition-kind (if architecture-evidence?
+                                    (or (:architectureKind candidate)
+                                        target-kind)
+                                    target-kind)
                  :matched-tokens matched-tokens
                  :matched-token-pairs matched-token-pairs
                  :matched-compound-token-pairs matched-compound-token-pairs
@@ -1097,6 +1105,13 @@
 
           (pos? source-graph-score)
           (assoc :candidate-source-rank candidate-rank)
+
+          architecture-evidence?
+          (assoc :architecture-evidence? true
+                 :architecture-support-score source-graph-score)
+
+          architecture-query-supported?
+          (assoc :query-supported-architecture-evidence? true)
 
           (pos? lexical-score)
           (assoc :candidate-lexical-score lexical-score)

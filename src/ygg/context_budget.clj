@@ -556,9 +556,15 @@
                 :supportLabels
                 :sourceLine
                 :resultKind
+                :architectureEvidence
+                :architectureSection
+                :architectureKind
                 :scoreComponents]))
 (def ^:private candidate-file-source-reserve-limit
   16)
+
+(def ^:private candidate-file-architecture-reserve-limit
+  8)
 
 (defn- source-file-base-kind
   [kind]
@@ -636,6 +642,29 @@
      (:rank candidate)
      (:path candidate)]))
 
+(defn- architecture-candidate?
+  [candidate]
+  (and (true? (:architectureEvidence candidate))
+       (source-file-candidate-evidence? candidate)))
+
+(defn- architecture-candidate-reserve
+  [candidates]
+  (->> candidates
+       (filter architecture-candidate?)
+       (sort-by candidate-source-reserve-sort-key)
+       (reduce (fn [{:keys [seen selected] :as acc} candidate]
+                 (let [k (candidate-file-key candidate)]
+                   (if (or (contains? seen k)
+                           (<= candidate-file-architecture-reserve-limit
+                               (count selected)))
+                     acc
+                     {:seen (conj seen k)
+                      :selected (conj selected candidate)})))
+               {:seen #{}
+                :selected []})
+       :selected
+       vec))
+
 (defn- candidate-source-reserve
   [candidates]
   (letfn [(take-source-candidates [rows selected-keys n]
@@ -669,23 +698,42 @@
 
 (defn- candidate-selection
   [candidates prefix-count reserve]
-  (let [prefix (subvec candidates 0 prefix-count)
-        prefix-keys (set (map candidate-file-key prefix))
-        selected (concat prefix
-                         (remove #(contains? prefix-keys
-                                             (candidate-file-key %))
-                                 reserve))]
-    (->> selected
+  (let [prefix (subvec candidates 0 prefix-count)]
+    (->> (concat prefix reserve)
+         (reduce (fn [{:keys [seen rows] :as acc} candidate]
+                   (let [k (candidate-file-key candidate)]
+                     (if (contains? seen k)
+                       acc
+                       {:seen (conj seen k)
+                        :rows (conj rows candidate)})))
+                 {:seen #{}
+                  :rows []})
+         :rows
          (sort-by #(or (:rank %) Long/MAX_VALUE))
          vec)))
+
+(defn- fitting-reserve-selection
+  [packet reserve budget]
+  (let [reserve (vec reserve)]
+    (loop [lo 0
+           hi (count reserve)
+           best []]
+      (if (> lo hi)
+        best
+        (let [mid (quot (+ lo hi) 2)
+              selected (candidate-selection reserve mid [])
+              trimmed (assoc packet :candidateFiles selected)]
+          (if (<= (estimate-tokens trimmed) budget)
+            (recur (inc mid) hi selected)
+            (recur lo (dec mid) best)))))))
 
 (defn- fitting-candidate-selection
   [packet candidates reserve budget]
   (loop [lo 0
          hi (count candidates)
-         best []]
+         best nil]
     (if (> lo hi)
-      best
+      (or best (fitting-reserve-selection packet reserve budget))
       (let [mid (quot (+ lo hi) 2)
             selected (candidate-selection candidates mid reserve)
             trimmed (assoc packet :candidateFiles selected)]
@@ -721,7 +769,9 @@
             selected-candidates (fitting-candidate-selection
                                  packet
                                  compact-candidates
-                                 (candidate-source-reserve compact-candidates)
+                                 (concat
+                                  (architecture-candidate-reserve compact-candidates)
+                                  (candidate-source-reserve compact-candidates))
                                  budget)]
         (if (seq selected-candidates)
           (-> packet
