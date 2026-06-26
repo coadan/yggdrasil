@@ -172,12 +172,16 @@
   0.8)
 (def ^:private rank-score-directory-evidence-doc-min
   2)
+(def ^:private rank-score-directory-root-evidence-doc-min
+  1)
 (def ^:private rank-score-directory-evidence-token-min
   1)
 (def ^:private rank-score-directory-evidence-candidate-source-rank-window
   25)
 (def ^:private rank-score-directory-evidence-base
   2.0)
+(def ^:private rank-score-directory-root-evidence-base
+  6.0)
 (def ^:private rank-score-directory-evidence-doc-weight
   1.5)
 (def ^:private rank-score-directory-evidence-score-weight
@@ -1101,6 +1105,10 @@
                  :matched-token-pairs matched-token-pairs
                  :matched-compound-token-pairs matched-compound-token-pairs
                  :matched-identity-compound-token-pairs matched-identity-compound-token-pairs
+                 :query-matched-path-self-identity?
+                 (boolean (query-matched-path-self-identity?
+                           query-tokens
+                           path))
                  :file-identity-support-label-count file-identity-support-label-count
                  :exported-support-label-count exported-support-label-count
                  :retrieved-support-label-count retrieved-support-label-count
@@ -1218,6 +1226,10 @@
              :matched-token-pairs matched-token-pairs
              :matched-compound-token-pairs matched-compound-token-pairs
              :matched-identity-compound-token-pairs matched-identity-compound-token-pairs
+             :query-matched-path-self-identity?
+             (boolean (query-matched-path-self-identity?
+                       query-tokens
+                       sibling-path))
              :file-identity-support-label-count file-identity-support-label-count
              :exported-support-label-count exported-support-label-count
              :retrieved-support-label-count retrieved-support-label-count
@@ -1581,22 +1593,36 @@
   [stats row]
   (let [metrics (:metrics row)
         doc-count (long (or (:docCount metrics) 0))
+        candidate-file-count (long (or (:candidateFileCount metrics) 0))
         direct-file-candidate-count (long (or (:directFileCandidateCount metrics) 0))
         candidate-source-rank (long (or (:candidateSourceRank metrics)
                                         Long/MAX_VALUE))
         matched-token-count (long (or (:matchedTokenCount metrics) 0))
+        query-matched-path-self-identity?
+        (true? (:queryMatchedPathSelfIdentity metrics))
         directory-stats (get stats (candidate-path-directory (:path row)))
         directory-doc-count (long (or (:doc-count directory-stats) 0))
         directory-rank-score-sum (double (or (:rank-score-sum directory-stats)
-                                             0.0))]
+                                             0.0))
+        direct-file-directory-evidence?
+        (and (pos? direct-file-candidate-count)
+             (<= rank-score-directory-evidence-doc-min directory-doc-count))
+        directory-root-candidate-evidence?
+        (and (pos? candidate-file-count)
+             (path-self-identity-token (:path row))
+             query-matched-path-self-identity?
+             (<= rank-score-directory-root-evidence-doc-min directory-doc-count))
+        boost-base (if directory-root-candidate-evidence?
+                     rank-score-directory-root-evidence-base
+                     rank-score-directory-evidence-base)]
     (if (and (zero? doc-count)
-             (pos? direct-file-candidate-count)
+             (or direct-file-directory-evidence?
+                 directory-root-candidate-evidence?)
              (<= candidate-source-rank
                  rank-score-directory-evidence-candidate-source-rank-window)
-             (<= rank-score-directory-evidence-token-min matched-token-count)
-             (<= rank-score-directory-evidence-doc-min directory-doc-count))
+             (<= rank-score-directory-evidence-token-min matched-token-count))
       (min rank-score-directory-evidence-cap
-           (+ rank-score-directory-evidence-base
+           (+ boost-base
               (* rank-score-directory-evidence-doc-weight
                  (dec directory-doc-count))
               (* rank-score-directory-evidence-score-weight
@@ -1953,6 +1979,8 @@
                                        (pos? retrieved-path-self-identity-boost)
                                        (assoc :retrievedPathSelfIdentityBoost
                                               retrieved-path-self-identity-boost)
+                                       query-matched-path-self-identity?
+                                       (assoc :queryMatchedPathSelfIdentity true)
                                        (pos? candidate-support-label-count)
                                        (assoc :candidateSupportLabelCount
                                               candidate-support-label-count)
@@ -3209,6 +3237,32 @@
                                                          selected-rows
                                                          %)))))))
 
+(defn- compact-output-directory-evidence-candidate-key
+  [files selected-rows row]
+  [(compact-output-co-located-sort-rank files selected-rows row)
+   (- (row-metric-double row :directoryEvidenceBoost))
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-directory-evidence-candidate-row
+  [files selected-keys selected-rows]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (candidate-file-only-row? %)
+                     (pos? (row-metric-double %
+                                              :directoryEvidenceBoost))))
+       (sort-by #(compact-output-directory-evidence-candidate-key
+                  files
+                  selected-rows
+                  %))
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  (compact-output-co-located-sort-rank files
+                                                       selected-rows
+                                                       %))))))
+
 (defn- add-compact-output-row
   [selected row]
   (if (and row (not (contains? (:keys selected) (file-row-key row))))
@@ -3407,6 +3461,12 @@
              selected (add-compact-output-row
                        selected
                        (compact-output-co-located-candidate-row
+                        files
+                        (:keys selected)
+                        (:rows selected)))
+             selected (add-compact-output-row
+                       selected
+                       (compact-output-directory-evidence-candidate-row
                         files
                         (:keys selected)
                         (:rows selected)))
