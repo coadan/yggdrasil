@@ -198,12 +198,14 @@
       :diagnostics (diagnostic-rows result)})))
 
 (defn- search-argv
-  [pattern paths {:keys [bin hidden? ignore-case?]
+  [pattern paths {:keys [bin hidden? ignore-case? ignore-globs]
                   :or {bin default-bin
-                       hidden? true}}]
+                       hidden? true
+                       ignore-globs []}}]
   (let [paths (if (seq paths) paths ["."])]
     (vec (concat [bin "--json" "-n" "--line-number" "--column" "--fixed-strings"]
                  (when hidden? ["--hidden"])
+                 (glob-args ignore-globs)
                  (when ignore-case? ["--ignore-case"])
                  [pattern]
                  (when (seq paths)
@@ -214,12 +216,14 @@
   (mapcat (fn [pattern] ["-e" (str pattern)]) patterns))
 
 (defn- count-argv
-  [patterns paths {:keys [bin hidden? ignore-case?]
+  [patterns paths {:keys [bin hidden? ignore-case? ignore-globs]
                    :or {bin default-bin
-                        hidden? true}}]
+                        hidden? true
+                        ignore-globs []}}]
   (let [paths (if (seq paths) paths ["."])]
     (vec (concat [bin "--count-matches" "-H" "--fixed-strings"]
                  (when hidden? ["--hidden"])
+                 (glob-args ignore-globs)
                  (when ignore-case? ["--ignore-case"])
                  (pattern-args patterns)
                  (when (seq paths)

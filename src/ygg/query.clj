@@ -24,6 +24,7 @@
 (def default-grep-reserve-candidates 12)
 (def default-source-file-reserve-candidates 12)
 (def default-result-kind-reserve-candidates 1)
+(def default-specific-grep-patterns 3)
 (def lexical-graph-weight 0.25)
 (def hybrid-graph-weight 0.20)
 (def lexical-same-label-weight 0.25)
@@ -32,6 +33,13 @@
 (def hybrid-grep-weight 0.20)
 
 (def search-report-schema "ygg.search.report/v1")
+
+(def ^:private grep-ignore-globs
+  (vec (mapcat (fn [dir]
+                 [(str dir "/**")
+                  (str "**/" dir "/**")])
+               [".git" ".dev" ".ygg" ".cpcache" ".clj-kondo" "target"
+                "node_modules" ".shadow-cljs" ".calva" ".idea" "ygg-out"])))
 
 (defn- now-ns
   []
@@ -996,14 +1004,34 @@
   (and (<= 2 (count (re-seq #"[a-z0-9]" (str token))))
        (not (hash-like-grep-token? token))))
 
+(defn- compound-grep-token-fragments
+  [token]
+  (let [token (str token)
+        separators (re-seq #"[._/-]" token)
+        parts (str/split token #"[._/-]+")]
+    (when (and (seq separators)
+               (<= 2 (count parts)))
+      (->> (map vector parts (rest parts) separators)
+           (map (fn [[left right separator]]
+                  (str left separator right)))
+           (remove #(= token %))))))
+
+(defn- grep-token-candidate-values
+  [token]
+  (when-let [token (normalize-grep-token token)]
+    (->> (cons token (compound-grep-token-fragments token))
+         (keep normalize-grep-token)
+         distinct)))
+
 (defn- grep-token-candidates
   [query-tokens]
   (->> query-tokens
        (map-indexed (fn [idx token]
-                      (when-let [token (normalize-grep-token token)]
-                        {:token token
-                         :idx idx})))
-       (keep identity)
+                      (map (fn [token]
+                             {:token token
+                              :idx idx})
+                           (grep-token-candidate-values token))))
+       (mapcat identity)
        (filter #(grep-token-candidate? (:token %)))
        (reduce (fn [state {:keys [token] :as candidate}]
                  (if (contains? (:seen state) token)
@@ -1095,6 +1123,10 @@
    idx
    token])
 
+(defn- specific-grep-pattern?
+  [{:keys [token]}]
+  (shaped-grep-token? token))
+
 (defn- ordered-distinct-tokens
   [candidates]
   (->> candidates
@@ -1113,6 +1145,8 @@
    (grep-patterns query-tokens [] opts))
   ([query-tokens docs opts]
    (let [limit (long (or (:grep-pattern-limit opts) default-grep-patterns))
+         specific-limit (long (or (:specific-grep-pattern-limit opts)
+                                  default-specific-grep-patterns))
          candidates (grep-token-candidates query-tokens)
          doc-frequencies (grep-doc-token-frequencies (map :token candidates) docs)
          structured-frequencies (grep-doc-structured-token-frequencies
@@ -1125,8 +1159,15 @@
                                                                doc-frequencies
                                                                structured-frequencies
                                                                %)))
-         fallback (sort-by fallback-grep-pattern-key candidates)]
+         fallback (sort-by fallback-grep-pattern-key candidates)
+         specific-fallback (->> fallback
+                                (filter specific-grep-pattern?)
+                                (take (min specific-limit limit))
+                                vec)
+         primary-limit (max 0 (- limit (count specific-fallback)))
+         primary (take primary-limit corpus-backed)]
      (->> (concat corpus-backed fallback)
+          (concat primary specific-fallback)
           ordered-distinct-tokens
           (take limit)
           vec))))
@@ -1151,7 +1192,8 @@
            :max-stdout-bytes (or (:grep-max-stdout-bytes opts)
                                  default-grep-max-stdout-bytes)
            :max-stderr-bytes 20000
-           :hidden? false
+           :hidden? true
+           :ignore-globs grep-ignore-globs
            :ignore-case? true}
     (:grep-bin opts)
     (assoc :bin (:grep-bin opts))))

@@ -109,6 +109,30 @@
              (into {} (map (juxt :path :count)) (:matches multi-result))))
       (is (empty? (:diagnostics result))))))
 
+(deftest search-counts-can-search-hidden-paths-with-ignore-globs
+  (let [root (temp-dir "ygg-rg-hidden-counts")]
+    (spit-file! root ".github/workflows/ci.yml" "node-version: 22\n")
+    (spit-file! root ".git/config" "node-version\n")
+    (let [hidden-result (ripgrep/search-counts
+                         root
+                         "node-version"
+                         []
+                         {:hidden? true
+                          :ignore-globs [".git/**" "**/.git/**"]})
+          visible-result (ripgrep/search-counts
+                          root
+                          "node-version"
+                          []
+                          {:hidden? false
+                           :ignore-globs [".git/**" "**/.git/**"]})
+          hidden-paths (set (map :path (:matches hidden-result)))]
+      (is (= 0 (:exit hidden-result)))
+      (is (contains? hidden-paths ".github/workflows/ci.yml"))
+      (is (not (contains? hidden-paths ".git/config")))
+      (is (= 1 (:exit visible-result)))
+      (is (empty? (:matches visible-result)))
+      (is (empty? (:diagnostics hidden-result))))))
+
 (deftest search-json-reports-truncation-without-shelling
   (let [root (temp-dir "ygg-rg-truncated")]
     (spit-file! root "src/app.clj" (str/join "\n" (repeat 100 "needle value")))

@@ -648,6 +648,52 @@
           (is (= 1.0 (get-in result [:score-components :grep])))
           (is (pos? (:score result))))))))
 
+(deftest lexical-query-ranks-indexed-hidden-docs-with-literal-grep-evidence
+  (let [repo-root (temp-dir "ygg-query-hidden-indexed-grep-repo")]
+    (spit-file! repo-root
+                ".github/workflows/ci.yml"
+                "steps:\n  - uses: actions/setup-node@v4\n    with:\n      node-version: 22\n")
+    (store/with-node (temp-dir "ygg-query-hidden-indexed-grep-xtdb")
+      (fn [xtdb]
+        (store/execute-tx!
+         xtdb
+         [(store/put-op (store/table-ref :repos)
+                        {:xt/id "repo:fixture:app"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :root repo-root
+                         :active? true})
+          (store/put-op (store/table-ref :search-docs)
+                        {:xt/id "search-doc:hidden-workflow"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :target-id "chunk:hidden-workflow"
+                         :target-kind :chunk
+                         :file-id "file:hidden-workflow"
+                         :path ".github/workflows/ci.yml"
+                         :kind :chunk
+                         :label "workflow config"
+                         :text "workflow config"
+                         :tokens ["workflow" "config"]
+                         :input-sha "hidden-workflow"
+                         :source-line 1
+                         :active? true
+                         :run-id "run"})])
+        (let [report (query/search-report
+                      xtdb
+                      "workflow config node-version-file"
+                      {:retriever :lexical
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :limit 5})
+              result (first (:results report))]
+          (is (= [".github/workflows/ci.yml"]
+                 (mapv :path (:results report))))
+          (is (= :chunk (:result-kind result)))
+          (is (pos? (double (get-in result [:score-components :grep] 0.0))))
+          (is (some #{"node-version"}
+                    (get-in report [:instrumentation :grep-pattern-values]))))))))
+
 (deftest explicit-hybrid-query-still-calls-embedding-client
   (store/with-node (temp-dir "ygg-query-explicit-hybrid-xtdb")
     (fn [xtdb]
