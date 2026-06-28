@@ -3373,6 +3373,108 @@
                                                          selected-rows
                                                          %)))))))
 
+(defn- compact-output-source-kind-sibling-key
+  [kind-by-path selected-kind-counts directory-counts row]
+  (let [kind (row-path-kind kind-by-path row)
+        dir (path-directory (:path row))]
+    [(long (or (get selected-kind-counts kind) 0))
+     (- (long (or (get directory-counts dir) 0)))
+     (- (positive-metric row :matchedTokenCount))
+     (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
+     (- (row-metric-double row :candidateGrepScore))
+     (- (row-metric-double row :candidateLexicalComponentBoost))
+     (- (row-rank-score row))
+     (row-candidate-source-rank row)
+     (:rank row)
+     (:repo-id row)
+     (:path row)]))
+
+(defn- compact-output-source-kind-sibling-evidence-row?
+  [row]
+  (and (pos? (positive-metric row :candidateFileCount))
+       (pos? (positive-metric row :matchedTokenCount))
+       (<= candidate-file-only-query-evidence-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (or (pos? (row-metric-double row :candidateGrepScore))
+           (pos? (row-metric-double row :candidateLexicalComponentBoost))
+           (pos? (positive-metric row :matchedIdentityCompoundTokenPairCount)))))
+
+(defn- compact-output-source-kind-sibling-sort-rank
+  [selected-rows row]
+  (let [dir (path-directory (:path row))
+        row-rank (or (:rank row) Long/MAX_VALUE)
+        same-dir-ranks (->> selected-rows
+                            (filter #(= dir (path-directory (:path %))))
+                            (filter #(< (or (:rank %) Long/MAX_VALUE)
+                                        row-rank))
+                            (keep :rank)
+                            seq)]
+    (when same-dir-ranks
+      (+ (double (apply min same-dir-ranks))
+         (* 0.5 (count same-dir-ranks))))))
+
+(defn- compact-output-source-kind-sibling-row
+  [files selected-keys selected-rows source-kinds kind-by-path]
+  (let [source-kinds (set source-kinds)
+        directory-counts (compact-output-directory-counts selected-rows)
+        selected-kind-counts (selected-source-kind-counts kind-by-path selected-rows)]
+    (when (and (< 1 (count source-kinds))
+               (seq kind-by-path))
+      (->> files
+           (filter #(let [dir (path-directory (:path %))
+                          kind (row-path-kind kind-by-path %)]
+                      (and (not (contains? selected-keys (file-row-key %)))
+                           (contains? source-kinds kind)
+                           (pos? (long (or (get directory-counts dir) 0)))
+                           (compact-output-source-kind-sibling-evidence-row? %))))
+           (sort-by #(compact-output-source-kind-sibling-key
+                      kind-by-path
+                      selected-kind-counts
+                      directory-counts
+                      %))
+           first
+           (#(when %
+               (assoc % ::compact-output-sort-rank
+                      (compact-output-source-kind-sibling-sort-rank selected-rows
+                                                                    %))))))))
+
+(defn- compact-output-source-kind-sibling-row?
+  [source-kinds kind-by-path selected-rows row]
+  (and (< 1 (count source-kinds))
+       (seq kind-by-path)
+       (contains? source-kinds (row-path-kind kind-by-path row))
+       (compact-output-source-kind-sibling-evidence-row? row)
+       (some? (compact-output-source-kind-sibling-sort-rank selected-rows
+                                                            row))))
+
+(defn- compact-output-annotate-source-kind-siblings
+  [selected source-kinds kind-by-path]
+  (let [source-kinds (set source-kinds)
+        selected-rows (:rows selected)]
+    (if (and (< 1 (count source-kinds))
+             (seq kind-by-path)
+             (seq selected-rows))
+      (update selected
+              :rows
+              (fn [rows]
+                (mapv (fn [row]
+                        (if (compact-output-source-kind-sibling-row?
+                             source-kinds
+                             kind-by-path
+                             selected-rows
+                             row)
+                          (let [sort-rank (compact-output-source-kind-sibling-sort-rank
+                                           selected-rows
+                                           row)]
+                            (update row
+                                    ::compact-output-sort-rank
+                                    #(if %
+                                       (min (double %) sort-rank)
+                                       sort-rank)))
+                          row))
+                      rows)))
+      selected)))
+
 (defn- compact-output-directory-evidence-candidate-key
   [files selected-rows row]
   [(compact-output-co-located-sort-rank files selected-rows row)
@@ -3642,6 +3744,14 @@
                         (:rows selected)))
              selected (add-compact-output-row
                        selected
+                       (compact-output-source-kind-sibling-row
+                        files
+                        (:keys selected)
+                        (:rows selected)
+                        source-kinds
+                        kind-by-path))
+             selected (add-compact-output-row
+                       selected
                        (compact-output-directory-evidence-candidate-row
                         files
                         (:keys selected)
@@ -3656,6 +3766,10 @@
                                               files)))
                         selected)
              selected (fill-compact-output-selection selected files limit)
+             selected (compact-output-annotate-source-kind-siblings
+                       selected
+                       source-kinds
+                       kind-by-path)
              selected-files (compact-output-sort-and-renumber
                              (take limit (:rows selected)))]
          (compact-output-prune-score-tail selected-files

@@ -4938,6 +4938,67 @@
             "modules/vpc-endpoints/main.tf"]
            (mapv :path selected)))))
 
+(deftest compact-output-promotes-co-located-declared-source-kind-sibling
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        edit-row (fn [path rank source-rank kind & [matched-tokens]]
+                   (row path
+                        rank
+                        {:candidateFileCount 1
+                         :docCount 0
+                         :entityCount 0
+                         :candidateSourceRank source-rank
+                         :matchedTokenCount (or matched-tokens 3)
+                         :sourceGraphCandidateEvidenceScore 0.7
+                         :candidateGrepScore 0.3
+                         :candidateLexicalComponentBoost 0.1
+                         :rankScore (- 14.0 rank)
+                         :sourceKind kind}))
+        files [(edit-row "connector/routingconnector/config.go" 1 1 "go")
+               (edit-row "connector/routingconnector/factory_test.go" 2 2 "go")
+               (edit-row "connector/routingconnector/factory.go" 3 3 "go")
+               (edit-row "connector/routingconnector/metadata.yaml" 4 4 "yaml")
+               (row "component/component.go" 5
+                    {:docCount 0
+                     :entityCount 1
+                     :matchedTokenCount 3
+                     :rankScore 11.0})
+               (row "connector/connector.go" 6
+                    {:docCount 0
+                     :entityCount 1
+                     :matchedTokenCount 3
+                     :rankScore 10.0})
+               (row "consumer/consumer.go" 7
+                    {:docCount 0
+                     :entityCount 1
+                     :matchedTokenCount 3
+                     :rankScore 9.0})
+               (row "connector/routingconnector/config.schema.yaml" 8
+                    {:candidateFileCount 1
+                     :docCount 1
+                     :entityCount 0
+                     :candidateSourceRank 8
+                     :matchedTokenCount 1
+                     :sourceGraphCandidateEvidenceScore 0.7
+                     :candidateGrepScore 0.3
+                     :candidateLexicalComponentBoost 0.1
+                     :rankScore 6.0
+                     :sourceKind "yaml"})]
+        kind-by-path (into {}
+                           (map (juxt :path #(get-in % [:metrics :sourceKind])))
+                           files)
+        paths (mapv :path (compact-output files
+                                          8
+                                          nil
+                                          ["go" "yaml"]
+                                          kind-by-path))]
+    (is (<= (.indexOf paths "connector/routingconnector/config.schema.yaml") 4))
+    (is (< (.indexOf paths "connector/routingconnector/config.schema.yaml")
+           (.indexOf paths "connector/connector.go")))))
+
 (deftest compact-output-reserves-doc-supported-and-identity-supported-rows
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]
