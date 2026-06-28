@@ -258,6 +258,8 @@
   1.5)
 (def ^:private compact-output-retrieved-label-doc-sort-rank
   1.75)
+(def ^:private compact-output-identity-compound-source-sort-rank
+  2.25)
 (def ^:private compact-result-command-limit
   5)
 (def ^:private dependency-package-identity-query-token-min
@@ -2541,10 +2543,10 @@
 
 (defn- query-evidence-source-candidate-key
   [row]
-  [(- (row-metric-double row :candidateGrepScore))
-   (- (positive-metric row :matchedIdentityCompoundTokenPairCount))
+  [(- (positive-metric row :matchedIdentityCompoundTokenPairCount))
    (- (positive-metric row :matchedCompoundTokenPairCount))
    (- (positive-metric row :matchedTokenCount))
+   (- (row-metric-double row :candidateGrepScore))
    (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
    (- (row-metric-double row :candidateLexicalComponentBoost))
    (:rank row)
@@ -3168,10 +3170,13 @@
 
 (defn- compact-output-retrieved-label-doc-key
   [row]
-  [(- (row-rank-score row))
+  [(- (positive-metric row :matchedIdentityCompoundTokenPairCount))
+   (- (positive-metric row :matchedCompoundTokenPairCount))
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-metric-double row :candidateGrepScore))
    (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
    (- (positive-metric row :retrievedSupportLabelCount))
-   (- (positive-metric row :matchedTokenCount))
+   (- (row-rank-score row))
    (:rank row)
    (:repo-id row)
    (:path row)])
@@ -3472,14 +3477,37 @@
        (or (< 1 (positive-metric row :retrievedSourceCount))
            (pos? (row-metric-double row :repeatedRetrievedSourceBoost)))))
 
+(defn- compact-output-identity-compound-source-row?
+  [row]
+  (and (candidate-file-only-row? row)
+       (pos? (positive-metric row :directFileCandidateCount))
+       (pos? (positive-metric row :matchedIdentityCompoundTokenPairCount))
+       (<= candidate-file-only-query-evidence-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= candidate-file-only-query-evidence-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (<= (row-candidate-source-rank row)
+           compact-output-early-source-graph-rank-window)))
+
+(defn- compact-output-derived-sort-rank
+  [row]
+  (when (compact-output-identity-compound-source-row? row)
+    compact-output-identity-compound-source-sort-rank))
+
 (defn- compact-output-sort-key
   [row]
-  [(double (or (::compact-output-sort-rank row)
-               (:rank row)
+  (let [sort-rank (->> [(::compact-output-sort-rank row)
+                        (compact-output-derived-sort-rank row)
+                        (:rank row)]
+                       (keep identity)
+                       (map double)
+                       seq)]
+    [(double (if sort-rank
+               (apply min sort-rank)
                Long/MAX_VALUE))
-   (long (or (:rank row) Long/MAX_VALUE))
-   (:repo-id row)
-   (:path row)])
+     (long (or (:rank row) Long/MAX_VALUE))
+     (:repo-id row)
+     (:path row)]))
 
 (defn- compact-output-sort-and-renumber
   [rows]
@@ -3627,14 +3655,14 @@
                                                           (file-row-key %))
                                               files)))
                         selected)
-             selected (fill-compact-output-selection selected files limit)]
-         (-> (:rows selected)
-             (->> (take limit)
-                  compact-output-sort-and-renumber)
-             (compact-output-prune-score-tail limit
-                                              result-scope
-                                              source-kinds
-                                              kind-by-path)))))))
+             selected (fill-compact-output-selection selected files limit)
+             selected-files (compact-output-sort-and-renumber
+                             (take limit (:rows selected)))]
+         (compact-output-prune-score-tail selected-files
+                                          limit
+                                          result-scope
+                                          source-kinds
+                                          kind-by-path))))))
 
 (defn- decision-file-by-path
   [files]

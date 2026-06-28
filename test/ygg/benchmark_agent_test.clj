@@ -4745,6 +4745,74 @@
            (.indexOf paths
                      "benchmarks/Dapper.Tests.Performance/Benchmarks.Linq2Sql.cs")))))
 
+(deftest compact-output-frontloads-identity-compound-source-candidate
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/Dapper.Tests/ParameterTests.cs"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 2
+                     :matchedTokenCount 8
+                     :matchedCompoundTokenPairCount 2
+                     :architectureSupportBoost 4.81
+                     :sourceGraphCandidateEvidenceScore 0.82
+                     :candidateGrepScore 1.0
+                     :rankScore 16.8})
+               (row "Dapper/SqlMapper.cs"
+                    2
+                    {:docCount 1
+                     :candidateFileCount 5
+                     :matchedTokenCount 8
+                     :matchedIdentityCompoundTokenPairCount 1
+                     :sourceGraphCandidateEvidenceScore 1.0
+                     :candidateGrepScore 0.86
+                     :rankScore 14.1})
+               (row "benchmarks/Dapper.Tests.Performance/Benchmarks.Belgrade.cs"
+                    3
+                    {:docCount 1
+                     :candidateFileCount 2
+                     :matchedTokenCount 7
+                     :architectureSupportBoost 4.81
+                     :rankScore 13.6})
+               (row "benchmarks/Dapper.Tests.Performance/Benchmarks.Dapper.cs"
+                    4
+                    {:docCount 0
+                     :candidateFileCount 1
+                     :directFileCandidateCount 1
+                     :fileIdentitySupportLabelCount 4
+                     :matchedTokenCount 5
+                     :sourceGraphCandidateEvidenceScore 0.64
+                     :candidateSourceRank 11
+                     :rankScore 8.4})
+               (row "tests/Dapper.Tests/MiscTests.cs"
+                    5
+                    {:docCount 1
+                     :candidateFileCount 3
+                     :matchedTokenCount 4
+                     :sourceGraphCandidateEvidenceScore 0.59
+                     :candidateGrepScore 0.77
+                     :rankScore 12.8})
+               (row "Dapper/SqlMapper.Settings.cs"
+                    11
+                    {:docCount 0
+                     :candidateFileCount 1
+                     :directFileCandidateCount 1
+                     :fileIdentitySupportLabelCount 2
+                     :matchedTokenCount 7
+                     :matchedCompoundTokenPairCount 1
+                     :matchedIdentityCompoundTokenPairCount 1
+                     :sourceGraphCandidateEvidenceScore 0.86
+                     :candidateSourceRank 4
+                     :rankScore 8.9})]
+        paths (mapv :path (compact-output files 20 nil))]
+    (is (> 5 (.indexOf paths "Dapper/SqlMapper.Settings.cs")))
+    (is (< (.indexOf paths "Dapper/SqlMapper.Settings.cs")
+           (.indexOf paths
+                     "benchmarks/Dapper.Tests.Performance/Benchmarks.Dapper.cs")))))
+
 (deftest compact-output-reserves-doc-supported-identity-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]
