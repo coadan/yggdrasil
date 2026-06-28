@@ -2738,6 +2738,33 @@
                                  :graph 0.6}}]
              (:candidateFiles packet))))))
 
+(deftest candidate-files-merge-nested-score-components
+  (let [rows (#'context/candidate-files
+              [{:path "src/caller.clj"
+                :rank 1
+                :score 0.8
+                :target-kind :node
+                :label "demo/caller"
+                :score-components {:semantic 0.5
+                                   :semanticRoles {:content 0.4}}}
+               {:path "src/caller.clj"
+                :rank 2
+                :score 0.7
+                :target-kind :node
+                :label "demo/caller.helper"
+                :score-components {:semantic 0.7
+                                   :semanticRoles {:content 0.2
+                                                   :symbol 0.9}}}])]
+    (is (= [{:path "src/caller.clj"
+             :rank 1
+             :score 0.8
+             :targetKind "node"
+             :label "demo/caller"
+             :scoreComponents {:semantic 0.7
+                               :semanticRoles {:content 0.4
+                                               :symbol 0.9}}}]
+           rows))))
+
 (deftest candidate-files-prioritize-duplicate-primary-labels-before-support-labels
   (let [rows (#'context/candidate-files
               [{:path "package.json"

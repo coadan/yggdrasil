@@ -1145,9 +1145,30 @@
                                              (reduce add-candidate-support-labels
                                                      state
                                                      candidates))))))
+        max-component-value (fn max-component-value [a b]
+                              (cond
+                                (and (number? a) (number? b))
+                                (max (double a) (double b))
+
+                                (number? a)
+                                (double a)
+
+                                (number? b)
+                                (double b)
+
+                                (and (map? a) (map? b))
+                                (merge-with max-component-value a b)
+
+                                (map? a)
+                                a
+
+                                (map? b)
+                                b
+
+                                :else
+                                (or b a)))
         max-components (fn [a b]
-                         (merge-with #(max (double (or %1 0.0))
-                                           (double (or %2 0.0)))
+                         (merge-with max-component-value
                                      (or a {})
                                      (or b {})))
         candidate-key (fn [row]
