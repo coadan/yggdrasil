@@ -10,6 +10,25 @@
                                                 (make-array java.nio.file.attribute.FileAttribute
                                                             0))))
 
+(deftest project-config-normalizes-embedding-defaults
+  (let [root (temp-dir "ygg-project-embeddings")
+        repo (io/file root "repo")
+        project-edn (io/file root "project.edn")]
+    (.mkdirs repo)
+    (spit project-edn
+          (pr-str {:id "demo"
+                   :repos [{:id "app"
+                            :root "repo"}]
+                   :embeddings {:provider "openrouter"
+                                :model "openai/text-embedding-3-small"
+                                :request-timeout-ms "45000"
+                                :max-retries 2}}))
+    (is (= {:provider :openrouter
+            :model "openai/text-embedding-3-small"
+            :request-timeout-ms 45000
+            :max-retries 2}
+           (:embeddings (project/read-project (.getPath project-edn)))))))
+
 (deftest project-config-normalizes-maintenance-worker
   (let [root (temp-dir "ygg-project-index-maintenance-worker")
         repo (io/file root "repo")

@@ -6,9 +6,11 @@
             [ygg.benchmark-repos :as benchmark-repos]
             [ygg.cli :as cli]
             [ygg.cli-bench :as cli-bench]
+            [ygg.cli-query :as cli-query]
             [ygg.cli-sync-inspect :as cli-sync-inspect]
             [ygg.cli-sync :as cli-sync]
             [ygg.daemon-contract :as daemon-contract]
+            [ygg.embedding :as embedding]
             [ygg.embedding.local :as local-embedding]
             [ygg.evidence :as evidence]
             [ygg.hook :as hook]
@@ -225,6 +227,58 @@
                 :created? true
                 :default? false}
                parsed))))))
+
+(deftest embed-command-uses-project-embedding-defaults
+  (let [calls (atom [])
+        project (assoc project-fixture
+                       :embeddings {:provider :openrouter
+                                    :model "openai/text-embedding-3-small"
+                                    :request-timeout-ms 45000
+                                    :max-retries 0})]
+    (with-redefs [registry/resolve-project
+                  (fn [opts]
+                    (is (= "fixture" (:project-id opts)))
+                    {:project project})
+                  cli-query/provider-api-key (constantly "openrouter-key")
+                  cli-query/provider-client
+                  (fn [provider model opts]
+                    (swap! calls conj [:client provider model opts])
+                    {:provider provider
+                     :model model
+                     :embed-batch (fn [_inputs] [])})
+                  store/with-node (fn [_path f] (f :xtdb))
+                  embedding/embed-search-docs!
+                  (fn [xtdb client opts]
+                    (swap! calls conj [:embed
+                                       xtdb
+                                       (select-keys client [:provider :model])
+                                       opts])
+                    {:provider (:provider client)
+                     :model (:model client)
+                     :search-docs 10
+                     :pending 0
+                     :embedded 0
+                     :skipped 10})]
+      (let [out (with-out-str
+                  (cli/dispatch "embed" ["--project" "fixture"
+                                         "--limit" "25"]))]
+        (is (str/includes? out "- provider openrouter"))
+        (is (= [[:client
+                 :openrouter
+                 "openai/text-embedding-3-small"
+                 {:provider :openrouter
+                  :model "openai/text-embedding-3-small"
+                  :request-timeout-ms 45000
+                  :max-retries 0}]
+                [:embed
+                 :xtdb
+                 {:provider :openrouter
+                  :model "openai/text-embedding-3-small"}
+                 {:batch-size embedding/default-batch-size
+                  :limit 25
+                  :project-id "fixture"
+                  :repo-id nil}]]
+               @calls))))))
 
 (deftest sync-inspect-json-exposes-stable-freshness-summary
   (with-redefs [project/read-project (fn [path]

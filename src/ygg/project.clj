@@ -210,6 +210,45 @@
 (def ^:private maintenance-schedule-tasks
   #{:sync})
 
+(def ^:private embedding-providers
+  #{:local :openrouter :openai})
+
+(defn- normalize-optional-long
+  [value key]
+  (when (some? value)
+    (try
+      (Long/parseLong (str value))
+      (catch NumberFormatException ex
+        (throw (ex-info "Project config value must be an integer."
+                        {:key key
+                         :value value}
+                        ex))))))
+
+(defn- normalize-embeddings
+  [data]
+  (when-let [embeddings (:embeddings data)]
+    (let [provider (some-> (:provider embeddings) keyword)]
+      (when-not provider
+        (throw (ex-info "Project embeddings config requires :provider."
+                        {:embeddings embeddings})))
+      (when-not (contains? embedding-providers provider)
+        (throw (ex-info "Project embeddings config declares unsupported :provider."
+                        {:provider provider
+                         :supported (sort embedding-providers)})))
+      (cond-> {:provider provider}
+        (:model embeddings)
+        (assoc :model (str (:model embeddings)))
+
+        (some? (:request-timeout-ms embeddings))
+        (assoc :request-timeout-ms
+               (normalize-optional-long (:request-timeout-ms embeddings)
+                                        :request-timeout-ms))
+
+        (some? (:max-retries embeddings))
+        (assoc :max-retries
+               (normalize-optional-long (:max-retries embeddings)
+                                        :max-retries))))))
+
 (defn- deepseek-v4+-model?
   [model]
   (boolean
@@ -414,11 +453,14 @@
                       (cond-> {}
                         path (assoc :path path)))))
     (let [plugins (plugin-config base data)
+          embeddings (normalize-embeddings data)
           maintenance (normalize-maintenance base project-id data)]
       (cond-> {:id project-id
                :name (str (or (:name data) project-id))
                :repos (normalize-repos base data)}
         path (assoc :path path)
+        embeddings
+        (assoc :embeddings embeddings)
         (some seq (vals plugins))
         (assoc :plugins plugins)
         maintenance

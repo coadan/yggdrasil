@@ -149,10 +149,45 @@
 (defn default-provider
   []
   (embedding-client/default-provider))
+(defn- explicit-config-selection?
+  [args]
+  (option-value args "--config"))
+
+(defn- resolved-project
+  [args]
+  (try
+    (:project (registry/resolve-project {:project-id (option-value args "--project")
+                                         :config-path (option-value args "--config")
+                                         :cwd (System/getProperty "user.dir")}))
+    (catch Exception e
+      (when (explicit-config-selection? args)
+        (throw e))
+      nil)))
+
+(defn project-embedding-options
+  [args]
+  (:embeddings (resolved-project args)))
+
+(defn embedding-options
+  [args]
+  (let [project-embeddings (project-embedding-options args)
+        provider (keyword (or (option-value args "--provider")
+                              (:provider project-embeddings)
+                              (name (default-provider))))
+        model (or (option-value args "--model")
+                  (:model project-embeddings)
+                  (embedding-client/default-model provider))]
+    (cond-> {:provider provider
+             :model model}
+      (:request-timeout-ms project-embeddings)
+      (assoc :request-timeout-ms (:request-timeout-ms project-embeddings))
+
+      (:max-retries project-embeddings)
+      (assoc :max-retries (:max-retries project-embeddings)))))
+
 (defn provider-option
   [args]
-  (keyword (or (option-value args "--provider")
-               (name (default-provider)))))
+  (:provider (embedding-options args)))
 (defn default-model
   [provider]
   (embedding-client/default-model provider))
@@ -160,8 +195,13 @@
   [provider]
   (embedding-client/provider-api-key provider))
 (defn provider-client
-  [provider model]
-  (embedding-client/client provider model))
+  ([provider model]
+   (embedding-client/client provider model))
+  ([provider model opts]
+   (embedding-client/client provider
+                            model
+                            (select-keys opts [:request-timeout-ms
+                                               :max-retries]))))
 (defn missing-key-message
   [provider]
   (embedding-client/missing-key-message provider))
@@ -315,8 +355,10 @@
   (or (option-value args "--out")
       (default-graph-json-out mode value)))
 (defn query-embedding-client
-  [retriever provider model]
-  (embedding-client/query-embedding-client retriever provider model))
+  ([retriever provider model]
+   (embedding-client/query-embedding-client retriever provider model))
+  ([retriever opts]
+   (embedding-client/configured-query-client retriever opts)))
 (defn print-graph-output
   [path data]
   (println "# Graph")
@@ -375,9 +417,8 @@
     :query
     (let [query-text (str/join " " (positional-args graph-args))
           retriever (keyword (or (option-value graph-args "--retriever") "auto"))
-          provider (provider-option graph-args)
-          model (or (option-value graph-args "--model") (default-model provider))
-          embedding-client (query-embedding-client retriever provider model)
+          embedding-opts (embedding-options graph-args)
+          embedding-client (query-embedding-client retriever embedding-opts)
           {:keys [project-id repo-id]} (project-scope graph-args)
           temporal (temporal-options graph-args)]
       (when (str/blank? query-text)
@@ -434,9 +475,8 @@
 (defn- retrieval-options
   [args]
   (let [retriever (keyword (or (option-value args "--retriever") "auto"))
-        provider (provider-option args)
-        model (or (option-value args "--model") (default-model provider))
-        embedding-client (query-embedding-client retriever provider model)]
+        {:keys [provider model] :as embedding-opts} (embedding-options args)
+        embedding-client (query-embedding-client retriever embedding-opts)]
     (when (and (= :auto retriever) (nil? embedding-client))
       (binding [*out* *err*]
         (println (str (missing-key-message provider) " Using lexical retrieval."))))

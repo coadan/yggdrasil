@@ -566,17 +566,21 @@
   (println "- default" (boolean default?)))
 (defn- candidate-system? [system] (cli-query/candidate-system? system))
 (defn- print-candidate-systems [systems limit] (cli-query/print-candidate-systems systems limit))
-(defn- provider-option [args] (cli-query/provider-option args))
-(defn- default-model [provider] (cli-query/default-model provider))
+(defn- embedding-options [args] (cli-query/embedding-options args))
 (defn- provider-api-key [provider] (cli-query/provider-api-key provider))
-(defn- provider-client [provider model] (cli-query/provider-client provider model))
+(defn- provider-client
+  ([provider model] (cli-query/provider-client provider model))
+  ([provider model opts] (cli-query/provider-client provider model opts)))
 (defn- missing-key-message [provider] (cli-query/missing-key-message provider))
 (defn- llm-provider-option [args] (cli-query/llm-provider-option args))
 (defn- llm-model [provider args] (cli-query/llm-model provider args))
 (defn- llm-client [provider model args] (cli-query/llm-client provider model args))
 (defn- print-package-report [result] (cli-query/print-package-report result))
-(defn- query-embedding-client [retriever provider model]
-  (cli-query/query-embedding-client retriever provider model))
+(defn- query-embedding-client
+  ([retriever provider model]
+   (cli-query/query-embedding-client retriever provider model))
+  ([retriever opts]
+   (cli-query/query-embedding-client retriever opts)))
 (defn- query! [args]
   (binding [cli-query/*deps* (query-deps)]
     (cli-query/query! args)))
@@ -1495,9 +1499,8 @@
     "context"
     (let [query-text (str/join " " (positional-args args))
           retriever (keyword (or (option-value args "--retriever") "auto"))
-          provider (provider-option args)
-          model (or (option-value args "--model") (default-model provider))
-          embedding-client (query-embedding-client retriever provider model)
+          {:keys [provider] :as embedding-opts} (embedding-options args)
+          embedding-client (query-embedding-client retriever embedding-opts)
           {:keys [project-id repo-id]} (project-scope args)
           temporal (temporal-options args)]
       (when (and (= :auto retriever) (nil? embedding-client))
@@ -1526,8 +1529,7 @@
         (if (json-output? args)
           (print-json result)
           (print-local-embedding-setup-summary result)))
-      (let [provider (provider-option args)
-            model (or (option-value args "--model") (default-model provider))
+      (let [{:keys [provider model] :as embedding-opts} (embedding-options args)
             batch-size (parse-long-option args "--batch-size" embedding/default-batch-size)
             limit (parse-limit args)
             {:keys [project-id repo-id]} (project-scope args)]
@@ -1539,7 +1541,9 @@
           (fn [xtdb]
             (print-embed-summary
              (embedding/embed-search-docs! xtdb
-                                           (provider-client provider model)
+                                           (provider-client provider
+                                                            model
+                                                            embedding-opts)
                                            {:batch-size batch-size
                                             :limit limit
                                             :project-id project-id
