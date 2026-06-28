@@ -254,6 +254,10 @@
   5)
 (def ^:private compact-output-architecture-rare-token-min
   1.0)
+(def ^:private compact-output-doc-supported-sort-rank
+  1.5)
+(def ^:private compact-output-retrieved-label-doc-sort-rank
+  1.75)
 (def ^:private compact-result-command-limit
   5)
 (def ^:private dependency-package-identity-query-token-min
@@ -3144,7 +3148,11 @@
                      (pos? (positive-metric % :docCount))
                      (pos? (positive-metric % :matchedTokenCount))))
        (sort-by compact-output-doc-supported-key)
-       first))
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  (min (double (or (:rank %) Long/MAX_VALUE))
+                       compact-output-doc-supported-sort-rank))))))
 
 (defn- compact-output-retrieved-supported-row
   [files selected-keys]
@@ -3183,7 +3191,11 @@
        (filter #(and (not (contains? selected-keys (file-row-key %)))
                      (compact-output-retrieved-label-doc-row? %)))
        (sort-by compact-output-retrieved-label-doc-key)
-       first))
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  (min (double (or (:rank %) Long/MAX_VALUE))
+                       compact-output-retrieved-label-doc-sort-rank))))))
 
 (defn- path-directory
   [path]
@@ -3460,6 +3472,23 @@
        (or (< 1 (positive-metric row :retrievedSourceCount))
            (pos? (row-metric-double row :repeatedRetrievedSourceBoost)))))
 
+(defn- compact-output-sort-key
+  [row]
+  [(double (or (::compact-output-sort-rank row)
+               (:rank row)
+               Long/MAX_VALUE))
+   (long (or (:rank row) Long/MAX_VALUE))
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-sort-and-renumber
+  [rows]
+  (->> rows
+       (sort-by compact-output-sort-key)
+       (map #(dissoc % ::compact-output-sort-rank))
+       spread-candidate-support-signature-duplicates
+       renumber-file-ranks))
+
 (defn- compact-output-core-evidence-rows
   [selected source-kinds kind-by-path]
   (let [base-core (ordered-row-union
@@ -3474,7 +3503,7 @@
                (< 1 (count core))
                (< (count core) (count selected))
                (covers-source-kinds? source-kinds kind-by-path core))
-      (renumber-file-ranks core))))
+      (compact-output-sort-and-renumber core))))
 
 (defn- compact-output-candidate-only-rows
   [selected source-kinds kind-by-path]
@@ -3601,12 +3630,7 @@
              selected (fill-compact-output-selection selected files limit)]
          (-> (:rows selected)
              (->> (take limit)
-                  (sort-by #(or (::compact-output-sort-rank %)
-                                (:rank %)
-                                Long/MAX_VALUE))
-                  (map #(dissoc % ::compact-output-sort-rank))
-                  spread-candidate-support-signature-duplicates
-                  renumber-file-ranks)
+                  compact-output-sort-and-renumber)
              (compact-output-prune-score-tail limit
                                               result-scope
                                               source-kinds

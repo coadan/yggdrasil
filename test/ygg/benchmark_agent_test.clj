@@ -4663,6 +4663,88 @@
     (is (some #{"tests/Dapper.Tests/TypeHandlerTests.cs"} paths))
     (is (not-any? #{"src/head-7.cs"} paths))))
 
+(deftest compact-output-frontloads-retrieved-label-doc-query-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "Dapper/SqlMapper.cs"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 25
+                     :retrievedSourceCount 1
+                     :matchedTokenCount 9
+                     :matchedCompoundTokenPairCount 1
+                     :retrievedSupportLabelCount 5
+                     :sourceGraphCandidateEvidenceScore 0.91
+                     :rankScore 15.8})
+               (row "benchmarks/Dapper.Tests.Performance/Benchmarks.cs"
+                    2
+                    {:docCount 0
+                     :candidateFileCount 15
+                     :directFileCandidateCount 1
+                     :fileIdentitySupportLabelCount 4
+                     :matchedTokenCount 7
+                     :sourceGraphCandidateEvidenceScore 0.61
+                     :candidateSourceRank 18
+                     :rankScore 16.9})
+               (row "Dapper/SqlMapper.TypeHandler.cs"
+                    3
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSourceCount 1
+                     :matchedTokenCount 7
+                     :matchedCompoundTokenPairCount 1
+                     :retrievedSupportLabelCount 3
+                     :sourceGraphCandidateEvidenceScore 0.77
+                     :rankScore 11.8})
+               (row "tests/docker-compose.yml"
+                    4
+                    {:docCount 0
+                     :candidateFileCount 1
+                     :directFileCandidateCount 1
+                     :architectureSupportBoost 2.0
+                     :matchedTokenCount 4
+                     :sourceGraphCandidateEvidenceScore 4.89
+                     :rankScore 11.0})
+               (row "benchmarks/Dapper.Tests.Performance/Benchmarks.Linq2Sql.cs"
+                    5
+                    {:docCount 0
+                     :candidateFileCount 1
+                     :directFileCandidateCount 1
+                     :fileIdentitySupportLabelCount 3
+                     :matchedTokenCount 7
+                     :sourceGraphCandidateEvidenceScore 0.61
+                     :candidateSourceRank 18
+                     :rankScore 16.3})
+               (row "Dapper/SqlMapper.TypeDeserializerCache.cs"
+                    6
+                    {:docCount 0
+                     :candidateFileCount 1
+                     :directFileCandidateCount 1
+                     :fileIdentitySupportLabelCount 2
+                     :matchedTokenCount 4
+                     :sourceGraphCandidateEvidenceScore 0.69
+                     :candidateSourceRank 11
+                     :rankScore 15.1})
+               (row "tests/Dapper.Tests/TypeHandlerTests.cs"
+                    7
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSourceCount 1
+                     :matchedTokenCount 10
+                     :matchedCompoundTokenPairCount 1
+                     :retrievedSupportLabelCount 5
+                     :sourceGraphCandidateEvidenceScore 0.78
+                     :candidateGrepScore 0.73
+                     :rankScore 11.8})]
+        paths (mapv :path (compact-output files 20 nil))]
+    (is (> 5 (.indexOf paths "tests/Dapper.Tests/TypeHandlerTests.cs")))
+    (is (< (.indexOf paths "tests/Dapper.Tests/TypeHandlerTests.cs")
+           (.indexOf paths
+                     "benchmarks/Dapper.Tests.Performance/Benchmarks.Linq2Sql.cs")))))
+
 (deftest compact-output-reserves-doc-supported-identity-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]
