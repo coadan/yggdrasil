@@ -463,6 +463,17 @@
 (defn- exported-support-label-count
   [support-labels]
   (count (filter exported-support-label? support-labels)))
+(defn- normalized-support-label
+  [value]
+  (some-> value str str/trim str/lower-case not-empty))
+(defn- exported-support-label-signature
+  [support-labels]
+  (->> support-labels
+       (filter exported-support-label?)
+       (keep normalized-support-label)
+       distinct
+       sort
+       vec))
 (defn- retrieved-doc-identities
   [docs]
   (->> docs
@@ -1069,6 +1080,8 @@
                                                support-labels)
             exported-support-label-count (exported-support-label-count
                                           support-labels)
+            exported-support-label-signature (exported-support-label-signature
+                                              support-labels)
             retrieved-support-label-count (retrieved-support-label-count
                                            path
                                            (:label candidate)
@@ -1118,6 +1131,7 @@
                            query-tokens
                            path))
                  :file-identity-support-label-count file-identity-support-label-count
+                 :candidate-support-label-signature exported-support-label-signature
                  :exported-support-label-count exported-support-label-count
                  :retrieved-support-label-count retrieved-support-label-count
                  :candidate-support-label-count (count support-labels)
@@ -1196,6 +1210,8 @@
                                            support-labels)
         exported-support-label-count (exported-support-label-count
                                       support-labels)
+        exported-support-label-signature (exported-support-label-signature
+                                          support-labels)
         retrieved-support-label-count (retrieved-support-label-count
                                        sibling-path
                                        (:label candidate)
@@ -1239,6 +1255,7 @@
                        query-tokens
                        sibling-path))
              :file-identity-support-label-count file-identity-support-label-count
+             :candidate-support-label-signature exported-support-label-signature
              :exported-support-label-count exported-support-label-count
              :retrieved-support-label-count retrieved-support-label-count
              :candidate-support-label-count (count support-labels)
@@ -1768,6 +1785,11 @@
                                                                   0
                                                                   (keep :candidate-support-label-count
                                                                         ordered))
+                             candidate-support-label-signatures (->> ordered
+                                                                     (keep :candidate-support-label-signature)
+                                                                     (remove empty?)
+                                                                     distinct
+                                                                     vec)
                              candidate-support-label-score (* rank-score-candidate-support-label-weight
                                                               (min rank-score-candidate-support-label-cap
                                                                    candidate-support-label-count))
@@ -1995,6 +2017,9 @@
                                        (pos? candidate-support-label-score)
                                        (assoc :candidateSupportLabelScore
                                               candidate-support-label-score)
+                                       (seq candidate-support-label-signatures)
+                                       (assoc :candidateSupportLabelSignatures
+                                              candidate-support-label-signatures)
                                        (pos? decision-candidate-count)
                                        (assoc :decisionCandidateCount
                                               decision-candidate-count)
@@ -2109,6 +2134,7 @@
                                     :query-supported-architecture-evidence?
                                     :direct-file-candidate?
                                     :candidate-source-rank
+                                    :candidate-support-label-signature
                                     :candidate-lexical-score
                                     :candidate-grep-score
                                     :candidate-support-label-count)
@@ -2144,19 +2170,46 @@
   [row]
   (or (first (get-in row [:metrics :definitionKinds]))
       :unknown))
+(defn- prediction-candidate-support-signature
+  [row]
+  (some-> (get-in row [:metrics :candidateSupportLabelSignatures])
+          seq
+          first
+          seq
+          vec))
+
+(defn- prediction-candidate-support-diversity-key
+  [row]
+  (let [entity-count (long (or (get-in row [:metrics :entityCount]) 0))
+        candidate-file-count (long (or (get-in row [:metrics :candidateFileCount])
+                                       0))
+        decision-candidate-count (long (or (get-in row
+                                                   [:metrics
+                                                    :decisionCandidateCount])
+                                           0))]
+    (when-let [signature (and (zero? entity-count)
+                              (zero? decision-candidate-count)
+                              (pos? candidate-file-count)
+                              (prediction-candidate-support-signature row))]
+      [(or (:repo-id row) :unknown-repo)
+       :candidate-support
+       signature])))
 
 (defn- prediction-diversity-key
   [row]
-  (let [definition-kind (prediction-primary-definition-kind row)]
-    (when (and (or (pos? (long (or (get-in row [:metrics :docCount]) 0)))
-                   (pos? (long (or (get-in row [:metrics :decisionCandidateCount])
-                                   0)))
-                   (pos? (double (or (get-in row [:metrics :architectureSupportBoost])
-                                     0.0))))
-               (not= :unknown definition-kind))
-      [(or (:repo-id row) :unknown-repo)
-       (prediction-path-root row)
-       definition-kind])))
+  (let [definition-kind (prediction-primary-definition-kind row)
+        doc-count (long (or (get-in row [:metrics :docCount]) 0))
+        decision-candidate-count (long (or (get-in row [:metrics :decisionCandidateCount]) 0))
+        architecture-support-boost (double (or (get-in row [:metrics :architectureSupportBoost])
+                                               0.0))]
+    (or (prediction-candidate-support-diversity-key row)
+        (when (and (or (pos? doc-count)
+                       (pos? decision-candidate-count)
+                       (pos? architecture-support-boost))
+                   (not= :unknown definition-kind))
+          [(or (:repo-id row) :unknown-repo)
+           (prediction-path-root row)
+           definition-kind]))))
 
 (defn- prediction-rank-protected?
   [row]
@@ -2779,6 +2832,25 @@
        (sort-by #(or (:rank %) Long/MAX_VALUE))
        vec))
 
+(defn- spread-candidate-support-signature-duplicates
+  [rows]
+  (let [{:keys [kept deferred]}
+        (reduce
+         (fn [{:keys [seen] :as acc} row]
+           (if-let [k (and (not (prediction-rank-protected? row))
+                           (prediction-candidate-support-diversity-key row))]
+             (if (contains? seen k)
+               (update acc :deferred conj row)
+               (-> acc
+                   (update :seen conj k)
+                   (update :kept conj row)))
+             (update acc :kept conj row)))
+         {:seen #{}
+          :kept []
+          :deferred []}
+         rows)]
+    (vec (concat kept deferred))))
+
 (defn- covers-source-kinds?
   [source-kinds kind-by-path rows]
   (or (empty? source-kinds)
@@ -2890,6 +2962,7 @@
                               source-kinds
                               kind-by-path)
                              (sort-by :rank)
+                             spread-candidate-support-signature-duplicates
                              renumber-file-ranks)
                compacted (compact-unsaturated-decision-tail selected
                                                             limit
@@ -3532,6 +3605,7 @@
                                 (:rank %)
                                 Long/MAX_VALUE))
                   (map #(dissoc % ::compact-output-sort-rank))
+                  spread-candidate-support-signature-duplicates
                   renumber-file-ranks)
              (compact-output-prune-score-tail limit
                                               result-scope

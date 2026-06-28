@@ -17,4 +17,10 @@
                               "decision-axios-native-proxy-audit"
                               "decision-dapper-jsonb-plugin-fit"
                               "decision-bootstrap-astro-change-plan"]}
+                  {:path "architecture-synthetic.edn"
+                   :case-ids ["bootstrap-synthetic-docs-route-impact"
+                              "bootstrap-synthetic-astro-plugin-config"
+                              "supabase-postgres-synthetic-trigger-ownership-flow"
+                              "axios-synthetic-native-proxy-boundary"
+                              "dapper-synthetic-jsonb-test-stack"]}
                   {:path "multi-repo-quality.edn"}]}

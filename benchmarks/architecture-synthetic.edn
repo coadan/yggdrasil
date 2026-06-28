@@ -17,6 +17,7 @@
           :repo-id "bootstrap"
           :coverage {:source-kinds [:web-framework]}
           :tags [:synthetic
+                 :ygg-should-win
                  :problem-architecture
                  :architecture-cross-system-impact
                  :audit-scope-docs
@@ -60,6 +61,7 @@
           :repo-id "bootstrap"
           :coverage {:source-kinds [:manifest :web-framework]}
           :tags [:synthetic
+                 :ygg-should-win
                  :problem-architecture
                  :architecture-dependency-flow
                  :audit-scope-dependencies
@@ -98,6 +100,7 @@
           :repo-id "supabase-postgres"
           :coverage {:source-kinds [:env :sql]}
           :tags [:synthetic
+                 :ygg-should-win
                  :problem-architecture
                  :architecture-data-ownership
                  :audit-scope-runtime-config
@@ -127,6 +130,7 @@
           :repo-id "axios"
           :coverage {:source-kinds [:javascript]}
           :tags [:synthetic
+                 :ygg-should-win
                  :problem-architecture
                  :architecture-runtime-boundary
                  :audit-scope-runtime-config
@@ -148,6 +152,7 @@
           :repo-id "dapper"
           :coverage {:source-kinds [:dotnet :compose]}
           :tags [:synthetic
+                 :ygg-should-win
                  :problem-architecture
                  :architecture-dependency-flow
                  :audit-scope-dependencies

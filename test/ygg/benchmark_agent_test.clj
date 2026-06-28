@@ -3815,6 +3815,43 @@
             "tests/low_support_test.clj"]
            (mapv :path files)))))
 
+(deftest file-ranking-diversity-spreads-candidate-support-signatures
+  (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
+        candidate-row (fn [path rank signature]
+                        {:path path
+                         :rank rank
+                         :repo-id "fixture"
+                         :metrics {:rankScore (- 20.0 rank)
+                                   :candidateFileCount 1
+                                   :candidateSourceRank rank
+                                   :docCount 1
+                                   :entityCount 0
+                                   :candidateSupportLabelSignatures [signature]
+                                   :definitionKinds ["sql-file"]}})
+        rows [(candidate-row "migrations/schema-15.sql"
+                             1
+                             ["security definer"])
+              (candidate-row "migrations/schema.sql"
+                             2
+                             ["security definer"])
+              (candidate-row "migrations/schema-orioledb-17.sql"
+                             3
+                             ["security definer"])
+              (candidate-row "migrations/db/migrations/trigger.sql"
+                             4
+                             ["event trigger"])
+              (candidate-row "migrations/db/init-scripts/post-setup.sql"
+                             5
+                             ["createdb" "security definer"])]
+        files (diversify rows)]
+    (is (= ["migrations/schema-15.sql"
+            "migrations/db/migrations/trigger.sql"
+            "migrations/db/init-scripts/post-setup.sql"
+            "migrations/schema.sql"
+            "migrations/schema-orioledb-17.sql"]
+           (mapv :path files)))
+    (is (= [1 2 3 4 5] (mapv :rank files)))))
+
 (deftest file-ranking-diversity-keeps-decision-candidate-files-early
   (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
         rows [{:path "tests/docker-compose.yml"
@@ -4462,6 +4499,46 @@
         paths (mapv :path (compact-output files 12 nil))]
     (is (some #{"src/flask/sansio/app.py"} paths))
     (is (not-any? #{"src/head-12.py"} paths))))
+
+(deftest compact-output-spreads-candidate-support-signatures
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank signature]
+              {:path path
+               :rank rank
+               :repo-id "fixture"
+               :metrics {:rankScore (- 20.0 (* 0.1 rank))
+                         :candidateFileCount 1
+                         :docCount 1
+                         :entityCount 0
+                         :matchedTokenCount 4
+                         :candidateSupportLabelSignatures
+                         (when signature [signature])}})
+        files [(row "migrations/.env"
+                    1
+                    ["database_url"])
+               (row "migrations/schema-15.sql"
+                    2
+                    ["security definer"])
+               (row "migrations/db/migrations/trigger.sql"
+                    3
+                    ["event trigger"])
+               (row "migrations/schema.sql"
+                    4
+                    ["security definer"])
+               (row "migrations/schema-orioledb-17.sql"
+                    5
+                    ["security definer"])
+               (row "migrations/db/init-scripts/post-setup.sql"
+                    6
+                    ["createdb" "security definer"])]
+        paths (mapv :path (compact-output files 6 nil))]
+    (is (= ["migrations/.env"
+            "migrations/schema-15.sql"
+            "migrations/db/migrations/trigger.sql"
+            "migrations/db/init-scripts/post-setup.sql"
+            "migrations/schema.sql"
+            "migrations/schema-orioledb-17.sql"]
+           paths))))
 
 (deftest compact-output-anchors-early-source-graph-grep-row
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
