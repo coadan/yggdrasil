@@ -204,6 +204,77 @@
           (is (= ["retrieval and graph match"] (mapv :why entities)))
           (is (= 1 @match-calls)))))))
 
+(deftest source-graph-local-importer-candidates-use-module-alias-facts
+  (let [local-importer-candidates @#'context/source-graph-local-importer-candidates
+        requested-labels (atom nil)
+        aliases [{:kind :module-path-alias
+                  :path "site/tsconfig.json"
+                  :label "@components/*=src/components/*"
+                  :active? true}
+                 {:kind :module-path-alias
+                  :path "site/tsconfig.json"
+                  :label "@layouts/*=src/layouts/*"
+                  :active? true}]
+        import-nodes [{:xt/id "node:import:themes"
+                       :kind :web-framework-import
+                       :repo-id "repo"
+                       :path "site/src/pages/index.astro"
+                       :label "@components/home/Themes.astro"
+                       :source-line 10
+                       :active? true}
+                      {:xt/id "node:import:bs-themes"
+                       :kind :web-framework-import
+                       :repo-id "repo"
+                       :path "site/src/pages/docs/[version]/examples/index.astro"
+                       :label "@layouts/partials/BsThemes.astro"
+                       :source-line 4
+                       :active? true}]
+        seeds [{:rank 7
+                :target-kind :node
+                :target-id "node:theme"
+                :path "site/src/components/home/Themes.astro"
+                :label "site.src.components.home.Themes"
+                :score 1.0}
+               {:rank 36
+                :target-kind :node
+                :target-id "node:bs-theme"
+                :path "site/src/layouts/partials/BsThemes.astro"
+                :label "site.src.layouts.partials.BsThemes"
+                :score 0.9}]]
+    (with-redefs [store/xtdb-handle? (constantly true)
+                  store/constrained-rows (fn [_xtdb table constraints read-context]
+                                           (is (= (:nodes store/tables) table))
+                                           (is (= {:project-id "project"
+                                                   :repo-id "repo"
+                                                   :kind :module-path-alias
+                                                   :active? true}
+                                                  constraints))
+                                           (is (= {:valid-at :now} read-context))
+                                           aliases)
+                  query/nodes-by-labels (fn [_xtdb labels scope]
+                                          (reset! requested-labels (set labels))
+                                          (is (= {:project-id "project"
+                                                  :repo-id "repo"
+                                                  :read-context {:valid-at :now}}
+                                                 scope))
+                                          import-nodes)]
+      (let [rows (local-importer-candidates
+                  {:node :xtdb}
+                  seeds
+                  {:project-id "project"
+                   :repo-id "repo"
+                   :read-context {:valid-at :now}})]
+        (is (= #{"@components/home/Themes.astro"
+                 "@layouts/partials/BsThemes.astro"}
+               @requested-labels))
+        (is (= ["site/src/pages/index.astro"
+                "site/src/pages/docs/[version]/examples/index.astro"]
+               (mapv :path rows)))
+        (is (= [:web-framework-import :web-framework-import]
+               (mapv :kind rows)))
+        (is (every? #(= :node (:target-kind %)) rows))
+        (is (every? #(= :node (:result-kind %)) rows))))))
+
 (deftest select-edges-tokenizes-each-relation-once
   (let [select-edges @#'context/select-edges
         tokenize text/tokenize
@@ -4285,6 +4356,46 @@
               "src/source-graph.js"
               "tests/third.js"]
              (mapv :path ranked))))))
+
+(deftest candidate-input-ranking-reserves-source-graph-declaration-paths
+  (with-redefs [context/candidate-input-retrieval-prefix-limit 2
+                context/candidate-input-source-declaration-prefix-limit 3]
+    (let [ranked (#'context/ranked-candidate-inputs
+                  [{:path "site/src/components/home/Themes.astro"
+                    :score 3.0
+                    :label "site.src.components.home.Themes"}
+                   {:path "site/src/components/header/Navigation.astro"
+                    :score 2.9
+                    :label "site.src.components.header.Navigation"}]
+                  [{:path "site/src/pages/index.astro"
+                    :score 0.6
+                    :target-kind :node
+                    :result-kind :node
+                    :kind :web-framework-import
+                    :label "@components/home/Themes.astro"
+                    :source-line 10}
+                   {:path "site/src/components/home/Themes.astro"
+                    :score 0.6
+                    :target-kind :node
+                    :result-kind :node
+                    :kind :namespace
+                    :label "site.src.components.home.Themes"
+                    :source-line 1}
+                   {:path "site/src/pages/docs/[version]/examples/index.astro"
+                    :score 0.6
+                    :target-kind :node
+                    :result-kind :node
+                    :kind :web-framework-import
+                    :label "@layouts/partials/BsThemes.astro"
+                    :source-line 4}])]
+      (is (= ["site/src/pages/index.astro"
+              "site/src/pages/docs/[version]/examples/index.astro"
+              "site/src/components/home/Themes.astro"
+              "site/src/components/header/Navigation.astro"]
+             (->> ranked
+                  (map :path)
+                  (take 4)
+                  vec))))))
 
 (deftest candidate-input-ranking-does-not-bury-source-graph-after-long-prefix
   (let [results (mapv (fn [idx]

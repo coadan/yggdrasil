@@ -106,6 +106,15 @@
 (def ^:private source-graph-neighbor-candidate-limit
   40)
 
+(def ^:private source-graph-local-importer-seed-limit
+  160)
+
+(def ^:private source-graph-local-importer-label-limit
+  256)
+
+(def ^:private source-graph-local-importer-candidate-limit
+  40)
+
 (def ^:private source-graph-neighbor-kind-path-limit
   4)
 
@@ -136,6 +145,9 @@
 
 (def ^:private candidate-input-retrieval-prefix-limit
   12)
+
+(def ^:private candidate-input-source-declaration-prefix-limit
+  4)
 
 (def ^:private source-graph-candidate-min-score
   1.0)
@@ -1662,6 +1674,169 @@
          ::source-graph-result-kind :file
          ::source-graph-reason "query-matched file fact"))
 
+(defn- source-graph-dirname
+  [path]
+  (let [path (str path)
+        idx (.lastIndexOf path "/")]
+    (when (pos? idx)
+      (subs path 0 idx))))
+
+(defn- source-graph-pattern-prefix
+  [pattern]
+  (let [pattern (str pattern)]
+    (if-let [idx (str/index-of pattern "*")]
+      (subs pattern 0 idx)
+      pattern)))
+
+(defn- source-graph-alias-pattern
+  [alias-row]
+  (when-let [[_ source target]
+             (re-matches #"^(.+?)=(.+)$" (str (:label alias-row)))]
+    {:source source
+     :target target
+     :base-dir (or (source-graph-dirname (:path alias-row)) "")}))
+
+(defn- source-graph-relative-path
+  [base-dir path]
+  (let [path (str path)
+        base-dir (str base-dir)]
+    (cond
+      (str/blank? base-dir) path
+      (= path base-dir) ""
+      (str/starts-with? path (str base-dir "/")) (subs path (inc (count base-dir)))
+      :else nil)))
+
+(defn- source-graph-replace-star
+  [pattern suffix]
+  (let [pattern (str pattern)
+        suffix (str suffix)]
+    (if-let [idx (str/index-of pattern "*")]
+      (str (subs pattern 0 idx)
+           suffix
+           (subs pattern (inc idx)))
+      pattern)))
+
+(defn- source-graph-alias-import-label
+  [path {:keys [source target base-dir]}]
+  (when-let [relative-path (source-graph-relative-path base-dir path)]
+    (let [target-prefix (source-graph-pattern-prefix target)]
+      (when (or (= relative-path target-prefix)
+                (str/starts-with? relative-path target-prefix))
+        (let [suffix (subs relative-path
+                           (min (count relative-path)
+                                (count target-prefix)))]
+          (source-graph-replace-star source suffix))))))
+
+(defn- source-graph-local-import-labels
+  [alias-patterns path]
+  (->> alias-patterns
+       (keep #(source-graph-alias-import-label path %))
+       (remove str/blank?)
+       distinct))
+
+(defn- source-graph-local-import-seeds
+  [seed-candidates]
+  (->> seed-candidates
+       (filter #(= :node (:target-kind %)))
+       (filter :path)
+       (take source-graph-local-importer-seed-limit)))
+
+(defn- source-graph-local-import-label-seeds
+  [alias-patterns seed-candidates]
+  (let [prefer-seed (fn [existing seed]
+                      (if (or (nil? existing)
+                              (< (long (or (:rank seed) Long/MAX_VALUE))
+                                 (long (or (:rank existing) Long/MAX_VALUE))))
+                        seed
+                        existing))]
+    (->> (source-graph-local-import-seeds seed-candidates)
+         (reduce (fn [label-seeds seed]
+                   (reduce (fn [label-seeds label]
+                             (update label-seeds label prefer-seed seed))
+                           label-seeds
+                           (source-graph-local-import-labels alias-patterns
+                                                             (:path seed))))
+                 {})
+         (take source-graph-local-importer-label-limit)
+         (into {}))))
+
+(defn- source-graph-local-importer-support-labels
+  [seed import-node]
+  (->> [(:label seed)
+        (:path seed)
+        (:label import-node)]
+       (remove str/blank?)
+       distinct
+       (take 4)
+       vec))
+
+(defn- source-graph-local-importer-row
+  [seed import-node]
+  (when-let [path (not-empty (str (:path import-node)))]
+    (let [score (source-graph-neighbor-score seed {:relation :imports})
+          visible-score (source-graph-visible-score score)]
+      (cond-> {:path path
+               :rank (long (or (:rank seed) Long/MAX_VALUE))
+               :score visible-score
+               :target-kind :node
+               :target-id (:xt/id import-node)
+               :label (or (:label import-node) path)
+               :kind (:kind import-node)
+               :result-kind :node
+               :reason "local import alias source row"
+               :score-components {:sourceGraph visible-score}
+               :supportLabels (source-graph-local-importer-support-labels
+                               seed
+                               import-node)}
+        (:repo-id import-node) (assoc :repo-id (:repo-id import-node)
+                                      :repo (:repo-id import-node))
+        (:source-line import-node) (assoc :source-line (:source-line import-node))
+        (:end-line import-node) (assoc :end-line (:end-line import-node))))))
+
+(defn- source-graph-local-importer-key
+  [row]
+  [(or (:repo-id row) (:repo row)) (:path row) (:label row) (:source-line row)])
+
+(defn- source-graph-local-importer-candidates
+  [xtdb seed-candidates {:keys [project-id repo-id read-context] :as scope}]
+  (if-not (and (store/xtdb-handle? xtdb)
+               (map? xtdb))
+    []
+    (let [read-context (if (map? read-context) read-context {})
+          alias-patterns (->> (store/constrained-rows
+                               xtdb
+                               (:nodes store/tables)
+                               (assoc (source-graph-scope-constraints project-id repo-id)
+                                      :kind :module-path-alias
+                                      :active? true)
+                               read-context)
+                              (keep source-graph-alias-pattern)
+                              vec)
+          label-seeds (source-graph-local-import-label-seeds alias-patterns
+                                                             seed-candidates)
+          labels (vec (keys label-seeds))]
+      (if (or (empty? alias-patterns)
+              (empty? labels))
+        []
+        (->> (query/nodes-by-labels xtdb labels scope)
+             (filter active-row?)
+             (keep (fn [import-node]
+                     (when-let [seed (get label-seeds (:label import-node))]
+                       (source-graph-local-importer-row seed import-node))))
+             (reduce (fn [rows row]
+                       (update rows (source-graph-local-importer-key row)
+                               #(if (or (nil? %)
+                                        (< (long (:rank row))
+                                           (long (:rank %))))
+                                  row
+                                  %)))
+                     {})
+             vals
+             (sort-by (juxt :rank :repo-id :path :source-line :label))
+             (take source-graph-local-importer-candidate-limit)
+             (map-indexed #(assoc %2 :rank (inc %1)))
+             vec)))))
+
 (defn- source-graph-candidates
   [xtdb query-tokens {:keys [project-id repo-id read-context]}]
   (if-not (store/xtdb-handle? xtdb)
@@ -1686,6 +1861,9 @@
        (concat
         node-candidates
         (source-graph-neighbor-candidates xtdb matched-node-candidates scope)
+        (source-graph-local-importer-candidates xtdb
+                                                matched-node-candidates
+                                                scope)
         (ranked-source-graph-candidates query-tokens
                                         (store/rows-matching-any-token
                                          xtdb
@@ -1914,6 +2092,47 @@
     (or (first (str/split path #"/"))
         path)))
 
+(defn- source-graph-declaration-row?
+  [row]
+  (let [path (not-empty (str (:path row)))
+        label (not-empty (str (:label row)))
+        target-kind (:target-kind row)
+        result-kind (:result-kind row)
+        kind (:kind row)]
+    (and path
+         label
+         (:source-line row)
+         (not= :file target-kind)
+         (not= :file result-kind)
+         (not (contains? source-graph-non-declaration-kinds kind))
+         (not= label path))))
+
+(defn- source-graph-structural-declaration-row?
+  [row]
+  (when (source-graph-declaration-row? row)
+    (let [kind-name (some-> (:kind row) name)]
+      (boolean
+       (and kind-name
+            (or (str/ends-with? kind-name "-import")
+                (str/ends-with? kind-name "-route")
+                (str/ends-with? kind-name "-plugin")))))))
+
+(defn- source-declaration-prefix-candidate-inputs
+  [source-candidates]
+  (loop [remaining (seq source-candidates)
+         seen #{}
+         selected []]
+    (if (or (nil? remaining)
+            (<= candidate-input-source-declaration-prefix-limit
+                (count selected)))
+      selected
+      (let [row (first remaining)
+            k (candidate-input-path-key row)]
+        (if (and (source-graph-structural-declaration-row? row)
+                 (not (contains? seen k)))
+          (recur (next remaining) (conj seen k) (conj selected row))
+          (recur (next remaining) seen selected))))))
+
 (defn- retrieval-prefix-candidate-inputs
   [results]
   (loop [remaining (seq results)
@@ -1967,7 +2186,10 @@
                                                (+ (count results) idx)))
                                       source-candidates)
            prefix (retrieval-prefix-candidate-inputs indexed-results)
-           prefix-indexes (set (map ::candidate-input-index prefix))
+           source-prefix (source-declaration-prefix-candidate-inputs
+                          indexed-source-candidates)
+           prefix-indexes (set (map ::candidate-input-index
+                                    (concat prefix source-prefix)))
            query-token-set (set (distinct query-tokens))]
        (->> (concat indexed-results indexed-source-candidates)
             (remove #(contains? prefix-indexes (::candidate-input-index %)))
@@ -1980,23 +2202,8 @@
                %
                (set (map candidate-input-root prefix))))
             (reserve-query-matched-path-self-identity query-token-set)
-            (concat prefix)
+            (concat source-prefix prefix)
             (map #(dissoc % ::candidate-input-index)))))))
-
-(defn- source-graph-declaration-row?
-  [row]
-  (let [path (not-empty (str (:path row)))
-        label (not-empty (str (:label row)))
-        target-kind (:target-kind row)
-        result-kind (:result-kind row)
-        kind (:kind row)]
-    (and path
-         label
-         (:source-line row)
-         (not= :file target-kind)
-         (not= :file result-kind)
-         (not (contains? source-graph-non-declaration-kinds kind))
-         (not= label path))))
 
 (defn- source-graph-declaration-row
   [idx row]
