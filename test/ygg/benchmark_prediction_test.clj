@@ -100,6 +100,28 @@
     (is (= ["alpha/type.go" "pkg/detail.go" "pkg/pkg.go"]
            (subvec (mapv :path selected) 0 3)))))
 
+(deftest diversity-preserves-saturated-doc-supported-head
+  (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
+        row (fn [path rank rank-score]
+              {:path path
+               :rank rank
+               :metrics {:docCount 1
+                         :candidateFileCount 1
+                         :matchedTokenCount 7
+                         :sourceGraphCandidateEvidenceScore 0.8
+                         :rankScore rank-score
+                         :definitionKinds ["class"]}})
+        rows [(row "module/src/A.java" 1 30.0)
+              (row "module/src/B.java" 2 24.0)
+              (row "module/src/C.java" 3 18.0)
+              (row "other/src/D.java" 4 8.0)
+              (row "another/src/E.java" 5 7.0)]
+        diversified (diversify rows)]
+    (is (= ["module/src/A.java"
+            "module/src/B.java"
+            "module/src/C.java"]
+           (subvec (mapv :path diversified) 0 3)))))
+
 (deftest compact-output-keeps-wide-ranked-surface
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]

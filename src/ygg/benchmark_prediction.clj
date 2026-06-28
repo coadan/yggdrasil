@@ -262,6 +262,14 @@
   2)
 (def ^:private diversity-bypass-support-count-min
   2)
+(def ^:private diversity-preserved-head-max-files
+  5)
+(def ^:private diversity-preserved-head-score-ratio
+  0.55)
+(def ^:private diversity-preserved-head-token-min
+  5)
+(def ^:private diversity-preserved-head-source-score-min
+  0.4)
 (def ^:private diversity-bypass-candidate-identity-source-rank-window
   20)
 (def ^:private diversity-bypass-candidate-identity-support-min
@@ -2184,6 +2192,33 @@
   [row]
   (double (or (get-in row [:metrics :rankScore]) 0.0)))
 
+(defn- prediction-diversity-preserved-head-row?
+  [head-score row]
+  (let [doc-count (long (or (get-in row [:metrics :docCount]) 0))
+        candidate-file-count (long (or (get-in row [:metrics :candidateFileCount])
+                                       0))
+        matched-token-count (long (or (get-in row [:metrics :matchedTokenCount])
+                                      0))
+        source-score (double (or (get-in row
+                                         [:metrics
+                                          :sourceGraphCandidateEvidenceScore])
+                                 0.0))
+        rank-score (row-rank-score row)]
+    (and (pos? doc-count)
+         (pos? candidate-file-count)
+         (<= diversity-preserved-head-token-min matched-token-count)
+         (<= diversity-preserved-head-source-score-min source-score)
+         (<= (* diversity-preserved-head-score-ratio head-score)
+             rank-score))))
+
+(defn- prediction-diversity-preserved-head
+  [rows]
+  (let [head-score (row-rank-score (first rows))]
+    (->> rows
+         (take-while #(prediction-diversity-preserved-head-row? head-score %))
+         (take diversity-preserved-head-max-files)
+         vec)))
+
 (defn- first-rank-protected-index
   [rows]
   (->> rows
@@ -2197,14 +2232,25 @@
   (if (seq rows)
     (let [rows (vec rows)
           head-idx (or (first-rank-protected-index rows) 0)
-          head (nth rows head-idx)
-          remaining (vec (concat (subvec rows 0 head-idx)
-                                 (subvec rows (inc head-idx))))]
+          selected-head (if (zero? head-idx)
+                          (let [preserved-head
+                                (prediction-diversity-preserved-head rows)]
+                            (if (seq preserved-head)
+                              preserved-head
+                              [(first rows)]))
+                          [(nth rows head-idx)])
+          selected-head-count (if (zero? head-idx)
+                                (count selected-head)
+                                1)
+          remaining (if (zero? head-idx)
+                      (subvec rows selected-head-count)
+                      (vec (concat (subvec rows 0 head-idx)
+                                   (subvec rows (inc head-idx)))))]
       (loop [remaining remaining
-             seen (cond-> #{}
-                    (prediction-diversity-key head)
-                    (conj (prediction-diversity-key head)))
-             out [head]]
+             seen (->> selected-head
+                       (keep prediction-diversity-key)
+                       set)
+             out selected-head]
         (if (empty? remaining)
           (renumber-file-ranks out)
           (let [[idx row] (or (->> remaining
