@@ -258,6 +258,8 @@
   1.5)
 (def ^:private compact-output-retrieved-label-doc-sort-rank
   1.75)
+(def ^:private compact-output-retrieved-label-source-sort-rank
+  3.5)
 (def ^:private compact-output-identity-compound-source-sort-rank
   2.25)
 (def ^:private compact-result-command-limit
@@ -3172,10 +3174,10 @@
   [row]
   [(- (positive-metric row :matchedIdentityCompoundTokenPairCount))
    (- (positive-metric row :matchedCompoundTokenPairCount))
+   (- (positive-metric row :retrievedSupportLabelCount))
    (- (positive-metric row :matchedTokenCount))
    (- (row-metric-double row :candidateGrepScore))
    (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
-   (- (positive-metric row :retrievedSupportLabelCount))
    (- (row-rank-score row))
    (:rank row)
    (:repo-id row)
@@ -3321,7 +3323,8 @@
        (#(when %
            (assoc % ::compact-output-sort-rank
                   (double (min (long (or (:rank %) Long/MAX_VALUE))
-                               (row-candidate-source-rank %))))))))
+                               (row-candidate-source-rank %)
+                               compact-output-retrieved-label-source-sort-rank)))))))
 
 (defn- compact-output-directory-counts
   [rows]
@@ -3711,12 +3714,12 @@
                                   (take head-count files))))
              selected (add-compact-output-row
                        selected
-                       (compact-output-retrieved-supported-row
+                       (compact-output-retrieved-label-doc-row
                         files
                         (:keys selected)))
              selected (add-compact-output-row
                        selected
-                       (compact-output-retrieved-label-doc-row
+                       (compact-output-retrieved-supported-row
                         files
                         (:keys selected)))
              selected (add-compact-output-row

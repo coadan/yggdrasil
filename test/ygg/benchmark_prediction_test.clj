@@ -177,3 +177,121 @@
            narrow-paths))
     (is (= 20 (count wide-paths)))
     (is (= "late-source.go" (last wide-paths)))))
+
+(deftest compact-output-anchors-repeated-label-source-candidate
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/unit/adapters/http.test.js"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedTokenCount 9
+                     :sourceGraphCandidateEvidenceScore 0.63
+                     :rankScore 14.0})
+               (row "tests/unit/adapters/fetch.test.js"
+                    2
+                    {:candidateFileCount 1
+                     :matchedTokenCount 8
+                     :sourceGraphCandidateEvidenceScore 0.58
+                     :candidateGrepScore 0.39
+                     :rankScore 13.0})
+               (row "tests/unit/axios.test.js"
+                    3
+                    {:candidateFileCount 1
+                     :matchedTokenCount 7
+                     :sourceGraphCandidateEvidenceScore 0.59
+                     :candidateGrepScore 0.1
+                     :rankScore 12.0})
+               (row "tests/unit/helpers/isAxiosError.test.js"
+                    4
+                    {:candidateFileCount 1
+                     :matchedTokenCount 5
+                     :sourceGraphCandidateEvidenceScore 0.58
+                     :candidateGrepScore 0.1
+                     :rankScore 11.0})
+               (row "tests/unit/core/AxiosError.test.js"
+                    5
+                    {:candidateFileCount 1
+                     :matchedTokenCount 6
+                     :sourceGraphCandidateEvidenceScore 0.60
+                     :candidateGrepScore 0.07
+                     :rankScore 8.0})
+               (row "lib/adapters/http.js"
+                    6
+                    {:candidateFileCount 1
+                     :candidateSourceRank 69
+                     :matchedTokenCount 2
+                     :sourceGraphCandidateEvidenceScore 0.53
+                     :candidateGrepScore 0.32
+                     :retrievedSupportLabelCount 3
+                     :rankScore 10.0})]
+        selected-paths (mapv :path (compact-output files 20 nil))]
+    (is (some #{"lib/adapters/http.js"} (take 5 selected-paths)))))
+
+(deftest compact-output-prefers-repeated-label-doc-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/unit/adapters/http.test.js"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSupportLabelCount 1
+                     :matchedTokenCount 9
+                     :sourceGraphCandidateEvidenceScore 0.63
+                     :candidateGrepScore 0.90
+                     :rankScore 14.0})
+               (row "tests/unit/adapters/fetch.test.js"
+                    2
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSupportLabelCount 1
+                     :matchedTokenCount 8
+                     :sourceGraphCandidateEvidenceScore 0.58
+                     :candidateGrepScore 0.39
+                     :rankScore 13.0})
+               (row "tests/unit/axios.test.js"
+                    3
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSupportLabelCount 1
+                     :matchedTokenCount 7
+                     :sourceGraphCandidateEvidenceScore 0.59
+                     :candidateGrepScore 0.1
+                     :rankScore 12.0})
+               (row "tests/unit/helpers/isAxiosError.test.js"
+                    4
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSupportLabelCount 1
+                     :matchedTokenCount 5
+                     :sourceGraphCandidateEvidenceScore 0.58
+                     :candidateGrepScore 0.1
+                     :rankScore 11.0})
+               (row "tests/unit/core/AxiosError.test.js"
+                    5
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSupportLabelCount 1
+                     :matchedTokenCount 6
+                     :sourceGraphCandidateEvidenceScore 0.60
+                     :candidateGrepScore 0.07
+                     :rankScore 8.0})
+               (row "lib/adapters/http.js"
+                    6
+                    {:docCount 2
+                     :candidateFileCount 1
+                     :candidateSourceRank 69
+                     :retrievedSourceCount 2
+                     :retrievedSupportLabelCount 3
+                     :matchedTokenCount 2
+                     :sourceGraphCandidateEvidenceScore 0.53
+                     :candidateGrepScore 0.32
+                     :rankScore 10.0})]
+        selected-paths (mapv :path (compact-output files 20 nil))]
+    (is (some #{"lib/adapters/http.js"} (take 5 selected-paths)))))
