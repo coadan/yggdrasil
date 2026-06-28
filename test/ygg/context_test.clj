@@ -2425,6 +2425,50 @@
            (mapv #(dissoc % :score) rows)))
     (is (< 1.0 (:score (first rows))))))
 
+(deftest dependency-evidence-includes-query-matched-package-declarations
+  (let [dependency-report (assoc (empty-dependency-report)
+                                 :packages
+                                 [{:id "node:pkg:astro"
+                                   :repo-id "app"
+                                   :package-name "astro"
+                                   :label "npm:astro"
+                                   :ecosystem :npm
+                                   :declared-by [{:id "node:manifest:package"
+                                                  :path "package.json"
+                                                  :line 42
+                                                  :repo-id "app"
+                                                  :dependency-scope :dev}]}
+                                  {:id "node:pkg:noise"
+                                   :repo-id "app"
+                                   :package-name "noise"
+                                   :label "npm:noise"
+                                   :ecosystem :npm
+                                   :declared-by [{:id "node:manifest:package"
+                                                  :path "package.json"
+                                                  :line 43
+                                                  :repo-id "app"}]}])
+        rows (#'context-architecture/dependency-report-evidence
+              ["astro" "docs"]
+              [{:path "package.json"
+                :repo "app"}]
+              []
+              []
+              dependency-report)]
+    (is (= [{:kind "declared-package"
+             :id "node:pkg:astro:declared:package.json:42"
+             :packageId "node:pkg:astro"
+             :package "astro"
+             :label "npm:astro"
+             :candidateLabel "npm:astro"
+             :ecosystem "npm"
+             :relation "declares-package"
+             :path "package.json"
+             :sourceLine 42
+             :repo "app"
+             :dependencyScope "dev"}]
+           (mapv #(dissoc % :score) rows)))
+    (is (< 0.75 (:score (first rows))))))
+
 (deftest dependency-report-evidence-normalizes-query-tokens-once
   (let [dependency-report (assoc (empty-dependency-report)
                                  :packages
@@ -2693,6 +2737,41 @@
                :scoreComponents {:lexical 0.2
                                  :graph 0.6}}]
              (:candidateFiles packet))))))
+
+(deftest candidate-files-prioritize-duplicate-primary-labels-before-support-labels
+  (let [rows (#'context/candidate-files
+              [{:path "package.json"
+                :rank 1
+                :score 0.9
+                :target-kind :node
+                :label "bootstrap"
+                :kind :manifest
+                :source-line 1
+                :supportLabels ["docs-serve=npm run astro-dev"
+                                "docs-build=npm run astro-build"
+                                "astro-dev"
+                                "astro-build"]}
+               {:path "package.json"
+                :rank 8
+                :score 0.6
+                :target-kind :node
+                :label "npm:astro"
+                :kind :external-package
+                :source-line 42
+                :supportLabels ["declared-package"
+                                "declares-package"]}])]
+    (is (= [{:path "package.json"
+             :rank 1
+             :score 0.9
+             :targetKind "node"
+             :label "bootstrap"
+             :kind "manifest"
+             :sourceLine 1
+             :supportLabels ["npm:astro"
+                             "docs-serve=npm run astro-dev"
+                             "docs-build=npm run astro-build"
+                             "astro-dev"]}]
+           rows))))
 
 (deftest candidate-files-expand-indexed-same-stem-siblings
   (with-redefs [store/xtdb-handle? (constantly true)

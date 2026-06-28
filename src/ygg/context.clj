@@ -1124,21 +1124,27 @@
                               (-> state
                                   (update :seen conj label)
                                   (update :labels conj label))))
+        add-candidate-primary-label (fn [state candidate]
+                                      (let [label (not-empty (str (:label candidate)))]
+                                        (cond-> state
+                                          (and label (:sourceLine candidate))
+                                          (add-support-label label))))
         add-candidate-support-labels (fn [state candidate]
-                                       (let [label (not-empty (str (:label candidate)))
-                                             state (cond-> state
-                                                     (and label (:sourceLine candidate))
-                                                     (add-support-label label))]
-                                         (reduce add-support-label
-                                                 state
-                                                 (:supportLabels candidate))))
+                                       (reduce add-support-label
+                                               state
+                                               (:supportLabels candidate)))
         merged-support-labels (fn [primary-label earlier later]
                                 (:labels
-                                 (reduce add-candidate-support-labels
-                                         {:primary-label primary-label
-                                          :seen #{}
-                                          :labels []}
-                                         [earlier later])))
+                                 (let [candidates [earlier later]]
+                                   (-> (reduce add-candidate-primary-label
+                                               {:primary-label primary-label
+                                                :seen #{}
+                                                :labels []}
+                                               candidates)
+                                       (as-> state
+                                             (reduce add-candidate-support-labels
+                                                     state
+                                                     candidates))))))
         max-components (fn [a b]
                          (merge-with #(max (double (or %1 0.0))
                                            (double (or %2 0.0)))
@@ -1213,16 +1219,18 @@
 
 (defn- architecture-candidate-label
   [row]
-  (compact (:kind row)
-           (:fileKind row)
-           (:file-kind row)
-           (:label row)
-           (:normalizedValue row)
-           (:normalized-value row)
-           (:package row)
-           (:import row)
-           (:importName row)
-           (:relation row)))
+  (or (:candidateLabel row)
+      (:candidate-label row)
+      (compact (:kind row)
+               (:fileKind row)
+               (:file-kind row)
+               (:label row)
+               (:normalizedValue row)
+               (:normalized-value row)
+               (:package row)
+               (:import row)
+               (:importName row)
+               (:relation row))))
 
 (defn- architecture-candidate-kind
   [row]

@@ -989,6 +989,55 @@
                 (:import-name source) (assoc :importName (:import-name source))
                 (:resolution-source source) (assoc :resolutionSource (display-name (:resolution-source source))))))
           sources)))
+(def ^:private package-declaration-source-limit
+  4)
+(defn- package-declaration-source-score
+  [query-tokens package source]
+  (dependency-token-score query-tokens
+                          (assoc package
+                                 :kind "declared-package"
+                                 :path (:path source))))
+(defn- package-declaration-sources
+  [selection query-tokens package]
+  (when (dependency-query-match? query-tokens package)
+    (->> (:declared-by package)
+         (map (fn [source]
+                (assoc source
+                       :source-selected? (source-path-selected? selection source)
+                       :source-score (package-declaration-source-score query-tokens
+                                                                       package
+                                                                       source))))
+         (sort-by (juxt (comp not :source-selected?)
+                        (comp - #(double (or (:source-score %) 0.0)))
+                        :path
+                        :line))
+         (take package-declaration-source-limit)
+         vec)))
+(defn- package-declaration-evidence-rows
+  [selection query-tokens package]
+  (let [sources (package-declaration-sources selection query-tokens package)]
+    (mapv (fn [source]
+            (let [repo (or (source-repo source)
+                           (package-repo package))]
+              (cond-> {:kind "declared-package"
+                       :id (str (:id package) ":declared:" (:path source) ":" (:line source))
+                       :packageId (:id package)
+                       :package (:package-name package)
+                       :label (:label package)
+                       :candidateLabel (:label package)
+                       :ecosystem (display-name (:ecosystem package))
+                       :relation "declares-package"
+                       :path (:path source)
+                       :sourceLine (:line source)
+                       :score (+ 0.75
+                                 (* 0.25
+                                    (:source-score source)))}
+                repo (assoc :repo (s repo))
+                (:dependency-scope source)
+                (assoc :dependencyScope (display-name (:dependency-scope source)))
+                (:version-range source)
+                (assoc :versionRange (:version-range source)))))
+          sources)))
 (defn- unresolved-import-evidence-row
   [selection query-tokens row]
   (when (source-path-selected? selection row)
@@ -1065,6 +1114,8 @@
                               (:packages dependency-report))]
      (->> (concat
            (mapcat #(package-import-evidence-rows selection query-tokens %)
+                   (:packages dependency-report))
+           (mapcat #(package-declaration-evidence-rows selection query-tokens %)
                    (:packages dependency-report))
            (keep #(unresolved-import-evidence-row selection query-tokens %)
                  (:unresolved-imports dependency-report))
