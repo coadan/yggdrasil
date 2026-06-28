@@ -2,7 +2,8 @@
   (:require [ygg.embedding-client :as embedding-client]
             [ygg.embedding.openrouter :as openrouter]
             [ygg.env :as env]
-            [clojure.test :refer [deftest is]]))
+            [clojure.test :refer [deftest is]])
+  (:import [java.util.concurrent CompletableFuture]))
 
 (defn- env-values
   [values]
@@ -56,6 +57,17 @@
               :request-timeout-ms 9000
               :max-retries 0}
              (:opts client))))))
+
+(deftest openrouter-await-response-enforces-hard-timeout
+  (let [response-future (CompletableFuture.)]
+    (try
+      (#'openrouter/await-response! response-future 20)
+      (is false "Expected OpenRouter response wait to time out.")
+      (catch clojure.lang.ExceptionInfo ex
+        (is (re-find #"timed out" (ex-message ex)))
+        (is (= {:provider :openrouter
+                :request-timeout-ms 20}
+               (ex-data ex)))))))
 
 (deftest configured-query-client-passes-remote-provider-options
   (with-redefs [env/get-env (env-values {"YGG_OPENROUTER_API_KEY" "openrouter-key"})

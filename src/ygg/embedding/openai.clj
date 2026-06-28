@@ -5,7 +5,8 @@
   (:import [java.net URI]
            [java.net.http HttpClient HttpRequest HttpRequest$BodyPublishers
             HttpResponse$BodyHandlers]
-           [java.time Duration]))
+           [java.time Duration]
+           [java.util.concurrent CompletionException TimeUnit TimeoutException]))
 
 (def default-base-url "https://api.openai.com/v1")
 (def default-model "text-embedding-3-small")
@@ -46,6 +47,30 @@
   [attempt]
   (Thread/sleep (long (min 8000 (* 500 (Math/pow 2 attempt))))))
 
+(defn- await-response!
+  [response-future request-timeout-ms]
+  (try
+    (-> response-future
+        (.orTimeout (long request-timeout-ms) TimeUnit/MILLISECONDS)
+        (.join))
+    (catch CompletionException ex
+      (let [cause (.getCause ex)]
+        (if (instance? TimeoutException cause)
+          (throw (ex-info "OpenAI embeddings request timed out."
+                          {:provider :openai
+                           :request-timeout-ms (long request-timeout-ms)}
+                          cause))
+          (throw (ex-info "OpenAI embeddings request failed before response."
+                          {:provider :openai
+                           :request-timeout-ms (long request-timeout-ms)}
+                          (or cause ex))))))))
+
+(defn- send-request!
+  [client request request-timeout-ms]
+  (await-response!
+   (.sendAsync client request (HttpResponse$BodyHandlers/ofString))
+   request-timeout-ms))
+
 (defn embed-batch
   "Return embedding vectors for input strings using OpenAI embeddings."
   [{:keys [api-key base-url model http-client max-retries request-timeout-ms]
@@ -69,22 +94,34 @@
                               (request-body model inputs)))
                       (.build)))]
     (loop [attempt 0]
-      (let [response (.send client (request) (HttpResponse$BodyHandlers/ofString))
-            status (.statusCode response)
-            body (.body response)]
-        (cond
-          (<= 200 status 299)
-          (embedding-data body)
+      (let [{:keys [response error]} (try
+                                       {:response (send-request!
+                                                   client
+                                                   (request)
+                                                   request-timeout-ms)}
+                                       (catch Exception ex
+                                         {:error ex}))]
+        (if error
+          (if (< attempt max-retries)
+            (do
+              (sleep-backoff! attempt)
+              (recur (inc attempt)))
+            (throw error))
+          (let [status (.statusCode response)
+                body (.body response)]
+            (cond
+              (<= 200 status 299)
+              (embedding-data body)
 
-          (and (retryable-status? status) (< attempt max-retries))
-          (do
-            (sleep-backoff! attempt)
-            (recur (inc attempt)))
+              (and (retryable-status? status) (< attempt max-retries))
+              (do
+                (sleep-backoff! attempt)
+                (recur (inc attempt)))
 
-          :else
-          (throw (ex-info "OpenAI embeddings request failed."
-                          {:status status
-                           :body-preview (preview-body body)})))))))
+              :else
+              (throw (ex-info "OpenAI embeddings request failed."
+                              {:status status
+                               :body-preview (preview-body body)})))))))))
 
 (defn client
   "Return an OpenAI embedding client map."
