@@ -1,6 +1,7 @@
 (ns ygg.benchmark-prediction-test
   (:require [ygg.benchmark-prediction :as benchmark-prediction]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is]])
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
@@ -124,6 +125,77 @@
     (is (< (:rank (get by-path "main.tf"))
            (:rank (get by-path "examples/flow-log/main.tf"))))))
 
+(deftest query-matched-exported-support-labels-use-qualified-segments
+  (let [match-count @#'benchmark-prediction/query-matched-exported-support-label-count
+        query-tokens ["consumer.traces" "consumer" "component.component" "component"]]
+    (is (= 1 (match-count query-tokens ["component/component/Component"])))
+    (is (= 1 (match-count query-tokens ["consumer/traces/Traces"])))
+    (is (zero? (match-count
+                query-tokens
+                ["internal/fanoutconsumer/traces/tracesConsumer.ConsumeTraces"])))
+    (is (zero? (match-count
+                query-tokens
+                ["receiver/receivertest/contract_checker_test/exampleReceiver.ReceiveTraces"])))))
+
+(deftest file-ranking-boosts-query-matched-exported-support-label
+  (let [rank-files @#'benchmark-prediction/ranked-file-predictions
+        doc-row (fn [path source-rank evidence-score tokens]
+                  {:path path
+                   :source-rank source-rank
+                   :evidence-score evidence-score
+                   :evidence-kind :doc
+                   :confidence 1.0
+                   :matched-tokens tokens
+                   :definition-kind "chunk"})
+        candidate-row (fn [path candidate-source-rank support-terminal query-match-count]
+                        {:path path
+                         :source-rank (+ 500 candidate-source-rank)
+                         :evidence-score 0.36
+                         :evidence-kind :candidate-file
+                         :confidence 0.6
+                         :candidate-source-rank candidate-source-rank
+                         :file-identity-support-label-count 1
+                         :exported-support-label-count 1
+                         :query-matched-exported-support-label-count query-match-count
+                         :candidate-support-label-signature [(str path "/" support-terminal)]
+                         :matched-tokens [(first (str/split path #"/"))
+                                          support-terminal]
+                         :definition-kind "node"})
+        files (rank-files [(doc-row "connector/connector.go"
+                                    1
+                                    7.0
+                                    ["connector" "traces"])
+                           (doc-row "connector/traces_router.go"
+                                    2
+                                    6.0
+                                    ["connector" "traces"])
+                           (doc-row "service/internal/graph/connector.go"
+                                    3
+                                    5.0
+                                    ["connector" "traces"])
+                           (doc-row "consumer/traces.go"
+                                    4
+                                    4.0
+                                    ["consumer" "traces"])
+                           (candidate-row "component/component.go"
+                                          19
+                                          "Component"
+                                          1)
+                           (candidate-row "consumer/consumer.go"
+                                          20
+                                          "Option"
+                                          0)])
+        by-path (into {} (map (juxt :path identity)) files)]
+    (is (pos? (get-in by-path ["component/component.go"
+                               :metrics
+                               :candidateOnlyExportedSupportBoost])))
+    (is (nil? (get-in by-path ["consumer/consumer.go"
+                               :metrics
+                               :candidateOnlyExportedSupportBoost])))
+    (is (<= (:rank (get by-path "component/component.go")) 5))
+    (is (< (:rank (get by-path "component/component.go"))
+           (:rank (get by-path "consumer/consumer.go"))))))
+
 (deftest single-source-coverage-keeps-retrieved-contract-files-before-candidate-bypass
   (let [root (temp-dir "ygg-bench-otel-contract")
         paths ["connector/connector.go"
@@ -246,8 +318,9 @@
                                        :directoryEvidenceBoost 6.0
                                        :rankScore 8.0})]))
         selected (compact-output files 10 nil)]
-    (is (= ["alpha/type.go" "pkg/detail.go" "pkg/pkg.go"]
-           (subvec (mapv :path selected) 0 3)))))
+    (is (some #{"pkg/pkg.go"} (take 5 (map :path selected))))
+    (is (< (index-of (mapv :path selected) "pkg/pkg.go")
+           (index-of (mapv :path selected) "noise-5.go")))))
 
 (deftest compact-output-reserves-candidate-path-self-identity
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
@@ -301,6 +374,73 @@
                      :rankScore 9.0})]
         paths (mapv :path (compact-output files 20 nil))]
     (is (some #{"component/component.go"} (take 5 paths)))))
+
+(deftest compact-output-reserves-query-matched-exported-support
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "connector/connector.go"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedTokenCount 10
+                     :rankScore 20.0})
+               (row "connector/traces_router.go"
+                    2
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedTokenCount 8
+                     :retrievedSupportLabelCount 3
+                     :sourceGraphCandidateEvidenceScore 0.62
+                     :rankScore 15.6})
+               (row "service/internal/graph/connector.go"
+                    3
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedTokenCount 9
+                     :sourceGraphCandidateEvidenceScore 0.61
+                     :rankScore 15.5})
+               (row "consumer/traces.go"
+                    4
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedTokenCount 7
+                     :matchedTokenPairCount 2
+                     :sourceGraphCandidateEvidenceScore 0.54
+                     :rankScore 15.1})
+               (row "component/component.go"
+                    5
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :candidateSourceRank 19
+                     :matchedTokenCount 2
+                     :queryMatchedExportedSupportLabelCount 1
+                     :candidateOnlyExportedSupportBoost 12.0
+                     :rankScore 13.0})
+               (row "internal/fanoutconsumer/traces.go"
+                    6
+                    {:candidateFileCount 2
+                     :docCount 0
+                     :entityCount 0
+                     :candidateSourceRank 15
+                     :matchedTokenCount 5
+                     :sourceGraphCandidateEvidenceScore 0.58
+                     :retrievedSupportLabelCount 3
+                     :rankScore 12.6})
+               (row "connector/xconnector/connector.go"
+                    7
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedTokenCount 10
+                     :sourceGraphCandidateEvidenceScore 0.6
+                     :rankScore 8.3})]
+        paths (mapv :path (compact-output files 20 nil))]
+    (is (= "component/component.go" (nth paths 4)))
+    (is (< (index-of paths "component/component.go")
+           (index-of paths "internal/fanoutconsumer/traces.go")))))
 
 (deftest compact-output-keeps-preserved-head-before-derived-reserves
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files

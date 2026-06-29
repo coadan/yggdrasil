@@ -234,6 +234,14 @@
   9.0)
 (def ^:private candidate-only-source-graph-head-step
   1.0)
+(def ^:private candidate-only-exported-support-rank-window
+  25)
+(def ^:private candidate-only-exported-support-token-min
+  2)
+(def ^:private candidate-only-exported-support-graph-min
+  0.3)
+(def ^:private candidate-only-exported-support-boost-value
+  12.0)
 (def ^:private unsaturated-decision-tail-min-files
   3)
 (def ^:private unsaturated-decision-tail-score-ratio
@@ -277,7 +285,9 @@
 (def ^:private compact-output-doc-supported-sort-rank
   1.5)
 (def ^:private compact-output-retrieved-label-doc-sort-rank
-  1.75)
+  1.45)
+(def ^:private compact-output-directory-evidence-candidate-sort-rank
+  1.48)
 (def ^:private compact-output-query-evidence-doc-sort-rank
   2.5)
 (def ^:private compact-output-retrieved-path-self-identity-sort-rank
@@ -291,6 +301,10 @@
 (def ^:private compact-output-candidate-path-self-identity-sort-rank
   0.5)
 (def ^:private compact-output-candidate-path-self-identity-limit
+  2)
+(def ^:private compact-output-query-matched-exported-support-sort-rank
+  0.55)
+(def ^:private compact-output-query-matched-exported-support-limit
   2)
 (def ^:private compact-output-retrieved-label-source-sort-rank
   3.5)
@@ -505,6 +519,29 @@
 (defn- exported-support-label-count
   [support-labels]
   (count (filter exported-support-label? support-labels)))
+(defn- qualified-query-token-pairs
+  [query-tokens]
+  (->> query-tokens
+       (keep (fn [token]
+               (let [parts (->> (str/split (str token) #"\.")
+                                (keep compact-identity)
+                                vec)]
+                 (when (<= 2 (count parts))
+                   (subvec parts 0 2)))))
+       set))
+(defn- support-label-segment-pairs
+  [value]
+  (->> (str/split (str value) #"[/.]")
+       (keep compact-identity)
+       ordered-token-pairs))
+(defn- query-matched-exported-support-label-count
+  [query-tokens support-labels]
+  (let [query-pairs (qualified-query-token-pairs query-tokens)]
+    (->> support-labels
+         (filter exported-support-label?)
+         (mapcat #(set/intersection query-pairs (support-label-segment-pairs %)))
+         distinct
+         count)))
 (defn- normalized-support-label
   [value]
   (some-> value str str/trim str/lower-case not-empty))
@@ -754,6 +791,27 @@
          (- candidate-only-source-graph-head-max
             (* candidate-only-source-graph-head-step
                (dec (long candidate-source-rank)))))
+    0.0))
+(defn- candidate-only-exported-support-boost
+  [doc-count
+   candidate-count
+   candidate-source-rank
+   source-graph-candidate-evidence-score
+   file-identity-support-label-count
+   query-matched-exported-support-label-count
+   matched-token-count]
+  (if (and (zero? (long doc-count))
+           (pos? (long candidate-count))
+           (pos? (long (or candidate-source-rank 0)))
+           (<= (long candidate-source-rank)
+               candidate-only-exported-support-rank-window)
+           (<= candidate-only-exported-support-graph-min
+               (double source-graph-candidate-evidence-score))
+           (pos? (long file-identity-support-label-count))
+           (pos? (long query-matched-exported-support-label-count))
+           (<= candidate-only-exported-support-token-min
+               (long matched-token-count)))
+    candidate-only-exported-support-boost-value
     0.0))
 (defn- graph-neighbor-boost
   [doc-count graph-score evidence-score]
@@ -1187,6 +1245,9 @@
                                                support-labels)
             exported-support-label-count (exported-support-label-count
                                           support-labels)
+            query-matched-exported-support-label-count
+            (query-matched-exported-support-label-count query-tokens
+                                                        support-labels)
             exported-support-label-signature (exported-support-label-signature
                                               support-labels)
             retrieved-support-label-count (retrieved-support-label-count
@@ -1242,6 +1303,8 @@
                  :file-identity-support-label-count file-identity-support-label-count
                  :candidate-support-label-signature exported-support-label-signature
                  :exported-support-label-count exported-support-label-count
+                 :query-matched-exported-support-label-count
+                 query-matched-exported-support-label-count
                  :retrieved-support-label-count retrieved-support-label-count
                  :candidate-support-label-count (count support-labels)
                  :matched-identity-compound-token-span-length
@@ -1319,6 +1382,9 @@
                                            support-labels)
         exported-support-label-count (exported-support-label-count
                                       support-labels)
+        query-matched-exported-support-label-count
+        (query-matched-exported-support-label-count query-tokens
+                                                    support-labels)
         exported-support-label-signature (exported-support-label-signature
                                           support-labels)
         retrieved-support-label-count (retrieved-support-label-count
@@ -1368,6 +1434,8 @@
              :file-identity-support-label-count file-identity-support-label-count
              :candidate-support-label-signature exported-support-label-signature
              :exported-support-label-count exported-support-label-count
+             :query-matched-exported-support-label-count
+             query-matched-exported-support-label-count
              :retrieved-support-label-count retrieved-support-label-count
              :candidate-support-label-count (count support-labels)
              :matched-identity-compound-token-span-length
@@ -1848,6 +1916,11 @@
                                     0
                                     (keep :exported-support-label-count
                                           ordered))
+                             query-matched-exported-support-label-count
+                             (apply max
+                                    0
+                                    (keep :query-matched-exported-support-label-count
+                                          ordered))
                              retrieved-support-label-count
                              (apply max
                                     0
@@ -1930,6 +2003,15 @@
                               candidate-source-rank
                               doc-count
                               graph-neighbor-score
+                              (count matched-tokens))
+                             candidate-only-exported-support-boost
+                             (candidate-only-exported-support-boost
+                              doc-count
+                              candidate-count
+                              candidate-source-rank
+                              source-graph-candidate-evidence-score
+                              file-identity-support-label-count
+                              query-matched-exported-support-label-count
                               (count matched-tokens))
                              doc-supported-source-graph-head-boost
                              (doc-supported-source-graph-head-boost
@@ -2113,7 +2195,8 @@
                                            direct-file-identity-support-boost
                                            candidate-file-identity-support-boost
                                            retrieved-support-label-boost
-                                           candidate-only-source-graph-head-boost)
+                                           candidate-only-source-graph-head-boost
+                                           candidate-only-exported-support-boost)
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
                                               :supportCount support-count
                                               :docCount doc-count
@@ -2196,6 +2279,9 @@
                                        (pos? exported-support-label-count)
                                        (assoc :candidateExportedSupportLabelCount
                                               exported-support-label-count)
+                                       (pos? query-matched-exported-support-label-count)
+                                       (assoc :queryMatchedExportedSupportLabelCount
+                                              query-matched-exported-support-label-count)
                                        (pos? direct-file-identity-support-boost)
                                        (assoc :directFileIdentitySupportBoost
                                               direct-file-identity-support-boost)
@@ -2213,6 +2299,9 @@
                                        (pos? candidate-only-source-graph-head-boost)
                                        (assoc :candidateOnlySourceGraphHeadBoost
                                               candidate-only-source-graph-head-boost)
+                                       (pos? candidate-only-exported-support-boost)
+                                       (assoc :candidateOnlyExportedSupportBoost
+                                              candidate-only-exported-support-boost)
                                        (pos? graph-neighbor-score)
                                        (assoc :graphNeighborScore graph-neighbor-score)
                                        (pos? graph-neighbor-boost)
@@ -3485,6 +3574,33 @@
                              (+ compact-output-candidate-path-self-identity-sort-rank
                                 idx))))))
 
+(defn- compact-output-query-matched-exported-support-row?
+  [row]
+  (and (candidate-file-only-row? row)
+       (pos? (positive-metric row :queryMatchedExportedSupportLabelCount))
+       (pos? (row-metric-double row :candidateOnlyExportedSupportBoost))))
+
+(defn- compact-output-query-matched-exported-support-key
+  [row]
+  [(row-candidate-source-rank row)
+   (- (row-metric-double row :candidateOnlyExportedSupportBoost))
+   (- (row-rank-score row))
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-query-matched-exported-support-rows
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (compact-output-query-matched-exported-support-row? %)))
+       (sort-by compact-output-query-matched-exported-support-key)
+       (take compact-output-query-matched-exported-support-limit)
+       (map-indexed (fn [idx row]
+                      (assoc row ::compact-output-sort-rank
+                             (+ compact-output-query-matched-exported-support-sort-rank
+                                idx))))))
+
 (defn- path-directory
   [path]
   (let [path (str path)
@@ -3781,9 +3897,10 @@
        first
        (#(when %
            (assoc % ::compact-output-sort-rank
-                  (compact-output-co-located-sort-rank files
-                                                       selected-rows
-                                                       %))))))
+                  (min compact-output-directory-evidence-candidate-sort-rank
+                       (compact-output-co-located-sort-rank files
+                                                            selected-rows
+                                                            %)))))))
 
 (defn- add-compact-output-row
   [selected row]
@@ -3818,6 +3935,7 @@
       (compact-output-retrieved-path-self-identity-row? row)
       (compact-output-retrieved-path-query-token-row? row)
       (compact-output-candidate-path-self-identity-row? row)
+      (compact-output-query-matched-exported-support-row? row)
       (compact-output-retrieved-label-source-row? row)
       (compact-output-doc-identity-row? row)
       (compact-output-early-source-graph-row? row)
@@ -4019,6 +4137,11 @@
              selected (reduce add-compact-output-row
                               selected
                               (compact-output-candidate-path-self-identity-rows
+                               files
+                               (:keys selected)))
+             selected (reduce add-compact-output-row
+                              selected
+                              (compact-output-query-matched-exported-support-rows
                                files
                                (:keys selected)))
              selected (add-compact-output-row
