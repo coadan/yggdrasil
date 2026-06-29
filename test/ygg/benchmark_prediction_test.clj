@@ -137,6 +137,65 @@
                 query-tokens
                 ["receiver/receivertest/contract_checker_test/exampleReceiver.ReceiveTraces"])))))
 
+(deftest file-ranking-boosts-exact-retrieved-query-file-identities
+  (let [identity-matches @#'benchmark-prediction/query-file-identity-matches
+        rank-files @#'benchmark-prediction/ranked-file-predictions
+        query-tokens ["jupitertestengine"
+                      "jupiterengineexecutioncontext"
+                      "jupiterenginedescriptor"
+                      "jupiter"
+                      "engine"
+                      "execution"
+                      "context"
+                      "descriptor"]
+        target-paths ["junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/JupiterTestEngine.java"
+                      "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/execution/JupiterEngineExecutionContext.java"
+                      "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/descriptor/JupiterEngineDescriptor.java"]
+        doc-row (fn [path source-rank identity-count]
+                  {:path path
+                   :source-rank source-rank
+                   :evidence-score 2.0
+                   :evidence-kind :doc
+                   :retrieved-source? true
+                   :confidence 0.8
+                   :matched-tokens ["jupiter" "engine"]
+                   :query-matched-file-identity-count identity-count
+                   :definition-kind "class"})
+        candidate-row (fn [idx score]
+                        {:path (str "noise/Candidate" idx ".java")
+                         :source-rank idx
+                         :candidate-source-rank (+ 30 idx)
+                         :evidence-score score
+                         :evidence-kind :candidate-file
+                         :confidence 0.8
+                         :matched-tokens ["jupiter" "engine"]
+                         :definition-kind "class"})
+        test-context-path "jupiter-tests/src/test/java/org/junit/jupiter/engine/execution/JupiterEngineExecutionContextTests.java"
+        files (rank-files (concat
+                           (map-indexed (fn [idx path]
+                                          (doc-row path (+ 30 idx) 1))
+                                        target-paths)
+                           [(doc-row test-context-path 33 0)]
+                           (map-indexed (fn [idx score]
+                                          (candidate-row (inc idx) score))
+                                        [13.0 12.8 12.6 12.4 12.2])))
+        by-path (into {} (map (juxt :path identity)) files)]
+    (is (= #{"jupitertestengine"}
+           (identity-matches
+            query-tokens
+            "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/JupiterTestEngine.java")))
+    (is (empty?
+         (identity-matches query-tokens test-context-path)))
+    (is (every? #(pos? (get-in by-path [% :metrics :retrievedQueryFileIdentityBoost]))
+                target-paths))
+    (is (nil? (get-in by-path [test-context-path
+                               :metrics
+                               :retrievedQueryFileIdentityBoost])))
+    (is (every? #(<= (:rank (get by-path %)) 5) target-paths))
+    (is (< (:rank (get by-path
+                       "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/execution/JupiterEngineExecutionContext.java"))
+           (:rank (get by-path test-context-path))))))
+
 (deftest file-ranking-boosts-query-matched-exported-support-label
   (let [rank-files @#'benchmark-prediction/ranked-file-predictions
         doc-row (fn [path source-rank evidence-score tokens]
@@ -491,6 +550,45 @@
     (is (= ["module/src/A.java"
             "module/src/B.java"
             "module/src/C.java"]
+           (subvec (mapv :path diversified) 0 3)))))
+
+(deftest diversity-keeps-exact-retrieved-identities-before-protected-candidate-head
+  (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
+        exact-row (fn [path rank rank-score]
+                    {:path path
+                     :rank rank
+                     :metrics {:docCount 1
+                               :retrievedSourceCount 1
+                               :retrievedQueryFileIdentityBoost 12.0
+                               :rankScore rank-score
+                               :definitionKinds ["class"]}})
+        candidate-head-row (fn [path rank rank-score]
+                             {:path path
+                              :rank rank
+                              :metrics {:candidateFileCount 1
+                                        :docCount 0
+                                        :candidateOnlySourceGraphHeadBoost 9.0
+                                        :rankScore rank-score
+                                        :definitionKinds ["class"]}})
+        rows [(exact-row "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/descriptor/JupiterEngineDescriptor.java"
+                         1
+                         35.0)
+              (exact-row "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/JupiterTestEngine.java"
+                         2
+                         34.0)
+              (exact-row "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/execution/JupiterEngineExecutionContext.java"
+                         3
+                         33.0)
+              (candidate-head-row "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/execution/LauncherStoreFacade.java"
+                                  4
+                                  31.0)
+              (candidate-head-row "jupiter-tests/src/test/java/org/junit/jupiter/engine/descriptor/TestFactoryTestDescriptorTests.java"
+                                  5
+                                  29.0)]
+        diversified (diversify rows)]
+    (is (= ["junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/descriptor/JupiterEngineDescriptor.java"
+            "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/JupiterTestEngine.java"
+            "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/execution/JupiterEngineExecutionContext.java"]
            (subvec (mapv :path diversified) 0 3)))))
 
 (deftest compact-output-keeps-wide-ranked-surface

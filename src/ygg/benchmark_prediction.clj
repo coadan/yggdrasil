@@ -170,6 +170,10 @@
   3)
 (def ^:private rank-score-retrieved-path-self-identity-boost
   8.0)
+(def ^:private rank-score-retrieved-query-file-identity-min-length
+  8)
+(def ^:private rank-score-retrieved-query-file-identity-boost
+  12.0)
 (def ^:private rank-score-retrieved-path-query-token-min
   2)
 (def ^:private rank-score-retrieved-path-query-token-boost
@@ -624,6 +628,19 @@
   [query-tokens path]
   (when-let [token (path-self-identity-token path)]
     (contains? (set query-tokens) token)))
+(defn- query-file-identity-matches
+  [query-tokens & values]
+  (let [query-identities (->> query-tokens
+                              (keep compact-identity)
+                              (filter #(<= rank-score-retrieved-query-file-identity-min-length
+                                           (count %)))
+                              set)
+        file-identities (->> (apply identity-tail-values values)
+                             (keep compact-identity)
+                             (filter #(<= rank-score-retrieved-query-file-identity-min-length
+                                          (count %)))
+                             set)]
+    (set/intersection query-identities file-identities)))
 (defn- identity-compound-token-pair-matches
   [query-tokens & values]
   (compact-compound-token-pair-matches query-tokens (apply identity-text values)))
@@ -714,6 +731,13 @@
            (<= rank-score-retrieved-path-self-identity-token-min
                (long matched-token-count)))
     rank-score-retrieved-path-self-identity-boost
+    0.0))
+(defn- retrieved-query-file-identity-boost
+  [doc-count retrieved-source-count query-matched-file-identity-count]
+  (if (and (pos? (long doc-count))
+           (pos? (long retrieved-source-count))
+           (pos? (long query-matched-file-identity-count)))
+    rank-score-retrieved-query-file-identity-boost
     0.0))
 (defn- retrieved-path-query-token-boost
   [doc-count retrieved-source-count matched-path-query-token-count]
@@ -1056,6 +1080,10 @@
                  (identity-compound-token-span-length query-tokens path (:heading source))
                  :query-matched-path-self-identity?
                  (boolean (query-matched-path-self-identity? query-tokens path))
+                 :query-matched-file-identity-count
+                 (count (query-file-identity-matches query-tokens
+                                                     path
+                                                     (:heading source)))
                  :matched-path-query-token-count
                  (query-matched-path-token-count query-tokens path)
                  :evidence [(str "context-doc:"
@@ -2051,12 +2079,22 @@
                              query-matched-path-self-identity?
                              (boolean (some :query-matched-path-self-identity?
                                             ordered))
+                             query-matched-file-identity-count
+                             (apply max
+                                    0
+                                    (keep :query-matched-file-identity-count
+                                          ordered))
                              retrieved-path-self-identity-boost
                              (retrieved-path-self-identity-boost
                               doc-count
                               retrieved-source-count
                               (count matched-tokens)
                               query-matched-path-self-identity?)
+                             retrieved-query-file-identity-boost
+                             (retrieved-query-file-identity-boost
+                              doc-count
+                              retrieved-source-count
+                              query-matched-file-identity-count)
                              retrieved-path-query-token-boost
                              (retrieved-path-query-token-boost
                               doc-count
@@ -2168,6 +2206,7 @@
                                            retrieved-early-long-identity-compound-span-score
                                            repeated-retrieved-source-boost
                                            retrieved-path-self-identity-boost
+                                           retrieved-query-file-identity-boost
                                            retrieved-path-query-token-boost
                                            candidate-path-self-identity-boost
                                            candidate-support-label-score
@@ -2235,6 +2274,12 @@
                                        (pos? retrieved-path-self-identity-boost)
                                        (assoc :retrievedPathSelfIdentityBoost
                                               retrieved-path-self-identity-boost)
+                                       (pos? query-matched-file-identity-count)
+                                       (assoc :queryMatchedFileIdentityCount
+                                              query-matched-file-identity-count)
+                                       (pos? retrieved-query-file-identity-boost)
+                                       (assoc :retrievedQueryFileIdentityBoost
+                                              retrieved-query-file-identity-boost)
                                        query-matched-path-self-identity?
                                        (assoc :queryMatchedPathSelfIdentity true)
                                        (pos? matched-path-query-token-count)
@@ -2369,6 +2414,7 @@
                                     :matched-token-pairs
                                     :matched-compound-token-pairs
                                     :matched-identity-compound-token-pairs
+                                    :query-matched-file-identity-count
                                     :matched-path-query-token-count
                                     :file-identity-support-label-count
                                     :retrieved-support-label-count
@@ -2459,6 +2505,9 @@
 (defn- prediction-rank-protected?
   [row]
   (or (pos? (long (or (get-in row [:metrics :decisionCandidateCount]) 0)))
+      (pos? (double (or (get-in row
+                                [:metrics :retrievedQueryFileIdentityBoost])
+                        0.0)))
       (pos? (double (or (get-in row
                                 [:metrics :candidateOnlySourceGraphHeadBoost])
                         0.0)))))
