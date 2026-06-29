@@ -79,11 +79,11 @@
 (def ^:private rank-score-candidate-file-identity-support-cap
   4)
 (def ^:private rank-score-candidate-file-identity-support-weight
-  1.75)
+  1.0)
 (def ^:private rank-score-retrieved-support-label-cap
   2)
 (def ^:private rank-score-retrieved-support-label-weight
-  2.4)
+  1.2)
 (def ^:private rank-score-retrieved-support-label-rank-window
   20)
 (def ^:private rank-score-doc-supported-source-graph-head-window
@@ -169,7 +169,17 @@
 (def ^:private rank-score-retrieved-path-self-identity-token-min
   3)
 (def ^:private rank-score-retrieved-path-self-identity-boost
-  0.8)
+  8.0)
+(def ^:private rank-score-retrieved-path-query-token-min
+  2)
+(def ^:private rank-score-retrieved-path-query-token-boost
+  6.0)
+(def ^:private rank-score-candidate-path-self-identity-token-min
+  2)
+(def ^:private rank-score-candidate-path-self-identity-rank-window
+  15)
+(def ^:private rank-score-candidate-path-self-identity-boost
+  12.0)
 (def ^:private rank-score-directory-evidence-doc-min
   2)
 (def ^:private rank-score-directory-root-evidence-doc-min
@@ -260,6 +270,18 @@
   1.75)
 (def ^:private compact-output-query-evidence-doc-sort-rank
   2.5)
+(def ^:private compact-output-retrieved-path-self-identity-sort-rank
+  1.25)
+(def ^:private compact-output-retrieved-path-self-identity-limit
+  2)
+(def ^:private compact-output-retrieved-path-query-token-sort-rank
+  2.75)
+(def ^:private compact-output-retrieved-path-query-token-limit
+  1)
+(def ^:private compact-output-candidate-path-self-identity-sort-rank
+  2.4)
+(def ^:private compact-output-candidate-path-self-identity-limit
+  2)
 (def ^:private compact-output-retrieved-label-source-sort-rank
   3.5)
 (def ^:private compact-output-identity-compound-source-sort-rank
@@ -529,6 +551,28 @@
         (when (and (not (str/blank? parent))
                    (= parent stem))
           stem)))))
+(defn- path-without-extension
+  [path]
+  (str/replace (str path) #"\.[^./]+$" ""))
+(defn- normalized-path-match-token
+  [token]
+  (let [token (str token)]
+    (if (and (< 3 (count token))
+             (str/ends-with? token "s"))
+      (subs token 0 (dec (count token)))
+      token)))
+(defn- path-match-token-set
+  [value]
+  (->> (text/tokenize value)
+       (remove #(or (str/includes? % "/")
+                    (str/includes? % ".")))
+       (map normalized-path-match-token)
+       set))
+(defn- query-matched-path-token-count
+  [query-tokens path]
+  (count (set/intersection (set (map normalized-path-match-token query-tokens))
+                           (path-match-token-set
+                            (path-without-extension path)))))
 (defn- query-matched-path-self-identity?
   [query-tokens path]
   (when-let [token (path-self-identity-token path)]
@@ -623,6 +667,30 @@
            (<= rank-score-retrieved-path-self-identity-token-min
                (long matched-token-count)))
     rank-score-retrieved-path-self-identity-boost
+    0.0))
+(defn- retrieved-path-query-token-boost
+  [doc-count retrieved-source-count matched-path-query-token-count]
+  (if (and (pos? (long doc-count))
+           (pos? (long retrieved-source-count))
+           (<= rank-score-retrieved-path-query-token-min
+               (long matched-path-query-token-count)))
+    rank-score-retrieved-path-query-token-boost
+    0.0))
+(defn- candidate-path-self-identity-boost
+  [doc-count
+   candidate-count
+   candidate-source-rank
+   matched-token-count
+   query-matched-path-self-identity?]
+  (if (and (zero? (long doc-count))
+           (pos? (long candidate-count))
+           query-matched-path-self-identity?
+           (pos? (long (or candidate-source-rank 0)))
+           (<= (long candidate-source-rank)
+               rank-score-candidate-path-self-identity-rank-window)
+           (<= rank-score-candidate-path-self-identity-token-min
+               (long matched-token-count)))
+    rank-score-candidate-path-self-identity-boost
     0.0))
 (defn- robust-candidate-only?
   [candidate-source-rank doc-count support-count graph-neighbor-score]
@@ -905,6 +973,8 @@
                  (identity-compound-token-span-length query-tokens path (:heading source))
                  :query-matched-path-self-identity?
                  (boolean (query-matched-path-self-identity? query-tokens path))
+                 :matched-path-query-token-count
+                 (query-matched-path-token-count query-tokens path)
                  :evidence [(str "context-doc:"
                                  path
                                  (line-label source)
@@ -951,6 +1021,8 @@
                  (identity-compound-token-span-length query-tokens
                                                       (:path entity)
                                                       (:label entity))
+                 :matched-path-query-token-count
+                 (query-matched-path-token-count query-tokens path)
                  :evidence [(str "graph-entity:"
                                  (or (:label entity) path)
                                  " path="
@@ -1140,6 +1212,8 @@
                  (boolean (query-matched-path-self-identity?
                            query-tokens
                            path))
+                 :matched-path-query-token-count
+                 (query-matched-path-token-count query-tokens path)
                  :file-identity-support-label-count file-identity-support-label-count
                  :candidate-support-label-signature exported-support-label-signature
                  :exported-support-label-count exported-support-label-count
@@ -1264,6 +1338,8 @@
              (boolean (query-matched-path-self-identity?
                        query-tokens
                        sibling-path))
+             :matched-path-query-token-count
+             (query-matched-path-token-count query-tokens sibling-path)
              :file-identity-support-label-count file-identity-support-label-count
              :candidate-support-label-signature exported-support-label-signature
              :exported-support-label-count exported-support-label-count
@@ -1378,6 +1454,10 @@
                                       query-tokens
                                       path
                                       (:label candidate))
+                                     :matched-path-query-token-count
+                                     (query-matched-path-token-count
+                                      query-tokens
+                                      path)
                                      :evidence [(decision-candidate-file-evidence
                                                  candidate
                                                  path)]
@@ -1560,6 +1640,8 @@
                                                       (:label row)
                                                       (:kind row)
                                                       (:relation row))
+                 :matched-path-query-token-count
+                 (query-matched-path-token-count query-tokens path)
                  :evidence [(architecture-file-evidence section row path)]
                  :reason (str "Yggdrasil architecture "
                               section
@@ -1705,6 +1787,11 @@
                              (apply max
                                     0
                                     (keep :matched-identity-compound-token-span-length
+                                          ordered))
+                             matched-path-query-token-count
+                             (apply max
+                                    0
+                                    (keep :matched-path-query-token-count
                                           ordered))
                              definition-kinds (->> ordered
                                                    (keep :definition-kind)
@@ -1857,6 +1944,18 @@
                               retrieved-source-count
                               (count matched-tokens)
                               query-matched-path-self-identity?)
+                             retrieved-path-query-token-boost
+                             (retrieved-path-query-token-boost
+                              doc-count
+                              retrieved-source-count
+                              matched-path-query-token-count)
+                             candidate-path-self-identity-boost
+                             (candidate-path-self-identity-boost
+                              doc-count
+                              candidate-count
+                              candidate-source-rank
+                              (count matched-tokens)
+                              query-matched-path-self-identity?)
                              graph-neighbor-boost (graph-neighbor-boost
                                                    doc-count
                                                    graph-neighbor-score
@@ -1956,6 +2055,8 @@
                                            retrieved-early-long-identity-compound-span-score
                                            repeated-retrieved-source-boost
                                            retrieved-path-self-identity-boost
+                                           retrieved-path-query-token-boost
+                                           candidate-path-self-identity-boost
                                            candidate-support-label-score
                                            (* 0.08 (min rank-score-support-count-cap
                                                         support-count))
@@ -2021,6 +2122,15 @@
                                               retrieved-path-self-identity-boost)
                                        query-matched-path-self-identity?
                                        (assoc :queryMatchedPathSelfIdentity true)
+                                       (pos? matched-path-query-token-count)
+                                       (assoc :matchedPathQueryTokenCount
+                                              matched-path-query-token-count)
+                                       (pos? retrieved-path-query-token-boost)
+                                       (assoc :retrievedPathQueryTokenBoost
+                                              retrieved-path-query-token-boost)
+                                       (pos? candidate-path-self-identity-boost)
+                                       (assoc :candidatePathSelfIdentityBoost
+                                              candidate-path-self-identity-boost)
                                        (pos? candidate-support-label-count)
                                        (assoc :candidateSupportLabelCount
                                               candidate-support-label-count)
@@ -2135,6 +2245,7 @@
                                     :matched-token-pairs
                                     :matched-compound-token-pairs
                                     :matched-identity-compound-token-pairs
+                                    :matched-path-query-token-count
                                     :file-identity-support-label-count
                                     :retrieved-support-label-count
                                     :matched-identity-compound-token-span-length
@@ -2324,15 +2435,15 @@
                               (->> remaining
                                    (map-indexed vector)
                                    (some (fn [[idx row]]
-                                           (when (prediction-diversity-bypass? row)
-                                             [idx row]))))
-                              (->> remaining
-                                   (map-indexed vector)
-                                   (some (fn [[idx row]]
                                            (when-let [k (prediction-diversity-key
                                                          row)]
                                              (when-not (contains? seen k)
                                                [idx row])))))
+                              (->> remaining
+                                   (map-indexed vector)
+                                   (some (fn [[idx row]]
+                                           (when (prediction-diversity-bypass? row)
+                                             [idx row]))))
                               [0 (first remaining)])]
             (recur (vec (concat (subvec remaining 0 idx)
                                 (subvec remaining (inc idx))))
@@ -2418,7 +2529,7 @@
 
 (defn- prioritize-coverage-source-lanes
   [source-kind-order kind-by-path candidate-files]
-  (if (or (empty? source-kind-order)
+  (if (or (<= (count source-kind-order) 1)
           (empty? kind-by-path)
           (empty? candidate-files))
     candidate-files
@@ -3245,6 +3356,97 @@
                   (min (double (or (:rank %) Long/MAX_VALUE))
                        compact-output-query-evidence-doc-sort-rank))))))
 
+(defn- row-query-matched-path-self-identity?
+  [row]
+  (true? (get-in row [:metrics :queryMatchedPathSelfIdentity])))
+
+(defn- row-path-token-count
+  [row]
+  (count (path-match-token-set (path-without-extension (:path row)))))
+
+(defn- compact-output-retrieved-path-self-identity-row?
+  [row]
+  (and (pos? (positive-metric row :docCount))
+       (pos? (positive-metric row :retrievedSourceCount))
+       (row-query-matched-path-self-identity? row)))
+
+(defn- compact-output-retrieved-path-self-identity-key
+  [row]
+  [(positive-metric row :firstSourceRank)
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-rank-score row))
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-retrieved-path-self-identity-rows
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (compact-output-retrieved-path-self-identity-row? %)))
+       (sort-by compact-output-retrieved-path-self-identity-key)
+       (take compact-output-retrieved-path-self-identity-limit)
+       (map-indexed (fn [idx row]
+                      (assoc row ::compact-output-sort-rank
+                             (+ compact-output-retrieved-path-self-identity-sort-rank
+                                idx))))))
+
+(defn- compact-output-retrieved-path-query-token-row?
+  [row]
+  (and (pos? (positive-metric row :docCount))
+       (pos? (positive-metric row :retrievedSourceCount))
+       (not (row-query-matched-path-self-identity? row))
+       (<= rank-score-retrieved-path-query-token-min
+           (positive-metric row :matchedPathQueryTokenCount))))
+
+(defn- compact-output-retrieved-path-query-token-key
+  [row]
+  [(row-path-token-count row)
+   (- (positive-metric row :matchedPathQueryTokenCount))
+   (positive-metric row :firstSourceRank)
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-rank-score row))
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-retrieved-path-query-token-rows
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (compact-output-retrieved-path-query-token-row? %)))
+       (sort-by compact-output-retrieved-path-query-token-key)
+       (take compact-output-retrieved-path-query-token-limit)
+       (map-indexed (fn [idx row]
+                      (assoc row ::compact-output-sort-rank
+                             (+ compact-output-retrieved-path-query-token-sort-rank
+                                idx))))))
+
+(defn- compact-output-candidate-path-self-identity-row?
+  [row]
+  (and (candidate-file-only-row? row)
+       (pos? (row-metric-double row :candidatePathSelfIdentityBoost))))
+
+(defn- compact-output-candidate-path-self-identity-key
+  [row]
+  [(row-candidate-source-rank row)
+   (- (row-rank-score row))
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-candidate-path-self-identity-rows
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (compact-output-candidate-path-self-identity-row? %)))
+       (sort-by compact-output-candidate-path-self-identity-key)
+       (take compact-output-candidate-path-self-identity-limit)
+       (map-indexed (fn [idx row]
+                      (assoc row ::compact-output-sort-rank
+                             (+ compact-output-candidate-path-self-identity-sort-rank
+                                idx))))))
+
 (defn- path-directory
   [path]
   (let [path (str path)
@@ -3575,6 +3777,9 @@
   [row]
   (or (compact-output-retrieved-label-doc-row? row)
       (compact-output-query-evidence-doc-row? row)
+      (compact-output-retrieved-path-self-identity-row? row)
+      (compact-output-retrieved-path-query-token-row? row)
+      (compact-output-candidate-path-self-identity-row? row)
       (compact-output-retrieved-label-source-row? row)
       (compact-output-doc-identity-row? row)
       (compact-output-early-source-graph-row? row)
@@ -3735,25 +3940,19 @@
              head-selection (reduce add-compact-output-row
                                     empty-selection
                                     (take head-count files))
-             architecture-row (compact-output-architecture-supported-row
-                               files
-                               (:keys head-selection))
-             selected (if architecture-row
-                        (add-compact-output-row head-selection architecture-row)
-                        (let [selected (add-compact-output-row
-                                        empty-selection
-                                        (compact-output-doc-supported-row
-                                         files
-                                         (:keys empty-selection)))
-                              selected (add-compact-output-row
-                                        selected
-                                        (compact-output-identity-supported-row
-                                         files
-                                         (:keys selected)
-                                         (:rows selected)))]
-                          (reduce add-compact-output-row
-                                  selected
-                                  (take head-count files))))
+             selected (add-compact-output-row
+                       head-selection
+                       (compact-output-doc-supported-row files
+                                                         (:keys head-selection)))
+             selected (add-compact-output-row
+                       selected
+                       (compact-output-identity-supported-row files
+                                                              (:keys selected)
+                                                              (:rows selected)))
+             selected (add-compact-output-row
+                       selected
+                       (compact-output-architecture-supported-row files
+                                                                  (:keys selected)))
              selected (add-compact-output-row
                        selected
                        (compact-output-retrieved-label-doc-row
@@ -3764,6 +3963,21 @@
                        (compact-output-query-evidence-doc-row
                         files
                         (:keys selected)))
+             selected (reduce add-compact-output-row
+                              selected
+                              (compact-output-retrieved-path-self-identity-rows
+                               files
+                               (:keys selected)))
+             selected (reduce add-compact-output-row
+                              selected
+                              (compact-output-retrieved-path-query-token-rows
+                               files
+                               (:keys selected)))
+             selected (reduce add-compact-output-row
+                              selected
+                              (compact-output-candidate-path-self-identity-rows
+                               files
+                               (:keys selected)))
              selected (add-compact-output-row
                        selected
                        (compact-output-retrieved-supported-row

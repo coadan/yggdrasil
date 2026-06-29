@@ -1,6 +1,23 @@
 (ns ygg.benchmark-prediction-test
   (:require [ygg.benchmark-prediction :as benchmark-prediction]
-            [clojure.test :refer [deftest is]]))
+            [clojure.java.io :as io]
+            [clojure.test :refer [deftest is]])
+  (:import [java.nio.file Files]
+           [java.nio.file.attribute FileAttribute]))
+
+(defn- temp-dir
+  [prefix]
+  (str (Files/createTempDirectory prefix (make-array FileAttribute 0))))
+
+(defn- write-file!
+  [root path content]
+  (let [file (io/file root path)]
+    (.mkdirs (.getParentFile file))
+    (spit file content)))
+
+(defn- index-of
+  [xs value]
+  (.indexOf (vec xs) value))
 
 (deftest file-ranking-boosts-direct-file-in-evidence-dense-directory
   (let [rank-files @#'benchmark-prediction/ranked-file-predictions
@@ -70,6 +87,101 @@
     (is (< (:rank (get by-path "pkg/pkg.go"))
            (:rank (get by-path "pkg/helper.go"))))))
 
+(deftest single-source-coverage-keeps-retrieved-contract-files-before-candidate-bypass
+  (let [root (temp-dir "ygg-bench-otel-contract")
+        paths ["connector/connector.go"
+               "consumer/traces.go"
+               "component/component.go"
+               "service/internal/graph/connector.go"
+               "connector/traces_router.go"
+               "connector/connectortest/connector.go"
+               "connector/connector_test.go"]]
+    (doseq [path paths]
+      (write-file! root path "package fixture\n"))
+    (let [packet {:query (str "Trace connector interface changes through "
+                              "consumer.Traces and component.Component\n\n"
+                              "The connector package defines the Traces "
+                              "interface that feeds consumer.Traces and extends "
+                              "component.Component. Identify the connector "
+                              "interface file, consumer.Traces interface file, "
+                              "and component.Component interface file.")
+                  :docs [{:source {:path "connector/connector.go"
+                                   :heading "connector/connector"
+                                   :definitionKind :interface}
+                          :score 1.48
+                          :snippet "connector Traces consumer component interface"
+                          :retrievedSource true
+                          :provenance "retrieved-doc"}
+                         {:source {:path "consumer/traces.go"
+                                   :heading "consumer/traces/Traces"
+                                   :definitionKind :interface}
+                          :score 1.81
+                          :snippet "consumer Traces interface"
+                          :retrievedSource true
+                          :provenance "retrieved-doc"}
+                         {:source {:path "service/internal/graph/connector.go"
+                                   :heading "service/internal/graph/connector/buildTraces"
+                                   :definitionKind :method}
+                          :score 1.44
+                          :snippet "connector graph consumer traces"
+                          :retrievedSource true
+                          :provenance "retrieved-doc"}
+                         {:source {:path "connector/traces_router.go"
+                                   :heading "connector/traces_router/TracesRouter"
+                                   :definitionKind :interface}
+                          :score 1.83
+                          :snippet "connector traces router consumer"
+                          :retrievedSource true
+                          :provenance "retrieved-doc"}]
+                  :entities []
+                  :candidateFiles [{:rank 11
+                                    :path "connector/connectortest/connector.go"
+                                    :label "connector/connectortest/connector"
+                                    :targetKind "node"
+                                    :score 0.90
+                                    :scoreComponents {:sourceGraph 0.6
+                                                      :lexical 0.62
+                                                      :grep 0.25
+                                                      :graph 0.2}
+                                    :supportLabels ["connector/connectortest/createTracesToMetrics"
+                                                    "connector/connectortest/createMetricsToTraces"
+                                                    "connector/connectortest/createProfilesToTraces"
+                                                    "connector/connectortest/createTracesToLogs"]}
+                                   {:rank 12
+                                    :path "connector/connector_test.go"
+                                    :label "connector/connector_test"
+                                    :targetKind "node"
+                                    :score 0.89
+                                    :scoreComponents {:sourceGraph 0.6
+                                                      :lexical 0.56
+                                                      :grep 0.21
+                                                      :graph 0.2}
+                                    :supportLabels ["connector/connector_test/createTracesToMetrics"
+                                                    "connector/connector_test/createMetricsToTraces"
+                                                    "connector/connector_test/createTracesToTraces"
+                                                    "connector/connector_test/createLogsToTraces"]}
+                                   {:rank 13
+                                    :path "component/component.go"
+                                    :label "component/component"
+                                    :targetKind "node"
+                                    :score 0.6
+                                    :scoreComponents {:sourceGraph 0.6}
+                                    :supportLabels ["component/component/Component"]}]}
+          result (benchmark-prediction/context-packet->agent-result
+                  packet
+                  {:root root
+                   :coverage {:source-kinds [:go]}
+                   :limit 20})
+          result-paths (mapv :path (:suspectedFiles result))]
+      (is (every? #(< (index-of result-paths %) 5)
+                  ["connector/connector.go"
+                   "consumer/traces.go"
+                   "component/component.go"]))
+      (is (< (index-of result-paths "component/component.go")
+             (index-of result-paths "connector/connectortest/connector.go")))
+      (is (< (index-of result-paths "consumer/traces.go")
+             (index-of result-paths "connector/connector_test.go"))))))
+
 (deftest compact-output-anchors-directory-evidence-candidate
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]
@@ -99,6 +211,59 @@
         selected (compact-output files 10 nil)]
     (is (= ["alpha/type.go" "pkg/detail.go" "pkg/pkg.go"]
            (subvec (mapv :path selected) 0 3)))))
+
+(deftest compact-output-reserves-candidate-path-self-identity
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "connector/connector.go"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedTokenCount 10
+                     :rankScore 20.0})
+               (row "support/doc-supported.go"
+                    2
+                    {:docCount 1
+                     :matchedTokenCount 9
+                     :rankScore 12.0})
+               (row "support/retrieved-label.go"
+                    3
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedTokenCount 8
+                     :retrievedSupportLabelCount 2
+                     :sourceGraphCandidateEvidenceScore 0.6
+                     :rankScore 11.0})
+               (row "support/query-doc.go"
+                    4
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedTokenCount 7
+                     :matchedTokenPairCount 1
+                     :sourceGraphCandidateEvidenceScore 0.6
+                     :rankScore 10.0})
+               (row "component/component.go"
+                    5
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :candidateSourceRank 13
+                     :candidatePathSelfIdentityBoost 12.0
+                     :matchedTokenCount 2
+                     :rankScore 13.0})
+               (row "support/retrieved-path.go"
+                    6
+                    {:docCount 1
+                     :retrievedSourceCount 1
+                     :matchedPathQueryTokenCount 2
+                     :firstSourceRank 6
+                     :matchedTokenCount 6
+                     :rankScore 9.0})]
+        paths (mapv :path (compact-output files 20 nil))]
+    (is (some #{"component/component.go"} (take 5 paths)))))
 
 (deftest diversity-preserves-saturated-doc-supported-head
   (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions

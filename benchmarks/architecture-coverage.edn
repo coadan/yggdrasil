@@ -17,6 +17,7 @@
           :repo-id "opentelemetry-collector"
           :coverage {:source-kinds [:go]}
           :tags [:synthetic
+                 :ygg-should-win
                  :problem-architecture
                  :architecture-cross-system-impact
                  :audit-scope-dependencies
@@ -25,7 +26,7 @@
           :base-sha "5a9e6074d2d890ee1db3cf990e414831d068bcdb"
           :fix-sha "5a9e6074d2d890ee1db3cf990e414831d068bcdb"
           :ground-truth {:localization-files ["connector/connector.go"
-                                              "consumer/consumer.go"
+                                              "consumer/traces.go"
                                               "component/component.go"]}
           :expectations {:nodes [{:kind :interface
                                   :path "connector/connector.go"}
@@ -33,13 +34,14 @@
                                   :path "component/component.go"}]}
           :issue {:id "otel-connector-consumer-component-flow"
                   :url "local:coverage/opentelemetry-collector/connector-consumer-component-flow"
-                  :title "Trace connector interface changes through consumer and component contracts"
-                  :body "The connector package defines Traces/Metrics/Logs interfaces that feed consumer pipelines and extend the component lifecycle. Before changing a connector interface contract, identify the connector interface file, the consumer package it feeds, and the component package it extends. Return only the files likely to need edits; cite Go interface/type evidence from the graph instead of ranking them as suspected edit files."}}
+                  :title "Trace connector.Traces interface changes through consumer.Traces and component.Component"
+                  :body "The connector package defines the Traces interface that feeds consumer.Traces and extends component.Component. Before changing that connector interface contract, identify the connector interface file, the consumer.Traces interface file it feeds, and the component.Component interface file it extends. Return only the files likely to need edits; cite Go interface/type evidence from the graph instead of ranking symbols as suspected edit files."}}
 
          {:id "terraform-vpc-flow-log-data-ownership"
           :repo-id "terraform-aws-vpc"
           :coverage {:source-kinds [:terraform]}
           :tags [:synthetic
+                 :ygg-should-win
                  :problem-architecture
                  :architecture-data-ownership
                  :audit-scope-runtime-config
@@ -64,6 +66,7 @@
           :repo-id "flask"
           :coverage {:source-kinds [:python]}
           :tags [:synthetic
+                 :ygg-should-win
                  :problem-architecture
                  :architecture-cross-system-impact
                  :audit-scope-runtime-config
@@ -87,6 +90,7 @@
           :repo-id "junit-framework"
           :coverage {:source-kinds [:java]}
           :tags [:synthetic
+                 :ygg-should-win
                  :problem-architecture
                  :architecture-data-ownership
                  :audit-scope-dependencies

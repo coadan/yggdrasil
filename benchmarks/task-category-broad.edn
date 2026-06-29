@@ -23,4 +23,5 @@
                               "supabase-postgres-synthetic-trigger-ownership-flow"
                               "axios-synthetic-native-proxy-boundary"
                               "dapper-synthetic-jsonb-test-stack"]}
+                  {:path "architecture-coverage.edn"}
                   {:path "multi-repo-quality.edn"}]}
