@@ -295,3 +295,94 @@
                      :rankScore 10.0})]
         selected-paths (mapv :path (compact-output files 20 nil))]
     (is (some #{"lib/adapters/http.js"} (take 5 selected-paths)))))
+
+(deftest compact-output-frontloads-query-evidence-doc-row
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/docker-compose.yml"
+                    1
+                    {:candidateFileCount 3
+                     :docCount 0
+                     :entityCount 0
+                     :architectureSupportBoost 2.0
+                     :matchedTokenCount 4
+                     :matchedTokenPairCount 1
+                     :sourceGraphCandidateEvidenceScore 4.89
+                     :rankScore 11.94})
+               (row "Dapper/SqlMapper.cs"
+                    2
+                    {:docCount 1
+                     :candidateFileCount 22
+                     :matchedTokenCount 7
+                     :matchedTokenPairCount 1
+                     :matchedCompoundTokenPairCount 1
+                     :matchedIdentityCompoundTokenPairCount 1
+                     :retrievedSupportLabelCount 4
+                     :sourceGraphCandidateEvidenceScore 0.66
+                     :candidateGrepScore 1.0
+                     :rankScore 23.1})
+               (row "tests/Dapper.Tests/MiscTests.cs"
+                    3
+                    {:docCount 1
+                     :candidateFileCount 2
+                     :matchedTokenCount 9
+                     :matchedTokenPairCount 1
+                     :sourceGraphCandidateEvidenceScore 0.63
+                     :candidateGrepScore 0.86
+                     :rankScore 17.9})
+               (row "Dapper/SqlMapper.TypeHandler.cs"
+                    4
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :directFileCandidateCount 1
+                     :candidateSourceRank 2
+                     :matchedTokenCount 5
+                     :matchedTokenPairCount 1
+                     :matchedCompoundTokenPairCount 1
+                     :matchedIdentityCompoundTokenPairCount 1
+                     :sourceGraphCandidateEvidenceScore 0.56
+                     :retrievedSupportLabelCount 2
+                     :rankScore 17.6})
+               (row "Dapper/SqlMapper.TypeDeserializerCache.cs"
+                    7
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :directFileCandidateCount 1
+                     :candidateSourceRank 19
+                     :matchedTokenCount 3
+                     :sourceGraphCandidateEvidenceScore 0.54
+                     :retrievedSupportLabelCount 3
+                     :rankScore 14.5})
+               (row "tests/Dapper.Tests/TypeHandlerTests.cs"
+                    9
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedTokenCount 8
+                     :matchedTokenPairCount 2
+                     :matchedCompoundTokenPairCount 1
+                     :matchedIdentityCompoundTokenPairCount 1
+                     :retrievedSupportLabelCount 2
+                     :sourceGraphCandidateEvidenceScore 0.59
+                     :candidateGrepScore 0.73
+                     :rankScore 11.3})]
+        kind-by-path {"tests/docker-compose.yml" "compose"
+                      "Dapper/SqlMapper.cs" "dotnet"
+                      "tests/Dapper.Tests/MiscTests.cs" "dotnet"
+                      "Dapper/SqlMapper.TypeHandler.cs" "dotnet"
+                      "Dapper/SqlMapper.TypeDeserializerCache.cs" "dotnet"
+                      "tests/Dapper.Tests/TypeHandlerTests.cs" "dotnet"}
+        selected-paths (mapv :path (compact-output files
+                                                   20
+                                                   "edit-files"
+                                                   ["compose" "dotnet"]
+                                                   kind-by-path))]
+    (is (some #{"tests/Dapper.Tests/TypeHandlerTests.cs"}
+              (take 5 selected-paths)))
+    (is (< (.indexOf selected-paths "tests/Dapper.Tests/TypeHandlerTests.cs")
+           (.indexOf selected-paths
+                     "Dapper/SqlMapper.TypeDeserializerCache.cs")))))

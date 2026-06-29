@@ -258,6 +258,8 @@
   1.5)
 (def ^:private compact-output-retrieved-label-doc-sort-rank
   1.75)
+(def ^:private compact-output-query-evidence-doc-sort-rank
+  2.5)
 (def ^:private compact-output-retrieved-label-source-sort-rank
   3.5)
 (def ^:private compact-output-identity-compound-source-sort-rank
@@ -3204,6 +3206,45 @@
                   (min (double (or (:rank %) Long/MAX_VALUE))
                        compact-output-retrieved-label-doc-sort-rank))))))
 
+(defn- compact-output-query-evidence-doc-row?
+  [row]
+  (and (pos? (positive-metric row :docCount))
+       (pos? (positive-metric row :candidateFileCount))
+       (<= candidate-file-only-query-evidence-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= candidate-file-only-query-evidence-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (or (pos? (positive-metric row :matchedTokenPairCount))
+           (pos? (positive-metric row :matchedCompoundTokenPairCount))
+           (pos? (positive-metric row :matchedIdentityCompoundTokenPairCount))
+           (pos? (row-metric-double row :candidateGrepScore))
+           (pos? (row-metric-double row :candidateLexicalComponentBoost)))))
+
+(defn- compact-output-query-evidence-doc-key
+  [row]
+  [(- (positive-metric row :matchedTokenPairCount))
+   (- (positive-metric row :matchedCompoundTokenPairCount))
+   (- (positive-metric row :matchedIdentityCompoundTokenPairCount))
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-metric-double row :candidateGrepScore))
+   (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
+   (- (row-rank-score row))
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-query-evidence-doc-row
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (compact-output-query-evidence-doc-row? %)))
+       (sort-by compact-output-query-evidence-doc-key)
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  (min (double (or (:rank %) Long/MAX_VALUE))
+                       compact-output-query-evidence-doc-sort-rank))))))
+
 (defn- path-directory
   [path]
   (let [path (str path)
@@ -3533,6 +3574,7 @@
 (defn- compact-output-prune-protected-row?
   [row]
   (or (compact-output-retrieved-label-doc-row? row)
+      (compact-output-query-evidence-doc-row? row)
       (compact-output-retrieved-label-source-row? row)
       (compact-output-doc-identity-row? row)
       (compact-output-early-source-graph-row? row)
@@ -3715,6 +3757,11 @@
              selected (add-compact-output-row
                        selected
                        (compact-output-retrieved-label-doc-row
+                        files
+                        (:keys selected)))
+             selected (add-compact-output-row
+                       selected
+                       (compact-output-query-evidence-doc-row
                         files
                         (:keys selected)))
              selected (add-compact-output-row
