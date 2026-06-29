@@ -87,6 +87,43 @@
     (is (< (:rank (get by-path "pkg/pkg.go"))
            (:rank (get by-path "pkg/helper.go"))))))
 
+(deftest file-ranking-keeps-early-candidate-only-graph-head-visible
+  (let [rank-files @#'benchmark-prediction/ranked-file-predictions
+        doc-row (fn [path source-rank evidence-score tokens]
+                  {:path path
+                   :source-rank source-rank
+                   :evidence-score evidence-score
+                   :evidence-kind :doc
+                   :confidence 1.0
+                   :matched-tokens tokens
+                   :definition-kind "chunk"})
+        graph-row {:path "main.tf"
+                   :source-rank 502
+                   :evidence-score 0.55
+                   :evidence-kind :candidate-file
+                   :confidence 0.9
+                   :candidate-source-rank 2
+                   :graph-neighbor-score 1.0
+                   :candidate-file-count 1
+                   :matched-tokens ["vpc" "flow" "log" "data" "ownership" "destination"]
+                   :matched-token-pairs [["flow" "log"]]
+                   :definition-kind "node"}
+        files (rank-files [(doc-row "modules/flow-log/main.tf"
+                                    1
+                                    1.5
+                                    ["flow" "log" "destination" "role"])
+                           (doc-row "examples/flow-log/main.tf"
+                                    2
+                                    1.3
+                                    ["flow" "log" "destination"])
+                           graph-row])
+        by-path (into {} (map (juxt :path identity)) files)]
+    (is (pos? (get-in by-path ["main.tf"
+                               :metrics
+                               :candidateOnlySourceGraphHeadBoost])))
+    (is (< (:rank (get by-path "main.tf"))
+           (:rank (get by-path "examples/flow-log/main.tf"))))))
+
 (deftest single-source-coverage-keeps-retrieved-contract-files-before-candidate-bypass
   (let [root (temp-dir "ygg-bench-otel-contract")
         paths ["connector/connector.go"
@@ -264,6 +301,35 @@
                      :rankScore 9.0})]
         paths (mapv :path (compact-output files 20 nil))]
     (is (some #{"component/component.go"} (take 5 paths)))))
+
+(deftest compact-output-keeps-preserved-head-before-derived-reserves
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        rows [(row "main.tf" 1 {:rankScore 18.0})
+              (row "variables.tf" 2 {:rankScore 17.0})
+              (row "modules/flow-log/variables.tf" 3 {:rankScore 16.0})
+              (row "vpc-flow-logs.tf" 4 {:rankScore 15.0})
+              (row "docs/reserved.md"
+                   5
+                   {:docCount 1
+                    :candidateFileCount 1
+                    :retrievedSupportLabelCount 2
+                    :matchedTokenCount 4
+                    :sourceGraphCandidateEvidenceScore 0.6
+                    :rankScore 14.0})
+              (row "tail.tf" 6 {:rankScore 1.0})]
+        selected (compact-output rows 20 nil)]
+    (is (= ["main.tf"
+            "variables.tf"
+            "modules/flow-log/variables.tf"
+            "vpc-flow-logs.tf"]
+           (->> selected
+                (map :path)
+                (take 4)
+                vec)))))
 
 (deftest diversity-preserves-saturated-doc-supported-head
   (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions

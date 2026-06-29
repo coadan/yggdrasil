@@ -861,6 +861,34 @@
     (is (contains? (define-targets root-result) (:xt/id root-flow)))
     (is (contains? (define-targets module-result) (:xt/id module-flow)))))
 
+(deftest extracts-terraform-module-scoped-local-references
+  (let [main-result (extract/extract-file
+                     "run/test"
+                     {:file-id "file:main"
+                      :path "main.tf"
+                      :kind :terraform
+                      :content "locals {\n  vpc_id = try(aws_vpc.this[0].id, \"\")\n}\n\nresource \"aws_vpc\" \"this\" {\n}\n"})
+        flow-result (extract/extract-file
+                     "run/test"
+                     {:file-id "file:flow"
+                      :path "vpc-flow-logs.tf"
+                      :kind :terraform
+                      :content "resource \"aws_flow_log\" \"this\" {\n  vpc_id = local.vpc_id\n}\n"})
+        node-by-label (fn [result label]
+                        (some #(when (= label (:label %)) %) (:nodes result)))
+        edge? (fn [result source-id target-id relation]
+                (some #(and (= source-id (:source-id %))
+                            (= target-id (:target-id %))
+                            (= relation (:relation %)))
+                      (:edges result)))
+        local-node (node-by-label main-result "local.vpc_id")
+        vpc-node (node-by-label main-result "aws_vpc.this")
+        flow-node (node-by-label flow-result "aws_flow_log.this")]
+    (is (= :terraform-local (:kind local-node)))
+    (is (= "." (:module-path local-node)))
+    (is (edge? main-result (:xt/id local-node) (:xt/id vpc-node) :references))
+    (is (edge? flow-result (:xt/id flow-node) (:xt/id local-node) :references))))
+
 (deftest extracts-openapi-paths-operations-and-schemas
   (let [file (fs/file-record "test/fixtures/sample-repo"
                              "test/fixtures/sample-repo/api/openapi.yaml")

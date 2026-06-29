@@ -224,6 +224,16 @@
   3)
 (def ^:private robust-candidate-only-boost
   3.5)
+(def ^:private candidate-only-source-graph-head-rank-window
+  4)
+(def ^:private candidate-only-source-graph-head-token-min
+  5)
+(def ^:private candidate-only-source-graph-head-graph-min
+  0.5)
+(def ^:private candidate-only-source-graph-head-max
+  9.0)
+(def ^:private candidate-only-source-graph-head-step
+  1.0)
 (def ^:private unsaturated-decision-tail-min-files
   3)
 (def ^:private unsaturated-decision-tail-score-ratio
@@ -241,7 +251,7 @@
 (def ^:private compact-thin-candidate-output-ratio
   2)
 (def ^:private compact-output-preserved-head-count
-  1)
+  4)
 (def ^:private compact-output-score-tail-min-files
   4)
 (def ^:private compact-output-score-tail-prefix-min-files
@@ -279,7 +289,7 @@
 (def ^:private compact-output-retrieved-path-query-token-limit
   1)
 (def ^:private compact-output-candidate-path-self-identity-sort-rank
-  2.4)
+  0.5)
 (def ^:private compact-output-candidate-path-self-identity-limit
   2)
 (def ^:private compact-output-retrieved-label-source-sort-rank
@@ -729,6 +739,21 @@
                (< candidate-source-rank-bonus-window
                   (long candidate-source-rank))))
     robust-candidate-only-boost
+    0.0))
+(defn- candidate-only-source-graph-head-boost
+  [candidate-source-rank doc-count graph-neighbor-score matched-token-count]
+  (if (and (zero? (long doc-count))
+           (pos? (long (or candidate-source-rank 0)))
+           (<= (long candidate-source-rank)
+               candidate-only-source-graph-head-rank-window)
+           (<= candidate-only-source-graph-head-graph-min
+               (double (or graph-neighbor-score 0.0)))
+           (<= candidate-only-source-graph-head-token-min
+               (long matched-token-count)))
+    (max 0.0
+         (- candidate-only-source-graph-head-max
+            (* candidate-only-source-graph-head-step
+               (dec (long candidate-source-rank)))))
     0.0))
 (defn- graph-neighbor-boost
   [doc-count graph-score evidence-score]
@@ -1900,6 +1925,12 @@
                                                           doc-count
                                                           support-count
                                                           graph-neighbor-score)
+                             candidate-only-source-graph-head-boost
+                             (candidate-only-source-graph-head-boost
+                              candidate-source-rank
+                              doc-count
+                              graph-neighbor-score
+                              (count matched-tokens))
                              doc-supported-source-graph-head-boost
                              (doc-supported-source-graph-head-boost
                               doc-count
@@ -2081,7 +2112,8 @@
                                            rare-query-token-score
                                            direct-file-identity-support-boost
                                            candidate-file-identity-support-boost
-                                           retrieved-support-label-boost)
+                                           retrieved-support-label-boost
+                                           candidate-only-source-graph-head-boost)
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
                                               :supportCount support-count
                                               :docCount doc-count
@@ -2178,6 +2210,9 @@
                                               retrieved-support-label-boost)
                                        (pos? candidate-only-robust-boost)
                                        (assoc :robustCandidateOnlyBoost candidate-only-robust-boost)
+                                       (pos? candidate-only-source-graph-head-boost)
+                                       (assoc :candidateOnlySourceGraphHeadBoost
+                                              candidate-only-source-graph-head-boost)
                                        (pos? graph-neighbor-score)
                                        (assoc :graphNeighborScore graph-neighbor-score)
                                        (pos? graph-neighbor-boost)
@@ -2334,7 +2369,10 @@
 
 (defn- prediction-rank-protected?
   [row]
-  (pos? (long (or (get-in row [:metrics :decisionCandidateCount]) 0))))
+  (or (pos? (long (or (get-in row [:metrics :decisionCandidateCount]) 0)))
+      (pos? (double (or (get-in row
+                                [:metrics :candidateOnlySourceGraphHeadBoost])
+                        0.0)))))
 
 (defn- prediction-diversity-bypass?
   [row]
@@ -3935,11 +3973,16 @@
 
        :else
        (let [head-count (min compact-output-preserved-head-count limit)
+             head-rows (map-indexed (fn [idx row]
+                                      (assoc row
+                                             ::compact-output-sort-rank
+                                             (/ (inc idx) 10.0)))
+                                    (take head-count files))
              empty-selection {:rows []
                               :keys #{}}
              head-selection (reduce add-compact-output-row
                                     empty-selection
-                                    (take head-count files))
+                                    head-rows)
              selected (add-compact-output-row
                        head-selection
                        (compact-output-doc-supported-row files

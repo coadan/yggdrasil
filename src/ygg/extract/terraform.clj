@@ -79,9 +79,6 @@
   (let [parts (str/split target #"\.")]
     (->> (range (count parts) 1 -1)
          (map #(str/join "." (take % parts))))))
-(defn- hcl-reference-target-id
-  [node-by-name target]
-  (some #(get node-by-name %) (hcl-reference-prefixes target)))
 (defn- hcl-string-attr
   [lines attr]
   (some (fn [[idx line]]
@@ -131,20 +128,81 @@
                  "variable" (str "var." name)
                  "output" (str "output." name))
          :source-line (inc idx)})
+      (when (re-matches #"^\s*locals\s*\{\s*$" line)
+        {:block-type "locals"
+         :source-line (inc idx)})
       (block-start idx line)))
+
+(defn- local-assignment-blocks
+  [{:keys [lines]}]
+  (->> lines
+       (reduce (fn [{:keys [depth] :as acc} [idx line]]
+                 (let [assignment (when (= 1 depth)
+                                    (some->> (re-matches #"^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*=.*$"
+                                                         line)
+                                             second))
+                       opens (count (re-seq #"\{" line))
+                       closes (count (re-seq #"\}" line))]
+                   (cond-> (assoc acc :depth (+ depth opens (- closes)))
+                     assignment
+                     (update :blocks conj {:block-type "local"
+                                           :kind :terraform-local
+                                           :name (str "local." assignment)
+                                           :source-line (inc idx)
+                                           :lines [[idx line]]}))))
+               {:depth 0
+                :blocks []})
+       :blocks))
+
 (defn- terraform-blocks
   [lines]
-  (hcl-blocks lines terraform-extra-block-start))
+  (let [blocks (hcl-blocks lines terraform-extra-block-start)]
+    (vec (concat blocks
+                 (mapcat local-assignment-blocks
+                         (filter #(= "locals" (:block-type %)) blocks))))))
 (defn- path-scoped-node-label
   [path label]
   (str path ":" label))
+
+(defn- terraform-module-path
+  [path]
+  (let [path (str path)
+        idx (.lastIndexOf path "/")]
+    (if (neg? idx)
+      "."
+      (subs path 0 idx))))
+
+(defn- module-scoped-node-label
+  [path label]
+  (str (terraform-module-path path) ":" label))
+
 (defn- terraform-node-id
   [id-scope path kind label]
-  (common/node-id id-scope kind (path-scoped-node-label path label)))
+  (common/node-id id-scope
+                  kind
+                  (if (= :terraform-local kind)
+                    (module-scoped-node-label path label)
+                    (path-scoped-node-label path label))))
+
+(defn- local-reference-label
+  [target]
+  (let [[head local-name] (str/split (str target) #"\.")]
+    (when (and (= "local" head)
+               (seq local-name))
+      (str "local." local-name))))
+
+(defn- hcl-reference-target-id
+  [id-scope path node-by-name target]
+  (or (some #(get node-by-name %) (hcl-reference-prefixes target))
+      (some->> (local-reference-label target)
+               (terraform-node-id id-scope path :terraform-local))))
+
 (defn- terraform-node
   [run-id id-scope file-id path kind label source-line]
-  (assoc (common/generic-node run-id id-scope file-id path kind label source-line)
-         :xt/id (terraform-node-id id-scope path kind label)))
+  (cond-> (assoc (common/generic-node run-id id-scope file-id path kind label source-line)
+                 :xt/id (terraform-node-id id-scope path kind label))
+    (= :terraform-local kind)
+    (assoc :module-path (terraform-module-path path))))
 (defn- terraform-block-facts
   [blocks]
   (->> blocks
@@ -219,7 +277,11 @@
                              (mapcat (fn [{:keys [kind name lines]}]
                                        (let [source-id (terraform-node-id id-scope path kind name)]
                                          (keep (fn [{:keys [target source-line]}]
-                                                 (when-let [target-id (hcl-reference-target-id node-by-name target)]
+                                                 (when-let [target-id (hcl-reference-target-id
+                                                                       id-scope
+                                                                       path
+                                                                       node-by-name
+                                                                       target)]
                                                    (when (not= source-id target-id)
                                                      (common/edge-row run-id
                                                                       file-id
