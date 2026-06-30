@@ -1668,6 +1668,59 @@
     (is (< (index-of selected-paths "tests/Dapper.Tests/TypeHandlerTests.cs")
            (index-of selected-paths "Dapper/SqlMapper.ITypeHandler.cs")))))
 
+(deftest compact-output-frontloads-doc-supported-source-graph-query-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/Dapper.Tests/ParameterTests.cs"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 3
+                     :matchedTokenCount 8
+                     :rankScore 25.9})
+               (row "tests/Dapper.Tests/EnumTests.cs"
+                    2
+                    {:docCount 3
+                     :candidateFileCount 1
+                     :matchedTokenCount 4
+                     :rankScore 24.3})
+               (row "benchmarks/Dapper.Tests.Performance/Benchmarks.Belgrade.cs"
+                    3
+                    {:candidateFileCount 2
+                     :candidateOnlySourceGraphHeadBoost 9.0
+                     :matchedTokenCount 5
+                     :rankScore 23.1})
+               (row "Dapper/SqlMapper.Settings.cs"
+                    4
+                    {:candidateFileCount 1
+                     :directFileCandidateCount 1
+                     :matchedTokenCount 7
+                     :sourceGraphQueryEvidenceBoost 9.0
+                     :rankScore 22.8})
+               (row "Dapper/SqlMapper.cs"
+                    5
+                    {:docCount 1
+                     :candidateFileCount 5
+                     :docSupportedSourceGraphQueryBoost 2.0
+                     :matchedTokenCount 9
+                     :rankScore 21.4
+                     :sourceGraphQueryEvidenceBoost 9.0})
+               (row "tests/Dapper.Tests/TypeHandlerTests.cs"
+                    7
+                    {:docCount 3
+                     :candidateFileCount 1
+                     :matchedPathQueryTokenCount 4
+                     :matchedTokenCount 8
+                     :rankScore 20.7
+                     :repeatedRetrievedSourceBoost 3.2
+                     :retrievedSourceCount 3})]
+        selected-paths (mapv :path (compact-output files 20 nil))]
+    (is (= "Dapper/SqlMapper.cs" (nth selected-paths 4)))
+    (is (< (index-of selected-paths "Dapper/SqlMapper.cs")
+           (index-of selected-paths "tests/Dapper.Tests/TypeHandlerTests.cs")))))
+
 (deftest compact-output-frontloads-query-evidence-doc-row
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]

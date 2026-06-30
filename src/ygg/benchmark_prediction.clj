@@ -409,6 +409,8 @@
   0.55)
 (def ^:private compact-output-query-matched-exported-support-limit
   2)
+(def ^:private compact-output-doc-supported-source-graph-query-sort-rank
+  0.54)
 (def ^:private compact-output-retrieved-label-source-sort-rank
   3.5)
 (def ^:private compact-output-identity-compound-source-sort-rank
@@ -4670,6 +4672,10 @@
   [row]
   (pos? (row-metric-double row :sourceGraphQueryEvidenceBoost)))
 
+(defn- compact-output-doc-supported-source-graph-query-row?
+  [row]
+  (pos? (row-metric-double row :docSupportedSourceGraphQueryBoost)))
+
 (defn- compact-output-candidate-source-graph-head-row?
   [row]
   (and (pos? (row-metric-double row :candidateOnlySourceGraphHeadBoost))
@@ -4771,6 +4777,9 @@
                                 compact-output-doc-source-graph-grep-sort-rank)
                               (when (compact-output-candidate-source-graph-head-row? row)
                                 compact-output-candidate-source-graph-head-sort-rank)
+                              (when (compact-output-doc-supported-source-graph-query-row?
+                                     row)
+                                compact-output-doc-supported-source-graph-query-sort-rank)
                               (when (compact-output-supported-source-graph-query-evidence-row?
                                      row)
                                 compact-output-source-graph-query-evidence-sort-rank)
