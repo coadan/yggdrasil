@@ -57,6 +57,35 @@
     (is (some #{["core" "connector/connector.go"]} paths))
     (is (zero? (get-in result [:selection :coverageFilteredCandidateFiles])))))
 
+(deftest context-packet-agent-result-expands-local-importers-from-candidate-files
+  (let [root (temp-dir "ygg-bench-pred-importer")
+        _ (write-file! root
+                       "src/components/theme/Panel.astro"
+                       "---\nconst label = \"Theme\"\n---\n<section>{label}</section>\n")
+        _ (write-file! root
+                       "src/pages/index.astro"
+                       "---\nimport Panel from '@components/theme/Panel.astro'\n---\n<Panel />\n")
+        packet {:query "theme component route impact"
+                :candidateFiles [{:path "src/components/theme/Panel.astro"
+                                  :rank 1
+                                  :score 1.0
+                                  :targetKind "node"
+                                  :kind "namespace"
+                                  :label "src.components.theme.Panel"
+                                  :supportLabels ["src/components/theme/Panel.astro"]
+                                  :scoreComponents {:sourceGraph 0.6
+                                                    :lexical 1.0
+                                                    :grep 0.5}}]}
+        result (benchmark-prediction/context-packet->agent-result
+                packet
+                {:root root
+                 :coverage {:declaredSourceKinds ["astro" "web-framework"]}
+                 :limit 10})
+        by-path (into {} (map (juxt :path identity)) (:suspectedFiles result))]
+    (is (contains? by-path "src/pages/index.astro"))
+    (is (some #(str/starts-with? % "candidate-file-local-importer:")
+              (get-in by-path ["src/pages/index.astro" :evidence])))))
+
 (deftest file-ranking-boosts-direct-file-in-evidence-dense-directory
   (let [rank-files @#'benchmark-prediction/ranked-file-predictions
         doc-row (fn [path source-rank evidence-score tokens]

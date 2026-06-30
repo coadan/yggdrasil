@@ -2,6 +2,7 @@
   (:require [ygg.benchmark-prepare :as benchmark-prepare]
             [ygg.benchmark-util :as benchmark-util]
             [ygg.context :as context]
+            [ygg.extract.common :as extract-common]
             [ygg.text :as text]
             [clojure.java.io :as io]
             [clojure.set :as set]
@@ -168,6 +169,12 @@
   1.4)
 (def ^:private rank-score-candidate-grep-component-token-min
   2)
+(def ^:private local-importer-candidate-limit
+  80)
+(def ^:private local-importer-row-limit
+  120)
+(def ^:private local-importer-max-file-bytes
+  262144)
 (def ^:private rank-score-graph-support-min
   0.5)
 (def ^:private rank-score-graph-lexical-support-min
@@ -1420,6 +1427,215 @@
        (when-some [score (:score candidate)]
          (str " score=" score))
        (score-component-evidence score-components)))
+
+(def ^:private local-importer-source-extensions
+  #{".astro" ".cjs" ".js" ".jsx" ".mjs" ".svelte" ".ts" ".tsx" ".vue"})
+
+(defn- local-importer-source-file?
+  [path]
+  (contains? local-importer-source-extensions (path-extension path)))
+
+(defn- module-path-suffixes
+  [path]
+  (let [path (extract-common/drop-source-extension (str path))
+        parts (vec (remove str/blank? (str/split path #"/")))]
+    (->> (range 0 (max 0 (dec (count parts))))
+         (map #(subvec parts %))
+         (filter #(<= 2 (count %)))
+         (map #(str/join "/" %)))))
+
+(defn- module-target-keys
+  [value]
+  (let [raw (extract-common/drop-source-extension (str value))
+        slash-value (str/replace raw #"\\" "/")
+        slash-parts (vec (remove str/blank? (str/split slash-value #"/")))
+        alias-suffix (when (and (seq slash-parts)
+                                (str/starts-with? (first slash-parts) "@")
+                                (< 1 (count slash-parts)))
+                       (str/join "/" (subvec slash-parts 1)))
+        slash-suffixes (cond-> [slash-value]
+                         alias-suffix (conj alias-suffix))
+        dot-value (str/replace slash-value #"/" ".")
+        alias-dot (some-> alias-suffix (str/replace #"/" "."))]
+    (->> (concat slash-suffixes
+                 [dot-value alias-dot])
+         (remove benchmark-util/blankish?)
+         distinct
+         vec)))
+
+(defn- candidate-module-target-keys
+  [path]
+  (let [suffixes (module-path-suffixes path)]
+    (->> (concat suffixes
+                 (map #(str/replace % #"/" ".") suffixes)
+                 [(extract-common/source-module-name path)])
+         (remove benchmark-util/blankish?)
+         distinct
+         vec)))
+
+(defn- local-importer-candidate-index
+  [roots candidates]
+  (->> candidates
+       (take local-importer-candidate-limit)
+       (map-indexed vector)
+       (mapcat (fn [[idx candidate]]
+                 (let [path (:path candidate)
+                       repo-key (when (multi-root-map? roots)
+                                  (repo-key-name (:repo candidate)))]
+                   (when (and (not (benchmark-util/blankish? path))
+                              (local-importer-source-file? path))
+                     (map (fn [target-key]
+                            [[repo-key target-key]
+                             (assoc candidate
+                                    ::local-importer-candidate-index
+                                    idx)])
+                          (candidate-module-target-keys path))))))
+       (remove nil?)
+       (reduce (fn [idx [k candidate]]
+                 (update idx k #(or % candidate)))
+               {})))
+
+(defn- local-import-targets
+  [root path]
+  (let [file (io/file root path)]
+    (when (and (.isFile file)
+               (<= (.length file) local-importer-max-file-bytes))
+      (try
+        (->> (str/split-lines (slurp file))
+             (map-indexed #(extract-common/js-import-targets %1 path %2))
+             (mapcat identity)
+             (mapcat #(module-target-keys (:target %)))
+             distinct
+             vec)
+        (catch Exception _
+          [])))))
+
+(defn- candidate-file-local-importer-evidence
+  [candidate importer-path]
+  (str "candidate-file-local-importer:"
+       importer-path
+       " imports="
+       (:path candidate)
+       " rank="
+       (:rank candidate)
+       (when-let [label (not-empty (str (:label candidate)))]
+         (str " label=" (pr-str label)))
+       (when-let [support-labels (seq (:supportLabels candidate))]
+         (str " supportLabels=" (pr-str (vec support-labels))))
+       (when-some [score (:score candidate)]
+         (str " score=" score))))
+
+(defn- local-importer-file-prediction
+  [query-tokens repo-id importer-path candidate]
+  (let [candidate-path (:path candidate)
+        support-labels (vec (remove benchmark-util/blankish?
+                                    (concat [(:label candidate)
+                                             candidate-path]
+                                            (:supportLabels candidate))))
+        evidence-text (str/join "\n" (cons importer-path support-labels))
+        {:keys [matched-tokens matched-token-pairs]}
+        (token-and-pair-matches query-tokens evidence-text)
+        score-components (or (:scoreComponents candidate)
+                             (:score-components candidate))
+        candidate-rank (long (or (parse-double-safe (:rank candidate))
+                                 (inc (long (or (::local-importer-candidate-index
+                                                 candidate)
+                                                0)))))
+        lexical-score (double (or (parse-double-safe (:lexical score-components))
+                                  0.0))
+        grep-score (double (or (parse-double-safe (:grep score-components))
+                               0.0))
+        source-graph-score (double (or (parse-double-safe (:sourceGraph
+                                                           score-components))
+                                       0.0))]
+    (cond-> {:path importer-path
+             :source-rank (+ 560 candidate-rank)
+             :confidence (bounded-confidence (:score candidate))
+             :evidence-score (* 0.55 (double (or (parse-double-safe
+                                                  (:score candidate))
+                                                 0.0)))
+             :evidence-kind :candidate-file
+             :retrieved-source? false
+             :exact-path-source? false
+             :definition-kind "local-importer"
+             :matched-tokens matched-tokens
+             :matched-token-pairs matched-token-pairs
+             :matched-compound-token-pairs
+             (compact-compound-token-pair-matches query-tokens evidence-text)
+             :matched-identity-compound-token-pairs
+             (apply identity-compound-token-pair-matches
+                    query-tokens
+                    importer-path
+                    support-labels)
+             :matched-identity-compound-token-span-length
+             (apply identity-compound-token-span-length
+                    query-tokens
+                    importer-path
+                    support-labels)
+             :matched-path-query-token-count
+             (query-matched-path-token-count query-tokens importer-path)
+             :file-identity-support-label-count
+             (file-identity-support-label-count importer-path support-labels)
+             :candidate-support-label-signature
+             (exported-support-label-signature support-labels)
+             :candidate-support-label-count (count support-labels)
+             :evidence [(candidate-file-local-importer-evidence candidate
+                                                                importer-path)]
+             :reason (str "Yggdrasil derived local importer file "
+                          importer-path
+                          " from retrieved candidate "
+                          candidate-path
+                          ".")}
+      repo-id
+      (assoc :repo-id repo-id)
+
+      (pos? source-graph-score)
+      (assoc :candidate-source-rank candidate-rank)
+
+      (pos? lexical-score)
+      (assoc :candidate-lexical-score lexical-score)
+
+      (pos? grep-score)
+      (assoc :candidate-grep-score grep-score))))
+
+(defn- local-importer-root-entries
+  [root roots]
+  (if (map? roots)
+    (mapv (fn [[repo-id repo-root]]
+            {:source-repo-id repo-id
+             :repo-id (prediction-repo-id roots repo-id)
+             :root repo-root})
+          roots)
+    [{:source-repo-id nil
+      :repo-id nil
+      :root root}]))
+
+(defn- local-importer-file-predictions
+  [root roots kind-by-path query-tokens candidates]
+  (let [candidate-index (local-importer-candidate-index roots candidates)]
+    (if (empty? candidate-index)
+      []
+      (->> (for [{:keys [source-repo-id repo-id root]} (local-importer-root-entries
+                                                        root
+                                                        roots)
+                 :let [path-kinds (if (map? kind-by-path)
+                                    (or (repo-map-get kind-by-path source-repo-id)
+                                        kind-by-path)
+                                    {})]
+                 [path _kind] path-kinds
+                 :when (local-importer-source-file? path)
+                 :let [repo-key (when (multi-root-map? roots)
+                                  (repo-key-name source-repo-id))]
+                 target-key (local-import-targets root path)
+                 :let [candidate (get candidate-index [repo-key target-key])]
+                 :when (and candidate
+                            (not= path (:path candidate)))]
+             (local-importer-file-prediction query-tokens
+                                             repo-id
+                                             path
+                                             candidate))
+           (take local-importer-row-limit)
+           vec))))
 
 (defn- candidate-file-prediction
   [root roots query-tokens retrieved-identities idx candidate]
@@ -4821,6 +5037,12 @@
                                                  %1
                                                  %2))
                                   (mapcat identity))
+         local-importer-rows (local-importer-file-predictions root
+                                                              roots
+                                                              kind-by-path
+                                                              query-tokens
+                                                              (:candidateFiles
+                                                               packet))
          decision-candidate-rows (decision-candidate-file-predictions root
                                                                       roots
                                                                       query-tokens
@@ -4829,6 +5051,7 @@
          raw-candidate-files (ranked-file-predictions (concat doc-rows
                                                               entity-rows
                                                               candidate-file-rows
+                                                              local-importer-rows
                                                               decision-candidate-rows
                                                               architecture-rows))
          candidate-files (->> raw-candidate-files
