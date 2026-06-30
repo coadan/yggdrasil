@@ -234,6 +234,7 @@
         (is (= 2 (:completed result)))
         (is (= 2 (count @caches)))
         (is (every? some? @caches))
+        (is (= :sqlite (:type (first @caches))))
         (is (apply identical? @caches))))))
 (deftest benchmark-index-options-are-bounded-by-default
   (is (= {:index-profile :query

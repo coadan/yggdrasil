@@ -1,10 +1,13 @@
 (ns ygg.embedding
   "Embedding indexing and vector helpers."
-  (:require [ygg.hash :as hash]
+  (:require [charred.api :as json]
+            [ygg.hash :as hash]
             [ygg.text :as text]
             [ygg.vector-store :as vector-store]
             [ygg.xtdb :as store]
-            [clojure.string :as str]))
+            [clojure.java.io :as io]
+            [clojure.string :as str])
+  (:import [java.sql DriverManager PreparedStatement]))
 
 (def default-batch-size 64)
 
@@ -12,6 +15,27 @@
   6000)
 
 (def default-embedding-role :content)
+
+(def embedding-cache-schema-version
+  1)
+
+(defn default-cache-path
+  "Return the central reusable embedding cache path."
+  []
+  (or (System/getenv "YGG_EMBEDDING_CACHE_PATH")
+      (str (io/file (store/storage-root) "embedding-cache.sqlite"))))
+
+(defn sqlite-cache
+  "Return a lazy SQLite-backed embedding cache descriptor.
+
+  The connection is opened only when lookup or store work happens, so callers
+  can create a cache descriptor for benchmark runs that may not need embeddings."
+  ([] (sqlite-cache (default-cache-path)))
+  ([path]
+   {:type :sqlite
+    :path (str path)
+    :memory (atom {})
+    :connection (atom nil)}))
 
 (defn now-ms
   []
@@ -217,15 +241,222 @@
    (:kind doc)
    (:input-sha doc)])
 
-(defn- cache-lookup
-  [cache key]
-  (when cache
-    (get @cache key)))
+(defn- sqlite-cache?
+  [cache]
+  (= :sqlite (:type cache)))
 
-(defn- cache-store!
-  [cache key vector]
-  (when cache
-    (swap! cache assoc key vector)))
+(defn- ensure-parent-dir!
+  [path]
+  (when-let [parent (.getParentFile (io/file path))]
+    (.mkdirs parent))
+  path)
+
+(defn- sqlite-cache-schema!
+  [conn]
+  (with-open [statement (.createStatement conn)]
+    (.execute statement
+              (str "create table if not exists ygg_embedding_cache "
+                   "(cache_key text primary key, "
+                   "schema_version integer not null, "
+                   "provider text not null, "
+                   "model text not null, "
+                   "embedding_role text not null, "
+                   "input_max_chars integer not null, "
+                   "repo_id text, "
+                   "target_kind text, "
+                   "path text, "
+                   "file_kind text, "
+                   "input_sha text not null, "
+                   "dims integer not null, "
+                   "vector_json text not null, "
+                   "updated_at_ms integer not null)"))))
+
+(defn- sqlite-cache-connection!
+  [cache]
+  (let [holder (:connection cache)]
+    (or @holder
+        (locking holder
+          (or @holder
+              (let [conn (DriverManager/getConnection
+                          (str "jdbc:sqlite:"
+                               (ensure-parent-dir! (:path cache))))]
+                (sqlite-cache-schema! conn)
+                (reset! holder conn)
+                conn))))))
+
+(defn close-cache!
+  "Close a cache descriptor created by `sqlite-cache`."
+  [cache]
+  (when (sqlite-cache? cache)
+    (let [holder (:connection cache)]
+      (when holder
+        (locking holder
+          (when-let [conn @holder]
+            (.close conn)
+            (reset! holder nil)))))))
+
+(defn- cache-key-id
+  [key]
+  (hash/sha256-hex (pr-str key)))
+
+(defn- vector-json
+  [vector]
+  (json/write-json-str (mapv double vector)))
+
+(defn- parse-vector-json
+  [value]
+  (mapv double (json/read-json value)))
+
+(defn- nullable-cache-value
+  [value]
+  (when (some? value)
+    (if (keyword? value)
+      (name value)
+      (str value))))
+
+(defn- named-cache-value
+  [value]
+  (if (keyword? value)
+    (name value)
+    (str value)))
+
+(defn- set-nullable-string!
+  [^PreparedStatement statement idx value]
+  (if (nil? value)
+    (.setObject statement idx nil)
+    (.setString statement idx (str value))))
+
+(defn- key-cache-row
+  [key vector]
+  (let [[provider model embedding-role input-max-chars repo-id target-kind path file-kind input-sha] key]
+    {:cache-key (cache-key-id key)
+     :schema-version embedding-cache-schema-version
+     :provider (named-cache-value provider)
+     :model (str model)
+     :embedding-role (named-cache-value (or embedding-role default-embedding-role))
+     :input-max-chars (long input-max-chars)
+     :repo-id (nullable-cache-value repo-id)
+     :target-kind (nullable-cache-value target-kind)
+     :path (nullable-cache-value path)
+     :file-kind (nullable-cache-value file-kind)
+     :input-sha (str input-sha)
+     :dims (count vector)
+     :vector-json (vector-json vector)
+     :updated-at-ms (now-ms)}))
+
+(defn- sqlite-cache-lookup-many
+  [cache cache-keys]
+  (let [memory (:memory cache)
+        cached @memory
+        misses (remove #(contains? cached %) cache-keys)]
+    (if (empty? misses)
+      (select-keys cached cache-keys)
+      (let [conn (sqlite-cache-connection! cache)
+            hash->key (into {} (map (juxt cache-key-id identity)) misses)
+            loaded (locking conn
+                     (reduce
+                      (fn [acc batch]
+                        (let [placeholders (str/join "," (repeat (count batch) "?"))
+                              sql (str "select cache_key, vector_json "
+                                       "from ygg_embedding_cache "
+                                       "where cache_key in (" placeholders ")")]
+                          (with-open [statement (.prepareStatement conn sql)]
+                            (doseq [[idx cache-key] (map-indexed vector batch)]
+                              (.setString statement (inc idx) cache-key))
+                            (with-open [rs (.executeQuery statement)]
+                              (loop [acc acc]
+                                (if (.next rs)
+                                  (let [key (get hash->key (.getString rs "cache_key"))]
+                                    (recur (assoc acc
+                                                  key
+                                                  (parse-vector-json
+                                                   (.getString rs "vector_json")))))
+                                  acc))))))
+                      {}
+                      (partition-all 500 (clojure.core/keys hash->key))))]
+        (when (seq loaded)
+          (swap! memory merge loaded))
+        (merge (select-keys cached cache-keys)
+               loaded)))))
+
+(defn- cache-lookup-many
+  [cache cache-keys]
+  (cond
+    (nil? cache)
+    {}
+
+    (sqlite-cache? cache)
+    (sqlite-cache-lookup-many cache cache-keys)
+
+    :else
+    (select-keys @cache cache-keys)))
+
+(defn- sqlite-cache-store-many!
+  [cache entries]
+  (when (seq entries)
+    (swap! (:memory cache) merge (into {} entries))
+    (let [conn (sqlite-cache-connection! cache)]
+      (locking conn
+        (let [auto-commit? (.getAutoCommit conn)]
+          (try
+            (.setAutoCommit conn false)
+            (with-open [statement (.prepareStatement
+                                   conn
+                                   (str "insert into ygg_embedding_cache "
+                                        "(cache_key, schema_version, provider, model, embedding_role, "
+                                        "input_max_chars, repo_id, target_kind, path, file_kind, "
+                                        "input_sha, dims, vector_json, updated_at_ms) "
+                                        "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                                        "on conflict(cache_key) do update set "
+                                        "schema_version = excluded.schema_version, "
+                                        "provider = excluded.provider, "
+                                        "model = excluded.model, "
+                                        "embedding_role = excluded.embedding_role, "
+                                        "input_max_chars = excluded.input_max_chars, "
+                                        "repo_id = excluded.repo_id, "
+                                        "target_kind = excluded.target_kind, "
+                                        "path = excluded.path, "
+                                        "file_kind = excluded.file_kind, "
+                                        "input_sha = excluded.input_sha, "
+                                        "dims = excluded.dims, "
+                                        "vector_json = excluded.vector_json, "
+                                        "updated_at_ms = excluded.updated_at_ms"))]
+              (doseq [[key vector] entries
+                      :let [row (key-cache-row key vector)]]
+                (.setString statement 1 (:cache-key row))
+                (.setLong statement 2 (:schema-version row))
+                (.setString statement 3 (:provider row))
+                (.setString statement 4 (:model row))
+                (.setString statement 5 (:embedding-role row))
+                (.setLong statement 6 (:input-max-chars row))
+                (set-nullable-string! statement 7 (:repo-id row))
+                (set-nullable-string! statement 8 (:target-kind row))
+                (set-nullable-string! statement 9 (:path row))
+                (set-nullable-string! statement 10 (:file-kind row))
+                (.setString statement 11 (:input-sha row))
+                (.setLong statement 12 (:dims row))
+                (.setString statement 13 (:vector-json row))
+                (.setLong statement 14 (:updated-at-ms row))
+                (.addBatch statement))
+              (.executeBatch statement))
+            (.commit conn)
+            (catch Throwable t
+              (.rollback conn)
+              (throw t))
+            (finally
+              (.setAutoCommit conn auto-commit?))))))))
+
+(defn- cache-store-many!
+  [cache entries]
+  (cond
+    (nil? cache)
+    nil
+
+    (sqlite-cache? cache)
+    (sqlite-cache-store-many! cache entries)
+
+    :else
+    (swap! cache merge (into {} entries))))
 
 (defn- doc-embedding-row
   [doc provider model embedding-role vector]
@@ -260,16 +491,21 @@
                                                         :model model
                                                         :embedding-role embedding-role
                                                         :limit limit)))
-          pending-with-cache (mapv (fn [doc]
-                                     (let [key (embedding-cache-key doc
-                                                                    provider
-                                                                    model
-                                                                    embedding-role
-                                                                    input-max-chars)]
-                                       {:doc doc
-                                        :cache-key key
-                                        :cached-vector (cache-lookup embedding-cache key)}))
-                                   pending)
+          pending-with-keys (mapv (fn [doc]
+                                    {:doc doc
+                                     :cache-key (embedding-cache-key doc
+                                                                     provider
+                                                                     model
+                                                                     embedding-role
+                                                                     input-max-chars)})
+                                  pending)
+          cached-by-key (cache-lookup-many embedding-cache
+                                           (mapv :cache-key pending-with-keys))
+          pending-with-cache (mapv (fn [{:keys [cache-key] :as item}]
+                                     (assoc item
+                                            :cached-vector
+                                            (get cached-by-key cache-key)))
+                                   pending-with-keys)
           cached-rows (->> pending-with-cache
                            (keep (fn [{:keys [doc cached-vector]}]
                                    (when cached-vector
@@ -299,8 +535,11 @@
              (throw (ex-info "Embedding provider returned wrong vector count."
                              {:expected (count batch)
                               :actual (count vectors)})))
-           (doseq [[{:keys [cache-key]} vector] (map vector batch vectors)]
-             (cache-store! embedding-cache cache-key vector))
+           (cache-store-many! embedding-cache
+                              (mapv (fn [{:keys [cache-key]} vector]
+                                      [cache-key vector])
+                                    batch
+                                    vectors))
            (let [rows (mapv (fn [doc vector]
                               (doc-embedding-row doc
                                                  provider

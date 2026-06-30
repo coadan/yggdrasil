@@ -35,6 +35,7 @@
             [ygg.benchmark-system-improvement :as benchmark-system-improvement]
             [ygg.benchmark-util :as benchmark-util]
             [ygg.dependency.imports.common :as import-common]
+            [ygg.embedding :as embedding]
             [clojure.string :as str]))
 
 (def suite-schema
@@ -528,41 +529,48 @@
 (defn agent-baselines!
   "Generate deterministic Yggdrasil agent-result artifacts for selected cases."
   [suite opts]
-  (let [opts (if (contains? opts :embedding-cache)
-               opts
-               (assoc opts :embedding-cache (atom {})))
-        baseline-for-case (fn [case]
-                            (or (when (:skip-existing? opts)
-                                  (some->> {:agent-id (benchmark-paths/agent-baseline-id opts)
-                                            :mode (agent-baseline-mode opts)
-                                            :result-path (benchmark-paths/agent-baseline-result-path
-                                                          suite
-                                                          case
-                                                          opts)}
-                                           (reusable-agent-score suite case opts)
-                                           (skipped-agent-baseline suite case opts)))
-                                (let [retriever (keyword
-                                                 (or (:retriever opts)
-                                                     benchmark-agent-baseline/default-agent-baseline-retriever))]
-                                  (cond
-                                    (= :local-vector retriever)
-                                    (local-vector-baseline! suite case opts)
+  (let [default-cache? (not (contains? opts :embedding-cache))
+        embedding-cache (when default-cache?
+                          (embedding/sqlite-cache))
+        opts (cond-> opts
+               default-cache?
+               (assoc :embedding-cache embedding-cache))]
+    (try
+      (let [baseline-for-case (fn [case]
+                                (or (when (:skip-existing? opts)
+                                      (some->> {:agent-id (benchmark-paths/agent-baseline-id opts)
+                                                :mode (agent-baseline-mode opts)
+                                                :result-path (benchmark-paths/agent-baseline-result-path
+                                                              suite
+                                                              case
+                                                              opts)}
+                                               (reusable-agent-score suite case opts)
+                                               (skipped-agent-baseline suite case opts)))
+                                    (let [retriever (keyword
+                                                     (or (:retriever opts)
+                                                         benchmark-agent-baseline/default-agent-baseline-retriever))]
+                                      (cond
+                                        (= :local-vector retriever)
+                                        (local-vector-baseline! suite case opts)
 
-                                    (= :codebase-memory retriever)
-                                    (codebase-memory-baseline! suite case opts)
+                                        (= :codebase-memory retriever)
+                                        (codebase-memory-baseline! suite case opts)
 
-                                    (= :graphify retriever)
-                                    (graphify-baseline! suite case opts)
+                                        (= :graphify retriever)
+                                        (graphify-baseline! suite case opts)
 
-                                    :else
-                                    (agent-baseline! suite case opts)))))
-        baselines (mapv baseline-for-case
-                        (selected-cases suite (case-selector opts)))]
-    {:schema agent-baselines-schema
-     :suite-id (:id suite)
-     :baselines baselines
-     :completed (count baselines)
-     :skipped (count (filter #(= "skipped" (:status %)) baselines))}))
+                                        :else
+                                        (agent-baseline! suite case opts)))))
+            baselines (mapv baseline-for-case
+                            (selected-cases suite (case-selector opts)))]
+        {:schema agent-baselines-schema
+         :suite-id (:id suite)
+         :baselines baselines
+         :completed (count baselines)
+         :skipped (count (filter #(= "skipped" (:status %)) baselines))})
+      (finally
+        (when default-cache?
+          (embedding/close-cache! embedding-cache))))))
 
 (defn- normalize-agent-run-result
   [prepared agent-result opts]
