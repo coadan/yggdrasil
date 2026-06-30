@@ -757,6 +757,154 @@
       (is (< (index-of result-paths "consumer/traces.go")
              (index-of result-paths "connector/connector_test.go"))))))
 
+(deftest compact-output-preserves-late-path-self-identity-candidate
+  (let [select-files @#'benchmark-prediction/select-limited-suspected-files
+        compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        rows [(row "receiver/receivertest/contract_checker.go"
+                   1
+                   {:candidateFileCount 1
+                    :docCount 0
+                    :entityCount 0
+                    :candidateSourceRank 4
+                    :matchedPathQueryTokenCount 1
+                    :matchedTokenCount 5
+                    :sourceGraphCandidateEvidenceScore 0.53
+                    :candidateGrepScore 0.47
+                    :rankScore 17.8})
+              (row "service/internal/graph/connector.go"
+                   2
+                   {:docCount 1
+                    :candidateFileCount 1
+                    :retrievedSourceCount 1
+                    :retrievedSupportLabelCount 2
+                    :candidateSourceRank 2
+                    :matchedPathQueryTokenCount 2
+                    :matchedTokenCount 9
+                    :sourceGraphCandidateEvidenceScore 0.61
+                    :candidateGrepScore 0.59
+                    :rankScore 15.6})
+              (row "consumer/traces.go"
+                   3
+                   {:docCount 1
+                    :candidateFileCount 1
+                    :retrievedSourceCount 1
+                    :retrievedSupportLabelCount 2
+                    :candidateSourceRank 24
+                    :matchedPathQueryTokenCount 2
+                    :matchedTokenCount 7
+                    :sourceGraphCandidateEvidenceScore 0.52
+                    :candidateGrepScore 0.08
+                    :rankScore 20.8})
+              (row "connector/connector.go"
+                   4
+                   {:docCount 1
+                    :candidateFileCount 1
+                    :retrievedSourceCount 1
+                    :retrievedSupportLabelCount 2
+                    :queryMatchedPathSelfIdentity true
+                    :matchedPathQueryTokenCount 1
+                    :matchedTokenCount 10
+                    :candidateGrepScore 0.74
+                    :rankScore 19.8})
+              (row "connector/traces_router.go"
+                   5
+                   {:docCount 1
+                    :candidateFileCount 1
+                    :retrievedSourceCount 1
+                    :retrievedSupportLabelCount 3
+                    :candidateSourceRank 6
+                    :matchedPathQueryTokenCount 2
+                    :matchedTokenCount 8
+                    :sourceGraphCandidateEvidenceScore 0.62
+                    :candidateGrepScore 0.32
+                    :rankScore 15.5})
+              (row "internal/fanoutconsumer/traces.go"
+                   6
+                   {:candidateFileCount 2
+                    :docCount 0
+                    :entityCount 0
+                    :retrievedSupportLabelCount 3
+                    :candidateSourceRank 15
+                    :matchedPathQueryTokenCount 1
+                    :matchedTokenCount 5
+                    :sourceGraphCandidateEvidenceScore 0.58
+                    :candidateGrepScore 0.40
+                    :rankScore 13.8})
+              (row "receiver/receivertest/contract_checker_test.go"
+                   23
+                   {:candidateFileCount 1
+                    :docCount 0
+                    :entityCount 0
+                    :candidateSourceRank 23
+                    :matchedPathQueryTokenCount 1
+                    :matchedTokenCount 4
+                    :sourceGraphCandidateEvidenceScore 0.54
+                    :candidateGrepScore 0.44
+                    :rankScore 3.8})
+              (row "internal/fanoutconsumer/traces_test.go"
+                   24
+                   {:candidateFileCount 1
+                    :docCount 0
+                    :entityCount 0
+                    :candidateSourceRank 73
+                    :matchedPathQueryTokenCount 1
+                    :matchedTokenCount 4
+                    :sourceGraphCandidateEvidenceScore 0.56
+                    :candidateGrepScore 0.47
+                    :rankScore 5.8})
+              (row "confmap/resolver.go"
+                   25
+                   {:candidateFileCount 2
+                    :docCount 0
+                    :entityCount 0
+                    :candidateSourceRank 161
+                    :matchedTokenCount 3
+                    :sourceGraphCandidateEvidenceScore 2.15
+                    :rankScore 6.0})
+              (row "cmd/otelcorecol/main_windows.go"
+                   26
+                   {:candidateFileCount 2
+                    :docCount 0
+                    :entityCount 0
+                    :candidateSourceRank 166
+                    :matchedTokenCount 3
+                    :sourceGraphCandidateEvidenceScore 2.63
+                    :rankScore 6.2})
+              (row "component/component.go"
+                   41
+                   {:candidateFileCount 1
+                    :docCount 0
+                    :entityCount 0
+                    :queryMatchedPathSelfIdentity true
+                    :matchedPathQueryTokenCount 1
+                    :matchedTokenCount 2
+                    :candidateGrepScore 0.33
+                    :rankScore 1.8})]
+        filler (mapv (fn [rank]
+                       (row (str "noise/file_" rank ".go")
+                            rank
+                            {:docCount 1
+                             :matchedTokenCount 4
+                             :rankScore (- 14.0 rank)}))
+                     (range 7 23))
+        selected (:files (select-files (vec (sort-by :rank
+                                                     (concat rows filler)))
+                                       20))
+        selected-paths (mapv :path selected)
+        compact-paths (mapv :path (compact-output selected 20 nil))]
+    (is (some #{"component/component.go"} selected-paths))
+    (is (every? #(< (index-of compact-paths %) 5)
+                ["connector/connector.go"
+                 "consumer/traces.go"
+                 "component/component.go"]))
+    (is (< (index-of compact-paths "connector/connector.go")
+           (index-of compact-paths
+                     "receiver/receivertest/contract_checker_test.go")))))
+
 (deftest compact-output-anchors-directory-evidence-candidate
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]

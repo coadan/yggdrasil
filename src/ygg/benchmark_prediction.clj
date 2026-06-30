@@ -17,6 +17,8 @@
   2)
 (def ^:private candidate-file-only-query-evidence-reserve-limit
   2)
+(def ^:private candidate-file-only-path-self-identity-reserve-limit
+  1)
 (def ^:private candidate-file-only-query-evidence-token-min
   2)
 (def ^:private candidate-file-only-query-evidence-score-min
@@ -412,9 +414,11 @@
 (def ^:private compact-output-retrieved-path-query-token-limit
   1)
 (def ^:private compact-output-candidate-path-self-identity-sort-rank
-  0.5)
+  compact-output-strong-retrieved-label-doc-sort-rank)
 (def ^:private compact-output-candidate-path-self-identity-limit
   2)
+(def ^:private compact-output-candidate-path-self-identity-token-min-length
+  8)
 (def ^:private compact-output-query-matched-exported-support-sort-rank
   0.55)
 (def ^:private compact-output-query-matched-exported-support-limit
@@ -3479,6 +3483,33 @@
        (take (min candidate-file-only-query-evidence-reserve-limit quota))
        vec))
 
+(defn- candidate-file-path-self-identity-row?
+  [row]
+  (and (candidate-file-only-row? row)
+       (true? (get-in row [:metrics :queryMatchedPathSelfIdentity]))
+       (<= rank-score-candidate-path-self-identity-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= compact-output-candidate-path-self-identity-token-min-length
+           (count (or (path-self-identity-token (:path row)) "")))))
+
+(defn- candidate-file-path-self-identity-key
+  [row]
+  [(- (count (or (path-self-identity-token (:path row)) "")))
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-rank-score row))
+   (row-candidate-source-rank row)
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- candidate-file-path-self-identity-rows
+  [candidate-file-only-rows quota]
+  (->> candidate-file-only-rows
+       (filter candidate-file-path-self-identity-row?)
+       (sort-by candidate-file-path-self-identity-key)
+       (take (min candidate-file-only-path-self-identity-reserve-limit quota))
+       vec))
+
 (defn- candidate-file-only-selection
   [candidate-files quota]
   (if (pos? (long quota))
@@ -3487,7 +3518,11 @@
           source-head (take quota rows)
           identity-rows (dense-file-identity-candidate-rows rows quota)
           query-evidence-rows (query-evidence-source-candidate-rows rows quota)
-          reserve-rows (->> (concat identity-rows query-evidence-rows)
+          path-self-identity-rows (candidate-file-path-self-identity-rows rows
+                                                                          quota)
+          reserve-rows (->> (concat identity-rows
+                                    query-evidence-rows
+                                    path-self-identity-rows)
                             ordered-distinct-file-rows
                             (take quota)
                             vec)
@@ -4326,7 +4361,8 @@
 (defn- compact-output-candidate-path-self-identity-row?
   [row]
   (and (candidate-file-only-row? row)
-       (pos? (row-metric-double row :candidatePathSelfIdentityBoost))))
+       (or (pos? (row-metric-double row :candidatePathSelfIdentityBoost))
+           (candidate-file-path-self-identity-row? row))))
 
 (defn- compact-output-candidate-path-self-identity-key
   [row]
@@ -4523,15 +4559,24 @@
 
 (defn- compact-output-early-source-graph-row
   [files selected-keys selected-rows]
-  (->> files
-       (filter #(and (not (contains? selected-keys (file-row-key %)))
-                     (compact-output-early-source-graph-row? %)))
-       (sort-by compact-output-early-source-graph-key)
-       first
-       (#(when %
-           (assoc % ::compact-output-sort-rank
-                  (compact-output-selected-directory-sort-rank selected-rows
-                                                               %))))))
+  (let [path-self-identity-candidate?
+        (or (some candidate-file-path-self-identity-row? selected-rows)
+            (some #(and (not (contains? selected-keys (file-row-key %)))
+                        (candidate-file-path-self-identity-row? %))
+                  files))]
+    (->> files
+         (filter #(and (not (contains? selected-keys (file-row-key %)))
+                       (compact-output-early-source-graph-row? %)))
+         (sort-by compact-output-early-source-graph-key)
+         first
+         (#(when %
+             (let [sort-rank (compact-output-selected-directory-sort-rank
+                              selected-rows
+                              %)]
+               (assoc % ::compact-output-sort-rank
+                      (if path-self-identity-candidate?
+                        (compact-output-after-preserved-head sort-rank)
+                        sort-rank))))))))
 
 (defn- compact-output-retrieved-label-source-key
   [row]
