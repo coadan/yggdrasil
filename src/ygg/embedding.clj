@@ -205,11 +205,48 @@
       (subs text 0 (long max-chars))
       text)))
 
+(defn- embedding-cache-key
+  [doc provider model embedding-role input-max-chars]
+  [provider
+   model
+   (keyword (or embedding-role default-embedding-role))
+   (long input-max-chars)
+   (:repo-id doc)
+   (:target-kind doc)
+   (:path doc)
+   (:kind doc)
+   (:input-sha doc)])
+
+(defn- cache-lookup
+  [cache key]
+  (when cache
+    (get @cache key)))
+
+(defn- cache-store!
+  [cache key vector]
+  (when cache
+    (swap! cache assoc key vector)))
+
+(defn- doc-embedding-row
+  [doc provider model embedding-role vector]
+  (embedding-row {:target-id (:target-id doc)
+                  :project-id (:project-id doc)
+                  :repo-id (:repo-id doc)
+                  :provider provider
+                  :model model
+                  :input-sha (:input-sha doc)
+                  :embedding-role embedding-role
+                  :target-kind (:target-kind doc)
+                  :file-kind (:kind doc)
+                  :path (:path doc)
+                  :vector vector}))
+
 (defn embed-search-docs!
   "Embed pending search docs with client map and persist rows."
   [xtdb {:keys [provider model embed-batch close] :as client} {:keys [batch-size limit project-id repo-id
                                                                       input-max-chars
                                                                       embedding-role
+                                                                      embedding-cache
                                                                       on-progress]
                                                                :or {batch-size default-batch-size
                                                                     input-max-chars default-provider-input-max-chars}}]
@@ -223,29 +260,54 @@
                                                         :model model
                                                         :embedding-role embedding-role
                                                         :limit limit)))
+          pending-with-cache (mapv (fn [doc]
+                                     (let [key (embedding-cache-key doc
+                                                                    provider
+                                                                    model
+                                                                    embedding-role
+                                                                    input-max-chars)]
+                                       {:doc doc
+                                        :cache-key key
+                                        :cached-vector (cache-lookup embedding-cache key)}))
+                                   pending)
+          cached-rows (->> pending-with-cache
+                           (keep (fn [{:keys [doc cached-vector]}]
+                                   (when cached-vector
+                                     (doc-embedding-row doc
+                                                        provider
+                                                        model
+                                                        embedding-role
+                                                        cached-vector))))
+                           vec)
+          cache-result (if (seq cached-rows)
+                         (let [result (store/commit-embeddings! xtdb cached-rows)]
+                           (vector-store/upsert-embeddings! cached-rows)
+                           result)
+                         {:embeddings 0})
+          cache-hits (long (:embeddings cache-result))
+          pending (->> pending-with-cache
+                       (remove :cached-vector)
+                       (mapv #(select-keys % [:doc :cache-key])))
           total-search-docs (search-doc-count xtdb scope)
           batches (vec (partition-all batch-size pending))
           batch-count (count batches)]
       (reduce
        (fn [summary [batch-idx batch]]
-         (let [vectors (embed-batch (mapv #(provider-input-text % input-max-chars) batch))]
+         (let [docs (mapv :doc batch)
+               vectors (embed-batch (mapv #(provider-input-text % input-max-chars) docs))]
            (when-not (= (count batch) (count vectors))
              (throw (ex-info "Embedding provider returned wrong vector count."
                              {:expected (count batch)
                               :actual (count vectors)})))
+           (doseq [[{:keys [cache-key]} vector] (map vector batch vectors)]
+             (cache-store! embedding-cache cache-key vector))
            (let [rows (mapv (fn [doc vector]
-                              (embedding-row {:target-id (:target-id doc)
-                                              :project-id (:project-id doc)
-                                              :repo-id (:repo-id doc)
-                                              :provider provider
-                                              :model model
-                                              :input-sha (:input-sha doc)
-                                              :embedding-role embedding-role
-                                              :target-kind (:target-kind doc)
-                                              :file-kind (:kind doc)
-                                              :path (:path doc)
-                                              :vector vector}))
-                            batch
+                              (doc-embedding-row doc
+                                                 provider
+                                                 model
+                                                 embedding-role
+                                                 vector))
+                            docs
                             vectors)
                  result (store/commit-embeddings! xtdb rows)]
              (vector-store/upsert-embeddings! rows)
@@ -257,12 +319,14 @@
                                      :batch-size (count batch)
                                      :batch-embedded (:embeddings result))))
                summary))))
-       {:provider provider
-        :model model
-        :search-docs total-search-docs
-        :pending (count pending)
-        :embedded 0
-        :skipped (- total-search-docs (count pending))}
+       (cond-> {:provider provider
+                :model model
+                :search-docs total-search-docs
+                :pending (count pending)
+                :embedded cache-hits
+                :skipped (- total-search-docs (count pending) cache-hits)}
+         embedding-cache
+         (assoc :cache-hits cache-hits))
        (map-indexed vector batches)))
     (finally
       (when close

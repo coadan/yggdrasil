@@ -117,6 +117,9 @@
            :input-max-chars (long (or (:embedding-input-max-chars opts)
                                       default-agent-baseline-embedding-input-max-chars))
            :project-id (:project-id prepared)}
+    (:embedding-cache opts)
+    (assoc :embedding-cache (:embedding-cache opts))
+
     (:embedding-role opts)
     (assoc :embedding-role (:embedding-role opts))
 
@@ -142,6 +145,7 @@
                              :search-docs
                              :pending
                              :embedded
+                             :cache-hits
                              :skipped
                              :batch
                              :batches
@@ -211,6 +215,7 @@
                                                   :search-docs
                                                   :pending
                                                   :embedded
+                                                  :cache-hits
                                                   :skipped]))
                 system-summary (benchmark-progress/progress-stage!
                                 suite

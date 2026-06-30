@@ -380,6 +380,72 @@
                 :skipped 2}
                summary))))))
 
+(deftest embed-search-docs-reuses-cache-for-case-scoped-targets
+  (let [embedding-cache (atom {})
+        embed-calls (atom 0)
+        docs-a [{:xt/id "search-doc:a"
+                 :project-id "project-a"
+                 :repo-id "app"
+                 :target-id "target:project-a:app"
+                 :target-kind :chunk
+                 :path "src/app.clj"
+                 :kind :clojure
+                 :input-sha "sha:app"
+                 :text "shared source doc"
+                 :active? true}]
+        docs-b [{:xt/id "search-doc:b"
+                 :project-id "project-b"
+                 :repo-id "app"
+                 :target-id "target:project-b:app"
+                 :target-kind :chunk
+                 :path "src/app.clj"
+                 :kind :clojure
+                 :input-sha "sha:app"
+                 :text "shared source doc"
+                 :active? true}]
+        docs (atom docs-a)
+        committed (atom [])
+        client {:provider :fake
+                :model "fake-model"
+                :embed-batch (fn [inputs]
+                               (swap! embed-calls inc)
+                               (is (= ["shared source doc"] inputs))
+                               [[0.25 0.75]])}]
+    (with-redefs [embedding/all-search-docs (fn [& _] @docs)
+                  store/rows-with-field-tuples (fn [& _] [])
+                  store/ordered-rows (fn [& _] [])
+                  store/count-rows (fn [& _] (count @docs))
+                  store/commit-embeddings!
+                  (fn [_ rows]
+                    (when (seq rows)
+                      (swap! committed conj rows))
+                    {:embeddings (count rows)})
+                  vector-store/upsert-embeddings! (fn [_] nil)]
+      (let [first-summary (embedding/embed-search-docs!
+                           :xtdb
+                           client
+                           {:project-id "project-a"
+                            :repo-id "app"
+                            :embedding-cache embedding-cache})
+            _ (reset! docs docs-b)
+            second-summary (embedding/embed-search-docs!
+                            :xtdb
+                            client
+                            {:project-id "project-b"
+                             :repo-id "app"
+                             :embedding-cache embedding-cache})]
+        (is (= 1 @embed-calls))
+        (is (= 1 (:embedded first-summary)))
+        (is (zero? (:cache-hits first-summary)))
+        (is (= 1 (:embedded second-summary)))
+        (is (= 1 (:cache-hits second-summary)))
+        (is (= ["target:project-a:app" "target:project-b:app"]
+               (mapv (comp :target-id first) @committed)))
+        (is (= ["project-a" "project-b"]
+               (mapv (comp :project-id first) @committed)))
+        (is (= [[0.25 0.75] [0.25 0.75]]
+               (mapv (comp :vector first) @committed)))))))
+
 (deftest embed-search-docs-normalizes-blank-provider-inputs
   (let [seen-inputs (atom nil)
         committed (atom [])

@@ -207,6 +207,34 @@
                       :request-timeout-ms 30000
                       :max-retries 1}]]
              @calls)))))
+
+(deftest agent-baselines-share-embedding-cache-across-ygg-cases
+  (let [caches (atom [])]
+    (with-redefs [benchmark-agent-baseline/agent-baseline!
+                  (fn [_suite case opts]
+                    (swap! caches conj (:embedding-cache opts))
+                    {:schema benchmark/agent-baseline-schema
+                     :suite-id "suite"
+                     :case-id (:id case)
+                     :repo-id (:repo-id case)
+                     :project-id (:id case)
+                     :agentId "ygg-baseline-auto"
+                     :mode "ygg"
+                     :retriever "auto"
+                     :scores {}})]
+      (let [result (benchmark/agent-baselines!
+                    {:id "suite"
+                     :repos [{:id "repo"
+                              :root "."}]
+                     :cases [{:id "case-a"
+                              :repo-id "repo"}
+                             {:id "case-b"
+                              :repo-id "repo"}]}
+                    {:retriever "auto"})]
+        (is (= 2 (:completed result)))
+        (is (= 2 (count @caches)))
+        (is (every? some? @caches))
+        (is (apply identical? @caches))))))
 (deftest benchmark-index-options-are-bounded-by-default
   (is (= {:index-profile :query
           :index-timeout-ms 600000}

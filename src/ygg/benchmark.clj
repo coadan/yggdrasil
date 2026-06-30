@@ -528,7 +528,10 @@
 (defn agent-baselines!
   "Generate deterministic Yggdrasil agent-result artifacts for selected cases."
   [suite opts]
-  (let [baseline-for-case (fn [case]
+  (let [opts (if (contains? opts :embedding-cache)
+               opts
+               (assoc opts :embedding-cache (atom {})))
+        baseline-for-case (fn [case]
                             (or (when (:skip-existing? opts)
                                   (some->> {:agent-id (benchmark-paths/agent-baseline-id opts)
                                             :mode (agent-baseline-mode opts)
