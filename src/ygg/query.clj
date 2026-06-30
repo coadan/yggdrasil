@@ -26,6 +26,7 @@
 (def default-source-file-reserve-candidates 12)
 (def default-result-kind-reserve-candidates 1)
 (def default-specific-grep-patterns 3)
+(def ^:private path-token-identity-min-length 9)
 (def lexical-graph-weight 0.25)
 (def hybrid-graph-weight 0.20)
 (def lexical-same-label-weight 0.25)
@@ -1665,9 +1666,41 @@
         #{}
         (text/tokenize text))))))
 
+(defn- path-tail
+  [path]
+  (let [value (str path)
+        tail (or (last (remove str/blank? (str/split value #"/")))
+                 value)]
+    (str/replace tail #"\.[A-Za-z0-9]+$" "")))
+
+(defn- compact-path-identity
+  [value]
+  (some-> value
+          str
+          str/lower-case
+          (str/replace #"[^a-z0-9]+" "")
+          not-empty))
+
+(defn- compact-path-identity-token
+  [value]
+  (when-let [identity (compact-path-identity value)]
+    (when (<= path-token-identity-min-length (count identity))
+      identity)))
+
+(defn- path-token-identity-match?
+  [query-token-set doc]
+  (boolean
+   (some #(contains? query-token-set %)
+         (keep compact-path-identity-token
+               [(path-tail (:path doc))
+                (path-tail (:label doc))]))))
+
 (defn- path-token-sort-key
   [candidate]
-  [(- (:matches candidate)) (:path candidate) (:label candidate)])
+  [(if (:identity-match? candidate) 0 1)
+   (- (:matches candidate))
+   (:path candidate)
+   (:label candidate)])
 
 (defn- bounded-path-token-candidates
   [candidates candidate n]
@@ -1689,6 +1722,10 @@
                                                  (if (pos? match-count)
                                                    (let [candidate {:target-id (:target-id doc)
                                                                     :matches match-count
+                                                                    :identity-match?
+                                                                    (path-token-identity-match?
+                                                                     query-token-set
+                                                                     doc)
                                                                     :path (:path doc)
                                                                     :label (:label doc)}]
                                                      (cond-> (assoc-in state
@@ -1818,6 +1855,7 @@
 
       (and (not (str/blank? query)) (= query label)) 0.25
       (and (not (str/blank? query)) (str/includes? label query)) 0.15
+      (path-token-identity-match? query-token-set doc) (+ 0.35 path-token-boost)
       (pos? (matching-query-token-count query-token-set (:label doc))) (+ 0.05 path-token-boost)
       :else path-token-boost)))
 

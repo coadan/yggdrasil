@@ -373,6 +373,44 @@
           (is (= ["consumer/consumer.go"] (mapv :path results)))
           (is (= 0.05 (get-in first-result [:score-components :exact]))))))))
 
+(deftest path-token-candidates-preserve-file-stem-identity
+  (let [docs (conj (mapv (fn [idx]
+                           {:target-id (str "node:generic-" idx)
+                            :path (format "aaa/engine/lifecycle/execution-%02d.java"
+                                          idx)
+                            :label (str "generic.execution." idx)})
+                         (range 5))
+                   {:target-id "node:jupiter-test-engine"
+                    :path (str "junit-jupiter-engine/src/main/java/org/junit/"
+                               "jupiter/engine/JupiterTestEngine.java")
+                    :label "org.junit.jupiter.engine/JupiterTestEngine"})
+        data (#'query/path-token-candidate-data
+              #{"jupitertestengine" "engine" "lifecycle" "execution"}
+              docs
+              3)
+        boost (#'query/exact-match-boost
+               ""
+               #{"jupitertestengine" "engine" "lifecycle" "execution"}
+               false
+               {"node:generic-0" 3
+                "node:jupiter-test-engine" 1}
+               {:target-id "node:jupiter-test-engine"
+                :path (str "junit-jupiter-engine/src/main/java/org/junit/"
+                           "jupiter/engine/JupiterTestEngine.java")
+                :label "org.junit.jupiter.engine/JupiterTestEngine"})
+        generic-boost (#'query/exact-match-boost
+                       ""
+                       #{"jupitertestengine" "engine" "lifecycle" "execution"}
+                       false
+                       {"node:generic-0" 3
+                        "node:jupiter-test-engine" 1}
+                       {:target-id "node:generic-0"
+                        :path "aaa/engine/lifecycle/execution-00.java"
+                        :label "generic.execution.0"})]
+    (is (= "node:jupiter-test-engine" (first (:candidate-ids data))))
+    (is (some #{"node:jupiter-test-engine"} (:candidate-ids data)))
+    (is (< generic-boost boost))))
+
 (deftest lexical-query-promotes-grep-matched-files-without-search-docs
   (let [repo-root (temp-dir "ygg-query-grep-file-repo")]
     (spit-file! repo-root "src/reset.clj" "(defn ResetTokenHandler [] :ok)\n")
