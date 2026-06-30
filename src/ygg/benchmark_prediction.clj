@@ -416,13 +416,15 @@
 (def ^:private compact-output-query-matched-exported-support-limit
   2)
 (def ^:private compact-output-doc-supported-source-graph-query-sort-rank
-  0.54)
+  0.36)
 (def ^:private compact-output-retrieved-label-source-sort-rank
   3.5)
 (def ^:private compact-output-identity-compound-source-sort-rank
   2.25)
 (def ^:private compact-output-source-graph-query-evidence-sort-rank
-  0.6)
+  0.38)
+(def ^:private compact-output-after-preserved-head-sort-rank
+  (+ (/ (double compact-output-preserved-head-count) 10.0) 0.01))
 (def ^:private compact-result-command-limit
   5)
 (def ^:private dependency-package-identity-query-token-min
@@ -4072,6 +4074,13 @@
    (:rank row)
    (:path row)])
 
+(defn- compact-output-independent-identity-support?
+  [row]
+  (or (pos? (row-metric-double row :candidateLexicalComponentBoost))
+      (pos? (row-metric-double row :candidateGrepScore))
+      (pos? (row-metric-double row :candidateGrepComponentBoost))
+      (pos? (row-metric-double row :graphNeighborScore))))
+
 (defn- compact-output-architecture-supported-key
   [row]
   [(- (row-metric-double row :architectureSupportBoost))
@@ -4415,6 +4424,11 @@
     0
     (count (remove str/blank? (str/split (str dir) #"/")))))
 
+(defn- compact-output-after-preserved-head
+  [sort-rank]
+  (max compact-output-after-preserved-head-sort-rank
+       (double sort-rank)))
+
 (defn- compact-output-directory-anchor-row?
   [row]
   (or (pos? (positive-metric row :docCount))
@@ -4459,9 +4473,13 @@
        (sort-by compact-output-identity-supported-key)
        first
        (#(when %
-           (assoc % ::compact-output-sort-rank
-                  (compact-output-selected-directory-sort-rank selected-rows
-                                                               %))))))
+           (let [sort-rank (compact-output-selected-directory-sort-rank
+                            selected-rows
+                            %)]
+             (assoc % ::compact-output-sort-rank
+                    (if (compact-output-independent-identity-support? %)
+                      sort-rank
+                      (compact-output-after-preserved-head sort-rank))))))))
 
 (defn- compact-output-query-evidence-source-row
   [files selected-keys selected-rows]
@@ -4775,7 +4793,16 @@
 
 (defn- compact-output-source-graph-query-evidence-row?
   [row]
-  (pos? (row-metric-double row :sourceGraphQueryEvidenceBoost)))
+  (and (pos? (row-metric-double row :sourceGraphQueryEvidenceBoost))
+       (<= candidate-file-only-query-evidence-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= candidate-file-only-query-evidence-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (or (pos? (positive-metric row :matchedTokenPairCount))
+           (pos? (positive-metric row :matchedCompoundTokenPairCount))
+           (pos? (positive-metric row :matchedIdentityCompoundTokenPairCount))
+           (<= rank-score-source-graph-query-evidence-path-token-min
+               (positive-metric row :matchedPathQueryTokenCount)))))
 
 (defn- compact-output-doc-supported-source-graph-query-row?
   [row]

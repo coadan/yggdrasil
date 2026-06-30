@@ -926,7 +926,14 @@
                     :matchedTokenCount 4
                     :sourceGraphCandidateEvidenceScore 0.6
                     :rankScore 14.0})
-              (row "tail.tf" 6 {:rankScore 1.0})]
+              (row "modules/flow-log/identity.tf"
+                   6
+                   {:candidateFileCount 1
+                    :directFileCandidateCount 1
+                    :fileIdentitySupportLabelCount 4
+                    :matchedTokenCount 4
+                    :rankScore 13.0})
+              (row "tail.tf" 7 {:rankScore 1.0})]
         selected (compact-output rows 20 nil)]
     (is (= ["main.tf"
             "variables.tf"
@@ -1134,7 +1141,10 @@
                     {:candidateFileCount 1
                      :docCount 0
                      :entityCount 0
+                     :matchedTokenCount 7
+                     :matchedTokenPairCount 3
                      :sourceGraphQueryEvidenceBoost 9.0
+                     :sourceGraphCandidateEvidenceScore 0.51
                      :rankScore 22.5})
                (row "benchmarks/Dapper.Tests.Performance/Benchmarks.EntityFrameworkCore.cs"
                     3
@@ -1154,7 +1164,10 @@
                     6
                     {:docCount 1
                      :candidateFileCount 5
+                     :matchedTokenCount 9
+                     :matchedTokenPairCount 3
                      :sourceGraphQueryEvidenceBoost 9.0
+                     :sourceGraphCandidateEvidenceScore 0.59
                      :rankScore 19.45})]
         paths (mapv :path (compact-output files 20 nil))]
     (is (every? #(< (index-of paths %) 5)
@@ -1163,6 +1176,89 @@
     (is (< (index-of paths "Dapper/SqlMapper.cs")
            (index-of paths
                      "benchmarks/Dapper.Tests.Performance/LegacyTests.cs")))))
+
+(deftest compact-output-frontloads-source-graph-query-evidence-pair
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/Dapper.Tests/ParameterTests.cs"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 3
+                     :matchedTokenCount 8
+                     :matchedTokenPairCount 3
+                     :rankScore 25.9})
+               (row "benchmarks/Dapper.Tests.Performance/Benchmarks.Belgrade.cs"
+                    2
+                    {:candidateFileCount 2
+                     :candidateOnlySourceGraphHeadBoost 9.0
+                     :matchedTokenCount 5
+                     :rankScore 23.1
+                     :sourceGraphCandidateEvidenceScore 0.56})
+               (row "benchmarks/Dapper.Tests.Performance/Benchmarks.cs"
+                    3
+                    {:docCount 1
+                     :candidateFileCount 15
+                     :directFileCandidateCount 1
+                     :fileIdentitySupportLabelCount 4
+                     :matchedTokenCount 6
+                     :matchedTokenPairCount 2
+                     :rankScore 14.6
+                     :sourceGraphCandidateEvidenceScore 0.50})
+               (row "tests/Dapper.Tests/EnumTests.cs"
+                    4
+                    {:docCount 3
+                     :candidateFileCount 1
+                     :matchedTokenCount 4
+                     :rankScore 24.3
+                     :retrievedPathGrepEvidenceBoost 4.0})
+               (row "Dapper/SqlMapper.Settings.cs"
+                    5
+                    {:candidateFileCount 1
+                     :directFileCandidateCount 1
+                     :directoryEvidenceBoost 6.7
+                     :fileIdentitySupportLabelCount 2
+                     :matchedCompoundTokenPairCount 1
+                     :matchedIdentityCompoundTokenPairCount 1
+                     :matchedTokenCount 7
+                     :matchedTokenPairCount 3
+                     :rankScore 22.7
+                     :sourceGraphCandidateEvidenceScore 0.50
+                     :sourceGraphQueryEvidenceBoost 9.0})
+               (row "Dapper/SqlMapper.cs"
+                    6
+                    {:candidateFileCount 5
+                     :candidateGrepScore 0.86
+                     :docCount 1
+                     :docSupportedSourceGraphQueryBoost 2.0
+                     :matchedCompoundTokenPairCount 1
+                     :matchedIdentityCompoundTokenPairCount 1
+                     :matchedTokenCount 9
+                     :matchedTokenPairCount 4
+                     :rankScore 21.4
+                     :sourceGraphCandidateEvidenceScore 0.59
+                     :sourceGraphQueryEvidenceBoost 9.0})
+               (row "benchmarks/Dapper.Tests.Performance/Benchmarks.Dapper.cs"
+                    20
+                    {:candidateFileCount 1
+                     :candidateSourceRank 4
+                     :directFileCandidateCount 1
+                     :directoryEvidenceBoost 8.0
+                     :fileIdentitySupportLabelCount 4
+                     :matchedTokenCount 3
+                     :rankScore 12.6
+                     :sourceGraphCandidateEvidenceScore 0.47})]
+        paths (mapv :path (compact-output files 20 nil))]
+    (is (every? #(< (index-of paths %) 5)
+                ["Dapper/SqlMapper.Settings.cs"
+                 "Dapper/SqlMapper.cs"]))
+    (is (< (index-of paths "Dapper/SqlMapper.cs")
+           (index-of paths "tests/Dapper.Tests/EnumTests.cs")))
+    (is (< (index-of paths "Dapper/SqlMapper.Settings.cs")
+           (index-of paths
+                     "benchmarks/Dapper.Tests.Performance/Benchmarks.Dapper.cs")))))
 
 (deftest compact-output-frontloads-doc-directory-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
@@ -1719,7 +1815,9 @@
                      :repeatedRetrievedSourceBoost 3.2
                      :retrievedSourceCount 3})]
         selected-paths (mapv :path (compact-output files 20 nil))]
-    (is (= "Dapper/SqlMapper.cs" (nth selected-paths 4)))
+    (is (every? #(< (index-of selected-paths %) 5)
+                ["Dapper/SqlMapper.Settings.cs"
+                 "Dapper/SqlMapper.cs"]))
     (is (< (index-of selected-paths "Dapper/SqlMapper.cs")
            (index-of selected-paths "tests/Dapper.Tests/TypeHandlerTests.cs")))))
 
