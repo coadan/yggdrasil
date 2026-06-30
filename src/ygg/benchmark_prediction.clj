@@ -110,6 +110,18 @@
   0.8)
 (def ^:private rank-score-doc-supported-candidate-evidence-cap
   1.2)
+(def ^:private rank-score-source-graph-query-evidence-token-min
+  6)
+(def ^:private rank-score-source-graph-query-evidence-pair-min
+  3)
+(def ^:private rank-score-source-graph-query-evidence-identity-min
+  2)
+(def ^:private rank-score-source-graph-query-evidence-score-min
+  0.5)
+(def ^:private rank-score-source-graph-query-evidence-rank-window
+  20)
+(def ^:private rank-score-source-graph-query-evidence-boost
+  9.0)
 (def ^:private rank-score-architecture-support-weight
   0.45)
 (def ^:private rank-score-architecture-support-cap
@@ -314,6 +326,8 @@
   3.5)
 (def ^:private compact-output-identity-compound-source-sort-rank
   2.25)
+(def ^:private compact-output-source-graph-query-evidence-sort-rank
+  0.6)
 (def ^:private compact-result-command-limit
   5)
 (def ^:private dependency-package-identity-query-token-min
@@ -851,6 +865,27 @@
     (min rank-score-doc-supported-candidate-evidence-cap
          (* rank-score-doc-supported-candidate-evidence-weight
             (double source-graph-candidate-evidence-score)))
+    0.0))
+(defn- source-graph-query-evidence-boost
+  [candidate-count
+   candidate-source-rank
+   source-graph-candidate-evidence-score
+   file-identity-support-label-count
+   matched-token-count
+   matched-token-pair-count]
+  (if (and (pos? (long candidate-count))
+           (pos? (long (or candidate-source-rank 0)))
+           (<= (long candidate-source-rank)
+               rank-score-source-graph-query-evidence-rank-window)
+           (<= rank-score-source-graph-query-evidence-score-min
+               (double source-graph-candidate-evidence-score))
+           (<= rank-score-source-graph-query-evidence-identity-min
+               (long file-identity-support-label-count))
+           (<= rank-score-source-graph-query-evidence-token-min
+               (long matched-token-count))
+           (<= rank-score-source-graph-query-evidence-pair-min
+               (long matched-token-pair-count)))
+    rank-score-source-graph-query-evidence-boost
     0.0))
 (defn- architecture-support-boost
   [support-count architecture-evidence-count architecture-evidence-score]
@@ -2115,6 +2150,14 @@
                              (doc-supported-candidate-evidence-boost
                               doc-count
                               source-graph-candidate-evidence-score)
+                             source-graph-query-evidence-boost
+                             (source-graph-query-evidence-boost
+                              candidate-count
+                              candidate-source-rank
+                              source-graph-candidate-evidence-score
+                              file-identity-support-label-count
+                              (count matched-tokens)
+                              (count matched-token-pairs))
                              architecture-support-boost (architecture-support-boost
                                                          support-count
                                                          architecture-evidence-count
@@ -2227,6 +2270,7 @@
                                            doc-supported-direct-file-compound-boost
                                            graph-neighbor-boost
                                            doc-supported-candidate-evidence-boost
+                                           source-graph-query-evidence-boost
                                            architecture-rank-boost
                                            candidate-lexical-component-boost
                                            candidate-grep-component-boost
@@ -2354,6 +2398,9 @@
                                        (pos? doc-supported-candidate-evidence-boost)
                                        (assoc :docSupportedCandidateEvidenceBoost
                                               doc-supported-candidate-evidence-boost)
+                                       (pos? source-graph-query-evidence-boost)
+                                       (assoc :sourceGraphQueryEvidenceBoost
+                                              source-graph-query-evidence-boost)
                                        (pos? source-graph-candidate-evidence-score)
                                        (assoc :sourceGraphCandidateEvidenceScore
                                               source-graph-candidate-evidence-score)
@@ -3977,6 +4024,10 @@
        (<= candidate-file-only-query-evidence-token-min
            (positive-metric row :matchedTokenCount))))
 
+(defn- compact-output-source-graph-query-evidence-row?
+  [row]
+  (pos? (row-metric-double row :sourceGraphQueryEvidenceBoost)))
+
 (defn- compact-output-prune-protected-row?
   [row]
   (or (compact-output-retrieved-label-doc-row? row)
@@ -3988,6 +4039,7 @@
       (compact-output-retrieved-label-source-row? row)
       (compact-output-doc-identity-row? row)
       (compact-output-early-source-graph-row? row)
+      (compact-output-source-graph-query-evidence-row? row)
       (query-evidence-source-candidate-row? row)
       (candidate-file-only-row? row)))
 
@@ -4048,8 +4100,13 @@
 
 (defn- compact-output-derived-sort-rank
   [row]
-  (when (compact-output-identity-compound-source-row? row)
-    compact-output-identity-compound-source-sort-rank))
+  (when-let [sort-ranks (->> [(when (compact-output-source-graph-query-evidence-row? row)
+                                compact-output-source-graph-query-evidence-sort-rank)
+                              (when (compact-output-identity-compound-source-row? row)
+                                compact-output-identity-compound-source-sort-rank)]
+                             (keep identity)
+                             seq)]
+    (apply min sort-ranks)))
 
 (defn- compact-output-sort-key
   [row]

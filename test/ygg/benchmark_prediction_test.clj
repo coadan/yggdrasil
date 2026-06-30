@@ -196,6 +196,87 @@
                        "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/execution/JupiterEngineExecutionContext.java"))
            (:rank (get by-path test-context-path))))))
 
+(deftest file-ranking-boosts-source-graph-query-evidence
+  (let [rank-files @#'benchmark-prediction/ranked-file-predictions
+        tokens ["fix" "prefer" "typehandlers" "enum" "settings" "mapping" "code"]
+        pairs [["fix" "prefer"]
+               ["typehandlers" "enum"]
+               ["mapping" "settings"]]
+        doc-row (fn [path source-rank evidence-score tokens token-pairs]
+                  {:path path
+                   :source-rank source-rank
+                   :evidence-score evidence-score
+                   :evidence-kind :doc
+                   :retrieved-source? true
+                   :confidence 0.8
+                   :matched-tokens tokens
+                   :matched-token-pairs token-pairs
+                   :definition-kind "class"})
+        candidate-row (fn [path source-rank candidate-rank tokens token-pairs identity-count source-score]
+                        {:path path
+                         :source-rank source-rank
+                         :candidate-source-rank candidate-rank
+                         :evidence-score source-score
+                         :evidence-kind :candidate-file
+                         :confidence 0.8
+                         :matched-tokens tokens
+                         :matched-token-pairs token-pairs
+                         :file-identity-support-label-count identity-count
+                         :definition-kind "file"})
+        settings-path "Dapper/SqlMapper.Settings.cs"
+        mapper-path "Dapper/SqlMapper.cs"
+        noise-path "tests/Dapper.Tests/ParameterTests.cs"
+        files (rank-files [(doc-row noise-path
+                                    1
+                                    9.0
+                                    tokens
+                                    pairs)
+                           (candidate-row noise-path
+                                          101
+                                          7
+                                          tokens
+                                          pairs
+                                          1
+                                          0.60)
+                           (candidate-row settings-path
+                                          102
+                                          11
+                                          tokens
+                                          pairs
+                                          2
+                                          0.51)
+                           (doc-row mapper-path
+                                    3
+                                    1.2
+                                    tokens
+                                    pairs)
+                           (candidate-row mapper-path
+                                          103
+                                          9
+                                          tokens
+                                          pairs
+                                          3
+                                          0.59)
+                           (candidate-row "benchmarks/Dapper.Tests.Performance/Benchmarks.EntityFrameworkCore.cs"
+                                          104
+                                          2
+                                          ["dapper" "tests" "core" "enum"]
+                                          [["dapper" "tests"]]
+                                          3
+                                          0.58)])
+        by-path (into {} (map (juxt :path identity)) files)]
+    (is (nil? (get-in by-path [noise-path
+                               :metrics
+                               :sourceGraphQueryEvidenceBoost])))
+    (is (pos? (get-in by-path [settings-path
+                               :metrics
+                               :sourceGraphQueryEvidenceBoost])))
+    (is (pos? (get-in by-path [mapper-path
+                               :metrics
+                               :sourceGraphQueryEvidenceBoost])))
+    (is (every? #(<= (:rank (get by-path %)) 5)
+                [settings-path mapper-path]))))
+
 (deftest file-ranking-boosts-query-matched-exported-support-label
   (let [rank-files @#'benchmark-prediction/ranked-file-predictions
         doc-row (fn [path source-rank evidence-score tokens]
@@ -529,6 +610,51 @@
                 (map :path)
                 (take 4)
                 vec)))))
+
+(deftest compact-output-frontloads-source-graph-query-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/Dapper.Tests/ParameterTests.cs"
+                    1
+                    {:docCount 1
+                     :rankScore 25.9})
+               (row "Dapper/SqlMapper.Settings.cs"
+                    2
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :sourceGraphQueryEvidenceBoost 9.0
+                     :rankScore 22.5})
+               (row "benchmarks/Dapper.Tests.Performance/Benchmarks.EntityFrameworkCore.cs"
+                    3
+                    {:docCount 1
+                     :rankScore 21.0})
+               (row "benchmarks/Dapper.Tests.Performance/Benchmarks.Mighty.cs"
+                    4
+                    {:docCount 1
+                     :rankScore 19.4})
+               (row "benchmarks/Dapper.Tests.Performance/LegacyTests.cs"
+                    5
+                    {:docCount 1
+                     :retrievedSourceCount 1
+                     :matchedPathQueryTokenCount 2
+                     :rankScore 15.5})
+               (row "Dapper/SqlMapper.cs"
+                    6
+                    {:docCount 1
+                     :candidateFileCount 5
+                     :sourceGraphQueryEvidenceBoost 9.0
+                     :rankScore 19.45})]
+        paths (mapv :path (compact-output files 20 nil))]
+    (is (every? #(< (index-of paths %) 5)
+                ["Dapper/SqlMapper.Settings.cs"
+                 "Dapper/SqlMapper.cs"]))
+    (is (< (index-of paths "Dapper/SqlMapper.cs")
+           (index-of paths
+                     "benchmarks/Dapper.Tests.Performance/LegacyTests.cs")))))
 
 (deftest diversity-preserves-saturated-doc-supported-head
   (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
