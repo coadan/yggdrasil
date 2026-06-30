@@ -223,6 +223,39 @@
       (is (= 1 (count (re-seq #"target:a" query-text))))
       (is (not (str/includes? query-text "target:c"))))))
 
+(deftest rows-with-field-tuples-batches-large-xtql-queries
+  (let [calls (atom [])
+        tuples (mapv (fn [idx]
+                       {:target-id (str "target:" idx)
+                        :input-sha (str "sha:" idx)})
+                     (range 1025))]
+    (with-redefs [store/q
+                  (fn [_ query ctx]
+                    (let [batch-idx (count @calls)]
+                      (swap! calls conj {:query query
+                                         :ctx ctx})
+                      [{:xt/id (str "embedding:batch-" batch-idx)}]))]
+      (is (= ["embedding:batch-0"
+              "embedding:batch-1"
+              "embedding:batch-2"]
+             (mapv :xt/id
+                   (store/rows-with-field-tuples
+                    {:node :stub}
+                    {:table (:embeddings store/tables)
+                     :tuple-fields [:target-id :input-sha]
+                     :tuples tuples
+                     :constraints {:project-id "project-a"
+                                   :provider :fake
+                                   :model "fake-model"
+                                   :active? true}
+                     :return-fields [:xt/id :target-id :input-sha]
+                     :read-context {:valid-at #inst "2026-01-01T00:00:00Z"}})))))
+    (is (= 3 (count @calls)))
+    (is (every? #(= {:valid-at #inst "2026-01-01T00:00:00Z"} (:ctx %))
+                @calls))
+    (is (every? #(<= (count (re-seq #"target:" (pr-str (:query %)))) 512)
+                @calls))))
+
 (deftest system-evidence-by-ids-uses-bounded-value-query
   (let [calls (atom [])]
     (with-redefs [store/rows-with-field-values

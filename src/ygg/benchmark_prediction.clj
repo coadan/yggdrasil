@@ -340,7 +340,7 @@
 (def ^:private compact-output-score-tail-max-limit
   7)
 (def ^:private compact-output-candidate-only-max-files
-  4)
+  6)
 (def ^:private compact-output-early-source-graph-rank-window
   25)
 (def ^:private compact-output-early-source-graph-token-min

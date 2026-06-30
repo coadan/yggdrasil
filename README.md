@@ -8,10 +8,10 @@ Real-world systems are more than code files. They are services, configs,
 dependencies, docs, deployments, ownership decisions, architectural choices,
 and half-remembered fixes spread across a repo over time.
 
-Yggdrasil helps coding agents work in that reality. It builds a local, reviewable
-map of what exists, how important pieces connect, and what has been accepted
-about the system, so agents can find the right context without rereading
-everything from scratch.
+Yggdrasil is local, auditable codebase memory for coding agents. It builds a
+reviewable map of what exists, how important pieces connect, and what has been
+accepted about the system, so agents can find the right context without
+rereading everything from scratch.
 
 As a project grows, an agentic development tool needs to preserve more than
 search results. It needs a maintainable way to encode project-specific tribal
@@ -21,7 +21,21 @@ keep that knowledge easy to review and update as the system changes.
 Many agent tools call this codebase memory. Yggdrasil is more specific: it keeps
 that memory tied to files, evidence, and reviewable corrections, so maintainers
 can see why an answer was trusted. Claims about speed, cost, or effectiveness
-should come from repeatable benchmarks.
+come from repeatable benchmarks.
+
+## What Yggdrasil Provides
+
+- Local project memory: graph facts, correction facts, activity, and reviewed
+  memories stay in project-owned storage instead of one agent session.
+- Evidence before interpretation: Yggdrasil stores concrete repository facts and
+  accepted corrections, then uses graph structure and retrieval evidence to help
+  agents decide what to read next.
+- Compact agent context: `ygg query` returns bounded, graph-grounded evidence
+  packets instead of dumping the whole repository into a prompt.
+- Reviewable trust: answers can cite the files, rows, memories, and corrections
+  that supported them.
+- Measured claims: improvements in speed, cost, or effectiveness belong in
+  benchmark reports, not unchecked product copy.
 
 ## Quickstart
 
@@ -88,6 +102,8 @@ ygg query "what changes if the auth route moves" --project my-project --task imp
 Local embeddings are the default. They use a bundled JSONL worker backed by
 `sentence-transformers`, and embedding rows are stored in XTDB by provider,
 model, target, and input hash.
+Any vector index used for retrieval is rebuildable; XTDB remains the durable
+record for graph facts, corrections, memories, and embedding rows.
 
 ```sh
 ygg embed setup
@@ -133,8 +149,8 @@ ygg query "where is auth handled" --project my-project --provider openrouter
   detail only when the current task needs it.
 - Local handoff: queued work moves through local state with explicit results
   that can be reviewed before they change project memory.
-- Measured claims: improvements in speed, cost, or effectiveness should point
-  to repeatable comparisons.
+- Measured claims: improvements in speed, cost, or effectiveness point to
+  repeatable comparisons.
 
 ## Main Workflows
 
@@ -143,8 +159,8 @@ ygg query "where is auth handled" --project my-project --provider openrouter
 - Query: answer focused graph-grounded questions.
 - Report and view: generate local HTML and JSON graph exports for operators and
   downstream tools.
-- Extend: add extractor plugins for project-specific or experimental file
-  families, and report plugins for generated dashboards.
+- Extend: add extractor plugins for project-specific file families and report
+  plugins for generated dashboards.
 - Hand off work: enqueue bounded maintenance packets, claim them from the local
   queue, validate results, and apply accepted corrections.
 

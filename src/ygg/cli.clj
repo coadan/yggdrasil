@@ -9,6 +9,7 @@
                                      parse-double-option
                                      parse-limit
                                      parse-long-option
+                                     parse-optional-double
                                      parse-optional-long
                                      positional-args
                                      project-scope]]
@@ -130,7 +131,8 @@
     (assoc :since (option-value args "--since"))))
 
 (defn- context-packet-options
-  [xtdb args {:keys [project-id repo-id retriever embedding-client read-context active-indexing]}]
+  [xtdb args {:keys [project-id repo-id retriever embedding-client read-context active-indexing
+                     fts-weight]}]
   (let [project-info (matching-context-project args project-id)
         freshness (context-packet-freshness xtdb project-info)
         plugins (not-empty (get-in project-info [:project :plugins]))]
@@ -138,6 +140,7 @@
              :repo-id repo-id
              :retriever retriever
              :embedding-client embedding-client
+             :fts-weight (or fts-weight (parse-optional-double args "--fts-weight"))
              :read-context read-context
              :output (keyword (or (option-value args "--output") "compact"))
              :proof-commands? (boolean (some #{"--proof-commands"} args))
@@ -1030,7 +1033,7 @@
     "  memory attach <memory-id> <target-id> --reason TEXT [--project ID]"
     ""
     "Query:"
-    "  query <text> [--project ID] [--repo ID] [--config project.edn] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider local|openrouter|openai] [--model MODEL] [--valid-at INSTANT]"
+    "  query <text> [--project ID] [--repo ID] [--config project.edn] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider local|openrouter|openai] [--model MODEL] [--fts-weight N] [--valid-at INSTANT]"
     "  affected <project.edn> [--files PATH,PATH | --since REV] [--repo ID] [--tests] [--json]"
     ""
     "View and report:"
@@ -1077,7 +1080,7 @@
     "  bench prepare|run|report <benchmark.edn> [--case ID] [--cases ID,ID] [--parser-worker none|java|dotnet|javascript|typescript|all] [--index-timeout-ms N] [--out DIR] [--json]"
     "  bench show <benchmark.edn> --case ID [--out DIR] [--json]"
     "  bench agent-packet <benchmark.edn> [--case ID] [--cases ID,ID] [--mode ygg|shell-only] [--agent ID] [--parser-worker none|java|dotnet|javascript|typescript|all] [--enqueue] [--queue-dir DIR] [--out DIR] [--json]"
-    "  bench agent-baseline <benchmark.edn> [--case ID] [--cases ID,ID] [--retriever auto|hybrid|lexical|semantic|local-vector|codebase-memory|graphify] [--provider local|openrouter|openai] [--model MODEL] [--batch-size N] [--embedding-input-max-chars N] [--embedding-request-timeout-ms N] [--embedding-max-retries N] [--limit N] [--doc-limit N] [--retrieval-limit N] [--vector-model MODEL] [--vector-command CMD] [--codebase-memory-command CMD] [--codebase-memory-bin PATH] [--codebase-memory-cache-dir DIR] [--graphify-command CMD] [--graphify-bin CMD] [--graphify-output-dir DIR] [--graphify-query-budget N] [--graphify-max-workers N] [--graphify-include-non-code] [--parser-worker none|java|dotnet|javascript|typescript|all] [--index-timeout-ms N] [--skip-existing] [--out DIR] [--json]"
+    "  bench agent-baseline <benchmark.edn> [--case ID] [--cases ID,ID] [--retriever auto|hybrid|lexical|semantic|local-vector|codebase-memory|graphify] [--provider local|openrouter|openai] [--model MODEL] [--batch-size N] [--embedding-input-max-chars N] [--embedding-request-timeout-ms N] [--embedding-max-retries N] [--limit N] [--doc-limit N] [--retrieval-limit N] [--fusion-strategy weighted|rrf] [--sqlite-fts] [--fts-candidate-limit N] [--fts-weight N] [--vector-model MODEL] [--vector-command CMD] [--codebase-memory-command CMD] [--codebase-memory-bin PATH] [--codebase-memory-cache-dir DIR] [--graphify-command CMD] [--graphify-bin CMD] [--graphify-output-dir DIR] [--graphify-query-budget N] [--graphify-max-workers N] [--graphify-include-non-code] [--parser-worker none|java|dotnet|javascript|typescript|all] [--index-timeout-ms N] [--skip-existing] [--out DIR] [--json]"
     "  bench agent-run <benchmark.edn> --agent ID --command CMD [--case ID] [--cases ID,ID] [--mode ygg|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--parser-worker none|java|dotnet|javascript|typescript|all] [--index-timeout-ms N] [--skip-existing] [--out DIR] [--json]"
     "  bench agent-rerun <benchmark.edn> --agent ID --command CMD [--agent-report agent-report.json] [--case ID] [--cases ID,ID] [--mode ygg|shell-only] [--prompt-profile standard|fast] [--timeout-ms N] [--parser-worker none|java|dotnet|javascript|typescript|all] [--index-timeout-ms N] [--out DIR] [--json]"
     "  bench agent-score <benchmark.edn> --case ID --result result.json [--parser-worker none|java|dotnet|javascript|typescript|all] [--out DIR] [--json]"

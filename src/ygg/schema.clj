@@ -236,8 +236,12 @@
    [:target-id string?]
    [:provider keyword?]
    [:model string?]
+   [:embedding-role {:optional true} keyword?]
    [:dims int?]
    [:input-sha string?]
+   [:target-kind {:optional true} keyword?]
+   [:file-kind {:optional true} keyword?]
+   [:path {:optional true} string?]
    [:vector [:vector number?]]
    [:created-at-ms int?]
    [:active? boolean?]])

@@ -102,6 +102,42 @@
                (get-in result [:instrumentation
                                :vector-store-fallback-reason])))))))
 
+(deftest vector-store-aggregates-multiple-embedding-roles-per-target
+  (let [docs [{:target-id "target:one"
+               :input-sha "sha:one"}]]
+    (with-redefs [store/rows-with-field-tuples
+                  (fn [_ _]
+                    [{:target-id "target:one"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :provider :fake
+                      :model "fake-model"
+                      :embedding-role :content
+                      :input-sha "sha:one"
+                      :vector [1.0 0.0]}
+                     {:target-id "target:one"
+                      :project-id "project-a"
+                      :repo-id "app"
+                      :provider :fake
+                      :model "fake-model"
+                      :embedding-role :symbol
+                      :input-sha "sha:one"
+                      :vector [0.0 1.0]}])]
+      (let [result (vector-store/semantic-score-data
+                    :xtdb
+                    docs
+                    {:mode :xtdb-scan
+                     :provider :fake
+                     :model "fake-model"
+                     :project-id "project-a"
+                     :repo-id "app"
+                     :embedding-roles [:content :symbol]
+                     :embed-query (fn [] [0.0 1.0])})]
+        (is (= {"target:one" 1.0} (:scores result)))
+        (is (= {:content 0.5
+                :symbol 1.0}
+               (get-in result [:role-scores "target:one"])))))))
+
 (deftest vector-store-upsert-is-noop-in-auto-without-sqlite-vec
   (with-redefs [env/get-env (fn [& _] nil)]
     (is (= {:vector-store :xtdb-scan
@@ -115,7 +151,109 @@
               :input-sha "sha:one"
               :vector [1.0 0.0]}])))))
 
-(deftest pending-search-docs-use-current-doc-embedding-tuples
+(deftest sqlite-fts-scores-search-docs-without-sqlite-vec-extension
+  (let [index-path (.getPath (io/file (temp-dir "ygg-fts-index") "project.sqlite"))
+        docs [{:project-id "project-a"
+               :repo-id "app"
+               :target-id "node:auth"
+               :target-kind :node
+               :kind :clojure
+               :input-sha "sha:auth"
+               :path "src/auth.clj"
+               :label "demo/auth"
+               :text "auth login token"}
+              {:project-id "project-a"
+               :repo-id "app"
+               :target-id "node:billing"
+               :target-kind :node
+               :kind :clojure
+               :input-sha "sha:billing"
+               :path "src/billing.clj"
+               :label "demo/billing"
+               :text "invoice payment"}]
+        result (vector-store/fts-score-data
+                docs
+                ["auth" "login"]
+                {:sqlite-fts? true
+                 :vector-index-path index-path
+                 :project-id "project-a"
+                 :repo-id "app"})
+        cached-result (vector-store/fts-score-data
+                       docs
+                       ["auth" "login"]
+                       {:sqlite-fts? true
+                        :vector-index-path index-path
+                        :project-id "project-a"
+                        :repo-id "app"})]
+    (is (= #{"node:auth"} (set (keys (:scores result)))))
+    (is (= :sqlite-fts (get-in result [:instrumentation :fts-store])))
+    (is (= :ok (get-in result [:instrumentation :fts-status])))
+    (is (= 2 (get-in result [:instrumentation :fts-indexed-search-docs])))
+    (is (= 2 (get-in result [:instrumentation :fts-upserted-search-docs])))
+    (is (= 0 (get-in result [:instrumentation :fts-skipped-search-docs])))
+    (is (= #{"node:auth"} (set (keys (:scores cached-result)))))
+    (is (= 0 (get-in cached-result [:instrumentation :fts-upserted-search-docs])))
+    (is (= 2 (get-in cached-result [:instrumentation :fts-skipped-search-docs])))))
+
+(deftest sqlite-fts-applies-mechanical-target-kind-filter
+  (let [index-path (.getPath (io/file (temp-dir "ygg-fts-kind-index") "project.sqlite"))
+        docs [{:project-id "project-a"
+               :repo-id "app"
+               :target-id "chunk:auth"
+               :target-kind :chunk
+               :kind :markdown
+               :input-sha "sha:chunk"
+               :path "docs/auth.md"
+               :label "auth docs"
+               :text "auth login token"}
+              {:project-id "project-a"
+               :repo-id "app"
+               :target-id "node:auth"
+               :target-kind :node
+               :kind :clojure
+               :input-sha "sha:node"
+               :path "src/auth.clj"
+               :label "demo/auth"
+               :text "auth login token"}]
+        result (vector-store/fts-score-data
+                docs
+                ["auth"]
+                {:sqlite-fts? true
+                 :vector-index-path index-path
+                 :project-id "project-a"
+                 :repo-id "app"
+                 :target-kind :node})]
+    (is (= #{"node:auth"} (set (keys (:scores result)))))
+    (is (= 1 (get-in result [:instrumentation :fts-filtered-candidates])))))
+
+(deftest sqlite-fts-reports-stale-sidecar-rows
+  (let [index-path (.getPath (io/file (temp-dir "ygg-fts-stale-index") "project.sqlite"))
+        old-doc {:project-id "project-a"
+                 :repo-id "app"
+                 :target-id "node:auth"
+                 :target-kind :node
+                 :kind :clojure
+                 :input-sha "sha:old"
+                 :path "src/auth.clj"
+                 :label "demo/auth"
+                 :text "auth login token"}
+        current-doc (assoc old-doc :input-sha "sha:new")]
+    (vector-store/upsert-search-docs!
+     [old-doc]
+     {:index-path index-path
+      :project-id "project-a"})
+    (let [result (vector-store/fts-score-data
+                  [current-doc]
+                  ["auth"]
+                  {:sqlite-fts? true
+                   :skip-fts-upsert? true
+                   :vector-index-path index-path
+                   :project-id "project-a"
+                   :repo-id "app"})]
+      (is (empty? (:scores result)))
+      (is (= 1 (get-in result [:instrumentation :fts-stale-candidates]))))))
+
+(deftest pending-search-docs-use-scoped-embedding-key-rows
   (let [calls (atom [])
         docs [{:xt/id "search-doc:done"
                :project-id "project-a"
@@ -140,6 +278,10 @@
                                 (throw (ex-info "all embeddings should not be loaded"
                                                 {})))
                               store/rows-with-field-tuples
+                              (fn [& _]
+                                (throw (ex-info "tuple embedding lookup should not be used"
+                                                {})))
+                              store/ordered-rows
                               (fn [_ request]
                                 (swap! calls conj request)
                                 [{:xt/id "embedding:done"
@@ -148,6 +290,7 @@
                                   :target-id "target:done"
                                   :provider :fake
                                   :model "fake-model"
+                                  :embedding-role :content
                                   :input-sha "sha:done"
                                   :active? true}])]
                   (vec (embedding/pending-search-docs
@@ -159,17 +302,16 @@
     (is (= ["target:pending"] (mapv :target-id pending)))
     (is (= 1 (count @calls)))
     (is (= {:table (:embeddings store/tables)
-            :tuple-fields [:target-id :input-sha]
-            :tuples [{:target-id "target:done" :input-sha "sha:done"}
-                     {:target-id "target:pending" :input-sha "sha:pending"}]
             :constraints {:project-id "project-a"
                           :repo-id "app"
                           :provider :fake
                           :model "fake-model"
+                          :embedding-role :content
                           :active? true}}
            (select-keys (first @calls)
-                        [:table :tuple-fields :tuples :constraints])))
-    (is (not-any? #{'*} (:return-fields (first @calls))))))
+                        [:table :constraints])))
+    (is (= embedding/embedding-key-query-fields
+           (:return-fields (first @calls))))))
 
 (deftest embeds-search-docs-incrementally
   (let [xtdb-path (temp-dir "ygg-embed-xtdb")
@@ -203,6 +345,8 @@
                            scope))
                     docs)
                   store/rows-with-field-tuples
+                  (fn [& _] [])
+                  store/ordered-rows
                   (fn [& _] [])
                   store/count-rows
                   (fn [_ table constraints ctx]
@@ -266,6 +410,7 @@
                                (vec (repeat (count inputs) [1.0 0.0])))}]
     (with-redefs [embedding/all-search-docs (fn [& _] docs)
                   store/rows-with-field-tuples (fn [& _] [])
+                  store/ordered-rows (fn [& _] [])
                   store/count-rows (fn [& _] (count docs))
                   store/commit-embeddings!
                   (fn [_ rows]
@@ -301,6 +446,7 @@
                                [[1.0 0.0]])}]
     (with-redefs [embedding/all-search-docs (fn [& _] docs)
                   store/rows-with-field-tuples (fn [& _] [])
+                  store/ordered-rows (fn [& _] [])
                   store/count-rows (fn [& _] (count docs))
                   store/commit-embeddings! (fn [_ rows]
                                              {:embeddings (count rows)})
@@ -344,6 +490,7 @@
                                (vec (repeat (count inputs) [1.0 0.0])))}]
     (with-redefs [embedding/all-search-docs (fn [& _] docs)
                   store/rows-with-field-tuples (fn [& _] [])
+                  store/ordered-rows (fn [& _] [])
                   store/count-rows (fn [& _] (count docs))
                   store/commit-embeddings! (fn [_ rows]
                                              {:embeddings (count rows)})
@@ -395,6 +542,7 @@
   (let [closed? (atom false)]
     (with-redefs [embedding/all-search-docs (fn [& _] [])
                   store/rows-with-field-tuples (fn [& _] [])
+                  store/ordered-rows (fn [& _] [])
                   store/count-rows (fn [& _] 0)]
       (is (= {:provider :closeable
               :model "test-model"

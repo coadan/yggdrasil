@@ -11,14 +11,22 @@
 (def default-provider-input-max-chars
   6000)
 
+(def default-embedding-role :content)
+
 (defn now-ms
   []
   (System/currentTimeMillis))
 
 (defn embedding-id
   "Return stable embedding id for target/model/input."
-  [target-id provider model input-sha]
-  (str "embedding:" (hash/short-hash [target-id provider model input-sha])))
+  ([target-id provider model input-sha]
+   (embedding-id target-id provider model input-sha default-embedding-role))
+  ([target-id provider model input-sha embedding-role]
+   (let [embedding-role (keyword (or embedding-role default-embedding-role))
+         basis (if (= default-embedding-role embedding-role)
+                 [target-id provider model input-sha]
+                 [target-id provider model input-sha embedding-role])]
+     (str "embedding:" (hash/short-hash basis)))))
 
 (defn dot
   "Return dot product of two numeric vectors."
@@ -44,18 +52,24 @@
 
 (defn embedding-row
   "Return an embedding row."
-  [{:keys [target-id project-id repo-id provider model input-sha vector created-at-ms]}]
-  (cond-> {:xt/id (embedding-id target-id provider model input-sha)
-           :target-id target-id
-           :provider provider
-           :model model
-           :dims (count vector)
-           :input-sha input-sha
-           :vector (mapv double vector)
-           :created-at-ms (long (or created-at-ms (now-ms)))
-           :active? true}
-    project-id (assoc :project-id project-id)
-    repo-id (assoc :repo-id repo-id)))
+  [{:keys [target-id project-id repo-id provider model input-sha vector created-at-ms
+           embedding-role target-kind file-kind path]}]
+  (let [embedding-role (keyword (or embedding-role default-embedding-role))]
+    (cond-> {:xt/id (embedding-id target-id provider model input-sha embedding-role)
+             :target-id target-id
+             :provider provider
+             :model model
+             :embedding-role embedding-role
+             :dims (count vector)
+             :input-sha input-sha
+             :vector (mapv double vector)
+             :created-at-ms (long (or created-at-ms (now-ms)))
+             :active? true}
+      project-id (assoc :project-id project-id)
+      repo-id (assoc :repo-id repo-id)
+      target-kind (assoc :target-kind target-kind)
+      file-kind (assoc :file-kind file-kind)
+      path (assoc :path path))))
 
 (defn all-search-docs
   ([xtdb] (all-search-docs xtdb {}))
@@ -78,14 +92,15 @@
 
 (defn all-embeddings
   ([xtdb] (all-embeddings xtdb {}))
-  ([xtdb {:keys [project-id repo-id provider model]}]
+  ([xtdb {:keys [project-id repo-id provider model embedding-role]}]
    (store/constrained-rows xtdb
                            (:embeddings store/tables)
-                           {:project-id project-id
-                            :repo-id repo-id
-                            :provider provider
-                            :model model
-                            :active? true})))
+                           (cond-> {:project-id project-id
+                                    :repo-id repo-id
+                                    :provider provider
+                                    :model model
+                                    :active? true}
+                             embedding-role (assoc :embedding-role (keyword embedding-role))))))
 
 (def embedding-row-query-fields
   [:xt/id
@@ -94,15 +109,45 @@
    :target-id
    :provider
    :model
+   :embedding-role
    :dims
    :input-sha
+   :target-kind
+   :file-kind
+   :path
    :vector
    :created-at-ms
    :active?])
 
+(def embedding-key-query-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :target-id
+   :provider
+   :model
+   :embedding-role
+   :input-sha
+   :active?])
+
 (defn- embedded-key
-  [{:keys [target-id provider model input-sha]}]
-  [target-id provider model input-sha])
+  [{:keys [target-id provider model input-sha embedding-role]}]
+  [target-id provider model (keyword (or embedding-role default-embedding-role)) input-sha])
+
+(defn- embedding-key-rows
+  [xtdb {:keys [project-id repo-id provider model embedding-role read-context]}]
+  (store/ordered-rows
+   xtdb
+   {:table (:embeddings store/tables)
+    :constraints (cond-> {:project-id project-id
+                          :repo-id repo-id
+                          :provider provider
+                          :model model
+                          :active? true}
+                   embedding-role
+                   (assoc :embedding-role (keyword embedding-role)))
+    :return-fields embedding-key-query-fields
+    :read-context read-context}))
 
 (defn current-embeddings-for-docs
   "Return active embedding rows that exactly match docs' target/input tuples."
@@ -123,17 +168,28 @@
 
 (defn pending-search-docs
   "Return search docs without a current embedding for provider/model/input."
-  [xtdb {:keys [provider model limit project-id repo-id]}]
+  [xtdb {:keys [provider model limit project-id repo-id embedding-role read-context]}]
   (let [docs (vec (all-search-docs xtdb {:project-id project-id
                                          :repo-id repo-id}))
-        done (into #{} (map embedded-key) (current-embeddings-for-docs
-                                           xtdb
-                                           docs
-                                           {:project-id project-id
-                                            :repo-id repo-id
-                                            :provider provider
-                                            :model model}))
-        docs (remove #(contains? done [(:target-id %) provider model (:input-sha %)])
+        embedding-role (keyword (or embedding-role default-embedding-role))
+        doc-keys (into #{}
+                       (map #(vector (:target-id %)
+                                     provider
+                                     model
+                                     embedding-role
+                                     (:input-sha %)))
+                       docs)
+        done (into #{}
+                   (comp (map embedded-key)
+                         (filter doc-keys))
+                   (embedding-key-rows xtdb
+                                       {:project-id project-id
+                                        :repo-id repo-id
+                                        :provider provider
+                                        :model model
+                                        :embedding-role embedding-role
+                                        :read-context read-context}))
+        docs (remove #(contains? done [(:target-id %) provider model embedding-role (:input-sha %)])
                      docs)]
     (if limit
       (take limit docs)
@@ -153,6 +209,7 @@
   "Embed pending search docs with client map and persist rows."
   [xtdb {:keys [provider model embed-batch close] :as client} {:keys [batch-size limit project-id repo-id
                                                                       input-max-chars
+                                                                      embedding-role
                                                                       on-progress]
                                                                :or {batch-size default-batch-size
                                                                     input-max-chars default-provider-input-max-chars}}]
@@ -160,9 +217,11 @@
     (throw (ex-info "Invalid embedding client." {:client (select-keys client [:provider :model])})))
   (try
     (let [scope {:project-id project-id :repo-id repo-id}
+          embedding-role (keyword (or embedding-role default-embedding-role))
           pending (vec (pending-search-docs xtdb (assoc scope
                                                         :provider provider
                                                         :model model
+                                                        :embedding-role embedding-role
                                                         :limit limit)))
           total-search-docs (search-doc-count xtdb scope)
           batches (vec (partition-all batch-size pending))
@@ -181,6 +240,10 @@
                                               :provider provider
                                               :model model
                                               :input-sha (:input-sha doc)
+                                              :embedding-role embedding-role
+                                              :target-kind (:target-kind doc)
+                                              :file-kind (:kind doc)
+                                              :path (:path doc)
                                               :vector vector}))
                             batch
                             vectors)

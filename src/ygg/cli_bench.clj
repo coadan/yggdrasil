@@ -122,6 +122,19 @@
     (parse-optional-long args "--snippet-chars") (assoc :snippet-chars
                                                         (parse-optional-long args
                                                                              "--snippet-chars"))
+    (option-value args "--fusion-strategy") (assoc :fusion-strategy
+                                                   (keyword (option-value args
+                                                                          "--fusion-strategy")))
+    (.contains args "--sqlite-fts") (assoc :sqlite-fts? true)
+    (parse-optional-long args "--diversity-rerank-limit")
+    (assoc :diversity-rerank-limit
+           (parse-optional-long args "--diversity-rerank-limit"))
+    (parse-optional-long args "--fts-candidate-limit")
+    (assoc :fts-candidate-limit
+           (parse-optional-long args "--fts-candidate-limit"))
+    (parse-optional-double args "--fts-weight")
+    (assoc :fts-weight
+           (parse-optional-double args "--fts-weight"))
     (parse-optional-double args "--min-file-recall-at-5") (assoc :min-file-recall-at-5
                                                                  (parse-optional-double
                                                                   args

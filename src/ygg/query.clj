@@ -2,6 +2,7 @@
   "Graph query helpers."
   (:require [ygg.hash :as hash]
             [ygg.ripgrep :as ripgrep]
+            [ygg.retrieval.fusion :as fusion]
             [ygg.system.candidate :as system-candidate]
             [ygg.text :as text]
             [ygg.vector-store :as vector-store]
@@ -31,6 +32,10 @@
 (def hybrid-same-label-weight 0.20)
 (def lexical-grep-weight 0.75)
 (def hybrid-grep-weight 0.20)
+(def lexical-fts-weight 0.75)
+(def hybrid-fts-weight 0.20)
+(def default-fusion-strategy :weighted)
+(def default-diversity-rerank-limit 0)
 
 (def search-report-schema "ygg.search.report/v1")
 
@@ -1529,12 +1534,37 @@
   [[_ score]]
   (- score))
 
+(defn- worse-entry-index
+  [entries sort-key]
+  (when (seq entries)
+    (loop [idx 1
+           worst-idx 0
+           worst-key (sort-key (nth entries 0))]
+      (if (< idx (count entries))
+        (let [entry-key (sort-key (nth entries idx))]
+          (if (pos? (compare entry-key worst-key))
+            (recur (inc idx) idx entry-key)
+            (recur (inc idx) worst-idx worst-key)))
+        worst-idx))))
+
+(defn- bounded-sort-key-entries
+  [entries entry n sort-key]
+  (let [entries (or entries [])]
+    (cond
+      (< (count entries) n)
+      (conj entries entry)
+
+      :else
+      (if-let [idx (worse-entry-index entries sort-key)]
+        (if (neg? (compare (sort-key entry)
+                           (sort-key (nth entries idx))))
+          (assoc entries idx entry)
+          entries)
+        entries))))
+
 (defn- bounded-score-entries
   [entries entry n]
-  (let [entries (conj (or entries []) entry)]
-    (if (<= (count entries) n)
-      entries
-      (vec (take n (sort-by score-entry-sort-key entries))))))
+  (bounded-sort-key-entries entries entry n score-entry-sort-key))
 
 (defn- top-ids
   [scores n]
@@ -1564,10 +1594,7 @@
 
 (defn- bounded-kind-candidates
   [candidates candidate n]
-  (let [candidates (conj (or candidates []) candidate)]
-    (if (<= (count candidates) n)
-      candidates
-      (vec (take n (sort-by candidate-sort-key candidates))))))
+  (bounded-sort-key-entries candidates candidate n candidate-sort-key))
 
 (defn- top-ids-by-kind
   [scores docs n]
@@ -1794,6 +1821,102 @@
       (pos? (matching-query-token-count query-token-set (:label doc))) (+ 0.05 path-token-boost)
       :else path-token-boost)))
 
+(defn- exact-score-map
+  [query query-token-set query-path-shaped? path-token-match-counts docs]
+  (into {}
+        (keep (fn [doc]
+                (let [score (exact-match-boost query
+                                               query-token-set
+                                               query-path-shaped?
+                                               path-token-match-counts
+                                               doc)]
+                  (when (pos? score)
+                    [(:target-id doc) score]))))
+        docs))
+
+(defn- normalized-fusion-strategy
+  [strategy]
+  (case (keyword (or strategy default-fusion-strategy))
+    :rrf :rrf
+    :weighted))
+
+(defn- source-weight
+  [override default]
+  (double (or override default)))
+
+(defn- fusion-weights
+  [retriever {:keys [fts-weight]}]
+  (case retriever
+    :semantic {:semantic 1.0
+               :exact 1.0
+               :same-label hybrid-same-label-weight}
+    :lexical {:lexical 1.0
+              :fts (source-weight fts-weight lexical-fts-weight)
+              :grep lexical-grep-weight
+              :graph lexical-graph-weight
+              :same-label lexical-same-label-weight
+              :exact 1.0}
+    {:semantic 0.70
+     :lexical 0.20
+     :fts (source-weight fts-weight hybrid-fts-weight)
+     :grep hybrid-grep-weight
+     :graph hybrid-graph-weight
+     :same-label hybrid-same-label-weight
+     :exact 1.0}))
+
+(defn- source-maps-for-retriever
+  [retriever sources]
+  (select-keys sources
+               (case retriever
+                 :semantic [:semantic :same-label :exact]
+                 :lexical [:lexical :fts :grep :graph :same-label :exact]
+                 [:semantic :lexical :fts :grep :graph :same-label :exact])))
+
+(defn- fuse-score-maps
+  [strategy source-maps weights fusion-k]
+  (case strategy
+    :rrf (fusion/rrf-fuse source-maps {:k fusion-k
+                                       :weights weights})
+    (fusion/weighted-fuse source-maps weights)))
+
+(defn- source-memberships
+  [source-maps]
+  (reduce-kv
+   (fn [memberships source scores]
+     (reduce-kv
+      (fn [memberships target-id score]
+        (if (pos? (double (or score 0.0)))
+          (update memberships target-id (fnil conj #{}) source)
+          memberships))
+      memberships
+      scores))
+   {}
+   source-maps))
+
+(defn- candidate-facets
+  [docs candidates memberships]
+  (let [candidate? (set candidates)]
+    (reduce
+     (fn [facets doc]
+       (if (contains? candidate? (:target-id doc))
+         (let [target-id (:target-id doc)]
+           (-> facets
+               (update-in [:by-target-kind (:target-kind doc)] (fnil inc 0))
+               (update-in [:by-repo (or (:repo-id doc) :none)] (fnil inc 0))
+               (update-in [:by-file-kind (or (:kind doc) :none)] (fnil inc 0))
+               (update :by-source
+                       (fn [by-source]
+                         (reduce (fn [by-source source]
+                                   (update by-source source (fnil inc 0)))
+                                 (or by-source (sorted-map))
+                                 (get memberships target-id #{}))))))
+         facets))
+     {:by-target-kind (sorted-map)
+      :by-repo (sorted-map)
+      :by-file-kind (sorted-map)
+      :by-source (sorted-map)}
+     docs)))
+
 (defn- ranked-result-sort-key
   [row]
   [(- (:score row)) (:label row) (:path row)])
@@ -1983,8 +2106,51 @@
              (sort-by ranked-result-sort-key)
              vec)))))
 
+(defn- diversity-key
+  [row]
+  [(or (:path row) (:target-id row))
+   (:target-kind row)
+   (:result-kind row)])
+
+(defn- select-next-diverse-row
+  [rows seen]
+  (or (first (keep-indexed (fn [idx row]
+                             (when-not (contains? seen (diversity-key row))
+                               [idx row]))
+                           rows))
+      (when (seq rows)
+        [0 (first rows)])))
+
+(defn- remove-at
+  [rows idx]
+  (vec (concat (subvec rows 0 idx)
+               (subvec rows (inc idx)))))
+
+(defn- diversity-rerank-results
+  [rows n]
+  (let [limit (long (or n 0))]
+    (if (or (<= limit 1) (<= (count rows) 1))
+      rows
+      (let [rows (vec (map-indexed (fn [idx row]
+                                     (assoc row
+                                            :pre-diversity-rank (inc idx)
+                                            :pre-diversity-score (:score row)))
+                                   rows))
+            head (first rows)]
+        (loop [remaining (subvec rows 1)
+               seen #{(diversity-key head)}
+               out [head]]
+          (if (or (empty? remaining)
+                  (<= (min limit (count rows)) (count out)))
+            (vec (concat out remaining))
+            (let [[idx row] (select-next-diverse-row remaining seen)]
+              (recur (remove-at remaining idx)
+                     (conj seen (diversity-key row))
+                     (conj out row)))))))))
+
 (defn- ranked-candidates
-  [{:keys [query-text query-tokens docs lexical semantic grep neighbor-scores same-label-scores retriever limit]}]
+  [{:keys [query-text query-tokens docs lexical semantic semantic-role-scores fts grep neighbor-scores same-label-scores
+           retriever limit fusion-strategy fusion-k diversity-rerank-limit fts-weight]}]
   (let [query (str/lower-case (str/trim query-text))
         query-path-shaped? (path-shaped-query? query)
         query-token-set (set query-tokens)
@@ -1992,6 +2158,15 @@
                                                    docs
                                                    default-path-token-candidates)
         path-token-match-counts (:match-counts path-token-data)
+        exact (exact-score-map query
+                               query-token-set
+                               query-path-shaped?
+                               path-token-match-counts
+                               docs)
+        fts (or fts {})
+        grep (or grep {})
+        neighbor-scores (or neighbor-scores {})
+        same-label-scores (or same-label-scores {})
         semantic-candidates (if (not= :lexical retriever)
                               (into (set (top-ids semantic default-semantic-candidates))
                                     (top-ids-by-kind semantic
@@ -2004,6 +2179,12 @@
                                                     docs
                                                     default-kind-candidates))
                              #{})
+        fts-candidates (if (not= :semantic retriever)
+                         (into (set (top-ids fts default-lexical-candidates))
+                               (top-ids-by-kind fts
+                                                docs
+                                                default-kind-candidates))
+                         #{})
         grep-candidates (if (not= :semantic retriever)
                           (set (top-ids grep default-lexical-candidates))
                           #{})
@@ -2012,12 +2193,30 @@
                                                         docs)
         path-token-candidates (:candidate-ids path-token-data)
         same-label-candidates (set (keys same-label-scores))
+        source-maps (source-maps-for-retriever
+                     retriever
+                     {:semantic semantic
+                      :lexical lexical
+                      :fts fts
+                      :grep grep
+                      :graph neighbor-scores
+                      :same-label same-label-scores
+                      :exact exact})
+        fusion-strategy (normalized-fusion-strategy fusion-strategy)
+        fusion-k (long (or fusion-k fusion/default-rrf-k))
+        weights (fusion-weights retriever {:fts-weight fts-weight})
+        fused-scores (fuse-score-maps fusion-strategy
+                                      source-maps
+                                      weights
+                                      fusion-k)
+        memberships (source-memberships source-maps)
         candidates (case retriever
                      :semantic (-> semantic-candidates
                                    (into exact-path-candidates)
                                    (into path-token-candidates)
                                    (into same-label-candidates))
                      :lexical (-> lexical-candidates
+                                  (into fts-candidates)
                                   (into grep-candidates)
                                   (into exact-path-candidates)
                                   (into path-token-candidates)
@@ -2025,6 +2224,7 @@
                                   (into same-label-candidates))
                      (-> semantic-candidates
                          (into lexical-candidates)
+                         (into fts-candidates)
                          (into grep-candidates)
                          (into exact-path-candidates)
                          (into path-token-candidates)
@@ -2041,41 +2241,34 @@
                                                    doc))
                              semantic-score (double (get semantic (:target-id doc) 0.0))
                              lexical-score (double (get lexical (:target-id doc) 0.0))
+                             fts-score (double (get fts (:target-id doc) 0.0))
                              grep-score (double (get grep (:target-id doc) 0.0))
                              graph-score (double (get neighbor-scores (:target-id doc) 0.0))
                              same-label-score (double (get same-label-scores (:target-id doc) 0.0))
-                             exact-score (exact-match-boost query
-                                                            query-token-set
-                                                            query-path-shaped?
-                                                            path-token-match-counts
-                                                            doc)
-                             total (+ (case retriever
-                                        :semantic semantic-score
-                                        :lexical (+ lexical-score
-                                                    (* lexical-grep-weight grep-score)
-                                                    (* lexical-graph-weight graph-score)
-                                                    (* lexical-same-label-weight same-label-score))
-                                        (+ (* 0.70 semantic-score)
-                                           (* 0.20 lexical-score)
-                                           (* hybrid-grep-weight grep-score)
-                                           (* hybrid-graph-weight graph-score)
-                                           (* hybrid-same-label-weight same-label-score)))
-                                      exact-score)]
+                             exact-score (double (get exact (:target-id doc) 0.0))
+                             total (double (get fused-scores (:target-id doc) 0.0))
+                             components (cond-> {:semantic semantic-score
+                                                 :lexical lexical-score
+                                                 :fts fts-score
+                                                 :grep grep-score
+                                                 :graph graph-score
+                                                 :sameLabel same-label-score
+                                                 :exact exact-score}
+                                          (seq (get semantic-role-scores (:target-id doc)))
+                                          (assoc :semanticRoles
+                                                 (get semantic-role-scores (:target-id doc))))]
                          (if (pos? total)
                            (add-ranked-result
                             rank-data
                             (-> doc
                                 (assoc :result-kind (:target-kind doc)
                                        :score total
-                                       :score-components {:semantic semantic-score
-                                                          :lexical lexical-score
-                                                          :grep grep-score
-                                                          :graph graph-score
-                                                          :sameLabel same-label-score
-                                                          :exact exact-score}
+                                       :score-components components
+                                       :retrieval-sources (vec (sort (get memberships (:target-id doc) #{})))
                                        :reason (cond
                                                  (pos? semantic-score) "embedding match"
                                                  (pos? lexical-score) "lexical match"
+                                                 (pos? fts-score) "sqlite fts match"
                                                  (pos? grep-score) "literal grep match"
                                                  (pos? graph-score) "graph neighbor"
                                                  (pos? same-label-score) "same-label candidate"
@@ -2087,18 +2280,33 @@
                     :ranked-count 0
                     :candidate-doc-count 0
                     :candidates-by-kind (sorted-map)}
-                   docs)]
+                   docs)
+        selected-ranked (select-ranked-results (:ranked rank-data) rank-limit)
+        diversity-limit (long (or diversity-rerank-limit default-diversity-rerank-limit))
+        ranked (if (pos? diversity-limit)
+                 (diversity-rerank-results selected-ranked diversity-limit)
+                 selected-ranked)]
     {:semantic-candidates semantic-candidates
      :lexical-candidates lexical-candidates
+     :fts-candidates fts-candidates
      :grep-candidates grep-candidates
      :exact-path-candidates (set exact-path-candidates)
      :path-token-candidates (set path-token-candidates)
      :same-label-candidates same-label-candidates
      :candidates candidates
+     :fusion-strategy fusion-strategy
+     :fusion-source-counts (fusion/source-counts source-maps)
+     :fusion-overlap-count (fusion/overlap-count source-maps)
+     :fusion-source-weights weights
+     :fts-weight (:fts weights)
+     :fusion-k (when (= :rrf fusion-strategy) fusion-k)
+     :candidate-facets (candidate-facets docs candidates memberships)
      :candidate-doc-count (:candidate-doc-count rank-data)
      :candidates-by-kind (:candidates-by-kind rank-data)
      :ranked-count (:ranked-count rank-data)
-     :ranked (select-ranked-results (:ranked rank-data) rank-limit)}))
+     :diversity-rerank? (pos? diversity-limit)
+     :diversity-rerank-limit diversity-limit
+     :ranked ranked}))
 
 (defn- auto-lexical-short-circuit-reason
   [ranked-data transient-file-data]
@@ -2154,6 +2362,29 @@
                                                scope))
         docs (into base-docs (:docs transient-file-data))
         [lexical timings] (timed timings :lexical-score-ms #(lexical-scores query-tokens docs))
+        [fts-data timings] (let [data (vector-store/fts-score-data
+                                       base-docs
+                                       query-tokens
+                                       (cond-> scope
+                                         (:vector-index-path opts)
+                                         (assoc :vector-index-path (:vector-index-path opts)
+                                                :index-path (:vector-index-path opts))
+                                         (contains? opts :sqlite-fts?)
+                                         (assoc :sqlite-fts? (:sqlite-fts? opts))
+                                         (contains? opts :fts?)
+                                         (assoc :fts? (:fts? opts))
+                                         (:target-kind opts)
+                                         (assoc :target-kind (:target-kind opts))
+                                         (:target-kinds opts)
+                                         (assoc :target-kinds (:target-kinds opts))
+                                         (:file-kind opts)
+                                         (assoc :file-kind (:file-kind opts))
+                                         (:file-kinds opts)
+                                         (assoc :file-kinds (:file-kinds opts))
+                                         (:fts-candidate-limit opts)
+                                         (assoc :fts-candidate-limit (:fts-candidate-limit opts))))]
+                             [data (merge timings (:timings data))])
+        fts (:scores fts-data)
         grep-data (rescore-grep-data initial-grep-data docs)
         grep (:scores grep-data)
         auto-semantic-eligible? (and (= :auto requested-retriever)
@@ -2168,10 +2399,15 @@
                                                    :docs docs
                                                    :lexical lexical
                                                    :semantic {}
+                                                   :semantic-role-scores {}
+                                                   :fts fts
                                                    :grep grep
                                                    :neighbor-scores {}
                                                    :same-label-scores {}
                                                    :retriever :lexical
+                                                   :fusion-strategy default-fusion-strategy
+                                                   :fts-weight (:fts-weight opts)
+                                                   :diversity-rerank-limit 0
                                                    :limit limit}))
                                          [{} (assoc timings :auto-cheap-rank-ms 0)])
         auto-short-circuit-reason (when auto-semantic-eligible?
@@ -2193,6 +2429,13 @@
                                                        :mode (:vector-store opts)
                                                        :vector-index-path (:vector-index-path opts)
                                                        :sqlite-vec-extension (:sqlite-vec-extension opts)
+                                                       :embedding-role (:embedding-role opts)
+                                                       :embedding-roles (:embedding-roles opts)
+                                                       :target-kind (:target-kind opts)
+                                                       :target-kinds (:target-kinds opts)
+                                                       :file-kind (:file-kind opts)
+                                                       :file-kinds (:file-kinds opts)
+                                                       :vector-overfetch-factors (:vector-overfetch-factors opts)
                                                        :embed-query #(query-vector
                                                                       embedding-client
                                                                       query-text)))]
@@ -2218,6 +2461,9 @@
         semantic (if (#{:hybrid :semantic} retriever)
                    (:scores semantic-data)
                    {})
+        semantic-role-scores (if (#{:hybrid :semantic} retriever)
+                               (:role-scores semantic-data)
+                               {})
         [seed-data timings] (timed timings
                                    :seed-selection-ms
                                    #(let [base-seed-ids (into (set (top-ids semantic
@@ -2228,7 +2474,8 @@
                                                           (set (top-ids grep default-seed-count))
                                                           #{})
                                           retrieval-seed-ids (into base-seed-ids
-                                                                   grep-seed-ids)
+                                                                   (concat grep-seed-ids
+                                                                           (top-ids fts default-seed-count)))
                                           same-label-data (same-label-expansion
                                                            docs
                                                            retrieval-seed-ids)
@@ -2253,16 +2500,23 @@
                                                           :docs docs
                                                           :lexical lexical
                                                           :semantic semantic
+                                                          :semantic-role-scores semantic-role-scores
+                                                          :fts fts
                                                           :grep grep
                                                           :neighbor-scores neighbor-scores
                                                           :same-label-scores (:same-label-scores seed-data)
                                                           :retriever retriever
+                                                          :fusion-strategy (:fusion-strategy opts)
+                                                          :fusion-k (:fusion-k opts)
+                                                          :fts-weight (:fts-weight opts)
+                                                          :diversity-rerank-limit (:diversity-rerank-limit opts)
                                                           :limit limit}))
         ranked (:ranked ranked-data)
         instrumentation (merge
                          timings
                          (:instrumentation grep-data)
                          (:instrumentation transient-file-data)
+                         (:instrumentation fts-data)
                          (:instrumentation semantic-data)
                          (adjacency-query-plan xtdb
                                                (:seed-ids seed-data)
@@ -2277,19 +2531,54 @@
                                                                  :none)
                           :query-tokens (count query-tokens)
                           :lexical-positive (count lexical)
+                          :fts-positive (count fts)
                           :grep-positive (count grep)
                           :semantic-positive (count semantic)
                           :seed-count (count (:seed-ids seed-data))
                           :grep-seed-count (count (:grep-seed-ids seed-data))
+                          :fts-seed-count (count (top-ids fts default-seed-count))
                           :same-label-seed-count (count (:same-label-ids seed-data))
                           :same-label-doc-candidates (count (:same-label-scores seed-data))
                           :graph-edges-loaded (count edges)
                           :neighbor-count (count neighbor-scores)
                           :grep-candidates (count (:grep-candidates ranked-data))
+                          :fts-candidates (count (:fts-candidates ranked-data))
                           :exact-path-candidates (count (:exact-path-candidates ranked-data))
                           :path-token-candidates (count (:path-token-candidates ranked-data))
                           :candidate-count (count (:candidates ranked-data))
                           :candidates-by-kind (:candidates-by-kind ranked-data)
+                          :candidate-facets (:candidate-facets ranked-data)
+                          :retrieval-diagnostics {:durable-search-docs (count base-docs)
+                                                  :fts-indexed-search-docs (long (or (get-in fts-data
+                                                                                             [:instrumentation
+                                                                                              :fts-indexed-search-docs])
+                                                                                     0))
+                                                  :fts-missing-search-docs (max 0
+                                                                                (- (count base-docs)
+                                                                                   (long (or (get-in fts-data
+                                                                                                     [:instrumentation
+                                                                                                      :fts-indexed-search-docs])
+                                                                                             0))))
+                                                  :fts-stale-candidates (long (or (get-in fts-data
+                                                                                          [:instrumentation
+                                                                                           :fts-stale-candidates])
+                                                                                  0))
+                                                  :vector-stale-candidates (long (or (get-in semantic-data
+                                                                                             [:instrumentation
+                                                                                              :vector-stale-candidates])
+                                                                                     0))
+                                                  :vector-post-filter-candidates (long (or (get-in semantic-data
+                                                                                                   [:instrumentation
+                                                                                                    :vector-post-filter-candidates])
+                                                                                           (count semantic)))}
+                          :fusion-strategy (:fusion-strategy ranked-data)
+                          :fusion-source-counts (:fusion-source-counts ranked-data)
+                          :fusion-source-weights (:fusion-source-weights ranked-data)
+                          :fusion-overlap-count (:fusion-overlap-count ranked-data)
+                          :fts-weight (:fts-weight ranked-data)
+                          :fusion-k (or (:fusion-k ranked-data) :none)
+                          :diversity-rerank? (:diversity-rerank? ranked-data)
+                          :diversity-rerank-limit (:diversity-rerank-limit ranked-data)
                           :ranked-count (:ranked-count ranked-data)
                           :returned-count (count ranked)})
         created-at-ms (System/currentTimeMillis)

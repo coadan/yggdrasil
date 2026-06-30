@@ -911,6 +911,9 @@
         (is (= 2 (:search-docs instrumentation)))
         (is (= 2 (:returned-count instrumentation)))
         (is (= {:chunk 1 :node 1} (:search-docs-by-kind instrumentation)))
+        (is (= :weighted (:fusion-strategy instrumentation)))
+        (is (contains? (:fusion-source-counts instrumentation) :lexical))
+        (is (contains? instrumentation :candidate-facets))
         (is (= "xtql-rel-unify" (:graph-adjacency-strategy instrumentation)))
         (is (= (:load-edges-ms instrumentation)
                (:graph-adjacency-ms instrumentation)))
@@ -928,10 +931,116 @@
                     [:load-search-docs-ms
                      :tokenize-ms
                      :lexical-score-ms
+                     :fts-index-ms
+                     :fts-search-ms
                      :load-edges-ms
                      :graph-expansion-ms
                      :rank-ms
                      :search-total-ms]))))))
+
+(deftest ranked-candidates-supports-rrf-fusion-ablation
+  (let [docs [{:target-id "target:a"
+               :target-kind :node
+               :path "src/a.clj"
+               :label "alpha"}
+              {:target-id "target:b"
+               :target-kind :node
+               :path "src/b.clj"
+               :label "beta"}
+              {:target-id "target:c"
+               :target-kind :node
+               :path "src/c.clj"
+               :label "gamma"}]
+        ranked-data (#'query/ranked-candidates
+                     {:query-text "unmatched"
+                      :query-tokens ["unmatched"]
+                      :docs docs
+                      :lexical {"target:a" 1.0
+                                "target:c" 0.5}
+                      :semantic {"target:b" 1.0
+                                 "target:a" 0.5}
+                      :fts {}
+                      :grep {}
+                      :neighbor-scores {}
+                      :same-label-scores {}
+                      :retriever :hybrid
+                      :fusion-strategy :rrf
+                      :fusion-k 20
+                      :limit 3})]
+    (is (= :rrf (:fusion-strategy ranked-data)))
+    (is (= 20 (:fusion-k ranked-data)))
+    (is (= 1 (:fusion-overlap-count ranked-data)))
+    (is (= {:exact 0
+            :fts 0
+            :graph 0
+            :grep 0
+            :lexical 2
+            :same-label 0
+            :semantic 2}
+           (:fusion-source-counts ranked-data)))
+    (is (= #{"target:a" "target:b" "target:c"}
+           (set (map :target-id (:ranked ranked-data)))))))
+
+(deftest ranked-candidates-supports-fts-weight-ablation
+  (let [docs [{:target-id "target:lexical"
+               :target-kind :chunk
+               :path "src/lexical.clj"
+               :label "lexical"}
+              {:target-id "target:fts"
+               :target-kind :chunk
+               :path "src/fts.clj"
+               :label "fts"}]
+        ranked-data (#'query/ranked-candidates
+                     {:query-text "unmatched"
+                      :query-tokens ["unmatched"]
+                      :docs docs
+                      :lexical {"target:lexical" 0.2}
+                      :semantic {}
+                      :fts {"target:fts" 1.0}
+                      :grep {}
+                      :neighbor-scores {}
+                      :same-label-scores {}
+                      :retriever :lexical
+                      :fts-weight 0.1
+                      :limit 2})]
+    (is (= 0.1 (:fts-weight ranked-data)))
+    (is (= 0.1 (get-in ranked-data [:fusion-source-weights :fts])))
+    (is (= ["target:lexical" "target:fts"]
+           (mapv :target-id (:ranked ranked-data))))))
+
+(deftest ranked-candidates-diversity-rerank-is-opt-in
+  (let [docs [{:target-id "target:a"
+               :target-kind :chunk
+               :path "docs/auth.md"
+               :label "a"}
+              {:target-id "target:b"
+               :target-kind :chunk
+               :path "docs/auth.md"
+               :label "b"}
+              {:target-id "target:c"
+               :target-kind :chunk
+               :path "docs/runtime.md"
+               :label "c"}]
+        ranked-data (#'query/ranked-candidates
+                     {:query-text "unmatched"
+                      :query-tokens ["unmatched"]
+                      :docs docs
+                      :lexical {"target:a" 1.0
+                                "target:b" 0.9
+                                "target:c" 0.8}
+                      :semantic {}
+                      :fts {}
+                      :grep {}
+                      :neighbor-scores {}
+                      :same-label-scores {}
+                      :retriever :lexical
+                      :diversity-rerank-limit 3
+                      :limit 3})]
+    (is (:diversity-rerank? ranked-data))
+    (is (= ["target:a" "target:c" "target:b"]
+           (mapv :target-id (:ranked ranked-data))))
+    (is (= [1 3 2]
+           (mapv :pre-diversity-rank (:ranked ranked-data))))))
 
 (deftest semantic-query-remains-result-vector
   (store/with-node (temp-dir "ygg-semantic-query-compat-xtdb")

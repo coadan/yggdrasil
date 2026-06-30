@@ -2673,6 +2673,7 @@
   (->> [[:grep :grep]
         [:semantic :semantic]
         [:lexical :lexical]
+        [:fts :fts]
         [:graph :graph]
         [:sourceGraph :source-graph]
         [:queryLabel :query-label]
@@ -3852,6 +3853,8 @@
                            retriever embedding-client project-id repo-id
                            correction-overlay min-confidence read-context freshness plugins
                            output proof-commands? query-input memory-owner
+                           fusion-strategy sqlite-fts? diversity-rerank-limit
+                           fts-candidate-limit fts-weight embedding-role embedding-roles
                            exclude-private-memory? active-indexing]
                     :or {budget default-budget
                          entity-limit default-entity-limit
@@ -3875,7 +3878,14 @@
                                             :embedding-client embedding-client
                                             :project-id project-id
                                             :repo-id repo-id
-                                            :read-context read-context})
+                                            :read-context read-context
+                                            :fusion-strategy fusion-strategy
+                                            :sqlite-fts? sqlite-fts?
+                                            :diversity-rerank-limit diversity-rerank-limit
+                                            :fts-candidate-limit fts-candidate-limit
+                                            :fts-weight fts-weight
+                                            :embedding-role embedding-role
+                                            :embedding-roles embedding-roles})
         results (:results search-report)
         source-candidates (source-graph-candidates
                            xtdb

@@ -4,6 +4,7 @@
             [clojure.java.shell :as shell]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]
+            [ygg.benchmark-paths :as benchmark-paths]
             [ygg.benchmark-test-support :refer [spit-file! spit-json! temp-dir]]))
 
 (defn- run-gate
@@ -161,6 +162,41 @@
                        "--batch-size 128"))
     (is (str/includes? (nth lines 2)
                        "--agent ygg-baseline-semantic"))))
+
+(deftest dry-run-passes-retrieval-ablation-options
+  (let [result (run-gate "--dry-run"
+                         "--retriever" "auto"
+                         "--fusion-strategy" "rrf"
+                         "--sqlite-fts"
+                         "--diversity-rerank-limit" "5"
+                         "--fts-candidate-limit" "80"
+                         "--fts-weight" "0.1"
+                         "--suite" "benchmarks/custom.edn"
+                         "--manifest" "benchmarks/custom-repos.edn"
+                         "--out" ".dev/ygg/benchmark-gate/custom")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (str/includes? (nth lines 1)
+                       "--fusion-strategy rrf"))
+    (is (str/includes? (nth lines 1)
+                       "--sqlite-fts"))
+    (is (str/includes? (nth lines 1)
+                       "--diversity-rerank-limit 5"))
+    (is (str/includes? (nth lines 1)
+                       "--fts-candidate-limit 80"))
+    (is (str/includes? (nth lines 1)
+                       "--fts-weight 0.1"))
+    (is (str/includes? (nth lines 2)
+                       "--agent ygg-baseline-auto-fusion-rrf-sqlite-fts-diversity-5-fts-80-ftsw-0.1"))))
+
+(deftest benchmark-baseline-id-includes-retrieval-ablation-options
+  (is (= "ygg-baseline-auto-fusion-rrf-sqlite-fts-diversity-5-fts-80-ftsw-0.1"
+         (benchmark-paths/agent-baseline-id {:retriever :auto
+                                             :fusion-strategy :rrf
+                                             :sqlite-fts? true
+                                             :diversity-rerank-limit 5
+                                             :fts-candidate-limit 80
+                                             :fts-weight 0.1}))))
 
 (deftest prompt-token-gate-passes-when-ygg-prompt-is-smaller
   (let [root (temp-dir "ygg-prompt-token-gate-pass")

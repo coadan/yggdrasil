@@ -79,6 +79,8 @@
     "--timeout-ms" "--index-timeout-ms" "--min-cases" "--min-runs"
     "--min-shared-cases"
     "--retrieval-limit" "--output" "--anchor" "--symbol" "--literal" "--lanes"
+    "--fusion-strategy" "--diversity-rerank-limit" "--fts-candidate-limit"
+    "--fts-weight"
     "--min-file-recall-at-5" "--min-file-recall-at-10"
     "--min-file-recall-at-20" "--min-mrr" "--max-noise-at-20"
     "--min-evidence-citation-rate"
@@ -124,7 +126,7 @@
     "--allow-duplicate-runs" "--allow-unverified-scores"
     "--skip-existing" "--with-conflicts" "--without-import-evidence"
     "--no-progress" "--extractor" "--report" "--tests" "--proof-commands"
-    "--graphify-include-non-code"
+    "--graphify-include-non-code" "--sqlite-fts"
     "--changed-only" "--reviewed" "--skill" "--mcp" "--force-agent" "--start-at-login"
     "--no-start-at-login" "--no-start-server" "--yes" "--no-input" "--non-interactive"})
 

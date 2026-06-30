@@ -1341,144 +1341,165 @@
                 (:nextActions evidence))))))
 
 (deftest context-packet-includes-search-instrumentation
-  (with-redefs [query/search-report (fn [_ query-text opts]
-                                      {:schema query/search-report-schema
-                                       :query-run-id "query:test"
-                                       :query-text query-text
-                                       :retriever-requested (:retriever opts)
-                                       :retriever-effective :lexical
-                                       :instrumentation {:search-docs 1
-                                                         :seed-count 2
-                                                         :graph-edges-loaded 3
-                                                         :graph-adjacency-strategy "xtql-rel-unify"
-                                                         :graph-adjacency-query-count 2
-                                                         :graph-adjacency-source-query-count 1
-                                                         :graph-adjacency-target-query-count 1
-                                                         :graph-adjacency-seed-count 2
-                                                         :graph-adjacency-loaded-rows 3
-                                                         :returned-count 1}
-                                       :results [{:path "src/auth.clj"
-                                                  :score 1.2
-                                                  :target-kind :chunk
-                                                  :target-id "chunk:auth"
-                                                  :label "auth/start"
-                                                  :source-line 12
-                                                  :end-line 18}]})
-                graph/system-graph (fn [_ project-id _]
-                                     {:basis {:project-id project-id}
-                                      :nodes [{:id "system:alpha"
-                                               :label "Alpha"
-                                               :kind :accepted-system
-                                               :degree 3}
-                                              {:id "system:beta"
-                                               :label "Beta"
-                                               :kind :candidate-system
-                                               :degree 1}]
-                                      :edges [{:id "edge:alpha-beta"
-                                               :source "system:alpha"
-                                               :target "system:beta"
-                                               :relation :depends-on}]
-                                      :clusters []})
-                query/all-chunks (fn [& _]
-                                   (throw (ex-info "unexpected broad chunk scan" {})))
-                query/chunks-by-ids (fn [& _] [])
-                query/chunks-by-paths (fn [& _] [])
-                query/all-system-evidence (fn [& _] [])
-                dependency/package-report (fn [& _] (empty-dependency-report))
-                activity/select-activity (fn [& _] [])
-                context/query-evidence (fn [& _]
-                                         {:status :ready
-                                          :counts {:files 4
-                                                   :nodes 7
-                                                   :edges 9
-                                                   :system-nodes 2
-                                                   :system-edges 1
-                                                   :search-docs 1
-                                                   :chunks 3
-                                                   :embeddings 0
-                                                   :correction-systems 1
-                                                   :activity-items 0}
-                                          :missing [:embeddings]
-                                          :weak []})
-                coverage/context-summary (fn [& _]
-                                           {:schema "ygg.source-coverage.context/v1"
-                                            :totals {:indexedFiles 1}})]
-    (let [packet (context/context-packet :xtdb
-                                         "auth"
-                                         {:project-id "fixture"
-                                          :retriever :lexical
-                                          :plugins {:packages [plugin-package-fixture]}
-                                          :freshness {:status :current
-                                                      :counts {:indexed 1
-                                                               :current 1
-                                                               :changed 0}}})]
-      (is (= "query:test" (get-in packet [:search :query-run-id])))
-      (is (= :lexical (get-in packet [:search :retriever-effective])))
-      (is (= 1 (get-in packet [:search :instrumentation :search-docs])))
-      (is (= 0 (get-in packet [:search :instrumentation :context-chunks])))
-      (is (= {:status :current
-              :counts {:indexed 1
-                       :current 1
-                       :changed 0}}
-             (:freshness packet)))
-      (is (= {:schema "ygg.graph-readiness/v1"
-              :status :ready
-              :rowCounts {:sourceFiles 4
-                          :sourceNodes 7
-                          :sourceEdges 9
-                          :systemNodes 2
-                          :systemEdges 1
-                          :searchDocs 1
-                          :chunks 3
-                          :embeddings 0
-                          :correctionSystems 1
-                          :activityItems 0}
-              :systemGraph {:nodeKinds [{:value "accepted-system"
-                                         :count 1}
-                                        {:value "candidate-system"
-                                         :count 1}]
-                            :relations [{:value "depends-on"
-                                         :count 1}]
-                            :representativeNodes [{:id "system:alpha"
-                                                   :label "Alpha"
-                                                   :kind :accepted-system
-                                                   :degree 3}
-                                                  {:id "system:beta"
-                                                   :label "Beta"
-                                                   :kind :candidate-system
-                                                   :degree 1}]}
-              :retrieval {:search-docs 1
-                          :seed-count 2
-                          :graph-edges-loaded 3
-                          :graph-adjacency-strategy "xtql-rel-unify"
-                          :graph-adjacency-query-count 2
-                          :graph-adjacency-source-query-count 1
-                          :graph-adjacency-target-query-count 1
-                          :graph-adjacency-seed-count 2
-                          :graph-adjacency-loaded-rows 3
-                          :returned-count 1
-                          :context-chunks 0}
-              :missingPlanes [:embeddings]
-              :weakPlanes []}
-             (get-in packet [:graph :readiness])))
-      (is (= {:indexedFiles 1}
-             (get-in packet [:sourceCoverage :totals])))
-      (is (= {:counts {:packages 1
-                       :warnings 1
-                       :unbenchmarked 1
-                       :benchmarked 0
-                       :nonAuthoritative 1}
-              :packages [compact-plugin-package-fixture]}
-             (:pluginPackages packet)))
-      (is (not (contains? packet :auditScopes)))
-      (is (= [{:path "src/auth.clj"
-               :rank 1
-               :score 1.2
-               :targetKind "chunk"
-               :label "auth/start"
-               :sourceLine 12
-               :endLine 18}]
-             (:candidateFiles packet))))))
+  (let [search-opts (atom nil)]
+    (with-redefs [query/search-report (fn [_ query-text opts]
+                                        (reset! search-opts opts)
+                                        {:schema query/search-report-schema
+                                         :query-run-id "query:test"
+                                         :query-text query-text
+                                         :retriever-requested (:retriever opts)
+                                         :retriever-effective :lexical
+                                         :instrumentation {:search-docs 1
+                                                           :seed-count 2
+                                                           :graph-edges-loaded 3
+                                                           :graph-adjacency-strategy "xtql-rel-unify"
+                                                           :graph-adjacency-query-count 2
+                                                           :graph-adjacency-source-query-count 1
+                                                           :graph-adjacency-target-query-count 1
+                                                           :graph-adjacency-seed-count 2
+                                                           :graph-adjacency-loaded-rows 3
+                                                           :returned-count 1}
+                                         :results [{:path "src/auth.clj"
+                                                    :score 1.2
+                                                    :target-kind :chunk
+                                                    :target-id "chunk:auth"
+                                                    :label "auth/start"
+                                                    :source-line 12
+                                                    :end-line 18}]})
+                  graph/system-graph (fn [_ project-id _]
+                                       {:basis {:project-id project-id}
+                                        :nodes [{:id "system:alpha"
+                                                 :label "Alpha"
+                                                 :kind :accepted-system
+                                                 :degree 3}
+                                                {:id "system:beta"
+                                                 :label "Beta"
+                                                 :kind :candidate-system
+                                                 :degree 1}]
+                                        :edges [{:id "edge:alpha-beta"
+                                                 :source "system:alpha"
+                                                 :target "system:beta"
+                                                 :relation :depends-on}]
+                                        :clusters []})
+                  query/all-chunks (fn [& _]
+                                     (throw (ex-info "unexpected broad chunk scan" {})))
+                  query/chunks-by-ids (fn [& _] [])
+                  query/chunks-by-paths (fn [& _] [])
+                  query/all-system-evidence (fn [& _] [])
+                  dependency/package-report (fn [& _] (empty-dependency-report))
+                  activity/select-activity (fn [& _] [])
+                  context/query-evidence (fn [& _]
+                                           {:status :ready
+                                            :counts {:files 4
+                                                     :nodes 7
+                                                     :edges 9
+                                                     :system-nodes 2
+                                                     :system-edges 1
+                                                     :search-docs 1
+                                                     :chunks 3
+                                                     :embeddings 0
+                                                     :correction-systems 1
+                                                     :activity-items 0}
+                                            :missing [:embeddings]
+                                            :weak []})
+                  coverage/context-summary (fn [& _]
+                                             {:schema "ygg.source-coverage.context/v1"
+                                              :totals {:indexedFiles 1}})]
+      (let [packet (context/context-packet :xtdb
+                                           "auth"
+                                           {:project-id "fixture"
+                                            :retriever :lexical
+                                            :fusion-strategy :rrf
+                                            :sqlite-fts? true
+                                            :diversity-rerank-limit 5
+                                            :fts-candidate-limit 80
+                                            :fts-weight 0.1
+                                            :embedding-role :content
+                                            :plugins {:packages [plugin-package-fixture]}
+                                            :freshness {:status :current
+                                                        :counts {:indexed 1
+                                                                 :current 1
+                                                                 :changed 0}}})]
+        (is (= "query:test" (get-in packet [:search :query-run-id])))
+        (is (= {:limit context/default-retrieval-limit
+                :retriever :lexical
+                :project-id "fixture"
+                :repo-id nil
+                :read-context nil
+                :fusion-strategy :rrf
+                :sqlite-fts? true
+                :diversity-rerank-limit 5
+                :fts-candidate-limit 80
+                :fts-weight 0.1
+                :embedding-role :content
+                :embedding-roles nil}
+               (dissoc @search-opts :embedding-client)))
+        (is (= :lexical (get-in packet [:search :retriever-effective])))
+        (is (= 1 (get-in packet [:search :instrumentation :search-docs])))
+        (is (= 0 (get-in packet [:search :instrumentation :context-chunks])))
+        (is (= {:status :current
+                :counts {:indexed 1
+                         :current 1
+                         :changed 0}}
+               (:freshness packet)))
+        (is (= {:schema "ygg.graph-readiness/v1"
+                :status :ready
+                :rowCounts {:sourceFiles 4
+                            :sourceNodes 7
+                            :sourceEdges 9
+                            :systemNodes 2
+                            :systemEdges 1
+                            :searchDocs 1
+                            :chunks 3
+                            :embeddings 0
+                            :correctionSystems 1
+                            :activityItems 0}
+                :systemGraph {:nodeKinds [{:value "accepted-system"
+                                           :count 1}
+                                          {:value "candidate-system"
+                                           :count 1}]
+                              :relations [{:value "depends-on"
+                                           :count 1}]
+                              :representativeNodes [{:id "system:alpha"
+                                                     :label "Alpha"
+                                                     :kind :accepted-system
+                                                     :degree 3}
+                                                    {:id "system:beta"
+                                                     :label "Beta"
+                                                     :kind :candidate-system
+                                                     :degree 1}]}
+                :retrieval {:search-docs 1
+                            :seed-count 2
+                            :graph-edges-loaded 3
+                            :graph-adjacency-strategy "xtql-rel-unify"
+                            :graph-adjacency-query-count 2
+                            :graph-adjacency-source-query-count 1
+                            :graph-adjacency-target-query-count 1
+                            :graph-adjacency-seed-count 2
+                            :graph-adjacency-loaded-rows 3
+                            :returned-count 1
+                            :context-chunks 0}
+                :missingPlanes [:embeddings]
+                :weakPlanes []}
+               (get-in packet [:graph :readiness])))
+        (is (= {:indexedFiles 1}
+               (get-in packet [:sourceCoverage :totals])))
+        (is (= {:counts {:packages 1
+                         :warnings 1
+                         :unbenchmarked 1
+                         :benchmarked 0
+                         :nonAuthoritative 1}
+                :packages [compact-plugin-package-fixture]}
+               (:pluginPackages packet)))
+        (is (not (contains? packet :auditScopes)))
+        (is (= [{:path "src/auth.clj"
+                 :rank 1
+                 :score 1.2
+                 :targetKind "chunk"
+                 :label "auth/start"
+                 :sourceLine 12
+                 :endLine 18}]
+               (:candidateFiles packet)))))))
 
 (deftest context-packet-includes-architecture-section-for-selected-systems
   (with-redefs [query/search-report (fn [_ query-text opts]

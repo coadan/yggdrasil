@@ -41,7 +41,18 @@
   (io/file (case-output-dir suite case opts) "agent-packet.json"))
 (defn agent-baseline-id
   [opts]
-  (str "ygg-baseline-" (name (keyword (or (:retriever opts) :auto)))))
+  (str "ygg-baseline-"
+       (name (keyword (or (:retriever opts) :auto)))
+       (when (:fusion-strategy opts)
+         (str "-fusion-" (name (keyword (:fusion-strategy opts)))))
+       (when (:sqlite-fts? opts)
+         "-sqlite-fts")
+       (when (:diversity-rerank-limit opts)
+         (str "-diversity-" (long (:diversity-rerank-limit opts))))
+       (when (:fts-candidate-limit opts)
+         (str "-fts-" (long (:fts-candidate-limit opts))))
+       (when (:fts-weight opts)
+         (str "-ftsw-" (:fts-weight opts)))))
 (defn agent-baseline-result-path
   [suite case opts]
   (io/file (case-output-dir suite case opts)

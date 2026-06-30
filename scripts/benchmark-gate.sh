@@ -15,6 +15,13 @@ Options:
   --case ID           Run one benchmark case.
   --cases ID,ID       Run selected benchmark cases.
   --retriever MODE    Baseline retriever. Default: auto.
+  --fusion-strategy S Baseline fusion strategy, for retrieval ablations.
+  --sqlite-fts        Enable the SQLite FTS lane, for retrieval ablations.
+  --diversity-rerank-limit N
+                      Apply mechanical diversity reranking to top N candidates.
+  --fts-candidate-limit N
+                      Candidate limit for the SQLite FTS lane.
+  --fts-weight N      Source weight for the SQLite FTS lane.
   --provider PROVIDER Embedding provider for semantic/hybrid retrievers.
   --model MODEL       Embedding model for semantic/hybrid retrievers.
   --batch-size N      Embedding batch size for semantic/hybrid retrievers.
@@ -36,6 +43,11 @@ out=".dev/ygg/benchmark-gate"
 case_id=""
 case_ids=""
 retriever="auto"
+fusion_strategy=""
+sqlite_fts=false
+diversity_rerank_limit=""
+fts_candidate_limit=""
+fts_weight=""
 provider=""
 model=""
 batch_size=""
@@ -68,6 +80,26 @@ while [[ $# -gt 0 ]]; do
       ;;
     --retriever)
       retriever="$2"
+      shift 2
+      ;;
+    --fusion-strategy)
+      fusion_strategy="$2"
+      shift 2
+      ;;
+    --sqlite-fts)
+      sqlite_fts=true
+      shift
+      ;;
+    --diversity-rerank-limit)
+      diversity_rerank_limit="$2"
+      shift 2
+      ;;
+    --fts-candidate-limit)
+      fts_candidate_limit="$2"
+      shift 2
+      ;;
+    --fts-weight)
+      fts_weight="$2"
       shift 2
       ;;
     --provider)
@@ -158,6 +190,21 @@ fi
 
 if [[ "$check_only" != true ]]; then
   baseline_args=(--out "$out" --retriever "$retriever")
+  if [[ -n "$fusion_strategy" ]]; then
+    baseline_args+=(--fusion-strategy "$fusion_strategy")
+  fi
+  if [[ "$sqlite_fts" == true ]]; then
+    baseline_args+=(--sqlite-fts)
+  fi
+  if [[ -n "$diversity_rerank_limit" ]]; then
+    baseline_args+=(--diversity-rerank-limit "$diversity_rerank_limit")
+  fi
+  if [[ -n "$fts_candidate_limit" ]]; then
+    baseline_args+=(--fts-candidate-limit "$fts_candidate_limit")
+  fi
+  if [[ -n "$fts_weight" ]]; then
+    baseline_args+=(--fts-weight "$fts_weight")
+  fi
   if [[ -n "$provider" ]]; then
     baseline_args+=(--provider "$provider")
   fi
@@ -170,9 +217,26 @@ if [[ "$check_only" != true ]]; then
   run_bench agent-baseline "${baseline_args[@]}"
 fi
 
+agent_id="ygg-baseline-$retriever"
+if [[ -n "$fusion_strategy" ]]; then
+  agent_id="$agent_id-fusion-$fusion_strategy"
+fi
+if [[ "$sqlite_fts" == true ]]; then
+  agent_id="$agent_id-sqlite-fts"
+fi
+if [[ -n "$diversity_rerank_limit" ]]; then
+  agent_id="$agent_id-diversity-$diversity_rerank_limit"
+fi
+if [[ -n "$fts_candidate_limit" ]]; then
+  agent_id="$agent_id-fts-$fts_candidate_limit"
+fi
+if [[ -n "$fts_weight" ]]; then
+  agent_id="$agent_id-ftsw-$fts_weight"
+fi
+
 run_bench agent-check \
   --mode ygg \
-  --agent "ygg-baseline-$retriever" \
+  --agent "$agent_id" \
   --min-cases "$min_count" \
   --min-runs "$min_count" \
   --min-file-recall-at-5 0.60 \

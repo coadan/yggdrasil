@@ -90,6 +90,13 @@
              :retrieval-limit (long (or (:retrieval-limit opts) default-agent-baseline-retrieval-limit))
              :snippet-chars (long (or (:snippet-chars opts) context/default-snippet-chars))}
       (nil? (:embedding-client opts)) (dissoc :embedding-client)
+      (:fusion-strategy opts) (assoc :fusion-strategy (:fusion-strategy opts))
+      (:sqlite-fts? opts) (assoc :sqlite-fts? (:sqlite-fts? opts))
+      (:diversity-rerank-limit opts) (assoc :diversity-rerank-limit
+                                            (:diversity-rerank-limit opts))
+      (:fts-candidate-limit opts) (assoc :fts-candidate-limit
+                                         (:fts-candidate-limit opts))
+      (:fts-weight opts) (assoc :fts-weight (:fts-weight opts))
       (= 1 (count (:repos prepared)))
       (assoc :repo-id (:repo-id prepared)))))
 (defn- agent-baseline-embedding-client
@@ -110,6 +117,9 @@
            :input-max-chars (long (or (:embedding-input-max-chars opts)
                                       default-agent-baseline-embedding-input-max-chars))
            :project-id (:project-id prepared)}
+    (:embedding-role opts)
+    (assoc :embedding-role (:embedding-role opts))
+
     (= 1 (count (:repos prepared)))
     (assoc :repo-id (:repo-id prepared))))
 (defn- embed-search-docs-for-agent-baseline!
@@ -311,6 +321,11 @@
                           :retriever (name (keyword
                                             (or (:retriever opts)
                                                 default-agent-baseline-retriever)))
+                          :fusionStrategy (some-> (:fusion-strategy opts) name)
+                          :sqliteFts (boolean (:sqlite-fts? opts))
+                          :diversityRerankLimit (:diversity-rerank-limit opts)
+                          :ftsCandidateLimit (:fts-candidate-limit opts)
+                          :ftsWeight (:fts-weight opts)
                           :parserWorker parser-worker
                           :suspectLimit (agent-baseline-suspect-limit opts)
                           :artifacts {:projectConfig project-path

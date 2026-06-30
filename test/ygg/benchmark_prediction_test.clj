@@ -914,6 +914,30 @@
                 (take 4)
                 vec)))))
 
+(deftest compact-output-keeps-small-candidate-only-surfaces
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank rank-score]
+              {:path path
+               :rank rank
+               :metrics {:candidateFileCount 1
+                         :matchedTokenCount 3
+                         :sourceGraphCandidateEvidenceScore 0.6
+                         :rankScore rank-score}})
+        rows [(row "one.clj" 1 9.6)
+              (row "two.clj" 2 9.1)
+              (row "three.clj" 3 6.6)
+              (row "four.clj" 4 5.1)
+              (row "five.clj" 5 3.1)
+              (row "six.clj" 6 2.6)]
+        selected (compact-output rows 20 nil)]
+    (is (= ["one.clj"
+            "two.clj"
+            "three.clj"
+            "four.clj"
+            "five.clj"
+            "six.clj"]
+           (mapv :path selected)))))
+
 (deftest compact-output-frontloads-retrieved-path-grep-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]

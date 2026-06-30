@@ -15,6 +15,9 @@
 
 (def default-project-id "default")
 
+(def ^:private tuple-query-batch-size
+  512)
+
 (defn- xdg-data-home
   []
   (or (System/getenv "XDG_DATA_HOME")
@@ -531,9 +534,16 @@
       []
 
       (xtdb-handle? xtdb)
-      (q xtdb
-         (tuple-values-query table tuple-fields tuples constraints return-fields)
-         read-context)
+      (->> tuples
+           (partition-all tuple-query-batch-size)
+           (mapcat #(q xtdb
+                       (tuple-values-query table
+                                           tuple-fields
+                                           %
+                                           constraints
+                                           return-fields)
+                       read-context))
+           vec)
 
       :else
       (let [tuple-set (set (map tuple-key tuples))]
