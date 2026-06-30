@@ -338,6 +338,16 @@
   25)
 (def ^:private compact-output-early-source-graph-token-min
   1)
+(def ^:private compact-output-doc-source-graph-grep-rank-window
+  8)
+(def ^:private compact-output-doc-source-graph-grep-token-min
+  6)
+(def ^:private compact-output-doc-source-graph-grep-source-score-min
+  0.5)
+(def ^:private compact-output-doc-source-graph-grep-grep-score-min
+  0.5)
+(def ^:private compact-output-candidate-source-graph-head-source-score-min
+  0.5)
 (def ^:private compact-output-identity-support-min
   4)
 (def ^:private compact-output-architecture-token-min
@@ -350,6 +360,10 @@
   0.45)
 (def ^:private compact-output-retrieved-path-grep-sort-rank
   0.48)
+(def ^:private compact-output-doc-source-graph-grep-sort-rank
+  0.58)
+(def ^:private compact-output-candidate-source-graph-head-sort-rank
+  0.56)
 (def ^:private compact-output-retrieved-label-doc-sort-rank
   1.45)
 (def ^:private compact-output-directory-evidence-candidate-sort-rank
@@ -2228,11 +2242,14 @@
                                                           doc-count
                                                           support-count
                                                           graph-neighbor-score)
+                             candidate-only-head-graph-score
+                             (max graph-neighbor-score
+                                  source-graph-candidate-evidence-score)
                              candidate-only-source-graph-head-boost
                              (candidate-only-source-graph-head-boost
                               candidate-source-rank
                               doc-count
-                              graph-neighbor-score
+                              candidate-only-head-graph-score
                               (count matched-tokens))
                              candidate-only-exported-support-boost
                              (candidate-only-exported-support-boost
@@ -2779,10 +2796,7 @@
 (defn- prediction-rank-protected?
   [row]
   (or (pos? (long (or (get-in row [:metrics :decisionCandidateCount]) 0)))
-      (retrieved-query-file-identity-rank-protected? row)
-      (pos? (double (or (get-in row
-                                [:metrics :candidateOnlySourceGraphHeadBoost])
-                        0.0)))))
+      (retrieved-query-file-identity-rank-protected? row)))
 
 (defn- prediction-diversity-bypass?
   [row]
@@ -3804,6 +3818,43 @@
                   (min (double (or (:rank %) Long/MAX_VALUE))
                        compact-output-query-evidence-doc-sort-rank))))))
 
+(defn- compact-output-doc-source-graph-grep-row?
+  [row]
+  (and (pos? (positive-metric row :docCount))
+       (pos? (positive-metric row :candidateFileCount))
+       (pos? (positive-metric row :retrievedSourceCount))
+       (<= (row-candidate-source-rank row)
+           compact-output-doc-source-graph-grep-rank-window)
+       (<= compact-output-doc-source-graph-grep-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= compact-output-doc-source-graph-grep-source-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (<= compact-output-doc-source-graph-grep-grep-score-min
+           (row-metric-double row :candidateGrepScore))))
+
+(defn- compact-output-doc-source-graph-grep-key
+  [row]
+  [(row-candidate-source-rank row)
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-metric-double row :candidateGrepScore))
+   (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
+   (- (row-rank-score row))
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-doc-source-graph-grep-row
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (compact-output-doc-source-graph-grep-row? %)))
+       (sort-by compact-output-doc-source-graph-grep-key)
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  (min (double (or (:rank %) Long/MAX_VALUE))
+                       compact-output-doc-source-graph-grep-sort-rank))))))
+
 (defn- row-query-matched-path-self-identity?
   [row]
   (true? (get-in row [:metrics :queryMatchedPathSelfIdentity])))
@@ -4262,6 +4313,12 @@
   [row]
   (pos? (row-metric-double row :sourceGraphQueryEvidenceBoost)))
 
+(defn- compact-output-candidate-source-graph-head-row?
+  [row]
+  (and (pos? (row-metric-double row :candidateOnlySourceGraphHeadBoost))
+       (<= compact-output-candidate-source-graph-head-source-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))))
+
 (defn- compact-output-supported-source-graph-query-evidence-row?
   [row]
   (and (compact-output-source-graph-query-evidence-row? row)
@@ -4285,6 +4342,8 @@
       (compact-output-early-source-graph-row? row)
       (compact-output-doc-directory-evidence-row? row)
       (compact-output-retrieved-path-grep-evidence-row? row)
+      (compact-output-doc-source-graph-grep-row? row)
+      (compact-output-candidate-source-graph-head-row? row)
       (compact-output-source-graph-query-evidence-row? row)
       (query-evidence-source-candidate-row? row)
       (candidate-file-only-row? row)))
@@ -4350,6 +4409,10 @@
                                 compact-output-doc-directory-evidence-sort-rank)
                               (when (compact-output-retrieved-path-grep-evidence-row? row)
                                 compact-output-retrieved-path-grep-sort-rank)
+                              (when (compact-output-doc-source-graph-grep-row? row)
+                                compact-output-doc-source-graph-grep-sort-rank)
+                              (when (compact-output-candidate-source-graph-head-row? row)
+                                compact-output-candidate-source-graph-head-sort-rank)
                               (when (compact-output-supported-source-graph-query-evidence-row?
                                      row)
                                 compact-output-source-graph-query-evidence-sort-rank)
@@ -4479,6 +4542,11 @@
              selected (add-compact-output-row
                        selected
                        (compact-output-query-evidence-doc-row
+                        files
+                        (:keys selected)))
+             selected (add-compact-output-row
+                       selected
+                       (compact-output-doc-source-graph-grep-row
                         files
                         (:keys selected)))
              selected (reduce add-compact-output-row

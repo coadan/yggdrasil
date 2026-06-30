@@ -162,6 +162,34 @@
     (is (< (:rank (get by-path "main.tf"))
            (:rank (get by-path "examples/flow-log/main.tf"))))))
 
+(deftest file-ranking-boosts-early-source-graph-candidate-head
+  (let [rank-files @#'benchmark-prediction/ranked-file-predictions
+        candidate-row {:path "main.tf"
+                       :source-rank 502
+                       :evidence-score 0.55
+                       :evidence-kind :candidate-file
+                       :confidence 0.9
+                       :candidate-source-rank 2
+                       :source-graph-candidate-evidence-score 0.55
+                       :candidate-file-count 1
+                       :matched-tokens ["vpc" "flow" "log" "data" "ownership" "destination"]
+                       :matched-token-pairs [["flow" "log"]]
+                       :definition-kind "node"}
+        files (rank-files [{:path "noise.tf"
+                            :source-rank 1
+                            :evidence-score 1.2
+                            :evidence-kind :doc
+                            :confidence 1.0
+                            :matched-tokens ["flow" "log"]
+                            :definition-kind "chunk"}
+                           candidate-row])
+        by-path (into {} (map (juxt :path identity)) files)]
+    (is (pos? (get-in by-path ["main.tf"
+                               :metrics
+                               :candidateOnlySourceGraphHeadBoost])))
+    (is (< (:rank (get by-path "main.tf"))
+           (:rank (get by-path "noise.tf"))))))
+
 (deftest query-matched-exported-support-labels-use-qualified-segments
   (let [match-count @#'benchmark-prediction/query-matched-exported-support-label-count
         query-tokens ["consumer.traces" "consumer" "component.component" "component"]]
@@ -886,6 +914,72 @@
                 (map :path)
                 (take 5)
                 vec)))))
+
+(deftest compact-output-frontloads-candidate-source-graph-head
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        rows [(row "variables.tf" 1 {:rankScore 39.0})
+              (row "modules/flow-log/variables.tf" 2 {:rankScore 38.0})
+              (row "modules/flow-log/main.tf" 3 {:rankScore 30.0})
+              (row "vpc-flow-logs.tf" 4 {:rankScore 29.0})
+              (row "outputs.tf"
+                   5
+                   {:candidateFileCount 1
+                    :candidateGrepScore 0.6
+                    :candidateSourceRank 5
+                    :docCount 1
+                    :matchedTokenCount 8
+                    :rankScore 28.0
+                    :retrievedSourceCount 1
+                    :sourceGraphCandidateEvidenceScore 0.54})
+              (row "examples/flow-log/variables.tf" 6 {:rankScore 27.0})
+              (row "main.tf"
+                   7
+                   {:candidateFileCount 1
+                    :docCount 0
+                    :candidateOnlySourceGraphHeadBoost 8.0
+                    :candidateSourceRank 2
+                    :matchedTokenCount 8
+                    :sourceGraphCandidateEvidenceScore 0.55
+                    :rankScore 17.0})]
+        selected-paths (mapv :path (compact-output rows 20 nil))]
+    (is (= "main.tf" (nth selected-paths 4)))))
+
+(deftest compact-output-frontloads-doc-source-graph-grep-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        rows [(row "a/core.clj" 1 {:rankScore 40.0})
+              (row "a/globals.clj" 2 {:rankScore 35.0})
+              (row "a/shell.clj" 3 {:rankScore 30.0})
+              (row "a/cli.clj" 4 {:rankScore 25.0})
+              (row "a/weak-candidate.clj"
+                   5
+                   {:candidateFileCount 1
+                    :candidateOnlySourceGraphHeadBoost 6.0
+                    :candidateSourceRank 4
+                    :docCount 0
+                    :matchedTokenCount 9
+                    :rankScore 21.0
+                    :sourceGraphCandidateEvidenceScore 0.44})
+              (row "a/debug.clj" 6 {:rankScore 20.0})
+              (row "a/context.clj"
+                   8
+                   {:candidateFileCount 1
+                    :candidateGrepScore 0.62
+                    :candidateSourceRank 5
+                    :docCount 1
+                    :matchedTokenCount 11
+                    :rankScore 9.0
+                    :retrievedSourceCount 1
+                    :sourceGraphCandidateEvidenceScore 0.54})]
+        selected-paths (mapv :path (compact-output rows 20 nil))]
+    (is (= "a/context.clj" (nth selected-paths 4)))))
 
 (deftest compact-output-frontloads-source-graph-query-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
