@@ -4495,6 +4495,11 @@
       ""
       (subs path 0 idx))))
 
+(defn- file-row-directory-key
+  [row]
+  [(repo-key-name (or (:repo-id row) (:repo row)))
+   (path-directory (:path row))])
+
 (defn- path-depth
   [dir]
   (if (str/blank? dir)
@@ -4516,10 +4521,10 @@
 
 (defn- compact-output-selected-directory-sort-rank
   [selected-rows row]
-  (let [dir (path-directory (:path row))
+  (let [dir-key (file-row-directory-key row)
         row-rank (or (:rank row) Long/MAX_VALUE)
         same-dir-anchors (->> selected-rows
-                              (filter #(= dir (path-directory (:path %))))
+                              (filter #(= dir-key (file-row-directory-key %)))
                               (filter compact-output-directory-anchor-row?)
                               (filter #(< (or (:rank %) Long/MAX_VALUE)
                                           row-rank))
@@ -4654,12 +4659,13 @@
 
 (defn- compact-output-directory-counts
   [rows]
-  (frequencies (map #(path-directory (:path %)) rows)))
+  (frequencies (map file-row-directory-key rows)))
 
 (defn- compact-output-co-located-candidate-key
   [directory-counts row]
-  (let [dir (path-directory (:path row))]
-    [(- (long (or (get directory-counts dir) 0)))
+  (let [dir-key (file-row-directory-key row)
+        dir (second dir-key)]
+    [(- (long (or (get directory-counts dir-key) 0)))
      (path-depth dir)
      (row-candidate-source-rank row)
      (:rank row)
@@ -4668,26 +4674,43 @@
 
 (defn- compact-output-co-located-sort-rank
   [files selected-rows row]
-  (let [dir (path-directory (:path row))
+  (let [dir-key (file-row-directory-key row)
         row-rank (or (:rank row) Long/MAX_VALUE)
+        same-dir-selected-ranks (->> selected-rows
+                                     (filter #(= dir-key
+                                                 (file-row-directory-key %)))
+                                     (filter #(pos? (positive-metric
+                                                     %
+                                                     :docCount)))
+                                     (filter #(< (or (:rank %) Long/MAX_VALUE)
+                                                 row-rank))
+                                     (keep ::compact-output-sort-rank)
+                                     seq)
         same-dir-ranks (->> (concat selected-rows files)
-                            (filter #(= dir (path-directory (:path %))))
+                            (filter #(= dir-key (file-row-directory-key %)))
                             (filter #(pos? (positive-metric % :docCount)))
                             (filter #(< (or (:rank %) Long/MAX_VALUE)
                                         row-rank))
                             (keep :rank)
                             seq)]
-    (if same-dir-ranks
+    (cond
+      same-dir-selected-ranks
+      (+ (double (apply min same-dir-selected-ranks))
+         (* 0.01 (count same-dir-selected-ranks)))
+
+      same-dir-ranks
       (/ (+ (double (apply max same-dir-ranks)) 0.5) 10.0)
+
+      :else
       (double (or (:rank row) Long/MAX_VALUE)))))
 
 (defn- compact-output-co-located-candidate-row
   [files selected-keys selected-rows]
   (let [directory-counts (compact-output-directory-counts selected-rows)]
     (->> files
-         (filter #(let [dir (path-directory (:path %))]
+         (filter #(let [dir-key (file-row-directory-key %)]
                     (and (not (contains? selected-keys (file-row-key %)))
-                         (pos? (long (or (get directory-counts dir) 0)))
+                         (pos? (long (or (get directory-counts dir-key) 0)))
                          (direct-file-candidate-row? %)
                          (pos? (row-metric-double
                                 %
@@ -4705,9 +4728,9 @@
 (defn- compact-output-source-kind-sibling-key
   [kind-by-path selected-kind-counts directory-counts row]
   (let [kind (row-path-kind kind-by-path row)
-        dir (path-directory (:path row))]
+        dir-key (file-row-directory-key row)]
     [(long (or (get selected-kind-counts kind) 0))
-     (- (long (or (get directory-counts dir) 0)))
+     (- (long (or (get directory-counts dir-key) 0)))
      (- (positive-metric row :matchedTokenCount))
      (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
      (- (row-metric-double row :candidateGrepScore))
@@ -4730,15 +4753,25 @@
 
 (defn- compact-output-source-kind-sibling-sort-rank
   [selected-rows row]
-  (let [dir (path-directory (:path row))
+  (let [dir-key (file-row-directory-key row)
         row-rank (or (:rank row) Long/MAX_VALUE)
-        same-dir-ranks (->> selected-rows
-                            (filter #(= dir (path-directory (:path %))))
-                            (filter #(< (or (:rank %) Long/MAX_VALUE)
-                                        row-rank))
+        same-dir-rows (->> selected-rows
+                           (filter #(= dir-key (file-row-directory-key %)))
+                           (filter #(< (or (:rank %) Long/MAX_VALUE)
+                                       row-rank))
+                           seq)
+        same-dir-sort-ranks (->> same-dir-rows
+                                 (keep ::compact-output-sort-rank)
+                                 seq)
+        same-dir-ranks (->> same-dir-rows
                             (keep :rank)
                             seq)]
-    (when same-dir-ranks
+    (cond
+      same-dir-sort-ranks
+      (+ (double (apply min same-dir-sort-ranks))
+         (* 0.01 (count same-dir-sort-ranks)))
+
+      same-dir-ranks
       (+ (double (apply min same-dir-ranks))
          (* 0.5 (count same-dir-ranks))))))
 
@@ -4750,11 +4783,11 @@
     (when (and (< 1 (count source-kinds))
                (seq kind-by-path))
       (->> files
-           (filter #(let [dir (path-directory (:path %))
+           (filter #(let [dir-key (file-row-directory-key %)
                           kind (row-path-kind kind-by-path %)]
                       (and (not (contains? selected-keys (file-row-key %)))
                            (contains? source-kinds kind)
-                           (pos? (long (or (get directory-counts dir) 0)))
+                           (pos? (long (or (get directory-counts dir-key) 0)))
                            (compact-output-source-kind-sibling-evidence-row? %))))
            (sort-by #(compact-output-source-kind-sibling-key
                       kind-by-path

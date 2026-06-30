@@ -1417,7 +1417,7 @@
            (index-of paths
                      "benchmarks/Dapper.Tests.Performance/Benchmarks.Dapper.cs")))))
 
-(deftest compact-output-frontloads-doc-directory-evidence
+(deftest compact-output-frontloads-doc-directory-source-kind-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path repo-id rank metrics]
               {:path path
@@ -1461,15 +1461,144 @@
                     6
                     {:docCount 1
                      :candidateFileCount 1
+                     :candidateGrepScore 0.10
+                     :directFileCandidateCount 1
                      :matchedTokenCount 5
                      :sourceGraphCandidateEvidenceScore 0.47
                      :directoryEvidenceBoost 8.0
                      :rankScore 20.0})]
-        paths (mapv :path (compact-output files 20 nil))]
+        kind-by-path {"contrib" {"connector/routingconnector/metadata.yaml"
+                                 "yaml"
+                                 "connector/routingconnector/factory_test.go"
+                                 "go"
+                                 "connector/routingconnector/factory.go"
+                                 "go"
+                                 "connector/routingconnector/config.go"
+                                 "go"
+                                 "connector/routingconnector/config.schema.yaml"
+                                 "yaml"}
+                      "core" {"connector/connector.go" "go"}}
+        paths (mapv :path (compact-output files
+                                          20
+                                          nil
+                                          ["go" "yaml"]
+                                          kind-by-path))]
     (is (< (index-of paths "connector/routingconnector/config.schema.yaml")
            (index-of paths "connector/connector.go")))
     (is (some #{"connector/routingconnector/config.schema.yaml"}
               (take 5 paths)))))
+
+(deftest compact-output-frontloads-multi-root-source-kind-sibling-cluster
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path repo-id rank metrics]
+              {:path path
+               :repo-id repo-id
+               :rank rank
+               :metrics metrics})
+        files [(row "connector/routingconnector/factory_test.go"
+                    "contrib"
+                    1
+                    {:docCount 2
+                     :candidateFileCount 5
+                     :candidateGrepScore 0.66
+                     :directoryEvidenceBoost 8.0
+                     :matchedPathQueryTokenCount 3
+                     :matchedTokenCount 12
+                     :rankScore 44.9
+                     :retrievedSourceCount 2
+                     :sourceGraphCandidateEvidenceScore 0.65})
+               (row "connector/routingconnector/metadata.yaml"
+                    "contrib"
+                    2
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :candidateLexicalComponentBoost 0.05
+                     :directoryEvidenceBoost 8.0
+                     :matchedPathQueryTokenCount 2
+                     :matchedTokenCount 6
+                     :rankScore 20.4
+                     :retrievedSourceCount 1
+                     :sourceGraphCandidateEvidenceScore 0.46})
+               (row "connector/routingconnector/factory.go"
+                    "contrib"
+                    3
+                    {:docCount 1
+                     :candidateFileCount 2
+                     :candidateGrepScore 0.71
+                     :directoryEvidenceBoost 8.0
+                     :matchedPathQueryTokenCount 2
+                     :matchedTokenCount 8
+                     :rankScore 39.7
+                     :retrievedSourceCount 1
+                     :sourceGraphCandidateEvidenceScore 0.61})
+               (row "connector/routingconnector/config.go"
+                    "contrib"
+                    4
+                    {:docCount 3
+                     :candidateFileCount 1
+                     :candidateGrepScore 0.50
+                     :directoryEvidenceBoost 8.0
+                     :matchedPathQueryTokenCount 2
+                     :matchedTokenCount 9
+                     :rankScore 36.8
+                     :retrievedSourceCount 3
+                     :sourceGraphCandidateEvidenceScore 0.58})
+               (row "connector/connector.go"
+                    "core"
+                    5
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :candidateGrepScore 0.33
+                     :firstSourceRank 3
+                     :matchedPathQueryTokenCount 1
+                     :matchedTokenCount 2
+                     :queryMatchedPathSelfIdentity true
+                     :rankScore 7.1
+                     :retrievedSourceCount 1})
+               (row "connector/routingconnector/config.schema.yaml"
+                    "contrib"
+                    8
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :candidateGrepScore 0.10
+                     :candidateLexicalComponentBoost 0.08
+                     :directoryEvidenceBoost 8.0
+                     :matchedPathQueryTokenCount 2
+                     :matchedTokenCount 5
+                     :rankScore 20.2
+                     :retrievedSourceCount 1
+                     :sourceGraphCandidateEvidenceScore 0.47})]
+        kind-by-path {"contrib" {"connector/routingconnector/factory_test.go"
+                                 "go"
+                                 "connector/routingconnector/metadata.yaml"
+                                 "yaml"
+                                 "connector/routingconnector/factory.go"
+                                 "go"
+                                 "connector/routingconnector/config.go"
+                                 "go"
+                                 "connector/routingconnector/config.schema.yaml"
+                                 "yaml"}
+                      "core" {"connector/connector.go" "go"}}
+        rows (compact-output files
+                             20
+                             "edit-files"
+                             ["go" "yaml"]
+                             kind-by-path)
+        file-ids (mapv (juxt :repo-id :path) rows)
+        top-five (set (take 5 file-ids))]
+    (is (every? top-five
+                [["contrib" "connector/routingconnector/factory_test.go"]
+                 ["contrib" "connector/routingconnector/metadata.yaml"]
+                 ["contrib" "connector/routingconnector/factory.go"]
+                 ["contrib" "connector/routingconnector/config.go"]
+                 ["contrib" "connector/routingconnector/config.schema.yaml"]]))
+    (is (< (index-of file-ids
+                     ["contrib"
+                      "connector/routingconnector/config.schema.yaml"])
+           (index-of file-ids ["core" "connector/connector.go"])))
+    (is (< (index-of file-ids
+                     ["contrib" "connector/routingconnector/config.go"])
+           (index-of file-ids ["core" "connector/connector.go"])))))
 
 (deftest diversity-preserves-saturated-doc-supported-head
   (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
