@@ -556,6 +556,7 @@
                 :supportLabels
                 :sourceLine
                 :resultKind
+                :supportOwnerEvidence
                 :architectureEvidence
                 :architectureSection
                 :architectureKind
@@ -624,6 +625,7 @@
 (defn- source-file-candidate?
   [candidate]
   (and (or (source-file-kind? (:kind candidate))
+           (true? (:supportOwnerEvidence candidate))
            (source-graph-node-candidate? candidate))
        (source-file-candidate-evidence? candidate)))
 

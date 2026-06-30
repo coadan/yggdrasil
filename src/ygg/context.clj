@@ -97,6 +97,21 @@
 (def ^:private candidate-file-sibling-per-candidate-limit
   4)
 
+(def ^:private candidate-file-support-owner-query-limit
+  48)
+
+(def ^:private candidate-file-support-owner-label-limit
+  256)
+
+(def ^:private candidate-file-support-owner-limit
+  32)
+
+(def ^:private candidate-file-support-owner-per-candidate-limit
+  4)
+
+(def ^:private candidate-file-support-owner-specific-token-min-length
+  7)
+
 (def ^:private source-graph-neighbor-scan-limit
   160)
 
@@ -2181,6 +2196,195 @@
        (map-indexed #(assoc %2 :rank (inc %1)))
        vec))
 
+(def ^:private support-owner-source-node-kinds
+  #{"namespace"
+    "class"
+    "function"
+    "interface"
+    "method"
+    "module"
+    "protocol"
+    "record"
+    "type"
+    "var"})
+
+(defn- candidate-file-support-owner-seed?
+  [candidate]
+  (and (= "node" (display-name (:targetKind candidate)))
+       (= "node" (display-name (:resultKind candidate)))
+       (:sourceLine candidate)
+       (contains? support-owner-source-node-kinds
+                  (display-name (:kind candidate)))
+       (pos? (double (or (get-in candidate [:scoreComponents :sourceGraph])
+                         0.0)))))
+
+(defn- candidate-file-support-owner-labels
+  [candidate-file-rows]
+  (->> candidate-file-rows
+       (take candidate-file-support-owner-query-limit)
+       (filter candidate-file-support-owner-seed?)
+       (mapcat :supportLabels)
+       (remove #(str/blank? (str %)))
+       distinct
+       (take candidate-file-support-owner-label-limit)
+       vec))
+
+(defn- support-owner-query-score
+  [query-tokens label node]
+  (text/token-score query-tokens
+                    (text/tokenize-all (compact label
+                                                (:path node)
+                                                (:name node)
+                                                (:namespace node)))))
+
+(defn- support-owner-label-query-score
+  [query-tokens label]
+  (text/token-score query-tokens (text/tokenize-all label)))
+
+(defn- support-owner-label-specific-query-token-count
+  [query-tokens label]
+  (let [query-token-set (set query-tokens)
+        label-token-set (set (text/tokenize-all label))]
+    (->> (set/intersection query-token-set label-token-set)
+         (filter #(<= candidate-file-support-owner-specific-token-min-length
+                      (count %)))
+         count)))
+
+(defn- support-owner-candidates-by-path
+  [query-tokens support-labels nodes-by-label]
+  (->> support-labels
+       (mapcat (fn [label]
+                 (let [label-query-score (support-owner-label-query-score
+                                          query-tokens
+                                          label)
+                       label-specific-token-count
+                       (support-owner-label-specific-query-token-count
+                        query-tokens
+                        label)]
+                   (map (fn [node]
+                          {:label label
+                           :node node
+                           :label-specific-token-count
+                           label-specific-token-count
+                           :label-query-score label-query-score
+                           :query-score (support-owner-query-score query-tokens
+                                                                   label
+                                                                   node)})
+                        (get nodes-by-label label [])))))
+       (filter #(pos? (long (:label-specific-token-count %))))
+       (filter #(pos? (double (:label-query-score %))))
+       (filter #(pos? (double (:query-score %))))
+       (filter (comp active-row? :node))
+       (filter (comp not-empty str :path :node))
+       (reduce (fn [best {:keys [node query-score] :as candidate}]
+                 (let [k [(candidate-file-row-repo node) (:path node)]
+                       existing (get best k)
+                       candidate-key [(- (double query-score))
+                                      (:label candidate)]
+                       existing-key (when existing
+                                      [(- (double (:query-score existing)))
+                                       (:label existing)])]
+                   (if (or (nil? existing)
+                           (neg? (compare candidate-key existing-key)))
+                     (assoc best k candidate)
+                     best)))
+               {})
+       vals
+       (sort-by (juxt (comp - :query-score) (comp :path :node) :label))
+       vec))
+
+(defn- candidate-file-support-owner-support-labels
+  [candidate owner-label]
+  (->> (concat [owner-label (:path candidate) (:label candidate)]
+               (:supportLabels candidate))
+       (remove #(str/blank? (str %)))
+       distinct
+       (take 6)
+       vec))
+
+(defn- candidate-file-support-owner-row
+  [candidate owner-label owner-node]
+  (let [path (:path owner-node)
+        score (* 0.9 (double (or (:score candidate) 0.0)))
+        source-score (candidate-file-sibling-source-score candidate)
+        repo (or (candidate-file-row-repo owner-node)
+                 (candidate-file-row-repo candidate))]
+    (cond-> {:path path
+             :rank (:rank candidate)
+             :score score
+             :targetKind "file"
+             :resultKind "file"
+             :label path
+             :supportOwnerEvidence true
+             :reason (str "indexed support label owner of "
+                          (:path candidate))
+             :supportLabels (candidate-file-support-owner-support-labels
+                             candidate
+                             owner-label)
+             :scoreComponents {:sourceGraph source-score}}
+      repo (assoc :repo repo)
+      (:kind owner-node) (assoc :kind (display-name (:kind owner-node)))
+      (:source-line owner-node) (assoc :sourceLine (:source-line owner-node))
+      (:end-line owner-node) (assoc :endLine (:end-line owner-node)))))
+
+(defn- candidate-file-support-owner-rows
+  [query-tokens nodes-by-label seen candidate]
+  (let [support-labels (->> (:supportLabels candidate)
+                            (remove #(str/blank? (str %)))
+                            distinct
+                            vec)]
+    (->> (support-owner-candidates-by-path query-tokens
+                                           support-labels
+                                           nodes-by-label)
+         (remove (fn [{:keys [node]}]
+                   (let [k (candidate-file-row-key node)]
+                     (contains? seen k))))
+         (take candidate-file-support-owner-per-candidate-limit)
+         (map (fn [{:keys [label node]}]
+                (candidate-file-support-owner-row candidate label node))))))
+
+(defn- expand-candidate-file-support-owners
+  [xtdb query-tokens candidate-file-rows scope]
+  (if (or (empty? candidate-file-rows)
+          (not (store/xtdb-handle? xtdb)))
+    candidate-file-rows
+    (let [support-labels (candidate-file-support-owner-labels candidate-file-rows)
+          nodes-by-label (when (seq support-labels)
+                           (->> (query/nodes-by-labels xtdb support-labels scope)
+                                (filter active-row?)
+                                (group-by :label)))]
+      (if (empty? nodes-by-label)
+        candidate-file-rows
+        (loop [remaining (seq candidate-file-rows)
+               seen #{}
+               selected []
+               added 0]
+          (if-let [candidate (first remaining)]
+            (let [candidate-key (candidate-file-row-key candidate)]
+              (if (contains? seen candidate-key)
+                (recur (next remaining) seen selected added)
+                (let [seen (conj seen candidate-key)
+                      owners (if (and (< added candidate-file-support-owner-limit)
+                                      (candidate-file-support-owner-seed?
+                                       candidate))
+                               (vec (candidate-file-support-owner-rows
+                                     query-tokens
+                                     nodes-by-label
+                                     seen
+                                     candidate))
+                               [])
+                      owner-count (min (count owners)
+                                       (- candidate-file-support-owner-limit
+                                          added))
+                      owners (subvec owners 0 owner-count)]
+                  (recur (next remaining)
+                         (into seen (map candidate-file-row-key owners))
+                         (into (conj selected candidate) owners)
+                         (+ added owner-count)))))
+            (if (pos? added)
+              (rerank-candidate-files selected)
+              candidate-file-rows)))))))
+
 (defn- expand-candidate-file-siblings
   [xtdb query-tokens candidate-file-rows scope]
   (if (or (empty? candidate-file-rows)
@@ -3898,6 +4102,13 @@
                                                   source-candidates)
         candidate-file-rows (candidate-files candidate-inputs)
         candidate-file-rows (expand-candidate-file-siblings
+                             xtdb
+                             query-tokens
+                             candidate-file-rows
+                             {:project-id project-id
+                              :repo-id repo-id
+                              :read-context read-context})
+        candidate-file-rows (expand-candidate-file-support-owners
                              xtdb
                              query-tokens
                              candidate-file-rows

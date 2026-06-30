@@ -2969,6 +2969,162 @@
       (is (str/includes? (:reason settings)
                          "same-stem indexed file sibling")))))
 
+(deftest candidate-files-expand-indexed-support-label-owners
+  (with-redefs [store/xtdb-handle? (constantly true)
+                query/nodes-by-labels
+                (fn [_ labels scope]
+                  (is (= ["flask.sansio.scaffold"
+                          "flask.sansio.app"
+                          "flask.sansio.app/App.select_jinja_autoescape"
+                          "flask.config"]
+                         labels))
+                  (is (= {:project-id "fixture"
+                          :repo-id "flask"
+                          :read-context {:valid-at "t"}}
+                         scope))
+                  [{:xt/id "node:scaffold"
+                    :project-id "fixture"
+                    :repo-id "flask"
+                    :path "src/flask/sansio/scaffold.py"
+                    :kind :namespace
+                    :label "flask.sansio.scaffold"
+                    :name "flask.sansio.scaffold"
+                    :active? true}
+                   {:xt/id "node:app"
+                    :project-id "fixture"
+                    :repo-id "flask"
+                    :path "src/flask/sansio/app.py"
+                    :kind :namespace
+                    :label "flask.sansio.app"
+                    :name "flask.sansio.app"
+                    :active? true}
+                   {:xt/id "node:select-autoescape"
+                    :project-id "fixture"
+                    :repo-id "flask"
+                    :path "src/flask/sansio/app.py"
+                    :kind :method
+                    :label "flask.sansio.app/App.select_jinja_autoescape"
+                    :name "App.select_jinja_autoescape"
+                    :namespace "flask.sansio.app"
+                    :source-line 533
+                    :active? true}
+                   {:xt/id "node:config"
+                    :project-id "fixture"
+                    :repo-id "flask"
+                    :path "src/flask/config.py"
+                    :kind :namespace
+                    :label "flask.config"
+                    :name "flask.config"
+                    :active? true}])]
+    (let [rows (#'context/expand-candidate-file-support-owners
+                :xtdb
+                (text/tokenize-all "autoescape selection")
+                [{:path "src/flask/templating.py"
+                  :rank 1
+                  :score 1.2
+                  :targetKind "node"
+                  :resultKind "node"
+                  :label "flask.templating"
+                  :kind "namespace"
+                  :repo "flask"
+                  :sourceLine 1
+                  :supportLabels ["flask.sansio.scaffold"
+                                  "flask.sansio.app"
+                                  "flask.sansio.app/App.select_jinja_autoescape"
+                                  "flask.config"]
+                  :scoreComponents {:sourceGraph 0.6
+                                    :lexical 0.8}}
+                 {:path "src/flask/config.py"
+                  :rank 2
+                  :score 1.0
+                  :targetKind "node"
+                  :resultKind "node"
+                  :label "flask.config"
+                  :repo "flask"}]
+                {:project-id "fixture"
+                 :repo-id "flask"
+                 :read-context {:valid-at "t"}})
+          by-path (into {} (map (juxt :path identity)) rows)
+          app (get by-path "src/flask/sansio/app.py")]
+      (is (= ["src/flask/templating.py"
+              "src/flask/sansio/app.py"
+              "src/flask/config.py"]
+             (mapv :path rows)))
+      (is (= [1 2 3] (mapv :rank rows)))
+      (is (= "file" (:targetKind app)))
+      (is (= "method" (:kind app)))
+      (is (= 533 (:sourceLine app)))
+      (is (true? (:supportOwnerEvidence app)))
+      (is (= ["flask.sansio.app/App.select_jinja_autoescape"
+              "src/flask/templating.py"
+              "flask.templating"
+              "flask.sansio.scaffold"
+              "flask.sansio.app"
+              "flask.config"]
+             (:supportLabels app)))
+      (is (= {:sourceGraph 0.6} (:scoreComponents app)))
+      (is (str/includes? (:reason app)
+                         "indexed support label owner")))))
+
+(deftest candidate-file-support-owners-require-specific-label-query-match
+  (with-redefs [store/xtdb-handle? (constantly true)
+                query/nodes-by-labels
+                (fn [_ labels _]
+                  (is (= ["Dapper/DynamicParameters.RemoveUnused"
+                          "Dapper.Tests/TransactionTests.TestTransactionCommit"
+                          "Dapper.Tests/ParameterTests.AddStructured"]
+                         labels))
+                  [{:xt/id "node:remove-unused"
+                    :project-id "fixture"
+                    :repo-id "dapper"
+                    :path "Dapper/DynamicParameters.cs"
+                    :kind :property
+                    :label "Dapper/DynamicParameters.RemoveUnused"
+                    :name "RemoveUnused"
+                    :source-line 42
+                    :active? true}
+                   {:xt/id "node:test-commit"
+                    :project-id "fixture"
+                    :repo-id "dapper"
+                    :path "tests/Dapper.Tests/TransactionTests.cs"
+                    :kind :method
+                    :label "Dapper.Tests/TransactionTests.TestTransactionCommit"
+                    :name "TestTransactionCommit"
+                    :source-line 120
+                    :active? true}
+                   {:xt/id "node:add-structured"
+                    :project-id "fixture"
+                    :repo-id "dapper"
+                    :path "tests/Dapper.Tests/ParameterTests.cs"
+                    :kind :method
+                    :label "Dapper.Tests/ParameterTests.AddStructured"
+                    :name "AddStructured"
+                    :source-line 220
+                    :active? true}])]
+    (let [rows (#'context/expand-candidate-file-support-owners
+                :xtdb
+                (text/tokenize-all
+                 "Add ReferenceTrimmer and remove unused references")
+                [{:path "Dapper/FeatureSupport.cs"
+                  :rank 1
+                  :score 1.2
+                  :targetKind "node"
+                  :resultKind "node"
+                  :label "Dapper/FeatureSupport.cs"
+                  :kind "namespace"
+                  :repo "dapper"
+                  :sourceLine 1
+                  :supportLabels ["Dapper/DynamicParameters.RemoveUnused"
+                                  "Dapper.Tests/TransactionTests.TestTransactionCommit"
+                                  "Dapper.Tests/ParameterTests.AddStructured"]
+                  :scoreComponents {:sourceGraph 0.6
+                                    :lexical 0.8}}]
+                {:project-id "fixture"
+                 :repo-id "dapper"
+                 :read-context {:valid-at "t"}})]
+      (is (= ["Dapper/FeatureSupport.cs"] (mapv :path rows)))
+      (is (not-any? :supportOwnerEvidence rows)))))
+
 (deftest context-packet-compact-output-uses-path-dictionary
   (with-redefs [query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema
@@ -4829,6 +4985,15 @@
                                     :resultKind "node"
                                     :label "source graph doc"
                                     :sourceLine 1
+                                    :scoreComponents {:sourceGraph 0.6}}
+                                   {:path "src/sansio/app.py"
+                                    :rank 31
+                                    :kind "method"
+                                    :score 0.1
+                                    :targetKind "file"
+                                    :resultKind "file"
+                                    :label "src/sansio/app.py"
+                                    :supportOwnerEvidence true
                                     :scoreComponents {:sourceGraph 0.6}}]))
                 :docs []}
         fitted (fit-budget packet [] 1250)
@@ -4836,6 +5001,7 @@
     (is (contains? paths "src/query.py"))
     (is (contains? paths "src/source_graph.py"))
     (is (contains? paths "src/source_graph_node.py"))
+    (is (contains? paths "src/sansio/app.py"))
     (is (not (contains? paths "docs/reference.md")))
     (is (not (contains? paths "docs/source_graph_doc.md")))
     (is (< (count (:candidateFiles fitted))
