@@ -1597,6 +1597,77 @@
         selected-paths (mapv :path (compact-output files 20 nil))]
     (is (= "lib/adapters/http.js" (nth selected-paths 4)))))
 
+(deftest compact-output-frontloads-strong-doc-supported-query-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/docker-compose.yml"
+                    1
+                    {:candidateFileCount 3
+                     :directFileCandidateCount 1
+                     :matchedTokenCount 4
+                     :rankScore 11.8})
+               (row "Dapper/SqlMapper.cs"
+                    2
+                    {:candidateFileCount 25
+                     :matchedTokenCount 7
+                     :rankScore 19.4})
+               (row "benchmarks/Dapper.Tests.Performance/Benchmarks.ServiceStack.cs"
+                    3
+                    {:docCount 1
+                     :candidateFileCount 2
+                     :matchedPathQueryTokenCount 3
+                     :matchedTokenCount 8
+                     :matchedTokenPairCount 1
+                     :rankScore 21.2})
+               (row "benchmarks/Dapper.Tests.Performance/Benchmarks.EntityFrameworkCore.cs"
+                    4
+                    {:docCount 1
+                     :candidateFileCount 2
+                     :matchedPathQueryTokenCount 3
+                     :matchedTokenCount 8
+                     :matchedTokenPairCount 1
+                     :rankScore 20.5})
+               (row "tests/Dapper.Tests/Providers/EntityFrameworkTests.cs"
+                    5
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedPathQueryTokenCount 2
+                     :matchedTokenCount 9
+                     :matchedTokenPairCount 2
+                     :rankScore 13.7
+                     :retrievedSourceCount 1
+                     :sourceGraphCandidateEvidenceScore 0.58})
+               (row "tests/Dapper.Tests/TypeHandlerTests.cs"
+                    6
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedPathQueryTokenCount 4
+                     :matchedTokenCount 8
+                     :matchedTokenPairCount 2
+                     :matchedCompoundTokenPairCount 1
+                     :matchedIdentityCompoundTokenPairCount 1
+                     :rankScore 18.2
+                     :retrievedSourceCount 1
+                     :sourceGraphCandidateEvidenceScore 0.51})
+               (row "Dapper/SqlMapper.ITypeHandler.cs"
+                    8
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :firstSourceRank 1
+                     :matchedPathQueryTokenCount 4
+                     :matchedTokenCount 7
+                     :matchedTokenPairCount 1
+                     :queryMatchedPathSelfIdentity true
+                     :rankScore 17.9
+                     :retrievedSourceCount 1})]
+        selected-paths (mapv :path (compact-output files 20 nil))]
+    (is (= "tests/Dapper.Tests/TypeHandlerTests.cs" (nth selected-paths 4)))
+    (is (< (index-of selected-paths "tests/Dapper.Tests/TypeHandlerTests.cs")
+           (index-of selected-paths "Dapper/SqlMapper.ITypeHandler.cs")))))
+
 (deftest compact-output-frontloads-query-evidence-doc-row
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]

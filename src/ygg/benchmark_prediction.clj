@@ -365,6 +365,12 @@
   1.0)
 (def ^:private compact-output-doc-supported-sort-rank
   1.5)
+(def ^:private compact-output-strong-doc-supported-sort-rank
+  1.2)
+(def ^:private compact-output-strong-doc-supported-token-pair-min
+  2)
+(def ^:private compact-output-strong-doc-supported-path-query-token-min
+  3)
 (def ^:private compact-output-doc-directory-evidence-sort-rank
   0.45)
 (def ^:private compact-output-retrieved-path-grep-sort-rank
@@ -3951,12 +3957,27 @@
         (min limit compact-thin-candidate-output-limit)
         limit))))
 
+(defn- compact-output-strong-doc-supported-row?
+  [row]
+  (and (<= compact-output-strong-doc-supported-token-pair-min
+           (positive-metric row :matchedTokenPairCount))
+       (<= compact-output-strong-doc-supported-path-query-token-min
+           (positive-metric row :matchedPathQueryTokenCount))))
+
 (defn- compact-output-doc-supported-key
   [row]
-  [(- (positive-metric row :matchedTokenCount))
-   (- (positive-metric row :matchedCompoundTokenPairCount))
-   (:rank row)
-   (:path row)])
+  (let [strong-doc-supported? (compact-output-strong-doc-supported-row? row)]
+    [(if strong-doc-supported? 0 1)
+     (if strong-doc-supported?
+       (- (positive-metric row :matchedTokenPairCount))
+       0)
+     (if strong-doc-supported?
+       (- (positive-metric row :matchedPathQueryTokenCount))
+       0)
+     (- (positive-metric row :matchedTokenCount))
+     (- (positive-metric row :matchedCompoundTokenPairCount))
+     (:rank row)
+     (:path row)]))
 
 (defn- compact-output-retrieved-supported-key
   [row]
@@ -4007,7 +4028,9 @@
        (#(when %
            (assoc % ::compact-output-sort-rank
                   (min (double (or (:rank %) Long/MAX_VALUE))
-                       compact-output-doc-supported-sort-rank))))))
+                       (if (compact-output-strong-doc-supported-row? %)
+                         compact-output-strong-doc-supported-sort-rank
+                         compact-output-doc-supported-sort-rank)))))))
 
 (defn- compact-output-retrieved-supported-row
   [files selected-keys]
