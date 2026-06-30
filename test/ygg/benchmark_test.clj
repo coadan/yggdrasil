@@ -1777,6 +1777,39 @@
              :found? true}]
            (get-in scored [:groundTruthRanks :files])))))
 
+(deftest scores-agent-result-resolves-keywordized-multi-root-repos
+  (let [root-a (temp-dir "ygg-bench-agent-score-root-a")
+        root-b (temp-dir "ygg-bench-agent-score-root-b")
+        _ (spit-file! root-b "src/plugin.clj" "(ns plugin)\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :agentInputFingerprint "sha256:test-input"
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root-a
+                  :worktreeRoots {:core root-a
+                                  :plugin root-b}
+                  :groundTruth {:changedFiles [{:repo-id "plugin"
+                                                :path "src/plugin.clj"}]
+                                :unsupportedGroundTruthFiles []}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :agentId "codex"
+                      :mode "ygg"
+                      :suspectedFiles [{:repoId "plugin"
+                                        :path "src/plugin.clj"
+                                        :rank 1
+                                        :confidence 0.9}]}
+        scored (benchmark/score-agent-result prepared agent-result)]
+    (is (empty? (get-in scored [:agent :missingPredictedFiles])))
+    (is (= 1.0 (get-in scored [:scores :fileRecallAt5])))
+    (is (= [{:repo-id "plugin"
+             :path "src/plugin.clj"
+             :rank 1
+             :found? true}]
+           (get-in scored [:groundTruthRanks :files])))))
+
 (deftest scores-agent-decision-quality-result
   (let [root (temp-dir "ygg-bench-agent-decision-score")
         _ (spit-file! root "src/app.clj" "(ns app)\n")

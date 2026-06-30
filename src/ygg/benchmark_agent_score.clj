@@ -334,6 +334,24 @@
   (or (:worktreeRoots prepared)
       (when (and (:repo-id prepared) (:worktreeRoot prepared))
         {(:repo-id prepared) (:worktreeRoot prepared)})))
+(defn- repo-key-name
+  [repo-key]
+  (cond
+    (nil? repo-key) nil
+    (keyword? repo-key) (if-let [repo-namespace (namespace repo-key)]
+                          (str repo-namespace "/" (name repo-key))
+                          (name repo-key))
+    :else (str repo-key)))
+(defn- repo-map-get
+  [repo-map repo-id]
+  (when (map? repo-map)
+    (let [target (repo-key-name repo-id)]
+      (or (get repo-map repo-id)
+          (when target
+            (some (fn [[key value]]
+                    (when (= target (repo-key-name key))
+                      value))
+                  repo-map))))))
 (defn- path-under-root
   [root file]
   (try
@@ -350,7 +368,8 @@
         [repo-id path] (if (.isAbsolute file)
                          (or (some (fn [[candidate-repo-id root]]
                                      (when-let [relative (path-under-root root file)]
-                                       [candidate-repo-id relative]))
+                                       [(repo-key-name candidate-repo-id)
+                                        relative]))
                                    roots)
                              [repo-id path])
                          [repo-id path])]
@@ -761,7 +780,7 @@
   [roots predictions]
   (->> predictions
        (keep (fn [{:keys [repo-id path] :as file}]
-               (let [root (or (get roots repo-id)
+               (let [root (or (repo-map-get roots repo-id)
                               (when (= 1 (count roots))
                                 (val (first roots))))]
                  (when-not (and root (.isFile (io/file root path)))

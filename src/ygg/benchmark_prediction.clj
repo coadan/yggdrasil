@@ -79,7 +79,7 @@
 (def ^:private rank-score-candidate-file-identity-support-cap
   4)
 (def ^:private rank-score-candidate-file-identity-support-weight
-  1.0)
+  1.75)
 (def ^:private rank-score-retrieved-support-label-cap
   2)
 (def ^:private rank-score-retrieved-support-label-weight
@@ -116,12 +116,20 @@
   3)
 (def ^:private rank-score-source-graph-query-evidence-identity-min
   2)
+(def ^:private rank-score-source-graph-query-evidence-path-token-min
+  2)
+(def ^:private rank-score-source-graph-query-evidence-dense-candidate-min
+  20)
+(def ^:private rank-score-source-graph-query-evidence-dense-identity-min
+  3)
 (def ^:private rank-score-source-graph-query-evidence-score-min
   0.5)
 (def ^:private rank-score-source-graph-query-evidence-rank-window
   20)
 (def ^:private rank-score-source-graph-query-evidence-boost
   9.0)
+(def ^:private rank-score-doc-supported-source-graph-query-boost
+  2.0)
 (def ^:private rank-score-architecture-support-weight
   0.45)
 (def ^:private rank-score-architecture-support-cap
@@ -184,12 +192,26 @@
   8.0)
 (def ^:private rank-score-retrieved-query-file-identity-min-length
   8)
+(def ^:private rank-score-retrieved-query-file-identity-protected-min-length
+  12)
 (def ^:private rank-score-retrieved-query-file-identity-boost
   12.0)
 (def ^:private rank-score-retrieved-path-query-token-min
   2)
 (def ^:private rank-score-retrieved-path-query-token-boost
   6.0)
+(def ^:private rank-score-retrieved-path-query-token-extra-weight
+  1.25)
+(def ^:private rank-score-retrieved-path-query-token-extra-cap
+  2.5)
+(def ^:private rank-score-retrieved-path-grep-token-min
+  3)
+(def ^:private rank-score-retrieved-path-grep-score-min
+  0.7)
+(def ^:private rank-score-retrieved-path-grep-source-score-min
+  0.5)
+(def ^:private rank-score-retrieved-path-grep-boost
+  4.0)
 (def ^:private rank-score-candidate-path-self-identity-token-min
   2)
 (def ^:private rank-score-candidate-path-self-identity-rank-window
@@ -213,6 +235,22 @@
 (def ^:private rank-score-directory-evidence-score-weight
   0.12)
 (def ^:private rank-score-directory-evidence-cap
+  8.0)
+(def ^:private rank-score-doc-directory-cluster-doc-min
+  3)
+(def ^:private rank-score-doc-directory-cluster-token-min
+  2)
+(def ^:private rank-score-doc-directory-cluster-source-score-min
+  0.45)
+(def ^:private rank-score-doc-directory-cluster-candidate-rank-window
+  20)
+(def ^:private rank-score-doc-directory-cluster-base
+  5.5)
+(def ^:private rank-score-doc-directory-cluster-doc-weight
+  0.5)
+(def ^:private rank-score-doc-directory-cluster-score-weight
+  0.05)
+(def ^:private rank-score-doc-directory-cluster-cap
   8.0)
 (def ^:private file-identity-part-min-length
   5)
@@ -258,6 +296,14 @@
   0.3)
 (def ^:private candidate-only-exported-support-boost-value
   12.0)
+(def ^:private doc-supported-exported-support-token-min
+  5)
+(def ^:private doc-supported-exported-support-path-token-min
+  2)
+(def ^:private doc-supported-exported-support-graph-min
+  0.5)
+(def ^:private doc-supported-exported-support-boost-value
+  6.0)
 (def ^:private unsaturated-decision-tail-min-files
   3)
 (def ^:private unsaturated-decision-tail-score-ratio
@@ -300,6 +346,10 @@
   1.0)
 (def ^:private compact-output-doc-supported-sort-rank
   1.5)
+(def ^:private compact-output-doc-directory-evidence-sort-rank
+  0.45)
+(def ^:private compact-output-retrieved-path-grep-sort-rank
+  0.48)
 (def ^:private compact-output-retrieved-label-doc-sort-rank
   1.45)
 (def ^:private compact-output-directory-evidence-candidate-sort-rank
@@ -379,9 +429,27 @@
   (and (not (benchmark-util/blankish? path))
        (or (nil? root)
            (.isFile (io/file root path)))))
+(defn- repo-key-name
+  [repo-key]
+  (cond
+    (nil? repo-key) nil
+    (keyword? repo-key) (if-let [repo-namespace (namespace repo-key)]
+                          (str repo-namespace "/" (name repo-key))
+                          (name repo-key))
+    :else (str repo-key)))
+(defn- repo-map-get
+  [repo-map repo-id]
+  (when (map? repo-map)
+    (let [target (repo-key-name repo-id)]
+      (or (get repo-map repo-id)
+          (when target
+            (some (fn [[key value]]
+                    (when (= target (repo-key-name key))
+                      value))
+                  repo-map))))))
 (defn- row-root
   [root roots row]
-  (or (get roots (or (:repo-id row) (:repo row)))
+  (or (repo-map-get roots (or (:repo-id row) (:repo row)))
       root))
 (defn- multi-root-map?
   [roots]
@@ -400,10 +468,12 @@
   [(or (:repo-id row) (:repo row)) (:path row)])
 (defn- row-path-kind
   [kind-by-path row]
-  (if (and (map? kind-by-path)
-           (contains? kind-by-path (or (:repo-id row) (:repo row))))
-    (path-source-kind (get kind-by-path (or (:repo-id row) (:repo row)))
-                      (:path row))
+  (if-let [repo-kinds (let [candidate (repo-map-get kind-by-path
+                                                    (or (:repo-id row)
+                                                        (:repo row)))]
+                        (when (map? candidate)
+                          candidate))]
+    (path-source-kind repo-kinds (:path row))
     (path-source-kind kind-by-path (:path row))))
 (defn- bounded-confidence
   [value]
@@ -655,6 +725,9 @@
                                           (count %)))
                              set)]
     (set/intersection query-identities file-identities)))
+(defn- query-file-identity-match-max-length
+  [matches]
+  (apply max 0 (map count matches)))
 (defn- identity-compound-token-pair-matches
   [query-tokens & values]
   (compact-compound-token-pair-matches query-tokens (apply identity-text values)))
@@ -755,11 +828,35 @@
     0.0))
 (defn- retrieved-path-query-token-boost
   [doc-count retrieved-source-count matched-path-query-token-count]
+  (let [matched-path-query-token-count (long matched-path-query-token-count)]
+    (if (and (pos? (long doc-count))
+             (pos? (long retrieved-source-count))
+             (<= rank-score-retrieved-path-query-token-min
+                 matched-path-query-token-count))
+      (+ rank-score-retrieved-path-query-token-boost
+         (min rank-score-retrieved-path-query-token-extra-cap
+              (* rank-score-retrieved-path-query-token-extra-weight
+                 (max 0
+                      (- matched-path-query-token-count
+                         rank-score-retrieved-path-query-token-min)))))
+      0.0)))
+(defn- retrieved-path-grep-evidence-boost
+  [doc-count
+   retrieved-source-count
+   candidate-count
+   matched-path-query-token-count
+   candidate-grep-score
+   source-graph-candidate-evidence-score]
   (if (and (pos? (long doc-count))
            (pos? (long retrieved-source-count))
-           (<= rank-score-retrieved-path-query-token-min
-               (long matched-path-query-token-count)))
-    rank-score-retrieved-path-query-token-boost
+           (pos? (long candidate-count))
+           (<= rank-score-retrieved-path-grep-token-min
+               (long matched-path-query-token-count))
+           (<= rank-score-retrieved-path-grep-score-min
+               (double candidate-grep-score))
+           (<= rank-score-retrieved-path-grep-source-score-min
+               (double source-graph-candidate-evidence-score)))
+    rank-score-retrieved-path-grep-boost
     0.0))
 (defn- candidate-path-self-identity-boost
   [doc-count
@@ -851,6 +948,24 @@
                (long matched-token-count)))
     candidate-only-exported-support-boost-value
     0.0))
+(defn- doc-supported-exported-support-boost
+  [doc-count
+   candidate-count
+   source-graph-candidate-evidence-score
+   query-matched-exported-support-label-count
+   matched-token-count
+   matched-path-query-token-count]
+  (if (and (pos? (long doc-count))
+           (pos? (long candidate-count))
+           (<= doc-supported-exported-support-graph-min
+               (double source-graph-candidate-evidence-score))
+           (pos? (long query-matched-exported-support-label-count))
+           (<= doc-supported-exported-support-token-min
+               (long matched-token-count))
+           (<= doc-supported-exported-support-path-token-min
+               (long matched-path-query-token-count)))
+    doc-supported-exported-support-boost-value
+    0.0))
 (defn- graph-neighbor-boost
   [doc-count graph-score evidence-score]
   (* (if (zero? (long doc-count))
@@ -872,7 +987,8 @@
    source-graph-candidate-evidence-score
    file-identity-support-label-count
    matched-token-count
-   matched-token-pair-count]
+   matched-token-pair-count
+   matched-path-query-token-count]
   (if (and (pos? (long candidate-count))
            (pos? (long (or candidate-source-rank 0)))
            (<= (long candidate-source-rank)
@@ -881,11 +997,23 @@
                (double source-graph-candidate-evidence-score))
            (<= rank-score-source-graph-query-evidence-identity-min
                (long file-identity-support-label-count))
-           (<= rank-score-source-graph-query-evidence-token-min
-               (long matched-token-count))
-           (<= rank-score-source-graph-query-evidence-pair-min
-               (long matched-token-pair-count)))
+           (or (and (<= rank-score-source-graph-query-evidence-token-min
+                        (long matched-token-count))
+                    (<= rank-score-source-graph-query-evidence-pair-min
+                        (long matched-token-pair-count)))
+               (and (<= rank-score-source-graph-query-evidence-dense-candidate-min
+                        (long candidate-count))
+                    (<= rank-score-source-graph-query-evidence-dense-identity-min
+                        (long file-identity-support-label-count))
+                    (<= rank-score-source-graph-query-evidence-path-token-min
+                        (long matched-path-query-token-count)))))
     rank-score-source-graph-query-evidence-boost
+    0.0))
+(defn- doc-supported-source-graph-query-boost
+  [doc-count source-graph-query-evidence-boost]
+  (if (and (pos? (long doc-count))
+           (pos? (double source-graph-query-evidence-boost)))
+    rank-score-doc-supported-source-graph-query-boost
     0.0))
 (defn- architecture-support-boost
   [support-count architecture-evidence-count architecture-evidence-score]
@@ -1095,7 +1223,10 @@
         repo-id (prediction-repo-id roots source-repo-id)
         file-root (row-root root roots {:repo-id source-repo-id :path path})]
     (when (existing-file-path? file-root path)
-      (let [evidence-text (evidence-text doc)]
+      (let [evidence-text (evidence-text doc)
+            query-file-identity-matches (query-file-identity-matches query-tokens
+                                                                     path
+                                                                     (:heading source))]
         (cond-> {:path path
                  :source-rank (inc idx)
                  :confidence (bounded-confidence (:score doc))
@@ -1116,9 +1247,10 @@
                  :query-matched-path-self-identity?
                  (boolean (query-matched-path-self-identity? query-tokens path))
                  :query-matched-file-identity-count
-                 (count (query-file-identity-matches query-tokens
-                                                     path
-                                                     (:heading source)))
+                 (count query-file-identity-matches)
+                 :query-matched-file-identity-max-length
+                 (query-file-identity-match-max-length
+                  query-file-identity-matches)
                  :matched-path-query-token-count
                  (query-matched-path-token-count query-tokens path)
                  :evidence [(str "context-doc:"
@@ -1862,8 +1994,17 @@
           {}
           rows))
 
+(defn- multi-repo-evidence?
+  [rows]
+  (->> rows
+       (keep #(repo-key-name (or (:repo-id %) (:repo %))))
+       distinct
+       (take 2)
+       count
+       (<= 2)))
+
 (defn- directory-evidence-boost
-  [stats row]
+  [stats multi-repo-evidence? row]
   (let [metrics (:metrics row)
         doc-count (long (or (:docCount metrics) 0))
         candidate-file-count (long (or (:candidateFileCount metrics) 0))
@@ -1871,6 +2012,10 @@
         candidate-source-rank (long (or (:candidateSourceRank metrics)
                                         Long/MAX_VALUE))
         matched-token-count (long (or (:matchedTokenCount metrics) 0))
+        matched-path-token-count (long (or (:matchedPathQueryTokenCount metrics)
+                                           0))
+        source-graph-score (double (or (:sourceGraphCandidateEvidenceScore metrics)
+                                       0.0))
         query-matched-path-self-identity?
         (true? (:queryMatchedPathSelfIdentity metrics))
         directory-stats (get stats (candidate-path-directory (:path row)))
@@ -1885,28 +2030,50 @@
              (path-self-identity-token (:path row))
              query-matched-path-self-identity?
              (<= rank-score-directory-root-evidence-doc-min directory-doc-count))
+        doc-directory-cluster-evidence?
+        (and multi-repo-evidence?
+             (pos? doc-count)
+             (pos? candidate-file-count)
+             (<= rank-score-doc-directory-cluster-doc-min directory-doc-count)
+             (<= rank-score-doc-directory-cluster-token-min matched-path-token-count)
+             (<= rank-score-doc-directory-cluster-source-score-min
+                 source-graph-score)
+             (<= candidate-source-rank
+                 rank-score-doc-directory-cluster-candidate-rank-window))
         boost-base (if directory-root-candidate-evidence?
                      rank-score-directory-root-evidence-base
                      rank-score-directory-evidence-base)]
-    (if (and (zero? doc-count)
-             (or direct-file-directory-evidence?
-                 directory-root-candidate-evidence?)
-             (<= candidate-source-rank
-                 rank-score-directory-evidence-candidate-source-rank-window)
-             (<= rank-score-directory-evidence-token-min matched-token-count))
+    (cond
+      (and (zero? doc-count)
+           (or direct-file-directory-evidence?
+               directory-root-candidate-evidence?)
+           (<= candidate-source-rank
+               rank-score-directory-evidence-candidate-source-rank-window)
+           (<= rank-score-directory-evidence-token-min matched-token-count))
       (min rank-score-directory-evidence-cap
            (+ boost-base
               (* rank-score-directory-evidence-doc-weight
                  (dec directory-doc-count))
               (* rank-score-directory-evidence-score-weight
                  (min 40.0 directory-rank-score-sum))))
+
+      doc-directory-cluster-evidence?
+      (min rank-score-doc-directory-cluster-cap
+           (+ rank-score-doc-directory-cluster-base
+              (* rank-score-doc-directory-cluster-doc-weight
+                 (dec directory-doc-count))
+              (* rank-score-doc-directory-cluster-score-weight
+                 (min 40.0 directory-rank-score-sum))))
+
+      :else
       0.0)))
 
 (defn- apply-directory-evidence-boost
   [rows]
-  (let [stats (directory-evidence-stats rows)]
+  (let [stats (directory-evidence-stats rows)
+        multi-repo? (multi-repo-evidence? rows)]
     (mapv (fn [row]
-            (let [boost (directory-evidence-boost stats row)]
+            (let [boost (directory-evidence-boost stats multi-repo? row)]
               (if (pos? boost)
                 (-> row
                     (update :rank-score + boost)
@@ -2076,6 +2243,14 @@
                               file-identity-support-label-count
                               query-matched-exported-support-label-count
                               (count matched-tokens))
+                             doc-supported-exported-support-boost
+                             (doc-supported-exported-support-boost
+                              doc-count
+                              candidate-count
+                              source-graph-candidate-evidence-score
+                              query-matched-exported-support-label-count
+                              (count matched-tokens)
+                              matched-path-query-token-count)
                              doc-supported-source-graph-head-boost
                              (doc-supported-source-graph-head-boost
                               doc-count
@@ -2119,6 +2294,11 @@
                                     0
                                     (keep :query-matched-file-identity-count
                                           ordered))
+                             query-matched-file-identity-max-length
+                             (apply max
+                                    0
+                                    (keep :query-matched-file-identity-max-length
+                                          ordered))
                              retrieved-path-self-identity-boost
                              (retrieved-path-self-identity-boost
                               doc-count
@@ -2135,6 +2315,14 @@
                               doc-count
                               retrieved-source-count
                               matched-path-query-token-count)
+                             retrieved-path-grep-evidence-boost
+                             (retrieved-path-grep-evidence-boost
+                              doc-count
+                              retrieved-source-count
+                              candidate-count
+                              matched-path-query-token-count
+                              candidate-grep-score
+                              source-graph-candidate-evidence-score)
                              candidate-path-self-identity-boost
                              (candidate-path-self-identity-boost
                               doc-count
@@ -2157,7 +2345,12 @@
                               source-graph-candidate-evidence-score
                               file-identity-support-label-count
                               (count matched-tokens)
-                              (count matched-token-pairs))
+                              (count matched-token-pairs)
+                              matched-path-query-token-count)
+                             doc-supported-source-graph-query-boost
+                             (doc-supported-source-graph-query-boost
+                              doc-count
+                              source-graph-query-evidence-boost)
                              architecture-support-boost (architecture-support-boost
                                                          support-count
                                                          architecture-evidence-count
@@ -2251,6 +2444,7 @@
                                            retrieved-path-self-identity-boost
                                            retrieved-query-file-identity-boost
                                            retrieved-path-query-token-boost
+                                           retrieved-path-grep-evidence-boost
                                            candidate-path-self-identity-boost
                                            candidate-support-label-score
                                            (* 0.08 (min rank-score-support-count-cap
@@ -2271,6 +2465,7 @@
                                            graph-neighbor-boost
                                            doc-supported-candidate-evidence-boost
                                            source-graph-query-evidence-boost
+                                           doc-supported-source-graph-query-boost
                                            architecture-rank-boost
                                            candidate-lexical-component-boost
                                            candidate-grep-component-boost
@@ -2279,7 +2474,8 @@
                                            candidate-file-identity-support-boost
                                            retrieved-support-label-boost
                                            candidate-only-source-graph-head-boost
-                                           candidate-only-exported-support-boost)
+                                           candidate-only-exported-support-boost
+                                           doc-supported-exported-support-boost)
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
                                               :supportCount support-count
                                               :docCount doc-count
@@ -2321,6 +2517,9 @@
                                        (pos? query-matched-file-identity-count)
                                        (assoc :queryMatchedFileIdentityCount
                                               query-matched-file-identity-count)
+                                       (pos? query-matched-file-identity-max-length)
+                                       (assoc :queryMatchedFileIdentityMaxLength
+                                              query-matched-file-identity-max-length)
                                        (pos? retrieved-query-file-identity-boost)
                                        (assoc :retrievedQueryFileIdentityBoost
                                               retrieved-query-file-identity-boost)
@@ -2332,6 +2531,9 @@
                                        (pos? retrieved-path-query-token-boost)
                                        (assoc :retrievedPathQueryTokenBoost
                                               retrieved-path-query-token-boost)
+                                       (pos? retrieved-path-grep-evidence-boost)
+                                       (assoc :retrievedPathGrepEvidenceBoost
+                                              retrieved-path-grep-evidence-boost)
                                        (pos? candidate-path-self-identity-boost)
                                        (assoc :candidatePathSelfIdentityBoost
                                               candidate-path-self-identity-boost)
@@ -2391,6 +2593,9 @@
                                        (pos? candidate-only-exported-support-boost)
                                        (assoc :candidateOnlyExportedSupportBoost
                                               candidate-only-exported-support-boost)
+                                       (pos? doc-supported-exported-support-boost)
+                                       (assoc :docSupportedExportedSupportBoost
+                                              doc-supported-exported-support-boost)
                                        (pos? graph-neighbor-score)
                                        (assoc :graphNeighborScore graph-neighbor-score)
                                        (pos? graph-neighbor-boost)
@@ -2401,6 +2606,9 @@
                                        (pos? source-graph-query-evidence-boost)
                                        (assoc :sourceGraphQueryEvidenceBoost
                                               source-graph-query-evidence-boost)
+                                       (pos? doc-supported-source-graph-query-boost)
+                                       (assoc :docSupportedSourceGraphQueryBoost
+                                              doc-supported-source-graph-query-boost)
                                        (pos? source-graph-candidate-evidence-score)
                                        (assoc :sourceGraphCandidateEvidenceScore
                                               source-graph-candidate-evidence-score)
@@ -2462,6 +2670,7 @@
                                     :matched-compound-token-pairs
                                     :matched-identity-compound-token-pairs
                                     :query-matched-file-identity-count
+                                    :query-matched-file-identity-max-length
                                     :matched-path-query-token-count
                                     :file-identity-support-label-count
                                     :retrieved-support-label-count
@@ -2549,12 +2758,28 @@
            (prediction-path-root row)
            definition-kind]))))
 
+(defn- retrieved-query-file-identity-rank-protected?
+  [row]
+  (and (pos? (double (or (get-in row
+                                 [:metrics :retrievedQueryFileIdentityBoost])
+                         0.0)))
+       (or (<= rank-score-retrieved-query-file-identity-protected-min-length
+               (long (or (get-in row
+                                 [:metrics :queryMatchedFileIdentityMaxLength])
+                         0)))
+           (<= rank-score-retrieved-path-query-token-min
+               (long (or (get-in row [:metrics :matchedPathQueryTokenCount])
+                         0)))
+           (pos? (long (or (get-in row
+                                   [:metrics :matchedIdentityCompoundTokenPairCount])
+                           0)))
+           (pos? (double (or (get-in row [:metrics :directoryEvidenceBoost])
+                             0.0))))))
+
 (defn- prediction-rank-protected?
   [row]
   (or (pos? (long (or (get-in row [:metrics :decisionCandidateCount]) 0)))
-      (pos? (double (or (get-in row
-                                [:metrics :retrievedQueryFileIdentityBoost])
-                        0.0)))
+      (retrieved-query-file-identity-rank-protected? row)
       (pos? (double (or (get-in row
                                 [:metrics :candidateOnlySourceGraphHeadBoost])
                         0.0)))))
@@ -4024,9 +4249,28 @@
        (<= candidate-file-only-query-evidence-token-min
            (positive-metric row :matchedTokenCount))))
 
+(defn- compact-output-doc-directory-evidence-row?
+  [row]
+  (and (pos? (positive-metric row :docCount))
+       (pos? (row-metric-double row :directoryEvidenceBoost))))
+
+(defn- compact-output-retrieved-path-grep-evidence-row?
+  [row]
+  (pos? (row-metric-double row :retrievedPathGrepEvidenceBoost)))
+
 (defn- compact-output-source-graph-query-evidence-row?
   [row]
   (pos? (row-metric-double row :sourceGraphQueryEvidenceBoost)))
+
+(defn- compact-output-supported-source-graph-query-evidence-row?
+  [row]
+  (and (compact-output-source-graph-query-evidence-row? row)
+       (or (pos? (positive-metric row :docCount))
+           (< 1 (positive-metric row :candidateFileCount))
+           (pos? (positive-metric row :retrievedSourceCount))
+           (query-evidence-source-candidate-row? row)
+           (compact-output-early-source-graph-row? row)
+           (compact-output-retrieved-label-source-row? row))))
 
 (defn- compact-output-prune-protected-row?
   [row]
@@ -4039,6 +4283,8 @@
       (compact-output-retrieved-label-source-row? row)
       (compact-output-doc-identity-row? row)
       (compact-output-early-source-graph-row? row)
+      (compact-output-doc-directory-evidence-row? row)
+      (compact-output-retrieved-path-grep-evidence-row? row)
       (compact-output-source-graph-query-evidence-row? row)
       (query-evidence-source-candidate-row? row)
       (candidate-file-only-row? row)))
@@ -4100,7 +4346,12 @@
 
 (defn- compact-output-derived-sort-rank
   [row]
-  (when-let [sort-ranks (->> [(when (compact-output-source-graph-query-evidence-row? row)
+  (when-let [sort-ranks (->> [(when (compact-output-doc-directory-evidence-row? row)
+                                compact-output-doc-directory-evidence-sort-rank)
+                              (when (compact-output-retrieved-path-grep-evidence-row? row)
+                                compact-output-retrieved-path-grep-sort-rank)
+                              (when (compact-output-supported-source-graph-query-evidence-row?
+                                     row)
                                 compact-output-source-graph-query-evidence-sort-rank)
                               (when (compact-output-identity-compound-source-row? row)
                                 compact-output-identity-compound-source-sort-rank)]
@@ -4485,7 +4736,8 @@
                         (if (multi-root-map? roots)
                           (->> roots
                                (map (fn [[repo-id repo-root]]
-                                      [repo-id (scanned-path-kinds repo-root)]))
+                                      [(repo-key-name repo-id)
+                                       (scanned-path-kinds repo-root)]))
                                (into {}))
                           (scanned-path-kinds (or root
                                                   (single-root-map-root roots)))))

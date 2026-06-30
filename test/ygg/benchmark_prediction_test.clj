@@ -20,6 +20,43 @@
   [xs value]
   (.indexOf (vec xs) value))
 
+(deftest context-packet-agent-result-resolves-keywordized-multi-root-repos
+  (let [root-a (temp-dir "ygg-bench-pred-root-a")
+        root-b (temp-dir "ygg-bench-pred-root-b")
+        _ (write-file! root-a "connector/connector.go" "package connector\n")
+        _ (write-file! root-b
+                       "connector/routingconnector/factory.go"
+                       "package routingconnector\n")
+        packet {:query "routing connector feature gate default error mode ignore"
+                :candidateFiles [{:path "connector/routingconnector/factory.go"
+                                  :repo "contrib"
+                                  :rank 1
+                                  :score 0.9
+                                  :targetKind "node"
+                                  :label "connector/routingconnector/factory"
+                                  :scoreComponents {:sourceGraph 0.6
+                                                    :lexical 0.9
+                                                    :grep 0.7}
+                                  :supportLabels ["connector/routingconnector/factory/createDefaultConfig"]}
+                                 {:path "connector/connector.go"
+                                  :repo "core"
+                                  :rank 2
+                                  :score 0.6
+                                  :targetKind "node"
+                                  :label "connector/connector"
+                                  :scoreComponents {:lexical 0.2}}]}
+        result (benchmark-prediction/context-packet->agent-result
+                packet
+                {:root root-a
+                 :roots {:core root-a
+                         :contrib root-b}
+                 :coverage {:declaredSourceKinds ["go"]}
+                 :limit 10})
+        paths (mapv (juxt :repo-id :path) (:suspectedFiles result))]
+    (is (some #{["contrib" "connector/routingconnector/factory.go"]} paths))
+    (is (some #{["core" "connector/connector.go"]} paths))
+    (is (zero? (get-in result [:selection :coverageFilteredCandidateFiles])))))
+
 (deftest file-ranking-boosts-direct-file-in-evidence-dense-directory
   (let [rank-files @#'benchmark-prediction/ranked-file-predictions
         doc-row (fn [path source-rank evidence-score tokens]
@@ -277,6 +314,161 @@
     (is (every? #(<= (:rank (get by-path %)) 5)
                 [settings-path mapper-path]))))
 
+(deftest file-ranking-boosts-doc-backed-directory-cluster-evidence
+  (let [rank-files @#'benchmark-prediction/ranked-file-predictions
+        doc-row (fn [path source-rank tokens]
+                  {:path path
+                   :repo-id "contrib"
+                   :source-rank source-rank
+                   :evidence-score 0.75
+                   :evidence-kind :doc
+                   :retrieved-source? true
+                   :confidence 0.8
+                   :matched-tokens tokens
+                   :matched-path-query-token-count 2
+                   :definition-kind "chunk"})
+        candidate-row (fn [path source-rank candidate-rank source-score tokens]
+                        {:path path
+                         :repo-id "contrib"
+                         :source-rank source-rank
+                         :candidate-source-rank candidate-rank
+                         :evidence-score source-score
+                         :evidence-kind :candidate-file
+                         :confidence 0.7
+                         :matched-tokens tokens
+                         :matched-path-query-token-count 2
+                         :candidate-grep-score 0.2
+                         :candidate-lexical-score 0.4
+                         :definition-kind "chunk"})
+        core-path "connector/connector.go"
+        schema-path "connector/routingconnector/config.schema.yaml"
+        files (rank-files
+               [{:path core-path
+                 :repo-id "core"
+                 :source-rank 1
+                 :evidence-score 0.9
+                 :evidence-kind :doc
+                 :retrieved-source? true
+                 :confidence 0.9
+                 :matched-tokens ["connector" "default"]
+                 :query-matched-file-identity-count 1
+                 :definition-kind "function"}
+                (doc-row "connector/routingconnector/metadata.yaml"
+                         2
+                         ["routing" "connector" "metadata"])
+                (candidate-row "connector/routingconnector/metadata.yaml"
+                               102
+                               4
+                               0.55
+                               ["routing" "connector" "metadata"])
+                (doc-row "connector/routingconnector/factory.go"
+                         3
+                         ["routing" "connector" "factory"])
+                (candidate-row "connector/routingconnector/factory.go"
+                               103
+                               5
+                               0.55
+                               ["routing" "connector" "factory"])
+                (doc-row "connector/routingconnector/config.go"
+                         4
+                         ["routing" "connector" "config"])
+                (candidate-row "connector/routingconnector/config.go"
+                               104
+                               6
+                               0.55
+                               ["routing" "connector" "config"])
+                (doc-row schema-path
+                         9
+                         ["routing" "connector" "schema"])
+                (candidate-row schema-path
+                               109
+                               8
+                               0.48
+                               ["routing" "connector" "schema"])])
+        by-path (into {} (map (juxt :path identity)) files)]
+    (is (pos? (get-in by-path [schema-path :metrics :directoryEvidenceBoost])))
+    (is (< (:rank (get by-path schema-path))
+           (:rank (get by-path core-path))))))
+
+(deftest retrieved-path-query-token-boost-grows-with-token-alignment
+  (let [boost @#'benchmark-prediction/retrieved-path-query-token-boost]
+    (is (= 6.0 (boost 1 1 2)))
+    (is (< (boost 1 1 2)
+           (boost 1 1 3)))
+    (is (= 8.5 (boost 1 1 6)))))
+
+(deftest source-graph-query-evidence-boost-accepts-identity-path-alignment
+  (let [boost @#'benchmark-prediction/source-graph-query-evidence-boost]
+    (is (zero? (boost 19 20 0.51 3 3 0 2)))
+    (is (pos? (boost 20 20 0.51 3 3 0 2)))
+    (is (zero? (boost 20 20 0.51 2 3 0 2)))
+    (is (zero? (boost 20 21 0.51 3 3 0 2)))))
+
+(deftest doc-supported-source-graph-query-boost-requires-doc-evidence
+  (let [boost @#'benchmark-prediction/doc-supported-source-graph-query-boost]
+    (is (zero? (boost 0 9.0)))
+    (is (zero? (boost 1 0.0)))
+    (is (pos? (boost 1 9.0)))))
+
+(deftest retrieved-path-grep-evidence-boost-requires-strong-mechanical-match
+  (let [boost @#'benchmark-prediction/retrieved-path-grep-evidence-boost]
+    (is (zero? (boost 1 1 1 2 0.9 0.6)))
+    (is (zero? (boost 1 1 1 3 0.6 0.6)))
+    (is (zero? (boost 1 1 1 3 0.9 0.4)))
+    (is (pos? (boost 1 1 1 3 0.9 0.6)))))
+
+(deftest file-ranking-does-not-cross-repo-boost-single-repo-doc-cluster
+  (let [rank-files @#'benchmark-prediction/ranked-file-predictions
+        doc-row (fn [path source-rank tokens]
+                  {:path path
+                   :repo-id "dapper"
+                   :source-rank source-rank
+                   :evidence-score 0.75
+                   :evidence-kind :doc
+                   :retrieved-source? true
+                   :confidence 0.8
+                   :matched-tokens tokens
+                   :matched-path-query-token-count 2
+                   :definition-kind "chunk"})
+        candidate-row (fn [path source-rank candidate-rank tokens]
+                        {:path path
+                         :repo-id "dapper"
+                         :source-rank source-rank
+                         :candidate-source-rank candidate-rank
+                         :evidence-score 0.55
+                         :evidence-kind :candidate-file
+                         :confidence 0.7
+                         :matched-tokens tokens
+                         :matched-path-query-token-count 2
+                         :definition-kind "chunk"})
+        target-path "benchmarks/Dapper.Tests.Performance/Benchmarks.cs"
+        files (rank-files
+               [(doc-row "benchmarks/Dapper.Tests.Performance/Benchmarks.cs"
+                         1
+                         ["dapper" "tests"])
+                (candidate-row "benchmarks/Dapper.Tests.Performance/Benchmarks.cs"
+                               101
+                               8
+                               ["dapper" "tests"])
+                (doc-row "benchmarks/Dapper.Tests.Performance/SqlDataReaderHelper.cs"
+                         2
+                         ["dapper" "tests"])
+                (candidate-row "benchmarks/Dapper.Tests.Performance/SqlDataReaderHelper.cs"
+                               102
+                               9
+                               ["dapper" "tests"])
+                (doc-row "benchmarks/Dapper.Tests.Performance/Benchmarks.ServiceStack.cs"
+                         3
+                         ["dapper" "tests"])
+                (candidate-row "benchmarks/Dapper.Tests.Performance/Benchmarks.ServiceStack.cs"
+                               103
+                               10
+                               ["dapper" "tests"])])
+        by-path (into {} (map (juxt :path identity)) files)]
+    (is (nil? (get-in by-path [target-path
+                               :metrics
+                               :directoryEvidenceBoost])))))
+
 (deftest file-ranking-boosts-query-matched-exported-support-label
   (let [rank-files @#'benchmark-prediction/ranked-file-predictions
         doc-row (fn [path source-rank evidence-score tokens]
@@ -335,6 +527,60 @@
     (is (<= (:rank (get by-path "component/component.go")) 5))
     (is (< (:rank (get by-path "component/component.go"))
            (:rank (get by-path "consumer/consumer.go"))))))
+
+(deftest file-ranking-boosts-doc-backed-query-matched-exported-support-label
+  (let [rank-files @#'benchmark-prediction/ranked-file-predictions
+        doc-row (fn [path source-rank evidence-score tokens]
+                  {:path path
+                   :source-rank source-rank
+                   :evidence-score evidence-score
+                   :evidence-kind :doc
+                   :retrieved-source? true
+                   :confidence 0.9
+                   :matched-tokens tokens
+                   :matched-path-query-token-count 2
+                   :definition-kind "chunk"})
+        candidate-row (fn [path source-rank source-score support-terminal query-match-count tokens]
+                        {:path path
+                         :source-rank source-rank
+                         :evidence-score source-score
+                         :evidence-kind :candidate-file
+                         :confidence 0.7
+                         :candidate-source-rank (- source-rank 500)
+                         :file-identity-support-label-count 1
+                         :exported-support-label-count 1
+                         :query-matched-exported-support-label-count query-match-count
+                         :candidate-support-label-signature [(str path "/" support-terminal)]
+                         :matched-tokens tokens
+                         :matched-path-query-token-count 2
+                         :definition-kind "node"})
+        target-path "consumer/traces.go"
+        files (rank-files [(doc-row "connector/connectortest/connector.go"
+                                    1
+                                    8.0
+                                    ["connector" "traces" "contract"])
+                           (doc-row target-path
+                                    7
+                                    4.0
+                                    ["consumer" "traces" "interface" "contract" "feeds"])
+                           (candidate-row target-path
+                                          524
+                                          0.54
+                                          "Traces"
+                                          1
+                                          ["consumer" "traces" "interface" "contract" "feeds"])
+                           (candidate-row "consumer/consumer.go"
+                                          520
+                                          0.54
+                                          "Option"
+                                          0
+                                          ["consumer" "contract"])])
+        by-path (into {} (map (juxt :path identity)) files)]
+    (is (pos? (get-in by-path [target-path
+                               :metrics
+                               :docSupportedExportedSupportBoost])))
+    (is (< (:rank (get by-path target-path))
+           (:rank (get by-path "connector/connectortest/connector.go"))))))
 
 (deftest single-source-coverage-keeps-retrieved-contract-files-before-candidate-bypass
   (let [root (temp-dir "ygg-bench-otel-contract")
@@ -611,6 +857,36 @@
                 (take 4)
                 vec)))))
 
+(deftest compact-output-frontloads-retrieved-path-grep-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        rows [(row "one.clj" 1 {:rankScore 30.0})
+              (row "two.clj" 2 {:rankScore 29.0})
+              (row "three.clj" 3 {:rankScore 28.0})
+              (row "four.clj" 4 {:rankScore 27.0})
+              (row "source-graph.clj"
+                   5
+                   {:candidateFileCount 2
+                    :sourceGraphQueryEvidenceBoost 8.0
+                    :rankScore 26.0})
+              (row "target.clj"
+                   6
+                   {:docCount 1
+                    :retrievedSourceCount 1
+                    :matchedPathQueryTokenCount 2
+                    :retrievedPathQueryTokenBoost 6.0
+                    :retrievedPathGrepEvidenceBoost 4.0
+                    :rankScore 25.0})]
+        selected (compact-output rows 20 nil)]
+    (is (= ["one.clj" "two.clj" "three.clj" "four.clj" "target.clj"]
+           (->> selected
+                (map :path)
+                (take 5)
+                vec)))))
+
 (deftest compact-output-frontloads-source-graph-query-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]
@@ -656,6 +932,60 @@
            (index-of paths
                      "benchmarks/Dapper.Tests.Performance/LegacyTests.cs")))))
 
+(deftest compact-output-frontloads-doc-directory-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path repo-id rank metrics]
+              {:path path
+               :repo-id repo-id
+               :rank rank
+               :metrics metrics})
+        files [(row "connector/routingconnector/metadata.yaml"
+                    "contrib"
+                    1
+                    {:docCount 1
+                     :directoryEvidenceBoost 8.0
+                     :rankScore 32.0})
+               (row "connector/routingconnector/factory_test.go"
+                    "contrib"
+                    2
+                    {:docCount 2
+                     :directoryEvidenceBoost 8.0
+                     :rankScore 30.0})
+               (row "connector/routingconnector/factory.go"
+                    "contrib"
+                    3
+                    {:docCount 1
+                     :directoryEvidenceBoost 8.0
+                     :rankScore 28.0})
+               (row "connector/routingconnector/config.go"
+                    "contrib"
+                    4
+                    {:docCount 3
+                     :directoryEvidenceBoost 8.0
+                     :rankScore 25.0})
+               (row "connector/connector.go"
+                    "core"
+                    5
+                    {:docCount 1
+                     :retrievedSourceCount 1
+                     :queryMatchedPathSelfIdentity true
+                     :retrievedQueryFileIdentityBoost 12.0
+                     :rankScore 18.0})
+               (row "connector/routingconnector/config.schema.yaml"
+                    "contrib"
+                    6
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :matchedTokenCount 5
+                     :sourceGraphCandidateEvidenceScore 0.47
+                     :directoryEvidenceBoost 8.0
+                     :rankScore 20.0})]
+        paths (mapv :path (compact-output files 20 nil))]
+    (is (< (index-of paths "connector/routingconnector/config.schema.yaml")
+           (index-of paths "connector/connector.go")))
+    (is (some #{"connector/routingconnector/config.schema.yaml"}
+              (take 5 paths)))))
+
 (deftest diversity-preserves-saturated-doc-supported-head
   (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
         row (fn [path rank rank-score]
@@ -686,6 +1016,7 @@
                      :metrics {:docCount 1
                                :retrievedSourceCount 1
                                :retrievedQueryFileIdentityBoost 12.0
+                               :queryMatchedFileIdentityMaxLength 18
                                :rankScore rank-score
                                :definitionKinds ["class"]}})
         candidate-head-row (fn [path rank rank-score]
