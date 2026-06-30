@@ -389,8 +389,12 @@
   0.5)
 (def ^:private compact-output-candidate-source-graph-head-sort-rank
   0.56)
+(def ^:private compact-output-after-preserved-head-sort-rank
+  (+ (/ (double compact-output-preserved-head-count) 10.0) 0.01))
+(def ^:private compact-output-early-query-evidence-source-sort-rank
+  (- compact-output-after-preserved-head-sort-rank 0.005))
 (def ^:private compact-output-retrieved-supported-sort-rank
-  0.57)
+  compact-output-early-query-evidence-source-sort-rank)
 (def ^:private compact-output-strong-retrieved-label-doc-sort-rank
   0.37)
 (def ^:private compact-output-retrieved-label-doc-sort-rank
@@ -423,10 +427,6 @@
   2.25)
 (def ^:private compact-output-source-graph-query-evidence-sort-rank
   0.38)
-(def ^:private compact-output-after-preserved-head-sort-rank
-  (+ (/ (double compact-output-preserved-head-count) 10.0) 0.01))
-(def ^:private compact-output-early-query-evidence-source-sort-rank
-  (- compact-output-after-preserved-head-sort-rank 0.005))
 (def ^:private compact-result-command-limit
   5)
 (def ^:private dependency-package-identity-query-token-min
@@ -4919,6 +4919,8 @@
                               (when (compact-output-doc-supported-source-graph-query-row?
                                      row)
                                 compact-output-doc-supported-source-graph-query-sort-rank)
+                              (when (compact-output-repeated-retrieved-row? row)
+                                compact-output-retrieved-supported-sort-rank)
                               (when (compact-output-supported-source-graph-query-evidence-row?
                                      row)
                                 compact-output-source-graph-query-evidence-sort-rank)
