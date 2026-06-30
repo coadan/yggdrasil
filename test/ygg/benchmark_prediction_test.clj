@@ -219,6 +219,27 @@
     (is (< (:rank (get by-path "main.tf"))
            (:rank (get by-path "noise.tf"))))))
 
+(deftest file-ranking-preserves-support-owner-evidence
+  (let [rank-files @#'benchmark-prediction/ranked-file-predictions
+        files (rank-files [{:path "src/app.py"
+                            :source-rank 508
+                            :evidence-score 0.62
+                            :evidence-kind :candidate-file
+                            :confidence 1.0
+                            :candidate-source-rank 8
+                            :direct-file-candidate? true
+                            :support-owner-evidence? true
+                            :support-owner-primary-label-query-token-count 1
+                            :support-owner-primary-label-specific-token-count 1
+                            :matched-tokens ["autoescape" "selection" "case"]
+                            :retrieved-support-label-count 6
+                            :definition-kind "file"}])
+        metrics (get-in (first files) [:metrics])]
+    (is (= 1 (:supportOwnerEvidenceCount metrics)))
+    (is (= 0.62 (:supportOwnerEvidenceScore metrics)))
+    (is (= 1 (:supportOwnerPrimaryLabelMatchedTokenCount metrics)))
+    (is (= 1 (:supportOwnerPrimaryLabelSpecificTokenCount metrics)))))
+
 (deftest query-matched-exported-support-labels-use-qualified-segments
   (let [match-count @#'benchmark-prediction/query-matched-exported-support-label-count
         query-tokens ["consumer.traces" "consumer" "component.component" "component"]]
@@ -1001,6 +1022,68 @@
         selected-paths (mapv :path (compact-output rows 20 nil))]
     (is (= "main.tf" (nth selected-paths 4)))))
 
+(deftest compact-output-frontloads-support-owner-source-graph-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "src/flask/config.py" 1 {:docCount 1
+                                             :rankScore 16.0})
+               (row "src/flask/json/tag.py" 2 {:candidateFileCount 1
+                                               :docCount 0
+                                               :directFileCandidateCount 1
+                                               :matchedTokenCount 2
+                                               :rankScore 9.1})
+               (row "src/flask/helpers.py" 3 {:docCount 1
+                                              :rankScore 8.7})
+               (row "src/flask/debughelpers.py" 4 {:docCount 1
+                                                   :rankScore 8.3})
+               (row "src/flask/blueprints.py" 5 {:docCount 1
+                                                 :rankScore 7.4})
+               (row "src/flask/sansio/scaffold.py"
+                    8
+                    {:candidateFileCount 1
+                     :candidateSourceRank 7
+                     :directFileCandidateCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 4
+                     :rankScore 6.4
+                     :retrievedSupportLabelCount 6
+                     :sourceGraphCandidateEvidenceScore 0.61
+                     :supportOwnerEvidenceCount 1
+                     :supportOwnerPrimaryLabelMatchedTokenCount 2
+                     :supportOwnerPrimaryLabelSpecificTokenCount 0})
+               (row "tests/test_request.py" 9 {:docCount 1
+                                               :rankScore 6.7})
+               (row "src/flask/signals.py" 10 {:docCount 1
+                                               :rankScore 6.6})
+               (row "src/flask/__init__.py" 11 {:docCount 1
+                                                :rankScore 6.3})
+               (row "src/flask/sansio/app.py"
+                    19
+                    {:candidateFileCount 1
+                     :candidateSourceRank 8
+                     :directFileCandidateCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 3
+                     :rankScore 4.9
+                     :retrievedSupportLabelCount 6
+                     :sourceGraphCandidateEvidenceScore 0.61
+                     :supportOwnerEvidenceCount 1
+                     :supportOwnerPrimaryLabelMatchedTokenCount 2
+                     :supportOwnerPrimaryLabelSpecificTokenCount 1})
+               (row "tests/test_json_tag.py" 20 {:candidateFileCount 1
+                                                 :docCount 0
+                                                 :matchedTokenCount 2
+                                                 :rankScore 1.8})]
+        selected-paths (mapv :path (compact-output files 20 nil))]
+    (is (= "src/flask/sansio/app.py" (nth selected-paths 4)))
+    (is (< (index-of selected-paths "src/flask/sansio/app.py")
+           (index-of selected-paths "tests/test_json_tag.py")))))
+
 (deftest compact-output-frontloads-doc-source-graph-grep-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]
@@ -1451,6 +1534,68 @@
     (is (= "lib/adapters/http.js" (nth selected-paths 4)))
     (is (< (.indexOf selected-paths "lib/adapters/http.js")
            (.indexOf selected-paths "lib/core/AxiosError.js")))))
+
+(deftest compact-output-frontloads-repeated-retrieved-doc-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/smoke/esm/tests/files.smoke.test.js"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSourceCount 1
+                     :matchedTokenCount 7
+                     :rankScore 14.0})
+               (row "tests/smoke/cjs/tests/files.smoke.test.cjs"
+                    2
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSourceCount 1
+                     :matchedTokenCount 7
+                     :rankScore 13.8})
+               (row "tests/unit/adapters/http.test.js"
+                    3
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSourceCount 1
+                     :matchedTokenCount 6
+                     :rankScore 13.6})
+               (row "tests/unit/headers.test.js"
+                    4
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSourceCount 1
+                     :matchedTokenCount 5
+                     :rankScore 13.4})
+               (row "tests/unit/errorDetails.test.js"
+                    5
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSourceCount 1
+                     :matchedTokenCount 7
+                     :rankScore 13.2})
+               (row "lib/core/Error.js"
+                    6
+                    {:docCount 1
+                     :candidateFileCount 3
+                     :retrievedSourceCount 1
+                     :candidateSupportLabelSignatures [["shared-source"]]
+                     :matchedTokenCount 8
+                     :rankScore 12.2})
+               (row "lib/adapters/http.js"
+                    13
+                    {:docCount 2
+                     :candidateFileCount 2
+                     :retrievedSourceCount 2
+                     :candidateSupportLabelSignatures [["shared-source"]]
+                     :matchedTokenCount 4
+                     :matchedTokenPairCount 1
+                     :sourceGraphCandidateEvidenceScore 0.52
+                     :rankScore 11.0})]
+        selected-paths (mapv :path (compact-output files 20 nil))]
+    (is (= "lib/adapters/http.js" (nth selected-paths 4)))))
 
 (deftest compact-output-frontloads-query-evidence-doc-row
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files

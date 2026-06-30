@@ -61,6 +61,8 @@
   2.4)
 (def ^:private rank-score-rare-query-token-min-matched
   3)
+(def ^:private support-owner-primary-label-specific-token-min-length
+  7)
 (def ^:private rank-score-direct-file-identity-support-cap
   4)
 (def ^:private rank-score-direct-file-identity-support-weight
@@ -369,8 +371,16 @@
   0.48)
 (def ^:private compact-output-doc-source-graph-grep-sort-rank
   0.58)
+(def ^:private compact-output-support-owner-source-graph-sort-rank
+  0.53)
+(def ^:private compact-output-support-owner-source-graph-limit
+  2)
+(def ^:private compact-output-support-owner-source-graph-source-score-min
+  0.5)
 (def ^:private compact-output-candidate-source-graph-head-sort-rank
   0.56)
+(def ^:private compact-output-retrieved-supported-sort-rank
+  0.57)
 (def ^:private compact-output-retrieved-label-doc-sort-rank
   1.45)
 (def ^:private compact-output-directory-evidence-candidate-sort-rank
@@ -1645,6 +1655,17 @@
         file-root (row-root root roots {:repo-id source-repo-id :path path})]
     (when (existing-file-path? file-root path)
       (let [support-labels (vec (:supportLabels candidate))
+            support-owner-evidence? (true? (:supportOwnerEvidence candidate))
+            support-owner-primary-label-matched-tokens
+            (if support-owner-evidence?
+              (token-matches query-tokens (first support-labels))
+              #{})
+            support-owner-primary-label-query-token-count
+            (count support-owner-primary-label-matched-tokens)
+            support-owner-primary-label-specific-token-count
+            (count (filter #(<= support-owner-primary-label-specific-token-min-length
+                                (count %))
+                           support-owner-primary-label-matched-tokens))
             target-kind (field-name (or (:targetKind candidate)
                                         (:target-kind candidate)
                                         (:resultKind candidate)
@@ -1768,6 +1789,13 @@
 
           (= "file" target-kind)
           (assoc :direct-file-candidate? true)
+
+          support-owner-evidence?
+          (assoc :support-owner-evidence? true
+                 :support-owner-primary-label-query-token-count
+                 support-owner-primary-label-query-token-count
+                 :support-owner-primary-label-specific-token-count
+                 support-owner-primary-label-specific-token-count)
 
           (and (pos? graph-score)
                graph-score-supported?)
@@ -2389,6 +2417,24 @@
                              decision-candidate-count (count (filter #(= :decision-candidate
                                                                          (:evidence-kind %))
                                                                      ordered))
+                             support-owner-evidence-count (count (filter :support-owner-evidence?
+                                                                         ordered))
+                             support-owner-evidence-score
+                             (apply max
+                                    0.0
+                                    (keep #(when (:support-owner-evidence? %)
+                                             (:evidence-score %))
+                                          ordered))
+                             support-owner-primary-label-query-token-count
+                             (apply max
+                                    0
+                                    (keep :support-owner-primary-label-query-token-count
+                                          ordered))
+                             support-owner-primary-label-specific-token-count
+                             (apply max
+                                    0
+                                    (keep :support-owner-primary-label-specific-token-count
+                                          ordered))
                              architecture-evidence-count (count (filter :architecture-evidence?
                                                                         ordered))
                              query-supported-architecture-evidence-count
@@ -2782,6 +2828,18 @@
                                        (pos? decision-candidate-count)
                                        (assoc :decisionCandidateCount
                                               decision-candidate-count)
+                                       (pos? support-owner-evidence-count)
+                                       (assoc :supportOwnerEvidenceCount
+                                              support-owner-evidence-count)
+                                       (pos? support-owner-evidence-score)
+                                       (assoc :supportOwnerEvidenceScore
+                                              support-owner-evidence-score)
+                                       (pos? support-owner-primary-label-query-token-count)
+                                       (assoc :supportOwnerPrimaryLabelMatchedTokenCount
+                                              support-owner-primary-label-query-token-count)
+                                       (pos? support-owner-primary-label-specific-token-count)
+                                       (assoc :supportOwnerPrimaryLabelSpecificTokenCount
+                                              support-owner-primary-label-specific-token-count)
                                        (pos? source-rank-score)
                                        (assoc :sourceRankScore source-rank-score)
                                        (pos? (long (or candidate-source-rank 0)))
@@ -3242,6 +3300,7 @@
 (defn- row-metric-double
   [row k]
   (double (or (get-in row [:metrics k]) 0.0)))
+
 (defn- source-graph-candidate-row?
   [row]
   (pos? (positive-metric row :candidateFileCount)))
@@ -3637,6 +3696,7 @@
         (reduce
          (fn [{:keys [seen] :as acc} row]
            (if-let [k (and (not (prediction-rank-protected? row))
+                           (not (some? (::compact-output-sort-rank row)))
                            (prediction-candidate-support-diversity-key row))]
              (if (contains? seen k)
                (update acc :deferred conj row)
@@ -3959,7 +4019,10 @@
                                 %
                                 :repeatedRetrievedSourceBoost)))))
        (sort-by compact-output-retrieved-supported-key)
-       first))
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  compact-output-retrieved-supported-sort-rank)))))
 
 (defn- compact-output-retrieved-label-doc-key
   [row]
@@ -4190,6 +4253,43 @@
                       (assoc row ::compact-output-sort-rank
                              (+ compact-output-query-matched-exported-support-sort-rank
                                 idx))))))
+
+(defn- compact-output-support-owner-source-graph-row?
+  [row]
+  (and (candidate-file-only-row? row)
+       (pos? (positive-metric row :supportOwnerEvidenceCount))
+       (pos? (positive-metric row :directFileCandidateCount))
+       (<= candidate-file-only-query-evidence-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= compact-output-support-owner-source-graph-source-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (<= 2 (positive-metric row :retrievedSupportLabelCount))))
+
+(defn- compact-output-support-owner-source-graph-key
+  [row]
+  [(- (positive-metric row :supportOwnerPrimaryLabelSpecificTokenCount))
+   (- (positive-metric row :supportOwnerPrimaryLabelMatchedTokenCount))
+   (- (positive-metric row :matchedIdentityCompoundTokenPairCount))
+   (- (positive-metric row :matchedCompoundTokenPairCount))
+   (- (positive-metric row :matchedTokenCount))
+   (- (positive-metric row :retrievedSupportLabelCount))
+   (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
+   (row-candidate-source-rank row)
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-support-owner-source-graph-rows
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (compact-output-support-owner-source-graph-row? %)))
+       (sort-by compact-output-support-owner-source-graph-key)
+       (take compact-output-support-owner-source-graph-limit)
+       (map-indexed (fn [idx row]
+                      (assoc row ::compact-output-sort-rank
+                             (+ compact-output-support-owner-source-graph-sort-rank
+                                (* 0.01 idx)))))))
 
 (defn- path-directory
   [path]
@@ -4494,10 +4594,26 @@
 
 (defn- add-compact-output-row
   [selected row]
-  (if (and row (not (contains? (:keys selected) (file-row-key row))))
-    (-> selected
-        (update :rows conj row)
-        (update :keys conj (file-row-key row)))
+  (if row
+    (let [row-key (file-row-key row)]
+      (if (contains? (:keys selected) row-key)
+        (if-let [sort-rank (::compact-output-sort-rank row)]
+          (update selected
+                  :rows
+                  (fn [rows]
+                    (mapv (fn [selected-row]
+                            (if (= row-key (file-row-key selected-row))
+                              (update selected-row
+                                      ::compact-output-sort-rank
+                                      #(if %
+                                         (min (double %) (double sort-rank))
+                                         sort-rank))
+                              selected-row))
+                          rows)))
+          selected)
+        (-> selected
+            (update :rows conj row)
+            (update :keys conj row-key))))
     selected))
 
 (defn- fill-compact-output-selection
@@ -4561,6 +4677,7 @@
       (compact-output-doc-directory-evidence-row? row)
       (compact-output-retrieved-path-grep-evidence-row? row)
       (compact-output-doc-source-graph-grep-row? row)
+      (compact-output-support-owner-source-graph-row? row)
       (compact-output-candidate-source-graph-head-row? row)
       (compact-output-source-graph-query-evidence-row? row)
       (query-evidence-source-candidate-row? row)
@@ -4659,8 +4776,8 @@
   [rows]
   (->> rows
        (sort-by compact-output-sort-key)
-       (map #(dissoc % ::compact-output-sort-rank))
        spread-candidate-support-signature-duplicates
+       (map #(dissoc % ::compact-output-sort-rank))
        renumber-file-ranks))
 
 (defn- compact-output-core-evidence-rows
@@ -4759,6 +4876,11 @@
                         (:keys selected)))
              selected (add-compact-output-row
                        selected
+                       (compact-output-retrieved-supported-row
+                        files
+                        (:keys selected)))
+             selected (add-compact-output-row
+                       selected
                        (compact-output-query-evidence-doc-row
                         files
                         (:keys selected)))
@@ -4787,11 +4909,11 @@
                               (compact-output-query-matched-exported-support-rows
                                files
                                (:keys selected)))
-             selected (add-compact-output-row
-                       selected
-                       (compact-output-retrieved-supported-row
-                        files
-                        (:keys selected)))
+             selected (reduce add-compact-output-row
+                              selected
+                              (compact-output-support-owner-source-graph-rows
+                               files
+                               (:keys selected)))
              selected (add-compact-output-row
                        selected
                        (compact-output-query-evidence-source-row
