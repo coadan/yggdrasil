@@ -1600,6 +1600,88 @@
                      ["contrib" "connector/routingconnector/config.go"])
            (index-of file-ids ["core" "connector/connector.go"])))))
 
+(deftest compact-output-does-not-frontload-candidate-only-source-kind-siblings
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "migrations/.env"
+                    1
+                    {:candidateFileCount 2
+                     :candidateLexicalComponentBoost 0.08
+                     :matchedTokenCount 3
+                     :rankScore 5.6
+                     :sourceGraphCandidateEvidenceScore 0.42})
+               (row "migrations/db/migrations/20220321174452_fix-postgrest-alter-type-event-trigger.sql"
+                    2
+                    {:candidateFileCount 2
+                     :candidateGrepScore 0.13
+                     :docCount 1
+                     :matchedIdentityCompoundTokenPairCount 1
+                     :matchedPathQueryTokenCount 2
+                     :matchedTokenCount 5
+                     :rankScore 23.9
+                     :retrievedSourceCount 1
+                     :sourceGraphCandidateEvidenceScore 0.56})
+               (row "migrations/db/init-scripts/00000000000003-post-setup.sql"
+                    3
+                    {:candidateFileCount 1
+                     :candidateGrepScore 0.10
+                     :docCount 1
+                     :matchedPathQueryTokenCount 2
+                     :matchedTokenCount 8
+                     :rankScore 14.5
+                     :retrievedSourceCount 1
+                     :sourceGraphCandidateEvidenceScore 0.54})
+               (row "migrations/schema-15.sql"
+                    5
+                    {:candidateFileCount 1
+                     :candidateGrepScore 0.30
+                     :docCount 1
+                     :matchedTokenCount 4
+                     :rankScore 7.6
+                     :retrievedSourceCount 1
+                     :sourceGraphCandidateEvidenceScore 0.51})
+               (row "migrations/db/migrations/20211124212715_update-auth-owner.sql"
+                    12
+                    {:candidateFileCount 1
+                     :candidateLexicalComponentBoost 0.12
+                     :matchedPathQueryTokenCount 1
+                     :matchedTokenCount 2
+                     :rankScore 1.1
+                     :sourceGraphCandidateEvidenceScore 0.49})
+               (row "migrations/db/migrations/20250312095419_pgbouncer_ownership.sql"
+                    13
+                    {:candidateFileCount 1
+                     :candidateLexicalComponentBoost 0.10
+                     :matchedPathQueryTokenCount 1
+                     :matchedTokenCount 2
+                     :rankScore 1.0
+                     :sourceGraphCandidateEvidenceScore 0.47})]
+        kind-by-path {"migrations/.env" "env"
+                      "migrations/db/migrations/20220321174452_fix-postgrest-alter-type-event-trigger.sql"
+                      "sql"
+                      "migrations/db/init-scripts/00000000000003-post-setup.sql"
+                      "sql"
+                      "migrations/schema-15.sql" "sql"
+                      "migrations/db/migrations/20211124212715_update-auth-owner.sql"
+                      "sql"
+                      "migrations/db/migrations/20250312095419_pgbouncer_ownership.sql"
+                      "sql"}
+        paths (mapv :path (compact-output files
+                                          20
+                                          nil
+                                          ["env" "sql"]
+                                          kind-by-path))]
+    (is (< (index-of paths
+                     "migrations/db/init-scripts/00000000000003-post-setup.sql")
+           (index-of paths
+                     "migrations/db/migrations/20211124212715_update-auth-owner.sql")))
+    (is (< (index-of paths
+                     "migrations/db/init-scripts/00000000000003-post-setup.sql")
+           5))))
+
 (deftest diversity-preserves-saturated-doc-supported-head
   (let [diversify @#'benchmark-prediction/diversify-ranked-file-predictions
         row (fn [path rank rank-score]

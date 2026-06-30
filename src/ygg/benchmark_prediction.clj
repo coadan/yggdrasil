@@ -4563,6 +4563,13 @@
                       sort-rank
                       (compact-output-after-preserved-head sort-rank))))))))
 
+(defn- compact-output-directory-promotable-query-source-row?
+  [row]
+  (or (pos? (positive-metric row :directFileCandidateCount))
+      (pos? (positive-metric row :matchedIdentityCompoundTokenPairCount))
+      (pos? (positive-metric row :matchedCompoundTokenPairCount))
+      (pos? (row-metric-double row :candidateGrepScore))))
+
 (defn- compact-output-query-evidence-source-row
   [files selected-keys selected-rows]
   (->> files
@@ -4574,11 +4581,16 @@
            (let [directory-sort-rank
                  (compact-output-selected-directory-sort-rank selected-rows %)]
              (assoc % ::compact-output-sort-rank
-                    (if (<= (row-candidate-source-rank %)
-                            compact-output-early-source-graph-rank-window)
+                    (if (and (compact-output-directory-promotable-query-source-row?
+                              %)
+                             (<= (row-candidate-source-rank %)
+                                 compact-output-early-source-graph-rank-window))
                       (min compact-output-early-query-evidence-source-sort-rank
                            directory-sort-rank)
-                      directory-sort-rank)))))))
+                      (if (compact-output-directory-promotable-query-source-row?
+                           %)
+                        directory-sort-rank
+                        (double (or (:rank %) Long/MAX_VALUE))))))))))
 
 (defn- compact-output-early-source-graph-row?
   [row]
@@ -4734,6 +4746,11 @@
            (pos? (row-metric-double row :candidateLexicalComponentBoost))
            (pos? (positive-metric row :matchedIdentityCompoundTokenPairCount)))))
 
+(defn- compact-output-source-kind-sibling-cluster-anchor-row?
+  [row]
+  (or (pos? (positive-metric row :docCount))
+      (pos? (positive-metric row :retrievedSourceCount))))
+
 (defn- compact-output-source-kind-sibling-sort-rank
   [selected-rows row]
   (let [dir-key (file-row-directory-key row)
@@ -4750,13 +4767,18 @@
                             (keep :rank)
                             seq)]
     (cond
-      same-dir-sort-ranks
+      (and (compact-output-source-kind-sibling-cluster-anchor-row? row)
+           same-dir-sort-ranks)
       (+ (double (apply min same-dir-sort-ranks))
          (* 0.01 (count same-dir-sort-ranks)))
 
-      same-dir-ranks
+      (and (compact-output-source-kind-sibling-cluster-anchor-row? row)
+           same-dir-ranks)
       (+ (double (apply min same-dir-ranks))
-         (* 0.5 (count same-dir-ranks))))))
+         (* 0.5 (count same-dir-ranks)))
+
+      same-dir-ranks
+      (double row-rank))))
 
 (defn- compact-output-source-kind-sibling-row
   [files selected-keys selected-rows source-kinds kind-by-path]
