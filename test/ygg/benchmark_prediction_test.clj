@@ -1248,8 +1248,18 @@
               (row "a/globals.clj" 2 {:rankScore 35.0})
               (row "a/shell.clj" 3 {:rankScore 30.0})
               (row "a/cli.clj" 4 {:rankScore 25.0})
-              (row "a/weak-candidate.clj"
+              (row "a/cli_test.clj"
                    5
+                   {:candidateFileCount 1
+                    :candidateLexicalComponentBoost 0.1
+                    :directFileCandidateCount 1
+                    :docCount 0
+                    :entityCount 0
+                    :fileIdentitySupportLabelCount 4
+                    :matchedTokenCount 1
+                    :rankScore 22.0})
+              (row "a/weak-candidate.clj"
+                   6
                    {:candidateFileCount 1
                     :candidateOnlySourceGraphHeadBoost 6.0
                     :candidateSourceRank 4
@@ -1257,7 +1267,7 @@
                     :matchedTokenCount 9
                     :rankScore 21.0
                     :sourceGraphCandidateEvidenceScore 0.44})
-              (row "a/debug.clj" 6 {:rankScore 20.0})
+              (row "a/debug.clj" 7 {:rankScore 20.0})
               (row "a/context.clj"
                    8
                    {:candidateFileCount 1
@@ -1269,7 +1279,9 @@
                     :retrievedSourceCount 1
                     :sourceGraphCandidateEvidenceScore 0.54})]
         selected-paths (mapv :path (compact-output rows 20 nil))]
-    (is (= "a/context.clj" (nth selected-paths 4)))))
+    (is (= "a/context.clj" (nth selected-paths 4)))
+    (is (< (index-of selected-paths "a/context.clj")
+           (index-of selected-paths "a/cli_test.clj")))))
 
 (deftest compact-output-frontloads-source-graph-query-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files

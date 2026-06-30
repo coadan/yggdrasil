@@ -386,7 +386,7 @@
 (def ^:private compact-output-retrieved-path-grep-sort-rank
   0.48)
 (def ^:private compact-output-doc-source-graph-grep-sort-rank
-  0.58)
+  0.405)
 (def ^:private compact-output-support-owner-source-graph-sort-rank
   0.53)
 (def ^:private compact-output-support-owner-source-graph-limit
