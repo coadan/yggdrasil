@@ -376,8 +376,76 @@
                 :model "fake-embedding"
                 :search-docs 3
                 :pending 1
+                :provider-pending 1
+                :provider-skipped 0
                 :embedded 1
                 :skipped 2}
+               summary))))))
+
+(deftest embed-search-docs-bounds-provider-work-to-targets
+  (let [seen-inputs (atom [])
+        committed (atom [])
+        docs [{:xt/id "search-doc:a"
+               :project-id "project-a"
+               :repo-id "app"
+               :target-id "target:a"
+               :target-kind :chunk
+               :path "src/a.clj"
+               :kind :clojure
+               :input-sha "sha:a"
+               :text "alpha doc"
+               :active? true}
+              {:xt/id "search-doc:b"
+               :project-id "project-a"
+               :repo-id "app"
+               :target-id "target:b"
+               :target-kind :chunk
+               :path "src/b.clj"
+               :kind :clojure
+               :input-sha "sha:b"
+               :text "beta doc"
+               :active? true}
+              {:xt/id "search-doc:c"
+               :project-id "project-a"
+               :repo-id "app"
+               :target-id "target:c"
+               :target-kind :chunk
+               :path "src/c.clj"
+               :kind :clojure
+               :input-sha "sha:c"
+               :text "gamma doc"
+               :active? true}]
+        client {:provider :fake
+                :model "fake-model"
+                :embed-batch (fn [inputs]
+                               (swap! seen-inputs into inputs)
+                               (mapv (constantly [0.25 0.75]) inputs))}]
+    (with-redefs [embedding/all-search-docs (fn [& _] docs)
+                  store/ordered-rows (fn [& _] [])
+                  store/count-rows (fn [& _] (count docs))
+                  store/commit-embeddings!
+                  (fn [_ rows]
+                    (swap! committed conj rows)
+                    {:embeddings (count rows)})
+                  vector-store/upsert-embeddings! (fn [_] nil)]
+      (let [summary (embedding/embed-search-docs!
+                     :xtdb
+                     client
+                     {:project-id "project-a"
+                      :repo-id "app"
+                      :batch-size 4
+                      :provider-target-ids ["target:b"]
+                      :max-provider-docs 1})]
+        (is (= ["beta doc"] @seen-inputs))
+        (is (= ["target:b"] (mapv :target-id (first @committed))))
+        (is (= {:provider :fake
+                :model "fake-model"
+                :search-docs 3
+                :pending 3
+                :provider-pending 1
+                :provider-skipped 2
+                :embedded 1
+                :skipped 0}
                summary))))))
 
 (deftest embed-search-docs-reuses-cache-for-case-scoped-targets
@@ -642,6 +710,8 @@
                                            (select-keys %
                                                         [:search-docs
                                                          :pending
+                                                         :provider-pending
+                                                         :provider-skipped
                                                          :embedded
                                                          :skipped
                                                          :batch
@@ -651,6 +721,8 @@
         (is (= 3 (:embedded summary)))
         (is (= [{:search-docs 3
                  :pending 3
+                 :provider-pending 3
+                 :provider-skipped 0
                  :embedded 2
                  :skipped 0
                  :batch 1
@@ -659,6 +731,8 @@
                  :batch-embedded 2}
                 {:search-docs 3
                  :pending 3
+                 :provider-pending 3
+                 :provider-skipped 0
                  :embedded 3
                  :skipped 0
                  :batch 2
@@ -685,6 +759,8 @@
               :model "test-model"
               :search-docs 0
               :pending 0
+              :provider-pending 0
+              :provider-skipped 0
               :embedded 0
               :skipped 0}
              (embedding/embed-search-docs!

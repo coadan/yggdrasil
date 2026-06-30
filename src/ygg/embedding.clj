@@ -478,6 +478,8 @@
                                                                       input-max-chars
                                                                       embedding-role
                                                                       embedding-cache
+                                                                      provider-target-ids
+                                                                      max-provider-docs
                                                                       on-progress]
                                                                :or {batch-size default-batch-size
                                                                     input-max-chars default-provider-input-max-chars}}]
@@ -524,8 +526,18 @@
           pending (->> pending-with-cache
                        (remove :cached-vector)
                        (mapv #(select-keys % [:doc :cache-key])))
+          provider-target-ids (some->> provider-target-ids seq (into #{}))
+          provider-pending (cond->> pending
+                             provider-target-ids
+                             (filter #(contains? provider-target-ids
+                                                 (get-in % [:doc :target-id]))))
+          provider-pending (cond->> provider-pending
+                             (some? max-provider-docs)
+                             (take (max 0 (long max-provider-docs))))
+          provider-pending (vec provider-pending)
+          provider-skipped (- (count pending) (count provider-pending))
           total-search-docs (search-doc-count xtdb scope)
-          batches (vec (partition-all batch-size pending))
+          batches (vec (partition-all batch-size provider-pending))
           batch-count (count batches)]
       (reduce
        (fn [summary [batch-idx batch]]
@@ -562,6 +574,8 @@
                 :model model
                 :search-docs total-search-docs
                 :pending (count pending)
+                :provider-pending (count provider-pending)
+                :provider-skipped provider-skipped
                 :embedded cache-hits
                 :skipped (- total-search-docs (count pending) cache-hits)}
          embedding-cache

@@ -181,6 +181,51 @@
     (is (= 321 (:input-max-chars override)))
     (is (= 9 (:batch-size override)))))
 
+(deftest provider-embedding-targets-use-bounded-lexical-prepass
+  (let [calls (atom [])]
+    (with-redefs [query/search-report
+                  (fn [xtdb query-text opts]
+                    (swap! calls conj [xtdb query-text opts])
+                    {:retriever-effective :lexical
+                     :instrumentation {:search-docs 50
+                                       :durable-search-docs 50
+                                       :lexical-positive 12
+                                       :grep-positive 2
+                                       :fts-positive 3
+                                       :candidate-count 5
+                                       :returned-count 4
+                                       :search-total-ms 7}
+                     :results [{:target-id "target:a"}
+                               {:target-id "target:b"}
+                               {:target-id "target:a"}
+                               {:target-id "target:c"}]})]
+      (let [targets (#'benchmark-agent-baseline/provider-embedding-targets
+                     :xtdb
+                     {:project-id "project"
+                      :repo-id "repo"
+                      :repos [{:id "repo"}]
+                      :input {:queryText "where is the routing contract"}}
+                     {:embedding-provider-limit 2
+                      :fusion-strategy :rrf
+                      :sqlite-fts? true})]
+        (is (= ["target:a" "target:b"] (:target-ids targets)))
+        (is (= 2 (:count targets)))
+        (is (= 2 (:limit targets)))
+        (is (= :lexical (get-in targets [:search :retriever-effective])))
+        (is (= [[:xtdb
+                 "where is the routing contract"
+                 {:limit 2
+                  :retriever :lexical
+                  :project-id "project"
+                  :read-context nil
+                  :fusion-strategy :rrf
+                  :sqlite-fts? true
+                  :diversity-rerank-limit nil
+                  :fts-candidate-limit nil
+                  :fts-weight nil
+                  :repo-id "repo"}]]
+               @calls))))))
+
 (deftest agent-baseline-resolves-semantic-client-from-provider-options
   (let [calls (atom [])]
     (with-redefs [embedding-client/configured-query-client

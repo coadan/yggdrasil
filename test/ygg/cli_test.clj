@@ -121,6 +121,7 @@
     (is (str/includes? usage "bench agent-packet"))
     (is (str/includes? usage "bench agent-baseline"))
     (is (str/includes? usage "--provider local|openrouter|openai"))
+    (is (str/includes? usage "--embedding-provider-limit N"))
     (is (str/includes? usage "--retriever auto|hybrid|lexical|semantic|local-vector|codebase-memory|graphify"))
     (is (str/includes? usage "--codebase-memory-command CMD"))
     (is (str/includes? usage "--codebase-memory-bin PATH"))
@@ -1802,6 +1803,7 @@
                                  "--embedding-input-max-chars" "321"
                                  "--embedding-request-timeout-ms" "12345"
                                  "--embedding-max-retries" "2"
+                                 "--embedding-provider-limit" "44"
                                  "--limit" "3"
                                  "--doc-limit" "12"
                                  "--retrieval-limit" "80"
@@ -1833,6 +1835,7 @@
                   :embedding-input-max-chars 321
                   :embedding-request-timeout-ms 12345
                   :embedding-max-retries 2
+                  :embedding-provider-limit 44
                   :parser-worker "java"
                   :mode nil
                   :result-path nil

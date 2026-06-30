@@ -63,6 +63,9 @@
     (parse-optional-long args "--embedding-max-retries")
     (assoc :embedding-max-retries
            (parse-optional-long args "--embedding-max-retries"))
+    (parse-optional-long args "--embedding-provider-limit")
+    (assoc :embedding-provider-limit
+           (parse-optional-long args "--embedding-provider-limit"))
     (option-value args "--codebase-memory-command") (assoc :codebase-memory-command
                                                            (option-value args
                                                                          "--codebase-memory-command"))

@@ -17,6 +17,7 @@
             [ygg.embedding-client :as embedding-client]
             [ygg.fs :as fs]
             [ygg.project :as project]
+            [ygg.query :as query]
             [ygg.xtdb :as store]
             [clojure.java.io :as io]))
 
@@ -31,6 +32,9 @@
 
 (def default-agent-baseline-retrieval-limit
   300)
+
+(def default-agent-baseline-provider-embed-limit
+  default-agent-baseline-retrieval-limit)
 
 (def default-agent-baseline-suspect-limit
   20)
@@ -123,8 +127,60 @@
     (:embedding-role opts)
     (assoc :embedding-role (:embedding-role opts))
 
+    (:embedding-provider-target-ids opts)
+    (assoc :provider-target-ids (:embedding-provider-target-ids opts))
+
+    (contains? opts :embedding-provider-limit)
+    (assoc :max-provider-docs (:embedding-provider-limit opts))
+
     (= 1 (count (:repos prepared)))
     (assoc :repo-id (:repo-id prepared))))
+(defn- agent-baseline-provider-embed-limit
+  [opts]
+  (long (or (:embedding-provider-limit opts)
+            default-agent-baseline-provider-embed-limit)))
+(defn- provider-embedding-targets
+  [xtdb prepared opts]
+  (let [limit (agent-baseline-provider-embed-limit opts)
+        query-text (get-in prepared [:input :queryText])]
+    (if (pos? limit)
+      (let [report (query/search-report
+                    xtdb
+                    query-text
+                    (cond-> {:limit limit
+                             :retriever :lexical
+                             :project-id (:project-id prepared)
+                             :read-context (:read-context opts)
+                             :fusion-strategy (:fusion-strategy opts)
+                             :sqlite-fts? (:sqlite-fts? opts)
+                             :diversity-rerank-limit (:diversity-rerank-limit opts)
+                             :fts-candidate-limit (:fts-candidate-limit opts)
+                             :fts-weight (:fts-weight opts)}
+                      (= 1 (count (:repos prepared)))
+                      (assoc :repo-id (:repo-id prepared))))
+            target-ids (->> (:results report)
+                            (keep :target-id)
+                            distinct
+                            (take limit)
+                            vec)]
+        {:target-ids target-ids
+         :count (count target-ids)
+         :limit limit
+         :search {:retriever-effective (:retriever-effective report)
+                  :instrumentation (select-keys
+                                    (:instrumentation report)
+                                    [:search-docs
+                                     :durable-search-docs
+                                     :lexical-positive
+                                     :grep-positive
+                                     :fts-positive
+                                     :candidate-count
+                                     :returned-count
+                                     :search-total-ms])}})
+      {:target-ids []
+       :count 0
+       :limit limit
+       :search {:retriever-effective :none}})))
 (defn- embed-search-docs-for-agent-baseline!
   [xtdb suite case prepared opts]
   (when-let [embedding-client (:embedding-client opts)]
@@ -144,6 +200,8 @@
                              :model
                              :search-docs
                              :pending
+                             :provider-pending
+                             :provider-skipped
                              :embedded
                              :cache-hits
                              :skipped
@@ -198,6 +256,21 @@
                                                             (assoc (benchmark-index-options opts)
                                                                    :correction-overlay correction-overlay))))
                                #(select-keys % [:files :repos :rows :extractors]))
+                embedding-targets (if embedding-client
+                                    (benchmark-progress/progress-stage!
+                                     suite
+                                     case
+                                     opts
+                                     :embedding-provider-targets
+                                     #(provider-embedding-targets xtdb prepared opts)
+                                     #(select-keys %
+                                                   [:count
+                                                    :limit
+                                                    :search]))
+                                    {:target-ids []
+                                     :count 0
+                                     :limit 0
+                                     :skipped true})
                 embedding-summary (benchmark-progress/progress-stage!
                                    suite
                                    case
@@ -208,12 +281,16 @@
                                      suite
                                      case
                                      prepared
-                                     opts)
+                                     (assoc opts
+                                            :embedding-provider-target-ids
+                                            (:target-ids embedding-targets)))
                                    #(select-keys %
                                                  [:provider
                                                   :model
                                                   :search-docs
                                                   :pending
+                                                  :provider-pending
+                                                  :provider-skipped
                                                   :embedded
                                                   :cache-hits
                                                   :skipped]))
@@ -339,6 +416,7 @@
                                       :agentScorePath (fs/canonical-path score-path)
                                       :progressPath (fs/canonical-path progress-path)}
                           :ygg {:indexSummary index-summary
+                                :embeddingTargets (dissoc embedding-targets :target-ids)
                                 :embeddingSummary embedding-summary
                                 :systemSummary system-summary
                                 :syncInspect sync-inspect}
