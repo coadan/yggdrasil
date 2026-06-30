@@ -365,8 +365,12 @@
   1.0)
 (def ^:private compact-output-doc-supported-sort-rank
   1.5)
+(def ^:private compact-output-strong-doc-only-supported-sort-rank
+  0.35)
 (def ^:private compact-output-strong-doc-supported-sort-rank
-  1.2)
+  0.45)
+(def ^:private compact-output-strong-doc-supported-token-min
+  7)
 (def ^:private compact-output-strong-doc-supported-token-pair-min
   2)
 (def ^:private compact-output-strong-doc-supported-path-query-token-min
@@ -387,6 +391,8 @@
   0.56)
 (def ^:private compact-output-retrieved-supported-sort-rank
   0.57)
+(def ^:private compact-output-strong-retrieved-label-doc-sort-rank
+  0.37)
 (def ^:private compact-output-retrieved-label-doc-sort-rank
   1.45)
 (def ^:private compact-output-directory-evidence-candidate-sort-rank
@@ -437,6 +443,10 @@
   20)
 (def ^:private diversity-bypass-candidate-identity-support-min
   4)
+(def ^:private compact-output-strong-retrieved-label-doc-support-min
+  5)
+(def ^:private compact-output-strong-retrieved-label-doc-token-min
+  8)
 (def ^:private source-kind-lane-support-score-ratio
   0.8)
 (def ^:private inspection-direct-file-quota
@@ -859,10 +869,15 @@
     rank-score-retrieved-path-self-identity-boost
     0.0))
 (defn- retrieved-query-file-identity-boost
-  [doc-count retrieved-source-count query-matched-file-identity-count]
+  [doc-count
+   retrieved-source-count
+   query-matched-file-identity-count
+   query-matched-file-identity-max-length]
   (if (and (pos? (long doc-count))
            (pos? (long retrieved-source-count))
-           (pos? (long query-matched-file-identity-count)))
+           (or (< 1 (long query-matched-file-identity-count))
+               (<= rank-score-retrieved-query-file-identity-protected-min-length
+                   (long query-matched-file-identity-max-length))))
     rank-score-retrieved-query-file-identity-boost
     0.0))
 (defn- retrieved-path-query-token-boost
@@ -2596,7 +2611,8 @@
                              (retrieved-query-file-identity-boost
                               doc-count
                               retrieved-source-count
-                              query-matched-file-identity-count)
+                              query-matched-file-identity-count
+                              query-matched-file-identity-max-length)
                              retrieved-path-query-token-boost
                              (retrieved-path-query-token-boost
                               doc-count
@@ -3080,6 +3096,28 @@
   (or (pos? (long (or (get-in row [:metrics :decisionCandidateCount]) 0)))
       (retrieved-query-file-identity-rank-protected? row)))
 
+(defn- retrieved-path-evidence-row?
+  [row]
+  (and (pos? (long (or (get-in row [:metrics :docCount]) 0)))
+       (pos? (long (or (get-in row [:metrics :retrievedSourceCount]) 0)))
+       (or (true? (get-in row [:metrics :queryMatchedPathSelfIdentity]))
+           (<= rank-score-retrieved-path-query-token-min
+               (long (or (get-in row [:metrics :matchedPathQueryTokenCount])
+                         0)))
+           (pos? (long (or (get-in row
+                                   [:metrics :matchedIdentityCompoundTokenPairCount])
+                           0))))))
+
+(defn- candidate-retrieved-support-identity-row?
+  [row]
+  (and (zero? (long (or (get-in row [:metrics :docCount]) 0)))
+       (pos? (long (or (get-in row [:metrics :candidateFileCount]) 0)))
+       (pos? (long (or (get-in row [:metrics :retrievedSupportLabelCount])
+                       0)))
+       (<= diversity-bypass-candidate-identity-support-min
+           (long (or (get-in row [:metrics :fileIdentitySupportLabelCount])
+                     0)))))
+
 (defn- prediction-diversity-bypass?
   [row]
   (let [candidate-source-rank (long (or (get-in row [:metrics :candidateSourceRank])
@@ -3100,6 +3138,9 @@
                       diversity-bypass-candidate-source-rank-window)
                   (<= diversity-bypass-support-count-min support-count))
              (and (zero? doc-count)
+                  (zero? (long (or (get-in row
+                                           [:metrics :retrievedSupportLabelCount])
+                                   0)))
                   (or (pos? identity-support-boost)
                       (<= candidate-source-rank
                           diversity-bypass-candidate-identity-source-rank-window))
@@ -3145,11 +3186,23 @@
                (when (prediction-rank-protected? row)
                  idx)))))
 
+(defn- first-retrieved-path-evidence-index
+  [rows]
+  (->> rows
+       (map-indexed vector)
+       (some (fn [[idx row]]
+               (when (retrieved-path-evidence-row? row)
+                 idx)))))
+
 (defn- diversify-ranked-file-predictions
   [rows]
   (if (seq rows)
     (let [rows (vec rows)
-          head-idx (or (first-rank-protected-index rows) 0)
+          head-idx (or (first-rank-protected-index rows)
+                       (when (candidate-retrieved-support-identity-row?
+                              (first rows))
+                         (first-retrieved-path-evidence-index rows))
+                       0)
           selected-head (if (zero? head-idx)
                           (let [preserved-head
                                 (prediction-diversity-preserved-head rows)]
@@ -3179,15 +3232,15 @@
                               (->> remaining
                                    (map-indexed vector)
                                    (some (fn [[idx row]]
+                                           (when (prediction-diversity-bypass? row)
+                                             [idx row]))))
+                              (->> remaining
+                                   (map-indexed vector)
+                                   (some (fn [[idx row]]
                                            (when-let [k (prediction-diversity-key
                                                          row)]
                                              (when-not (contains? seen k)
                                                [idx row])))))
-                              (->> remaining
-                                   (map-indexed vector)
-                                   (some (fn [[idx row]]
-                                           (when (prediction-diversity-bypass? row)
-                                             [idx row]))))
                               [0 (first remaining)])]
             (recur (vec (concat (subvec remaining 0 idx)
                                 (subvec remaining (inc idx))))
@@ -3273,7 +3326,7 @@
 
 (defn- prioritize-coverage-source-lanes
   [source-kind-order kind-by-path candidate-files]
-  (if (or (<= (count source-kind-order) 1)
+  (if (or (empty? source-kind-order)
           (empty? kind-by-path)
           (empty? candidate-files))
     candidate-files
@@ -3704,7 +3757,6 @@
         (reduce
          (fn [{:keys [seen] :as acc} row]
            (if-let [k (and (not (prediction-rank-protected? row))
-                           (not (some? (::compact-output-sort-rank row)))
                            (prediction-candidate-support-diversity-key row))]
              (if (contains? seen k)
                (update acc :deferred conj row)
@@ -3961,10 +4013,32 @@
 
 (defn- compact-output-strong-doc-supported-row?
   [row]
-  (and (<= compact-output-strong-doc-supported-token-pair-min
-           (positive-metric row :matchedTokenPairCount))
-       (<= compact-output-strong-doc-supported-path-query-token-min
-           (positive-metric row :matchedPathQueryTokenCount))))
+  (or (and (<= compact-output-strong-doc-supported-token-pair-min
+               (positive-metric row :matchedTokenPairCount))
+           (<= compact-output-strong-doc-supported-path-query-token-min
+               (positive-metric row :matchedPathQueryTokenCount)))
+      (and (<= compact-output-strong-doc-supported-token-min
+               (positive-metric row :matchedTokenCount))
+           (or (<= compact-output-strong-doc-supported-token-pair-min
+                   (positive-metric row :matchedTokenPairCount))
+               (<= compact-output-strong-doc-supported-token-pair-min
+                   (positive-metric row :matchedCompoundTokenPairCount))))))
+
+(defn- compact-output-strong-doc-only-supported-row?
+  [row]
+  (and (compact-output-strong-doc-supported-row? row)
+       (zero? (positive-metric row :candidateFileCount))
+       (zero? (positive-metric row :retrievedSourceCount))))
+
+(defn- compact-output-strong-retrieved-label-doc-row?
+  [row]
+  (and (pos? (positive-metric row :docCount))
+       (<= compact-output-strong-retrieved-label-doc-support-min
+           (positive-metric row :retrievedSupportLabelCount))
+       (<= compact-output-strong-retrieved-label-doc-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= candidate-file-only-query-evidence-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))))
 
 (defn- compact-output-doc-supported-key
   [row]
@@ -4030,8 +4104,17 @@
        (#(when %
            (assoc % ::compact-output-sort-rank
                   (min (double (or (:rank %) Long/MAX_VALUE))
-                       (if (compact-output-strong-doc-supported-row? %)
+                       (cond
+                         (compact-output-strong-retrieved-label-doc-row? %)
+                         compact-output-strong-retrieved-label-doc-sort-rank
+
+                         (compact-output-strong-doc-only-supported-row? %)
+                         compact-output-strong-doc-only-supported-sort-rank
+
+                         (compact-output-strong-doc-supported-row? %)
                          compact-output-strong-doc-supported-sort-rank
+
+                         :else
                          compact-output-doc-supported-sort-rank)))))))
 
 (defn- compact-output-retrieved-supported-row
@@ -4083,7 +4166,9 @@
        (#(when %
            (assoc % ::compact-output-sort-rank
                   (min (double (or (:rank %) Long/MAX_VALUE))
-                       compact-output-retrieved-label-doc-sort-rank))))))
+                       (if (compact-output-strong-retrieved-label-doc-row? %)
+                         compact-output-strong-retrieved-label-doc-sort-rank
+                         compact-output-retrieved-label-doc-sort-rank)))))))
 
 (defn- compact-output-query-evidence-doc-row?
   [row]
@@ -4330,18 +4415,38 @@
     0
     (count (remove str/blank? (str/split (str dir) #"/")))))
 
+(defn- compact-output-directory-anchor-row?
+  [row]
+  (or (pos? (positive-metric row :docCount))
+      (pos? (positive-metric row :entityCount))
+      (pos? (positive-metric row :retrievedSourceCount))
+      (pos? (positive-metric row :exactPathSourceCount))
+      (pos? (positive-metric row :matchedTokenCount))))
+
 (defn- compact-output-selected-directory-sort-rank
   [selected-rows row]
   (let [dir (path-directory (:path row))
         row-rank (or (:rank row) Long/MAX_VALUE)
-        same-dir-ranks (->> selected-rows
-                            (filter #(= dir (path-directory (:path %))))
-                            (filter #(< (or (:rank %) Long/MAX_VALUE)
-                                        row-rank))
+        same-dir-anchors (->> selected-rows
+                              (filter #(= dir (path-directory (:path %))))
+                              (filter compact-output-directory-anchor-row?)
+                              (filter #(< (or (:rank %) Long/MAX_VALUE)
+                                          row-rank))
+                              seq)
+        same-dir-sort-ranks (->> same-dir-anchors
+                                 (keep ::compact-output-sort-rank)
+                                 seq)
+        same-dir-ranks (->> same-dir-anchors
                             (keep :rank)
                             seq)]
-    (if same-dir-ranks
-      (+ (double (apply max same-dir-ranks)) 0.5)
+    (cond
+      same-dir-sort-ranks
+      (+ (double (apply max same-dir-sort-ranks)) 0.01)
+
+      same-dir-ranks
+      (/ (+ (double (apply max same-dir-ranks)) 0.5) 10.0)
+
+      :else
       (double row-rank))))
 
 (defn- compact-output-identity-supported-row
@@ -4464,7 +4569,7 @@
                             (keep :rank)
                             seq)]
     (if same-dir-ranks
-      (+ (double (apply max same-dir-ranks)) 0.5)
+      (/ (+ (double (apply max same-dir-ranks)) 0.5) 10.0)
       (double (or (:rank row) Long/MAX_VALUE)))))
 
 (defn- compact-output-co-located-candidate-row
@@ -4829,13 +4934,16 @@
       (compact-output-sort-and-renumber core))))
 
 (defn- compact-output-candidate-only-rows
-  [selected source-kinds kind-by-path]
-  (let [selected (vec selected)]
-    (when (and (< compact-output-candidate-only-max-files (count selected))
+  [selected limit source-kinds kind-by-path]
+  (let [selected (vec selected)
+        max-files (if (<= (long limit) compact-output-score-tail-max-limit)
+                    compact-output-preserved-head-count
+                    compact-output-candidate-only-max-files)]
+    (when (and (< max-files (count selected))
                (every? candidate-file-only-row? selected))
       (let [compacted (subvec selected
                               0
-                              compact-output-candidate-only-max-files)]
+                              max-files)]
         (when (covers-source-kinds? source-kinds kind-by-path compacted)
           (renumber-file-ranks compacted))))))
 
@@ -4853,7 +4961,10 @@
           (compact-output-core-evidence-rows selected source-kinds kind-by-path))
         (when (and (compact-output-aggressive-pruning? limit selected)
                    (not (inspection-files-scope? result-scope)))
-          (compact-output-candidate-only-rows selected source-kinds kind-by-path))
+          (compact-output-candidate-only-rows selected
+                                              limit
+                                              source-kinds
+                                              kind-by-path))
         (if-let [prefix-size (when (and (<= limit compact-output-score-tail-max-limit)
                                         (not (inspection-files-scope? result-scope)))
                                (compact-output-score-tail-cut selected
@@ -4997,8 +5108,9 @@
                        selected
                        source-kinds
                        kind-by-path)
-             selected-files (compact-output-sort-and-renumber
-                             (take limit (:rows selected)))]
+             selected-files (vec (take limit
+                                       (compact-output-sort-and-renumber
+                                        (:rows selected))))]
          (compact-output-prune-score-tail selected-files
                                           limit
                                           result-scope

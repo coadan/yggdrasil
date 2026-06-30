@@ -1529,6 +1529,7 @@
                        :maxConfidence 1.0
                        :rankScore 3.0
                        :matchedTokenCount 2
+                       :matchedPathQueryTokenCount 1
                        :definitionKinds ["function"]}
              :evidence ["context-doc:src/app.clj lines 2-4 provenance=retrieved-doc"
                         "context-doc:src/app.clj provenance=retrieved-doc"]
@@ -1630,6 +1631,7 @@
                          :maxConfidence 1.0
                          :rankScore 3.0
                          :matchedTokenCount 2
+                         :matchedPathQueryTokenCount 1
                          :definitionKinds ["function"]}
                :evidence ["context-doc:src/app.clj lines 2-4 provenance=retrieved-doc"
                           "context-doc:src/app.clj provenance=retrieved-doc"]
@@ -2503,6 +2505,7 @@
             :rankScore 4.589
             :rareQueryTokenScore 3.2
             :matchedTokenCount 3
+            :matchedPathQueryTokenCount 2
             :architectureSupportBoost 0.189
             :definitionKinds ["env-var"]}
            (get-in files [0 :metrics])))))

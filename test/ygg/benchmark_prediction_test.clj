@@ -275,6 +275,8 @@
                    :confidence 0.8
                    :matched-tokens ["jupiter" "engine"]
                    :query-matched-file-identity-count identity-count
+                   :query-matched-file-identity-max-length
+                   (if (pos? identity-count) 18 0)
                    :definition-kind "class"})
         candidate-row (fn [idx score]
                         {:path (str "noise/Candidate" idx ".java")
