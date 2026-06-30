@@ -410,7 +410,9 @@
 (def ^:private compact-output-query-evidence-doc-sort-rank
   2.5)
 (def ^:private compact-output-retrieved-path-self-identity-sort-rank
-  1.25)
+  0.34)
+(def ^:private compact-output-retrieved-path-self-identity-sort-step
+  0.005)
 (def ^:private compact-output-retrieved-path-self-identity-limit
   2)
 (def ^:private compact-output-retrieved-path-query-token-sort-rank
@@ -4361,7 +4363,8 @@
        (map-indexed (fn [idx row]
                       (assoc row ::compact-output-sort-rank
                              (+ compact-output-retrieved-path-self-identity-sort-rank
-                                idx))))))
+                                (* idx
+                                   compact-output-retrieved-path-self-identity-sort-step)))))))
 
 (defn- compact-output-retrieved-path-query-token-row?
   [row]
@@ -4997,6 +5000,9 @@
                                 compact-output-doc-source-graph-grep-sort-rank)
                               (when (compact-output-candidate-source-graph-head-row? row)
                                 compact-output-candidate-source-graph-head-sort-rank)
+                              (when (compact-output-retrieved-path-self-identity-row?
+                                     row)
+                                compact-output-retrieved-path-self-identity-sort-rank)
                               (when (compact-output-doc-supported-source-graph-query-row?
                                      row)
                                 compact-output-doc-supported-source-graph-query-sort-rank)
