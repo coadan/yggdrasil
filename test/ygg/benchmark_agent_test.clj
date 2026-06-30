@@ -4577,6 +4577,75 @@
     (is (some #{"src/flask/sansio/app.py"} paths))
     (is (not-any? #{"src/head-12.py"} paths))))
 
+(deftest compact-output-frontloads-query-evidence-source-candidate
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "surface/a.page"
+                    1
+                    {:candidateFileCount 4
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 6
+                     :candidateGrepScore 0.4
+                     :candidateLexicalComponentBoost 0.15
+                     :sourceGraphCandidateEvidenceScore 0.55
+                     :rankScore 22.0})
+               (row "surface/b.page"
+                    2
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :directFileCandidateCount 1
+                     :matchedTokenCount 4
+                     :sourceGraphCandidateEvidenceScore 3.5
+                     :rankScore 8.0})
+               (row "surface/c.page"
+                    3
+                    {:candidateFileCount 1
+                     :docCount 1
+                     :entityCount 0
+                     :matchedTokenCount 5
+                     :sourceGraphCandidateEvidenceScore 0.59
+                     :rankScore 7.0})
+               (row "surface/d.page"
+                    4
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 4
+                     :candidateSourceRank 6
+                     :sourceGraphCandidateEvidenceScore 0.36
+                     :rankScore 5.2})
+               (row "surface/e.page"
+                    5
+                    {:candidateFileCount 1
+                     :directFileCandidateCount 1
+                     :fileIdentitySupportLabelCount 4
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 1
+                     :candidateSourceRank 8
+                     :sourceGraphCandidateEvidenceScore 0.47
+                     :rankScore 2.4})
+               (row "surface/query-supported.page"
+                    6
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :candidateSourceRank 4
+                     :matchedTokenCount 3
+                     :candidateGrepScore 0.3
+                     :candidateLexicalComponentBoost 0.1
+                     :sourceGraphCandidateEvidenceScore 0.55
+                     :rankScore 3.1})]
+        paths (mapv :path (compact-output files 20 nil))]
+    (is (= "surface/query-supported.page" (nth paths 4)))
+    (is (< (.indexOf paths "surface/query-supported.page")
+           (.indexOf paths "surface/e.page")))))
+
 (deftest compact-output-spreads-candidate-support-signatures
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank signature]

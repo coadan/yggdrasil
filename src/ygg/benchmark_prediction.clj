@@ -425,6 +425,8 @@
   0.38)
 (def ^:private compact-output-after-preserved-head-sort-rank
   (+ (/ (double compact-output-preserved-head-count) 10.0) 0.01))
+(def ^:private compact-output-early-query-evidence-source-sort-rank
+  (- compact-output-after-preserved-head-sort-rank 0.005))
 (def ^:private compact-result-command-limit
   5)
 (def ^:private dependency-package-identity-query-token-min
@@ -4489,9 +4491,14 @@
        (sort-by query-evidence-source-candidate-key)
        first
        (#(when %
-           (assoc % ::compact-output-sort-rank
-                  (compact-output-selected-directory-sort-rank selected-rows
-                                                               %))))))
+           (let [directory-sort-rank
+                 (compact-output-selected-directory-sort-rank selected-rows %)]
+             (assoc % ::compact-output-sort-rank
+                    (if (<= (row-candidate-source-rank %)
+                            compact-output-early-source-graph-rank-window)
+                      (min compact-output-early-query-evidence-source-sort-rank
+                           directory-sort-rank)
+                      directory-sort-rank)))))))
 
 (defn- compact-output-early-source-graph-row?
   [row]
