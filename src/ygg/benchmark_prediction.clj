@@ -4676,16 +4676,6 @@
   [files selected-rows row]
   (let [dir-key (file-row-directory-key row)
         row-rank (or (:rank row) Long/MAX_VALUE)
-        same-dir-selected-ranks (->> selected-rows
-                                     (filter #(= dir-key
-                                                 (file-row-directory-key %)))
-                                     (filter #(pos? (positive-metric
-                                                     %
-                                                     :docCount)))
-                                     (filter #(< (or (:rank %) Long/MAX_VALUE)
-                                                 row-rank))
-                                     (keep ::compact-output-sort-rank)
-                                     seq)
         same-dir-ranks (->> (concat selected-rows files)
                             (filter #(= dir-key (file-row-directory-key %)))
                             (filter #(pos? (positive-metric % :docCount)))
@@ -4693,15 +4683,8 @@
                                         row-rank))
                             (keep :rank)
                             seq)]
-    (cond
-      same-dir-selected-ranks
-      (+ (double (apply min same-dir-selected-ranks))
-         (* 0.01 (count same-dir-selected-ranks)))
-
-      same-dir-ranks
+    (if same-dir-ranks
       (/ (+ (double (apply max same-dir-ranks)) 0.5) 10.0)
-
-      :else
       (double (or (:rank row) Long/MAX_VALUE)))))
 
 (defn- compact-output-co-located-candidate-row
