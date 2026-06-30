@@ -3965,6 +3965,8 @@
   [row]
   [(- (positive-metric row :matchedIdentityCompoundTokenPairCount))
    (- (positive-metric row :matchedCompoundTokenPairCount))
+   (- (positive-metric row :retrievedSourceCount))
+   (- (positive-metric row :fileIdentitySupportLabelCount))
    (- (positive-metric row :retrievedSupportLabelCount))
    (- (positive-metric row :matchedTokenCount))
    (- (row-metric-double row :candidateGrepScore))

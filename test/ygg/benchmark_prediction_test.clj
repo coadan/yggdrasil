@@ -1369,6 +1369,89 @@
         selected-paths (mapv :path (compact-output files 20 nil))]
     (is (some #{"lib/adapters/http.js"} (take 5 selected-paths)))))
 
+(deftest compact-output-prefers-file-owned-retrieved-label-doc-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/unit/adapters/adapters.test.js"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 3
+                     :retrievedSourceCount 1
+                     :retrievedSupportLabelCount 2
+                     :matchedTokenCount 7
+                     :sourceGraphCandidateEvidenceScore 0.58
+                     :candidateGrepScore 0.44
+                     :rankScore 20.2})
+               (row "tests/unit/adapters/http.test.js"
+                    2
+                    {:docCount 1
+                     :candidateFileCount 4
+                     :retrievedSourceCount 1
+                     :retrievedSupportLabelCount 4
+                     :matchedTokenCount 11
+                     :sourceGraphCandidateEvidenceScore 0.59
+                     :candidateGrepScore 0.90
+                     :rankScore 20.1})
+               (row "tests/smoke/cjs/tests/files.smoke.test.cjs"
+                    3
+                    {:docCount 1
+                     :candidateFileCount 2
+                     :retrievedSourceCount 1
+                     :retrievedSupportLabelCount 2
+                     :matchedTokenCount 5
+                     :sourceGraphCandidateEvidenceScore 0.55
+                     :candidateGrepScore 0.05
+                     :rankScore 19.2})
+               (row "tests/smoke/esm/tests/files.smoke.test.js"
+                    4
+                    {:docCount 1
+                     :candidateFileCount 2
+                     :retrievedSourceCount 1
+                     :retrievedSupportLabelCount 2
+                     :matchedTokenCount 7
+                     :sourceGraphCandidateEvidenceScore 0.55
+                     :candidateGrepScore 0.05
+                     :rankScore 18.2})
+               (row "lib/core/AxiosError.js"
+                    5
+                    {:docCount 1
+                     :candidateFileCount 2
+                     :retrievedSourceCount 1
+                     :retrievedSupportLabelCount 5
+                     :matchedTokenCount 8
+                     :sourceGraphCandidateEvidenceScore 0.56
+                     :candidateGrepScore 0.05
+                     :rankScore 7.0})
+               (row "tests/unit/adapters/fetch.test.js"
+                    6
+                    {:docCount 1
+                     :candidateFileCount 3
+                     :retrievedSourceCount 1
+                     :fileIdentitySupportLabelCount 3
+                     :retrievedSupportLabelCount 4
+                     :matchedTokenCount 10
+                     :sourceGraphCandidateEvidenceScore 0.58
+                     :candidateGrepScore 0.39
+                     :rankScore 14.1})
+               (row "lib/adapters/http.js"
+                    7
+                    {:docCount 2
+                     :candidateFileCount 3
+                     :retrievedSourceCount 2
+                     :fileIdentitySupportLabelCount 4
+                     :retrievedSupportLabelCount 5
+                     :matchedTokenCount 6
+                     :sourceGraphCandidateEvidenceScore 0.53
+                     :candidateGrepScore 0.32
+                     :rankScore 13.0})]
+        selected-paths (mapv :path (compact-output files 20 nil))]
+    (is (= "lib/adapters/http.js" (nth selected-paths 4)))
+    (is (< (.indexOf selected-paths "lib/adapters/http.js")
+           (.indexOf selected-paths "lib/core/AxiosError.js")))))
+
 (deftest compact-output-frontloads-query-evidence-doc-row
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]
