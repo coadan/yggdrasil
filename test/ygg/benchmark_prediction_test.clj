@@ -479,10 +479,12 @@
 
 (deftest source-graph-query-evidence-boost-accepts-identity-path-alignment
   (let [boost @#'benchmark-prediction/source-graph-query-evidence-boost]
-    (is (zero? (boost 19 20 0.51 3 3 0 2)))
-    (is (pos? (boost 20 20 0.51 3 3 0 2)))
-    (is (zero? (boost 20 20 0.51 2 3 0 2)))
-    (is (zero? (boost 20 21 0.51 3 3 0 2)))))
+    (is (zero? (boost 19 20 0.51 3 0 3 0 2)))
+    (is (pos? (boost 20 20 0.51 3 0 3 0 2)))
+    (is (pos? (boost 1 20 0.51 1 1 6 0 2)))
+    (is (zero? (boost 1 20 0.51 0 1 6 0 2)))
+    (is (zero? (boost 1 20 0.51 1 0 6 0 2)))
+    (is (zero? (boost 1 21 0.51 1 1 6 0 2)))))
 
 (deftest doc-supported-source-graph-query-boost-requires-doc-evidence
   (let [boost @#'benchmark-prediction/doc-supported-source-graph-query-boost]

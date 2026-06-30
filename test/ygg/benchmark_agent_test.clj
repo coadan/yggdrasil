@@ -3306,6 +3306,74 @@
                                 ["src/SqlMapper.Settings.cs" :metrics])
                         :directFileIdentitySupportBoost)))))
 
+(deftest file-ranking-frontloads-candidate-only-dotted-stem-part-source-graph-evidence
+  (let [root (temp-dir "ygg-bench-dotted-stem-part-source-graph")
+        _ (spit-file! root "tests/Dapper.Tests/ParameterTests.cs" "public class ParameterTests {}\n")
+        _ (spit-file! root "tests/Dapper.Tests/EnumTests.cs" "public class EnumTests {}\n")
+        _ (spit-file! root "tests/Dapper.Tests/TypeHandlerTests.cs" "public class TypeHandlerTests {}\n")
+        _ (spit-file! root "benchmarks/Dapper.Tests.Performance/Benchmarks.Belgrade.cs" "public class BelgradeBenchmarks {}\n")
+        _ (spit-file! root "benchmarks/Dapper.Tests.Performance/Benchmarks.cs" "public class Benchmarks {}\n")
+        _ (spit-file! root "Dapper/SqlMapper.Settings.cs" "public static class Settings {}\n")
+        packet {:query (str "Fix/prefer typehandlers for enums in Dapper. The fix added "
+                            "an opt-in setting so registered enum TypeHandlers "
+                            "are preferred before default enum boxing, with "
+                            "changes in core mapping/settings code and "
+                            "regression tests.")
+                :docs [{:source {:path "tests/Dapper.Tests/ParameterTests.cs"
+                                 :heading "Dapper.Tests/ParameterTests.TestSqlDataRecordListParametersWithTypeHandlers"}
+                        :score 1.5
+                        :snippet "type handlers enum tests"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "tests/Dapper.Tests/EnumTests.cs"
+                                 :heading "Dapper.Tests/TestEnum"}
+                        :score 1.9
+                        :snippet "enum boxing tests"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}
+                       {:source {:path "tests/Dapper.Tests/TypeHandlerTests.cs"
+                                 :heading "Dapper.Tests/E_Int"}
+                        :score 1.8
+                        :snippet "type handler enum tests"
+                        :retrievedSource true
+                        :provenance "retrieved-doc"}]
+                :candidateFiles [{:path "benchmarks/Dapper.Tests.Performance/Benchmarks.Belgrade.cs"
+                                  :rank 1
+                                  :score 0.93
+                                  :targetKind "node"
+                                  :label "Dapper.Tests.Performance"
+                                  :supportLabels ["Dapper.Tests.Performance/BelgradeBenchmarks.Setup"
+                                                  "Dapper.Tests.Performance/BelgradeBenchmarks"]
+                                  :scoreComponents {:sourceGraph 0.6
+                                                    :lexical 1.0
+                                                    :grep 0.08}}
+                                 {:path "benchmarks/Dapper.Tests.Performance/Benchmarks.cs"
+                                  :rank 2
+                                  :score 0.84
+                                  :targetKind "file"
+                                  :label "benchmarks/Dapper.Tests.Performance/Benchmarks.cs"
+                                  :supportLabels ["Dapper.Tests.Performance/BenchmarkBase.ConnectionStringSettings"
+                                                  "Dapper.Tests.Performance"]
+                                  :scoreComponents {:sourceGraph 0.6}}
+                                 {:path "Dapper/SqlMapper.Settings.cs"
+                                  :rank 11
+                                  :score 0.95
+                                  :targetKind "file"
+                                  :label "Dapper/SqlMapper.Settings.cs"
+                                  :supportLabels ["Dapper/SqlMapper.TypeHandler.cs"
+                                                  "Dapper/TypeHandler"
+                                                  "Dapper"
+                                                  "Dapper/TypeHandler.SetValue"]
+                                  :scoreComponents {:sourceGraph 0.6}}]}
+        files (:suspectedFiles (benchmark/context-packet->agent-result packet
+                                                                       {:root root}))
+        paths (mapv :path files)
+        settings (first (filter #(= "Dapper/SqlMapper.Settings.cs" (:path %))
+                                files))]
+    (is (> 5 (.indexOf paths "Dapper/SqlMapper.Settings.cs")))
+    (is (= 1 (get-in settings [:metrics :queryMatchedFileStemPartCount])))
+    (is (pos? (get-in settings [:metrics :sourceGraphQueryEvidenceBoost])))))
+
 (deftest file-ranking-boosts-candidate-node-file-identity-support
   (let [root (temp-dir "ygg-bench-node-file-identity-support")
         _ (spit-file! root "tests/unit/adapters/http.test.js" "describe('http', () => {})\n")

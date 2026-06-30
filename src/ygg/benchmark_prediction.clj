@@ -121,6 +121,10 @@
   3)
 (def ^:private rank-score-source-graph-query-evidence-identity-min
   2)
+(def ^:private rank-score-source-graph-query-evidence-stem-part-identity-min
+  1)
+(def ^:private rank-score-source-graph-query-evidence-stem-part-min
+  1)
 (def ^:private rank-score-source-graph-query-evidence-path-token-min
   2)
 (def ^:private rank-score-source-graph-query-evidence-dense-candidate-min
@@ -782,6 +786,15 @@
                                           (count %)))
                              set)]
     (set/intersection query-identities file-identities)))
+
+(defn- query-file-stem-part-matches
+  [query-tokens path]
+  (let [query-identities (->> query-tokens
+                              (keep compact-identity)
+                              set)
+        file-part-identities (set (file-stem-identity-parts path))]
+    (set/intersection query-identities file-part-identities)))
+
 (defn- query-file-identity-match-max-length
   [matches]
   (apply max 0 (map count matches)))
@@ -1048,6 +1061,7 @@
    candidate-source-rank
    source-graph-candidate-evidence-score
    file-identity-support-label-count
+   query-matched-file-stem-part-count
    matched-token-count
    matched-token-pair-count
    matched-path-query-token-count]
@@ -1057,12 +1071,20 @@
                rank-score-source-graph-query-evidence-rank-window)
            (<= rank-score-source-graph-query-evidence-score-min
                (double source-graph-candidate-evidence-score))
-           (<= rank-score-source-graph-query-evidence-identity-min
-               (long file-identity-support-label-count))
            (or (and (<= rank-score-source-graph-query-evidence-token-min
                         (long matched-token-count))
+                    (<= rank-score-source-graph-query-evidence-identity-min
+                        (long file-identity-support-label-count))
                     (<= rank-score-source-graph-query-evidence-pair-min
                         (long matched-token-pair-count)))
+               (and (<= rank-score-source-graph-query-evidence-token-min
+                        (long matched-token-count))
+                    (<= rank-score-source-graph-query-evidence-path-token-min
+                        (long matched-path-query-token-count))
+                    (<= rank-score-source-graph-query-evidence-stem-part-min
+                        (long query-matched-file-stem-part-count))
+                    (<= rank-score-source-graph-query-evidence-stem-part-identity-min
+                        (long file-identity-support-label-count)))
                (and (<= rank-score-source-graph-query-evidence-dense-candidate-min
                         (long candidate-count))
                     (<= rank-score-source-graph-query-evidence-dense-identity-min
@@ -1720,6 +1742,9 @@
             file-identity-support-label-count (file-identity-support-label-count
                                                path
                                                support-labels)
+            query-file-stem-part-matches (query-file-stem-part-matches
+                                          query-tokens
+                                          path)
             exported-support-label-count (exported-support-label-count
                                           support-labels)
             query-matched-exported-support-label-count
@@ -1778,6 +1803,8 @@
                  :matched-path-query-token-count
                  (query-matched-path-token-count query-tokens path)
                  :file-identity-support-label-count file-identity-support-label-count
+                 :query-matched-file-stem-part-count
+                 (count query-file-stem-part-matches)
                  :candidate-support-label-signature exported-support-label-signature
                  :exported-support-label-count exported-support-label-count
                  :query-matched-exported-support-label-count
@@ -2430,6 +2457,11 @@
                                     0
                                     (keep :file-identity-support-label-count
                                           ordered))
+                             query-matched-file-stem-part-count
+                             (apply max
+                                    0
+                                    (keep :query-matched-file-stem-part-count
+                                          ordered))
                              exported-support-label-count
                              (apply max
                                     0
@@ -2655,6 +2687,7 @@
                               candidate-source-rank
                               source-graph-candidate-evidence-score
                               file-identity-support-label-count
+                              query-matched-file-stem-part-count
                               (count matched-tokens)
                               (count matched-token-pairs)
                               matched-path-query-token-count)
@@ -2831,6 +2864,9 @@
                                        (pos? query-matched-file-identity-max-length)
                                        (assoc :queryMatchedFileIdentityMaxLength
                                               query-matched-file-identity-max-length)
+                                       (pos? query-matched-file-stem-part-count)
+                                       (assoc :queryMatchedFileStemPartCount
+                                              query-matched-file-stem-part-count)
                                        (pos? retrieved-query-file-identity-boost)
                                        (assoc :retrievedQueryFileIdentityBoost
                                               retrieved-query-file-identity-boost)
