@@ -902,6 +902,26 @@
     (is (= (benchmark-prepare/agent-input-fingerprint suite base-case)
            (benchmark-prepare/agent-input-fingerprint suite changed-expectations)))))
 
+(deftest case-fingerprint-excludes-recall-coverage-tags
+  (let [suite {:id "suite"}
+        base-case {:id "case-1"
+                   :repo-id "repo"
+                   :base-sha "base"
+                   :fix-sha "fix"
+                   :coverage {:source-kinds [:clojure]}
+                   :tags [:problem-implementation
+                          :architecture-runtime-boundary
+                          :recall-hybrid]
+                   :ground-truth {:localization-files ["src/app.clj"]}
+                   :issue {:title "Broken app"
+                           :body "Find the route."}}
+        recall-tag-change (update base-case :tags conj :recall-semantic)
+        problem-tag-change (update base-case :tags conj :problem-review)]
+    (is (= (benchmark-prepare/case-fingerprint suite base-case)
+           (benchmark-prepare/case-fingerprint suite recall-tag-change)))
+    (is (not= (benchmark-prepare/case-fingerprint suite base-case)
+              (benchmark-prepare/case-fingerprint suite problem-tag-change)))))
+
 (deftest matches-graph-expectation-rows-with-explicit-fields
   (let [evidence [{:kind :url
                    :path "config/app.yml"

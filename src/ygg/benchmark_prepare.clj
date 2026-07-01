@@ -1,5 +1,6 @@
 (ns ygg.benchmark-prepare
-  (:require [ygg.benchmark-io :as benchmark-io]
+  (:require [ygg.benchmark-classes :as benchmark-classes]
+            [ygg.benchmark-io :as benchmark-io]
             [ygg.benchmark-paths :as benchmark-paths]
             [ygg.benchmark-progress :as benchmark-progress]
             [ygg.benchmark-score :as benchmark-score]
@@ -29,6 +30,12 @@
 (defn- case-tags
   [case]
   (benchmark-suite/case-tags case))
+
+(defn- case-fingerprint-tags
+  [case]
+  (->> (case-tags case)
+       (remove benchmark-classes/recall-class-tag?)
+       vec))
 
 (defn- case-expectations
   [case]
@@ -486,7 +493,7 @@
    :base-sha (:base-sha case)
    :fix-sha (:fix-sha case)
    :result-scope (:result-scope case)
-   :tags (case-tags case)
+   :tags (case-fingerprint-tags case)
    :query-text (issue-text case)
    :coverage {:source-kinds (declared-source-kinds case)}
    :decision-candidates (decision-candidates case)
