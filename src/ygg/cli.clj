@@ -1096,7 +1096,7 @@
     "  service start-at-login enable|disable|status [--json]"
     "  status [--json]"
     "  stop"
-    "  mcp [--root DIR] [--config project.edn] [--queue-dir DIR] [--tools default,sync,work|all]"
+    "  mcp [--root DIR] [--config project.edn] [--project ID] [--tools default,sync,work|all]"
     ""
     "Benchmarks:"
     "  bench prepare|run|report <benchmark.edn> [--case ID] [--cases ID,ID] [--parser-worker none|java|dotnet|javascript|typescript|all] [--index-timeout-ms N] [--out DIR] [--json]"

@@ -81,7 +81,7 @@
   {:root (or (option-value args "--root") default-root)
    :config-path (option-value args "--config")
    :project-id (option-value args "--project")
-   :queue-dir (or (option-value args "--queue-dir") queue/default-root)
+   :queue-dir (option-value args "--queue-dir")
    :tool-groups (parse-tool-groups (configured-tool-groups args))})
 
 (defn- json-schema
@@ -157,15 +157,14 @@
     :description "Import project queue lifecycle and result audit facts into local activity rows."
     :inputSchema (json-schema
                   {:configPath {:type "string"}
-                   :queueDir {:type "string"}}
+                   :projectId {:type "string"}}
                   [])}
    {:name "ygg_work_list"
     :groups #{:work}
     :read-only? true
     :description "List project queue work items without claiming them."
     :inputSchema (json-schema
-                  {:queueDir {:type "string"}
-                   :projectId {:type "string"}
+                  {:projectId {:type "string"}
                    :kind {:type "string"}
                    :status {:type "string"}
                    :limit {:type "integer"
@@ -176,15 +175,14 @@
     :read-only? true
     :description "Return one project queue work item without changing its state."
     :inputSchema (json-schema
-                  {:queueDir {:type "string"}
+                  {:projectId {:type "string"}
                    :workId {:type "string"}}
                   ["workId"])}
    {:name "ygg_work_pull"
     :groups #{:work}
     :description "Claim one ready project queue item for an agent."
     :inputSchema (json-schema
-                  {:queueDir {:type "string"}
-                   :projectId {:type "string"}
+                  {:projectId {:type "string"}
                    :kind {:type "string"}
                    :agentId {:type "string"}
                    :leaseMinutes {:type "integer"
@@ -194,7 +192,7 @@
     :groups #{:work}
     :description "Extend the lease for one claimed project queue item."
     :inputSchema (json-schema
-                  {:queueDir {:type "string"}
+                  {:projectId {:type "string"}
                    :workId {:type "string"}
                    :agentId {:type "string"}
                    :leaseMinutes {:type "integer"
@@ -204,7 +202,7 @@
     :groups #{:work}
     :description "Complete a claimed project queue item with a schema-bearing result object."
     :inputSchema (json-schema
-                  {:queueDir {:type "string"}
+                  {:projectId {:type "string"}
                    :workId {:type "string"}
                    :result {:type "object"}}
                   ["workId" "result"])}
@@ -212,7 +210,7 @@
     :groups #{:work}
     :description "Release one claimed project queue item back to ready."
     :inputSchema (json-schema
-                  {:queueDir {:type "string"}
+                  {:projectId {:type "string"}
                    :workId {:type "string"}
                    :reason {:type "string"}}
                   ["workId"])}
@@ -220,7 +218,7 @@
     :groups #{:work}
     :description "Reject one project queue item with a reason."
     :inputSchema (json-schema
-                  {:queueDir {:type "string"}
+                  {:projectId {:type "string"}
                    :workId {:type "string"}
                    :reason {:type "string"}}
                   ["workId" "reason"])}])
@@ -279,20 +277,26 @@
         (when (.isFile candidate)
           (.getPath candidate)))))
 
+(defn- resolve-project-ref
+  [ctx args]
+  (try
+    (registry/resolve-project {:project-id (or (:projectId args)
+                                               (:project-id ctx))
+                               :cwd (abs-path (:root ctx))})
+    (catch Exception _
+      nil)))
+
 (defn- read-project!
   [ctx args]
   (let [path (config-path ctx args)]
     (if-not (str/blank? (str path))
       (project/read-project path)
-      (let [project-id (or (:projectId args) (:project-id ctx))]
-        (if (str/blank? (str project-id))
-          (throw (ex-info "Missing Yggdrasil project config."
-                          {:schema "ygg.mcp.error/v1"
-                           :error "missing-project-config"
-                           :hint "Start ygg-mcp with --config project.edn or pass projectId."}))
-          (:project (registry/resolve-project
-                     {:project-id project-id
-                      :cwd (abs-path (:root ctx))})))))))
+      (if-let [resolved (resolve-project-ref ctx args)]
+        (:project resolved)
+        (throw (ex-info "Missing Yggdrasil project config."
+                        {:schema "ygg.mcp.error/v1"
+                         :error "missing-project-config"
+                         :hint "Start ygg-mcp in a repo with .ygg/project.edn, pass --config, or pass projectId."}))))))
 
 (defn- project-id
   [project args]
@@ -306,13 +310,18 @@
         (try
           (:id (project/read-project path))
           (catch Exception _
-            nil)))))
+            nil)))
+      (:project-id (resolve-project-ref ctx args))))
 
 (defn- queue-root
   [ctx args]
   (or (:queueDir args)
       (some-> (queue-project-id ctx args) store/project-sqlite-path)
-      (:queue-dir ctx)))
+      (:queue-dir ctx)
+      (throw (ex-info "Missing Yggdrasil project for queue."
+                      {:schema "ygg.mcp.error/v1"
+                       :error "missing-project-queue"
+                       :hint "Start ygg-mcp in a repo with .ygg/project.edn, pass --config, or pass projectId."}))))
 
 (defn- correction-overlay
   [xtdb project args]

@@ -7,10 +7,12 @@
             [ygg.graph :as graph]
             [ygg.mcp :as mcp]
             [ygg.project :as project]
+            [ygg.project-registry :as registry]
             [ygg.query :as query]
             [ygg.queue :as queue]
             [ygg.xtdb :as store]
             [charred.api :as json]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
@@ -36,6 +38,7 @@
   (is (= "project.edn"
          (:config-path (mcp/server-context ["--config" "project.edn"]))))
   (is (nil? (:config-path (mcp/server-context ["--project-config" "legacy.edn"]))))
+  (is (nil? (:queue-dir (mcp/server-context []))))
   (is (not (contains? (mcp/server-context ["--storage" "/tmp/xtdb"])
                       :storage-path))))
 
@@ -193,8 +196,10 @@
            (set (keys (get-in schemas ["ygg_sync_inspect" :properties])))))
     (is (= #{:configPath}
            (set (keys (get-in schemas ["ygg_status" :properties])))))
-    (is (contains? (set (keys (get-in schemas ["ygg_sync_activity" :properties])))
-                   :queueDir))
+    (is (= #{:configPath :projectId}
+           (set (keys (get-in schemas ["ygg_sync_activity" :properties])))))
+    (is (contains? (set (keys (get-in schemas ["ygg_work_list" :properties])))
+                   :projectId))
     (is (= ["workId"]
            (get-in schemas ["ygg_work_show" :required])))
     (is (= ["workId"]
@@ -1288,11 +1293,51 @@
                   (mcp/server-context ["--tools" "work"])
                   (tool-call 12
                              "ygg_work_complete"
-                             {:workId "queue:item"
+                             {:queueDir (temp-dir "ygg-mcp-invalid-result-queue")
+                              :workId "queue:item"
                               :result {:ok true}}))]
     (is (= -32602 (get-in response [:error :code])))
     (is (= "invalid-result" (get-in response [:error :data :error])))
     (is (= "result.schema" (get-in response [:error :data :field])))))
+
+(deftest work-list-requires-project-queue
+  (with-redefs [registry/resolve-project (fn [& _]
+                                           (throw (ex-info "missing" {})))]
+    (let [response (mcp/handle-message
+                    (mcp/server-context ["--tools" "work"])
+                    (tool-call 13 "ygg_work_list" {}))]
+      (is (= -32602 (get-in response [:error :code])))
+      (is (= "missing-project-queue"
+             (get-in response [:error :data :error]))))))
+
+(deftest work-list-resolves-central-project-queue-from-server-root
+  (let [server-root (temp-dir "ygg-mcp-project-root")
+        queue-root (temp-dir "ygg-mcp-central-queue")
+        calls (atom [])
+        payload {:schema context/schema
+                 :project-id "fixture"}
+        item (queue/enqueue! payload {:root queue-root
+                                      :kind "context"
+                                      :project-id "fixture"})]
+    (with-redefs [registry/resolve-project (fn [opts]
+                                             (swap! calls conj opts)
+                                             {:project-id "fixture"
+                                              :project project-fixture})
+                  store/project-sqlite-path (fn [project-id]
+                                              (is (= "fixture" project-id))
+                                              queue-root)]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--root" server-root
+                                           "--tools" "work"])
+                      (tool-call 13
+                                 "ygg_work_list"
+                                 {:kind "context"}))
+            listed (get-in response [:result :structuredContent])]
+        (is (= queue/list-schema (:schema listed)))
+        (is (= [(:id (:item item))] (mapv :id (:items listed))))
+        (is (= [{:project-id nil
+                 :cwd (.getPath (.getCanonicalFile (io/file server-root)))}]
+               @calls))))))
 
 (deftest work-list-returns-actionable-queue-summaries
   (let [root (temp-dir "ygg-mcp-queue-list")
