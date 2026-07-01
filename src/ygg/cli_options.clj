@@ -76,7 +76,7 @@
     "--graphify-command" "--graphify-bin" "--graphify-output-dir"
     "--graphify-query-budget" "--graphify-max-workers" "--parser-worker"
     "--ref" "--subdir" "--cache-dir" "--shell-report" "--ygg-report"
-    "--timeout-ms" "--index-timeout-ms" "--min-cases" "--min-runs"
+    "--timeout-ms" "--index-timeout-ms" "--extract-parallelism" "--min-cases" "--min-runs"
     "--min-shared-cases"
     "--retrieval-limit" "--embedding-provider-limit"
     "--output" "--anchor" "--symbol" "--literal" "--lanes"

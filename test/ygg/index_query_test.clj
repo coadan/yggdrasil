@@ -2279,6 +2279,43 @@
               (is (= "extractor:test-changed"
                      (:extractor-fingerprint changed-row))))))))))
 
+(deftest index-parallel-extraction-batches-changed-files-deterministically
+  (let [xtdb-path (temp-dir "ygg-index-parallel-extract-xtdb")
+        repo (temp-dir "ygg-index-parallel-extract-repo")
+        active (atom 0)
+        max-active (atom 0)
+        progress (atom [])
+        original-extract-file (var-get #'extract/extract-file)]
+    (doseq [[path n] [["src/a.clj" 1]
+                      ["src/b.clj" 2]
+                      ["src/c.clj" 3]
+                      ["src/d.clj" 4]]]
+      (spit-file! repo path (str "(ns demo." n ")\n(defn value [] " n ")\n")))
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (with-redefs [extract/extract-file
+                      (fn [run-id file]
+                        (let [active-count (swap! active inc)]
+                          (swap! max-active max active-count)
+                          (try
+                            (Thread/sleep 50)
+                            (original-extract-file run-id file)
+                            (finally
+                              (swap! active dec)))))]
+          (let [summary (index/index-repo! xtdb
+                                           repo
+                                           {:extract-parallelism 2
+                                            :progress-interval 1
+                                            :progress-fn #(swap! progress conj %)})]
+            (is (= 4 (get-in summary [:stats :files-indexed])))
+            (is (= 2 (:extract-parallelism summary)))
+            (is (<= 2 @max-active))
+            (is (= ["src/a.clj" "src/b.clj" "src/c.clj" "src/d.clj"]
+                   (->> @progress
+                        (filter #(= :extract-progress (:phase %)))
+                        (mapv :path))))
+            (is (some? (store/file-row xtdb "src/a.clj")))))))))
+
 (deftest index-skips-derived-dependency-refresh-when-inputs-are-unchanged
   (let [xtdb-path (temp-dir "ygg-index-dependency-refresh-xtdb")
         repo (io/file (temp-dir "ygg-index-dependency-refresh-repo"))

@@ -649,7 +649,7 @@
 (defn index-project!
   "Index every repo in project config into XTDB."
   [xtdb project {:keys [dry-run? index-profile correction-overlay index-timeout-ms index-deadline-ns
-                        progress-fn progress-interval]
+                        progress-fn progress-interval extract-parallelism]
                  :or {dry-run? false
                       index-profile index/default-index-profile}}]
   (let [index-opts (with-index-deadline {:index-profile index-profile
@@ -658,6 +658,7 @@
                                          :index-deadline-ns index-deadline-ns
                                          :progress-fn progress-fn
                                          :progress-interval progress-interval
+                                         :extract-parallelism extract-parallelism
                                          :extractors (extractors project)})]
     (if dry-run?
       {:project-id (:id project)
@@ -690,7 +691,7 @@
   "Index one repo from a project config into XTDB."
   [xtdb project repo-id {:keys [dry-run? index-profile correction-overlay
                                 index-timeout-ms index-deadline-ns
-                                progress-fn progress-interval]
+                                progress-fn progress-interval extract-parallelism]
                          :or {dry-run? false
                               index-profile index/default-index-profile}}]
   (let [repo (or (some #(when (= repo-id (:id %)) %) (:repos project))
@@ -703,6 +704,7 @@
                                          :index-deadline-ns index-deadline-ns
                                          :progress-fn progress-fn
                                          :progress-interval progress-interval
+                                         :extract-parallelism extract-parallelism
                                          :extractors (extractors project)})]
     (if dry-run?
       (index/index-repo! nil

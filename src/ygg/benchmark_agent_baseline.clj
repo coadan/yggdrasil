@@ -57,6 +57,9 @@
 (def default-index-timeout-ms
   600000)
 
+(def default-benchmark-extract-parallelism
+  4)
+
 (defn- index-timeout-ms
   [opts]
   (let [configured (get opts :index-timeout-ms ::default)]
@@ -64,9 +67,16 @@
       (= ::default configured) default-index-timeout-ms
       (and configured (pos? (long configured))) (long configured)
       :else nil)))
+
+(defn- extract-parallelism
+  [opts]
+  (max 1 (long (or (:extract-parallelism opts)
+                   default-benchmark-extract-parallelism))))
+
 (defn benchmark-index-options
   [opts]
-  (cond-> {:index-profile :query}
+  (cond-> {:index-profile :query
+           :extract-parallelism (extract-parallelism opts)}
     (some? (index-timeout-ms opts)) (assoc :index-timeout-ms (index-timeout-ms opts))))
 (defn context-ground-truth-ranks
   [prepared packet]

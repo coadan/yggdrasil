@@ -289,13 +289,20 @@
         (is (apply identical? @caches))))))
 (deftest benchmark-index-options-are-bounded-by-default
   (is (= {:index-profile :query
+          :extract-parallelism 4
           :index-timeout-ms 600000}
          (#'benchmark/benchmark-index-options {})))
   (is (= {:index-profile :query
+          :extract-parallelism 4
           :index-timeout-ms 1234}
          (#'benchmark/benchmark-index-options {:index-timeout-ms 1234})))
-  (is (= {:index-profile :query}
-         (#'benchmark/benchmark-index-options {:index-timeout-ms 0}))))
+  (is (= {:index-profile :query
+          :extract-parallelism 4}
+         (#'benchmark/benchmark-index-options {:index-timeout-ms 0})))
+  (is (= {:index-profile :query
+          :extract-parallelism 2
+          :index-timeout-ms 600000}
+         (#'benchmark/benchmark-index-options {:extract-parallelism 2}))))
 
 (deftest agent-baseline-records-maintenance-activity-and-sync-inspect
   (let [root (temp-dir "ygg-bench-baseline-maintenance-repo")

@@ -96,6 +96,11 @@
                                                            (parse-optional-long
                                                             args
                                                             "--index-timeout-ms"))
+    (parse-optional-long args "--extract-parallelism") (assoc
+                                                        :extract-parallelism
+                                                        (parse-optional-long
+                                                         args
+                                                         "--extract-parallelism"))
     (parse-optional-long args "--graphify-query-budget") (assoc
                                                           :graphify-query-budget
                                                           (parse-optional-long

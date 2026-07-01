@@ -72,6 +72,13 @@
 (def default-progress-interval
   50)
 
+(def default-extract-parallelism
+  1)
+
+(defn- normalized-extract-parallelism
+  [extract-parallelism]
+  (max 1 (long (or extract-parallelism default-extract-parallelism))))
+
 (defn- progress!
   [progress-fn project-id repo-id event]
   (when (and progress-fn event)
@@ -356,11 +363,96 @@
                                     (:file-facts filtered)))
            :search-docs search-docs)))
 
+(defn- file-with-parser-worker-facts
+  [parser-worker-facts file]
+  (if-let [facts (get parser-worker-facts (:path file))]
+    (assoc file :parser-worker-facts facts)
+    file))
+
+(defn- extract-planned-file-entry
+  [{:keys [run-id snapshot-id project-id repo-id root-path repo-role index-profile
+           extractors parser-worker-facts index-deadline-ns changed-count]}
+   idx
+   {:keys [file existing? valid-from]}]
+  (check-deadline!
+   index-deadline-ns
+   :extract
+   {:project-id project-id
+    :repo-id repo-id
+    :files-changed changed-count
+    :files-extracted idx
+    :path (:path file)})
+  (let [started-ns (System/nanoTime)
+        file (file-with-parser-worker-facts parser-worker-facts file)
+        core-extraction (extract/extract-file run-id file)
+        extraction (extractor-plugin/transform-extraction
+                    {:plugins extractors
+                     :run-id run-id
+                     :project-id project-id
+                     :repo-id repo-id
+                     :root-path root-path
+                     :file file}
+                    core-extraction)]
+    {:file-row (->file-row run-id
+                           snapshot-id
+                           valid-from
+                           project-id
+                           repo-id
+                           root-path
+                           repo-role
+                           file)
+     :extraction (indexable-extraction run-id
+                                       project-id
+                                       repo-id
+                                       index-profile
+                                       extractors
+                                       file
+                                       extraction)
+     :existing? existing?
+     :valid-from valid-from
+     :extraction-timing {:kind (:kind file)
+                         :elapsed-ms (elapsed-ms started-ns)}}))
+
+(defn- progress-extracted-entry!
+  [{:keys [progress-fn project-id repo-id progress-interval changed-count]}
+   idx
+   entry]
+  (progress! progress-fn
+             project-id
+             repo-id
+             (when (extraction-progress? idx changed-count progress-interval)
+               {:phase :extract-progress
+                :files-extracted (inc idx)
+                :files-changed changed-count
+                :path (get-in entry [:file-row :path])})))
+
+(defn- extract-planned-files
+  [ctx changed]
+  (let [extract-one (bound-fn [[idx entry]]
+                      [idx (extract-planned-file-entry ctx idx entry)])
+        batch-size (:extract-parallelism ctx)]
+    (if (= 1 batch-size)
+      (mapv (fn [idx entry]
+              (let [result (extract-planned-file-entry ctx idx entry)]
+                (progress-extracted-entry! ctx idx result)
+                result))
+            (range)
+            changed)
+      (->> changed
+           (map-indexed vector)
+           (partition-all batch-size)
+           (reduce (fn [out batch]
+                     (let [results (doall (pmap extract-one batch))]
+                       (doseq [[idx result] results]
+                         (progress-extracted-entry! ctx idx result))
+                       (into out (map second results))))
+                   [])))))
+
 (defn index-repo!
   "Index root into XTDB. Returns run summary."
   [xtdb root {:keys [dry-run? project-id repo-id repo-role index-profile correction-overlay
                      index-timeout-ms index-deadline-ns extractors
-                     progress-fn progress-interval ignore-paths]
+                     progress-fn progress-interval ignore-paths extract-parallelism]
               :or {dry-run? false
                    project-id default-project-id
                    repo-id default-repo-id
@@ -370,6 +462,7 @@
         index-deadline-ns (or index-deadline-ns (deadline-ns index-timeout-ms))
         index-profile (normalize-index-profile index-profile)
         progress-interval (normalized-progress-interval progress-interval)
+        extract-parallelism (normalized-extract-parallelism extract-parallelism)
         extractors (extractor-plugin/normalize-plugins extractors)
         [root-path timings] (timed {} :canonicalize-root-ms #(fs/canonical-path root))
         _ (progress! progress-fn
@@ -450,6 +543,7 @@
                  :repo-root root-path
                  :repo-role repo-role
                  :index-profile index-profile
+                 :extract-parallelism extract-parallelism
                  :git-sha (:git-sha snapshot)
                  :tree-sha (:tree-sha snapshot)
                  :git-state git-state
@@ -569,66 +663,21 @@
                                  #(update planned-files
                                           :changed
                                           (fn [changed]
-                                            (mapv
-                                             (fn [idx {:keys [file existing? valid-from]}]
-                                               (check-deadline!
-                                                index-deadline-ns
-                                                :extract
-                                                {:project-id project-id
-                                                 :repo-id repo-id
-                                                 :files-changed (count changed)
-                                                 :files-extracted idx
-                                                 :path (:path file)})
-                                               (let [started-ns (System/nanoTime)
-                                                     file (if-let [facts (get parser-worker-facts
-                                                                              (:path file))]
-                                                            (assoc file
-                                                                   :parser-worker-facts
-                                                                   facts)
-                                                            file)
-                                                     core-extraction (extract/extract-file run-id file)
-                                                     extraction (extractor-plugin/transform-extraction
-                                                                 {:plugins extractors
-                                                                  :run-id run-id
-                                                                  :project-id project-id
-                                                                  :repo-id repo-id
-                                                                  :root-path root-path
-                                                                  :file file}
-                                                                 core-extraction)
-                                                     entry {:file-row (->file-row run-id
-                                                                                  (:xt/id snapshot)
-                                                                                  valid-from
-                                                                                  project-id
-                                                                                  repo-id
-                                                                                  root-path
-                                                                                  repo-role
-                                                                                  file)
-                                                            :extraction (indexable-extraction
-                                                                         run-id
-                                                                         project-id
-                                                                         repo-id
-                                                                         index-profile
-                                                                         extractors
-                                                                         file
-                                                                         extraction)
-                                                            :existing? existing?
-                                                            :valid-from valid-from
-                                                            :extraction-timing {:kind (:kind file)
-                                                                                :elapsed-ms (elapsed-ms
-                                                                                             started-ns)}}]
-                                                 (progress! progress-fn
-                                                            project-id
-                                                            repo-id
-                                                            (when (extraction-progress?
-                                                                   idx
-                                                                   (count changed)
-                                                                   progress-interval)
-                                                              {:phase :extract-progress
-                                                               :files-extracted (inc idx)
-                                                               :files-changed (count changed)
-                                                               :path (:path file)}))
-                                                 entry))
-                                             (range)
+                                            (extract-planned-files
+                                             {:run-id run-id
+                                              :snapshot-id (:xt/id snapshot)
+                                              :project-id project-id
+                                              :repo-id repo-id
+                                              :root-path root-path
+                                              :repo-role repo-role
+                                              :index-profile index-profile
+                                              :extractors extractors
+                                              :parser-worker-facts parser-worker-facts
+                                              :index-deadline-ns index-deadline-ns
+                                              :progress-fn progress-fn
+                                              :progress-interval progress-interval
+                                              :extract-parallelism extract-parallelism
+                                              :changed-count (count changed)}
                                              changed))))
               _ (progress! progress-fn
                            project-id
