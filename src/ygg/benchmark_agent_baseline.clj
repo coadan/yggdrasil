@@ -24,6 +24,9 @@
 (def agent-baseline-schema
   "ygg.benchmark.agent-baseline/v1")
 
+(def agent-baseline-context-schema
+  "ygg.benchmark.agent-baseline-context/v1")
+
 (def default-agent-baseline-budget
   24000)
 
@@ -212,6 +215,298 @@
 (defn agent-baseline-suspect-limit
   [opts]
   (long (or (:limit opts) default-agent-baseline-suspect-limit)))
+
+(defn- baseline-retriever-name
+  [opts]
+  (name (keyword (or (:retriever opts)
+                     default-agent-baseline-retriever))))
+
+(defn- json-stable-value
+  [value]
+  (cond
+    (keyword? value)
+    (name value)
+
+    (map? value)
+    (into {}
+          (map (fn [[k v]]
+                 [k (json-stable-value v)]))
+          value)
+
+    (sequential? value)
+    (mapv json-stable-value value)
+
+    (set? value)
+    (->> value
+         (map json-stable-value)
+         sort
+         vec)
+
+    :else
+    value))
+
+(defn- embedding-client-summary
+  [embedding-client]
+  (some-> embedding-client
+          (select-keys [:provider :model])
+          json-stable-value))
+
+(defn- baseline-context-cache-key
+  [prepared opts embedding-client]
+  {:parserWorker (benchmark-agent-packet/parser-worker-profile opts)
+   :contextOptions (-> (agent-baseline-context-options
+                        prepared
+                        (cond-> opts
+                          embedding-client
+                          (assoc :embedding-client embedding-client)))
+                       (dissoc :embedding-client :correction-overlay)
+                       json-stable-value)
+   :embeddingClient (embedding-client-summary embedding-client)
+   :embeddingOptions (-> (agent-baseline-embedding-options prepared opts)
+                         (dissoc :embedding-cache)
+                         json-stable-value)
+   :embeddingProviderLimit (agent-baseline-provider-embed-limit opts)
+   :indexOptions (json-stable-value (benchmark-index-options opts))})
+
+(defn- read-json-artifact
+  [path]
+  (when (and path (.isFile (io/file path)))
+    (try
+      (benchmark-io/read-json-file path)
+      (catch Exception _
+        nil))))
+
+(defn- readable-artifact-path?
+  [path]
+  (and (not (benchmark-util/blankish? path))
+       (.isFile (io/file path))))
+
+(defn- compatible-baseline-context?
+  [suite case prepared opts embedding-client manifest]
+  (let [artifacts (:artifacts manifest)
+        expected-context-path (fs/canonical-path
+                               (benchmark-paths/agent-baseline-context-path
+                                suite
+                                case
+                                opts))]
+    (and (= agent-baseline-context-schema (:schema manifest))
+         (= "ygg" (str (:mode manifest)))
+         (= (benchmark-paths/agent-baseline-id opts) (str (:agentId manifest)))
+         (= (:case-id prepared) (:case-id manifest))
+         (= (:caseFingerprint prepared) (:caseFingerprint manifest))
+         (= (:agentInputFingerprint prepared)
+            (:agentInputFingerprint manifest))
+         (= (benchmark-agent-packet/parser-worker-profile opts)
+            (:parserWorker manifest))
+         (= (baseline-context-cache-key prepared opts embedding-client)
+            (:contextKey manifest))
+         (= expected-context-path (:contextPacketPath artifacts))
+         (readable-artifact-path? (:contextPacketPath artifacts)))))
+
+(defn- reusable-baseline-context
+  [suite case prepared opts embedding-client]
+  (let [manifest-path (benchmark-paths/agent-baseline-context-manifest-path
+                       suite
+                       case
+                       opts)]
+    (when-let [manifest (read-json-artifact manifest-path)]
+      (when (compatible-baseline-context? suite
+                                          case
+                                          prepared
+                                          opts
+                                          embedding-client
+                                          manifest)
+        (let [context-path (get-in manifest [:artifacts :contextPacketPath])]
+          {:packet (benchmark-io/read-json-file context-path)
+           :summary (:ygg manifest)
+           :graph-expectations (:graphExpectations manifest)
+           :benchmark-activity (:benchmarkActivity manifest)
+           :sync-inspect (or (:syncInspect manifest)
+                             (get-in manifest [:ygg :syncInspect]))
+           :manifest-path (fs/canonical-path manifest-path)
+           :context-path context-path
+           :prepared-at (:preparedAt manifest)})))))
+
+(defn- write-baseline-context-manifest!
+  [suite case prepared opts embedding-client artifacts summary graph-expectations
+   benchmark-activity sync-inspect maintenance-preflight]
+  (let [manifest-path (benchmark-paths/agent-baseline-context-manifest-path
+                       suite
+                       case
+                       opts)
+        manifest {:schema agent-baseline-context-schema
+                  :suite-id (:suite-id prepared)
+                  :case-id (:case-id prepared)
+                  :repo-id (:repo-id prepared)
+                  :project-id (:project-id prepared)
+                  :caseFingerprint (:caseFingerprint prepared)
+                  :agentInputFingerprint (:agentInputFingerprint prepared)
+                  :agentId (benchmark-paths/agent-baseline-id opts)
+                  :mode "ygg"
+                  :retriever (baseline-retriever-name opts)
+                  :parserWorker (benchmark-agent-packet/parser-worker-profile opts)
+                  :contextKey (baseline-context-cache-key prepared
+                                                          opts
+                                                          embedding-client)
+                  :preparedAt (benchmark-progress/now-string)
+                  :artifacts artifacts
+                  :ygg summary
+                  :benchmarkActivity benchmark-activity
+                  :syncInspect sync-inspect
+                  :maintenancePreflight maintenance-preflight
+                  :graphExpectations graph-expectations}]
+    (benchmark-io/write-json-file! manifest-path manifest)))
+
+(defn- baseline-agent-result
+  [suite case prepared opts packet agent-id]
+  (benchmark-progress/progress-stage!
+   suite
+   case
+   opts
+   :agent-result
+   #(benchmark-prediction/context-packet->agent-result
+     packet
+     {:agent-id agent-id
+      :mode "ygg"
+      :case-id (:case-id prepared)
+      :caseFingerprint (:caseFingerprint prepared)
+      :agentInputFingerprint (:agentInputFingerprint prepared)
+      :root (:worktreeRoot prepared)
+      :roots (:worktreeRoots prepared)
+      :coverage (:coverage prepared)
+      :result-scope (:resultScope prepared)
+      :decision-candidates (:decisionCandidates prepared)
+      :decision-kind (get-in prepared [:decisionGroundTruth :kind])
+      :compact-result? true
+      :compact-result-limit default-agent-baseline-compact-result-limit
+      :limit (agent-baseline-suspect-limit opts)})
+   (fn [result]
+     {:suspectedFiles (count (:suspectedFiles result))
+      :suspectedSymbols (count (:suspectedSymbols result))})))
+
+(defn- score-and-write-baseline!
+  [suite case prepared opts embedding-client paths packet agent-result summary
+   graph-expectations benchmark-activity sync-inspect context-reuse]
+  (let [{:keys [project-path result-path context-path score-path progress-path]}
+        paths
+        parser-worker (benchmark-agent-packet/parser-worker-profile opts)
+        agent-id (benchmark-paths/agent-baseline-id opts)
+        hints (benchmark-hints/context-packet->agent-hints prepared packet opts)
+        hint-diagnostics (not-empty (vec (:diagnostics hints)))
+        maintenance-preflight (benchmark-preflight/maintenance-preflight
+                               {:index-summary (:indexSummary summary)
+                                :system-summary (:systemSummary summary)
+                                :graph-expectations graph-expectations
+                                :expectations (:expectations prepared)
+                                :hints hints
+                                :sync-inspect sync-inspect})
+        scored (benchmark-progress/progress-stage!
+                suite
+                case
+                opts
+                :score-agent-result
+                #(cond-> (-> (benchmark-agent-score/score-agent-result prepared
+                                                                       agent-result)
+                             (assoc :agentResultPath (fs/canonical-path result-path)
+                                    :contextPacketPath (fs/canonical-path context-path)
+                                    :parserWorker parser-worker
+                                    :contextGroundTruthRanks (context-ground-truth-ranks
+                                                              prepared
+                                                              packet))
+                             (benchmark-preflight/assoc-run-preflight
+                              maintenance-preflight))
+                   benchmark-activity
+                   (assoc :benchmarkActivity benchmark-activity)
+                   sync-inspect
+                   (assoc :syncInspect sync-inspect)
+                   hint-diagnostics
+                   (assoc :yggHints {:diagnostics hint-diagnostics})
+                   graph-expectations
+                   (assoc :graphExpectations graph-expectations))
+                (fn [scored]
+                  (select-keys (:scores scored)
+                               [:fileRecallAt5
+                                :fileRecallAt10
+                                :fileRecallAt20
+                                :meanReciprocalRankFile
+                                :noiseRatioAt20
+                                :evidenceCitationRate])))
+        ygg-summary (cond-> summary
+                      context-reuse
+                      (assoc :contextReuse context-reuse))
+        artifacts (cond-> {:projectConfig project-path
+                           :agentResultPath (fs/canonical-path result-path)
+                           :contextPacketPath (fs/canonical-path context-path)
+                           :contextManifestPath (fs/canonical-path
+                                                 (benchmark-paths/agent-baseline-context-manifest-path
+                                                  suite
+                                                  case
+                                                  opts))
+                           :agentScorePath (fs/canonical-path score-path)
+                           :progressPath (fs/canonical-path progress-path)}
+                    context-reuse
+                    (assoc :reusedContextManifestPath (:manifestPath context-reuse)))
+        baseline {:schema agent-baseline-schema
+                  :suite-id (:suite-id prepared)
+                  :case-id (:case-id prepared)
+                  :repo-id (:repo-id prepared)
+                  :project-id (:project-id prepared)
+                  :caseFingerprint (:caseFingerprint prepared)
+                  :agentInputFingerprint (:agentInputFingerprint prepared)
+                  :agentId agent-id
+                  :mode "ygg"
+                  :retriever (baseline-retriever-name opts)
+                  :fusionStrategy (some-> (:fusion-strategy opts) name)
+                  :sqliteFts (boolean (:sqlite-fts? opts))
+                  :diversityRerankLimit (:diversity-rerank-limit opts)
+                  :ftsCandidateLimit (:fts-candidate-limit opts)
+                  :ftsWeight (:fts-weight opts)
+                  :parserWorker parser-worker
+                  :suspectLimit (agent-baseline-suspect-limit opts)
+                  :artifacts artifacts
+                  :ygg ygg-summary
+                  :benchmarkActivity benchmark-activity
+                  :syncInspect sync-inspect
+                  :maintenancePreflight maintenance-preflight
+                  :claimReady (benchmark-preflight/claim-ready?
+                               maintenance-preflight)
+                  :graphExpectations graph-expectations
+                  :scores (:scores scored)}]
+    (benchmark-progress/progress-stage!
+     suite
+     case
+     opts
+     :write-agent-artifacts
+     (fn []
+       (benchmark-io/write-json-file! context-path packet)
+       (benchmark-io/write-json-file! result-path agent-result)
+       (benchmark-io/write-json-file! score-path scored)
+       (write-baseline-context-manifest! suite
+                                         case
+                                         prepared
+                                         opts
+                                         embedding-client
+                                         (select-keys artifacts
+                                                      [:projectConfig
+                                                       :contextPacketPath
+                                                       :agentResultPath
+                                                       :agentScorePath
+                                                       :progressPath])
+                                         summary
+                                         graph-expectations
+                                         benchmark-activity
+                                         sync-inspect
+                                         maintenance-preflight)
+       {:contextPath context-path
+        :agentResultPath result-path
+        :agentScorePath score-path
+        :contextManifestPath (:contextManifestPath artifacts)})
+     (fn [paths]
+       {:contextPacketPath (fs/canonical-path (:contextPath paths))
+        :agentResultPath (fs/canonical-path (:agentResultPath paths))
+        :agentScorePath (fs/canonical-path (:agentScorePath paths))
+        :contextManifestPath (fs/canonical-path (:contextManifestPath paths))}))
+    baseline))
 (defn agent-baseline!
   "Generate, write, and score one deterministic Yggdrasil agent-result artifact."
   [suite case opts]
@@ -224,7 +519,13 @@
         project-path (fs/canonical-path (benchmark-paths/agent-project-path suite case opts))
         result-path (benchmark-paths/agent-baseline-result-path suite case opts)
         context-path (benchmark-paths/agent-baseline-context-path suite case opts)
+        score-path (benchmark-paths/agent-score-path suite case opts result-path)
         progress-path (benchmark-paths/progress-path suite case opts)
+        paths {:project-path project-path
+               :result-path result-path
+               :context-path context-path
+               :score-path score-path
+               :progress-path progress-path}
         agent-id (benchmark-paths/agent-baseline-id opts)]
     (try
       (benchmark-progress/progress-stage!
@@ -235,214 +536,159 @@
        #(benchmark-io/write-edn-file! project-path bench-project)
        (fn [path]
          {:path (fs/canonical-path path)}))
-      (store/with-node (benchmark-paths/xtdb-dir suite case opts)
-        (fn [xtdb]
-          (let [parser-worker (benchmark-agent-packet/parser-worker-profile opts)
-                correction-overlay (benchmark-maintenance/prepare-agent-overlay!
-                                    xtdb
-                                    case
-                                    prepared
-                                    opts)
-                index-summary (benchmark-progress/progress-stage!
-                               suite
-                               case
-                               opts
-                               :index-project
-                               #(benchmark-agent-packet/with-benchmark-parser-worker
-                                  opts
-                                  (fn []
-                                    (project/index-project! xtdb
-                                                            bench-project
-                                                            (assoc (benchmark-index-options opts)
-                                                                   :correction-overlay correction-overlay))))
-                               #(select-keys % [:files :repos :rows :extractors]))
-                embedding-targets (if embedding-client
-                                    (benchmark-progress/progress-stage!
+      (if-let [reused (when (:skip-existing? opts)
+                        (reusable-baseline-context suite
+                                                   case
+                                                   prepared
+                                                   opts
+                                                   embedding-client))]
+        (let [context-reuse (benchmark-progress/progress-stage!
+                             suite
+                             case
+                             opts
+                             :reuse-agent-baseline-context
+                             (constantly {:status "reused"
+                                          :manifestPath (:manifest-path reused)
+                                          :contextPacketPath (:context-path reused)
+                                          :preparedAt (:prepared-at reused)})
+                             #(select-keys %
+                                           [:status
+                                            :manifestPath
+                                            :contextPacketPath
+                                            :preparedAt]))
+              summary (:summary reused)]
+          (score-and-write-baseline! suite
+                                     case
+                                     prepared
+                                     opts
+                                     embedding-client
+                                     paths
+                                     (:packet reused)
+                                     (baseline-agent-result suite
+                                                            case
+                                                            prepared
+                                                            opts
+                                                            (:packet reused)
+                                                            agent-id)
+                                     summary
+                                     (:graph-expectations reused)
+                                     (:benchmark-activity reused)
+                                     (:sync-inspect reused)
+                                     context-reuse))
+        (store/with-node (benchmark-paths/xtdb-dir suite case opts)
+          (fn [xtdb]
+            (let [correction-overlay (benchmark-maintenance/prepare-agent-overlay!
+                                      xtdb
+                                      case
+                                      prepared
+                                      opts)
+                  index-summary (benchmark-progress/progress-stage!
+                                 suite
+                                 case
+                                 opts
+                                 :index-project
+                                 #(benchmark-agent-packet/with-benchmark-parser-worker
+                                    opts
+                                    (fn []
+                                      (project/index-project! xtdb
+                                                              bench-project
+                                                              (assoc (benchmark-index-options opts)
+                                                                     :correction-overlay correction-overlay))))
+                                 #(select-keys % [:files :repos :rows :extractors]))
+                  embedding-targets (if embedding-client
+                                      (benchmark-progress/progress-stage!
+                                       suite
+                                       case
+                                       opts
+                                       :embedding-provider-targets
+                                       #(provider-embedding-targets xtdb prepared opts)
+                                       #(select-keys %
+                                                     [:count
+                                                      :limit
+                                                      :search]))
+                                      {:target-ids []
+                                       :count 0
+                                       :limit 0
+                                       :skipped true})
+                  embedding-summary (benchmark-progress/progress-stage!
                                      suite
                                      case
                                      opts
-                                     :embedding-provider-targets
-                                     #(provider-embedding-targets xtdb prepared opts)
+                                     :embed-search-docs
+                                     #(embed-search-docs-for-agent-baseline!
+                                       xtdb
+                                       suite
+                                       case
+                                       prepared
+                                       (assoc opts
+                                              :embedding-provider-target-ids
+                                              (:target-ids embedding-targets)))
                                      #(select-keys %
-                                                   [:count
-                                                    :limit
-                                                    :search]))
-                                    {:target-ids []
-                                     :count 0
-                                     :limit 0
-                                     :skipped true})
-                embedding-summary (benchmark-progress/progress-stage!
-                                   suite
-                                   case
-                                   opts
-                                   :embed-search-docs
-                                   #(embed-search-docs-for-agent-baseline!
-                                     xtdb
-                                     suite
-                                     case
-                                     prepared
-                                     (assoc opts
-                                            :embedding-provider-target-ids
-                                            (:target-ids embedding-targets)))
-                                   #(select-keys %
-                                                 [:provider
-                                                  :model
-                                                  :search-docs
-                                                  :pending
-                                                  :provider-pending
-                                                  :provider-skipped
-                                                  :embedded
-                                                  :cache-hits
-                                                  :skipped]))
-                system-summary (benchmark-progress/progress-stage!
-                                suite
-                                case
-                                opts
-                                :infer-project
-                                #(project/infer-project! xtdb bench-project)
-                                #(select-keys % [:systems :candidates :edges]))
-                graph-expectations (benchmark-expectations/evaluate-graph-expectations xtdb prepared)
-                packet (benchmark-progress/progress-stage!
-                        suite
-                        case
-                        opts
-                        :context-packet
-                        #(context/context-packet
-                          xtdb
-                          (get-in prepared [:input :queryText])
-                          (assoc (agent-baseline-context-options prepared opts)
-                                 :correction-overlay correction-overlay))
-                        (fn [packet]
-                          {:docs (count (:docs packet))
-                           :entities (count (:entities packet))
-                           :edges (count (:edges packet))
-                           :warnings (count (:warnings packet))}))
-                hints (benchmark-hints/context-packet->agent-hints prepared packet opts)
-                hint-diagnostics (not-empty (vec (:diagnostics hints)))
-                agent-result (benchmark-progress/progress-stage!
-                              suite
-                              case
-                              opts
-                              :agent-result
-                              #(benchmark-prediction/context-packet->agent-result
-                                packet
-                                {:agent-id agent-id
-                                 :mode "ygg"
-                                 :case-id (:case-id prepared)
-                                 :caseFingerprint (:caseFingerprint prepared)
-                                 :agentInputFingerprint (:agentInputFingerprint prepared)
-                                 :root (:worktreeRoot prepared)
-                                 :roots (:worktreeRoots prepared)
-                                 :coverage (:coverage prepared)
-                                 :result-scope (:resultScope prepared)
-                                 :decision-candidates (:decisionCandidates prepared)
-                                 :decision-kind (get-in prepared [:decisionGroundTruth :kind])
-                                 :compact-result? true
-                                 :compact-result-limit default-agent-baseline-compact-result-limit
-                                 :limit (agent-baseline-suspect-limit opts)})
-                              (fn [result]
-                                {:suspectedFiles (count (:suspectedFiles result))
-                                 :suspectedSymbols (count (:suspectedSymbols result))}))
-                score-path (benchmark-paths/agent-score-path suite case opts result-path)
-                benchmark-activity (benchmark-maintenance/record-benchmark-agent-activity!
-                                    xtdb
-                                    suite
-                                    case
-                                    prepared
-                                    opts
-                                    agent-result
-                                    result-path
-                                    "passed")
-                sync-inspect (:syncInspect benchmark-activity)
-                maintenance-preflight (benchmark-preflight/maintenance-preflight
-                                       {:index-summary index-summary
-                                        :system-summary system-summary
-                                        :graph-expectations graph-expectations
-                                        :expectations (:expectations prepared)
-                                        :hints hints
-                                        :sync-inspect sync-inspect})
-                scored (benchmark-progress/progress-stage!
-                        suite
-                        case
-                        opts
-                        :score-agent-result
-                        #(cond-> (-> (benchmark-agent-score/score-agent-result prepared agent-result)
-                                     (assoc :agentResultPath (fs/canonical-path result-path)
-                                            :contextPacketPath (fs/canonical-path context-path)
-                                            :parserWorker parser-worker
-                                            :contextGroundTruthRanks (context-ground-truth-ranks
-                                                                      prepared
-                                                                      packet))
-                                     (benchmark-preflight/assoc-run-preflight
-                                      maintenance-preflight))
-                           benchmark-activity
-                           (assoc :benchmarkActivity (:activity benchmark-activity))
-                           sync-inspect
-                           (assoc :syncInspect sync-inspect)
-                           hint-diagnostics
-                           (assoc :yggHints {:diagnostics hint-diagnostics})
-                           graph-expectations
-                           (assoc :graphExpectations graph-expectations))
-                        (fn [scored]
-                          (select-keys (:scores scored)
-                                       [:fileRecallAt5
-                                        :fileRecallAt10
-                                        :fileRecallAt20
-                                        :meanReciprocalRankFile
-                                        :noiseRatioAt20
-                                        :evidenceCitationRate])))
-                baseline {:schema agent-baseline-schema
-                          :suite-id (:suite-id prepared)
-                          :case-id (:case-id prepared)
-                          :repo-id (:repo-id prepared)
-                          :project-id (:project-id prepared)
-                          :caseFingerprint (:caseFingerprint prepared)
-                          :agentInputFingerprint (:agentInputFingerprint prepared)
-                          :agentId agent-id
-                          :mode "ygg"
-                          :retriever (name (keyword
-                                            (or (:retriever opts)
-                                                default-agent-baseline-retriever)))
-                          :fusionStrategy (some-> (:fusion-strategy opts) name)
-                          :sqliteFts (boolean (:sqlite-fts? opts))
-                          :diversityRerankLimit (:diversity-rerank-limit opts)
-                          :ftsCandidateLimit (:fts-candidate-limit opts)
-                          :ftsWeight (:fts-weight opts)
-                          :parserWorker parser-worker
-                          :suspectLimit (agent-baseline-suspect-limit opts)
-                          :artifacts {:projectConfig project-path
-                                      :agentResultPath (fs/canonical-path result-path)
-                                      :contextPacketPath (fs/canonical-path context-path)
-                                      :agentScorePath (fs/canonical-path score-path)
-                                      :progressPath (fs/canonical-path progress-path)}
-                          :ygg {:indexSummary index-summary
-                                :embeddingTargets (dissoc embedding-targets :target-ids)
-                                :embeddingSummary embedding-summary
-                                :systemSummary system-summary
-                                :syncInspect sync-inspect}
-                          :benchmarkActivity (:activity benchmark-activity)
-                          :syncInspect sync-inspect
-                          :maintenancePreflight maintenance-preflight
-                          :claimReady (benchmark-preflight/claim-ready?
-                                       maintenance-preflight)
-                          :graphExpectations graph-expectations
-                          :scores (:scores scored)}]
-            (benchmark-progress/progress-stage!
-             suite
-             case
-             opts
-             :write-agent-artifacts
-             (fn []
-               (benchmark-io/write-json-file! context-path packet)
-               (benchmark-io/write-json-file! result-path agent-result)
-               (benchmark-io/write-json-file! score-path scored)
-               {:contextPath context-path
-                :agentResultPath result-path
-                :agentScorePath score-path})
-             (fn [paths]
-               {:contextPacketPath (fs/canonical-path (:contextPath paths))
-                :agentResultPath (fs/canonical-path (:agentResultPath paths))
-                :agentScorePath (fs/canonical-path (:agentScorePath paths))}))
-            baseline)))
+                                                   [:provider
+                                                    :model
+                                                    :search-docs
+                                                    :pending
+                                                    :provider-pending
+                                                    :provider-skipped
+                                                    :embedded
+                                                    :cache-hits
+                                                    :skipped]))
+                  system-summary (benchmark-progress/progress-stage!
+                                  suite
+                                  case
+                                  opts
+                                  :infer-project
+                                  #(project/infer-project! xtdb bench-project)
+                                  #(select-keys % [:systems :candidates :edges]))
+                  graph-expectations (benchmark-expectations/evaluate-graph-expectations xtdb prepared)
+                  packet (benchmark-progress/progress-stage!
+                          suite
+                          case
+                          opts
+                          :context-packet
+                          #(context/context-packet
+                            xtdb
+                            (get-in prepared [:input :queryText])
+                            (assoc (agent-baseline-context-options prepared opts)
+                                   :correction-overlay correction-overlay))
+                          (fn [packet]
+                            {:docs (count (:docs packet))
+                             :entities (count (:entities packet))
+                             :edges (count (:edges packet))
+                             :warnings (count (:warnings packet))}))
+                  agent-result (baseline-agent-result suite
+                                                      case
+                                                      prepared
+                                                      opts
+                                                      packet
+                                                      agent-id)
+                  benchmark-activity (benchmark-maintenance/record-benchmark-agent-activity!
+                                      xtdb
+                                      suite
+                                      case
+                                      prepared
+                                      opts
+                                      agent-result
+                                      result-path
+                                      "passed")
+                  sync-inspect (:syncInspect benchmark-activity)
+                  summary {:indexSummary index-summary
+                           :embeddingTargets (dissoc embedding-targets :target-ids)
+                           :embeddingSummary embedding-summary
+                           :systemSummary system-summary
+                           :syncInspect sync-inspect}]
+              (score-and-write-baseline! suite
+                                         case
+                                         prepared
+                                         opts
+                                         embedding-client
+                                         paths
+                                         packet
+                                         agent-result
+                                         summary
+                                         graph-expectations
+                                         (:activity benchmark-activity)
+                                         sync-inspect
+                                         nil)))))
       (finally
         (embedding-client/close-client! embedding-client)))))

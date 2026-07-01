@@ -1,11 +1,15 @@
 (ns ygg.benchmark-agent-test
   (:require [ygg.benchmark :as benchmark]
+            [ygg.benchmark-agent-packet :as benchmark-agent-packet]
             [ygg.benchmark-agent-baseline :as benchmark-agent-baseline]
             [ygg.benchmark-agent-run :as benchmark-agent-run]
             [ygg.benchmark-agent-score :as benchmark-agent-score]
+            [ygg.benchmark-expectations :as benchmark-expectations]
+            [ygg.benchmark-hints :as benchmark-hints]
             [ygg.benchmark-maintenance :as benchmark-maintenance]
             [ygg.benchmark-paths :as benchmark-paths]
             [ygg.benchmark-prediction :as benchmark-prediction]
+            [ygg.benchmark-prepare :as benchmark-prepare]
             [ygg.benchmark-test-support :refer [commit! git! sh! spit-file! spit-json! temp-dir]]
             [ygg.context :as context]
             [ygg.embedding-client :as embedding-client]
@@ -351,6 +355,116 @@
       (is (= "sync-inspect"
              (get-in baseline
                      [:maintenancePreflight :checks :syncCheck :source]))))))
+
+(deftest agent-baseline-skip-existing-reuses-context-manifest-when-score-is-missing
+  (let [out (temp-dir "ygg-bench-baseline-context-reuse")
+        worktree (temp-dir "ygg-bench-baseline-context-reuse-worktree")
+        suite {:id "suite"
+               :project-id "fixture"
+               :cases [{:id "case-1"}]}
+        case (first (:cases suite))
+        prepared {:schema benchmark-prepare/prepared-case-schema
+                  :suite-id "suite"
+                  :case-id "case-1"
+                  :caseFingerprint "sha256:case"
+                  :agentInputFingerprint "sha256:agent-input"
+                  :repo-id "repo"
+                  :repoIds ["repo"]
+                  :repos [{:id "repo"
+                           :root worktree
+                           :role :application}]
+                  :project-id "project"
+                  :worktreeRoot worktree
+                  :worktreeRoots {"repo" worktree}
+                  :input {:queryText "broken app"}
+                  :coverage {:declaredSourceKinds []}
+                  :groundTruth {:changedFiles ["src/app.clj"]}}
+        opts {:out out
+              :case-id "case-1"
+              :retriever "lexical"
+              :now-ms 1000}
+        store-count (atom 0)
+        index-count (atom 0)]
+    (spit-file! worktree "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (with-redefs [benchmark-prepare/prepare-case! (fn [& _] prepared)
+                  benchmark-agent-packet/agent-project (fn [_]
+                                                         {:id "project"
+                                                          :repos [{:id "repo"
+                                                                   :root worktree
+                                                                   :role :application}]})
+                  store/with-node (fn [_ f]
+                                    (swap! store-count inc)
+                                    (f {:indexed? (atom false)}))
+                  benchmark-maintenance/prepare-agent-overlay! (fn [& _] {})
+                  benchmark-maintenance/record-benchmark-agent-activity!
+                  (fn [& _]
+                    {:activity {:items 1
+                                :events 1
+                                :deleted-items 0
+                                :deleted-events 0}
+                     :syncInspect {:status "completed"}})
+                  benchmark-expectations/evaluate-graph-expectations
+                  (fn [& _] {:status "passed"})
+                  project/index-project! (fn [xtdb _project _opts]
+                                           (swap! index-count inc)
+                                           (reset! (:indexed? xtdb) true)
+                                           {:status "completed"
+                                            :files 1})
+                  project/infer-project! (fn [& _]
+                                           {:status "completed"
+                                            :systems 0
+                                            :candidates 0
+                                            :edges 0})
+                  context/context-packet (fn [xtdb query-text _opts]
+                                           {:schema "ygg.context/v1"
+                                            :query query-text
+                                            :docs []
+                                            :entities []
+                                            :edges []
+                                            :warnings []
+                                            :search {:instrumentation
+                                                     {:indexed @(:indexed? xtdb)}}
+                                            :candidateFiles [{:path "src/app.clj"
+                                                              :rank 1
+                                                              :score 1.0
+                                                              :targetKind "chunk"
+                                                              :label "app/broken"}]})
+                  benchmark-hints/context-packet->agent-hints
+                  (fn [_prepared packet _opts]
+                    {:schema benchmark/agent-hints-schema
+                     :diagnostics []
+                     :topFiles (:candidateFiles packet)})]
+      (let [first-result (benchmark/agent-baselines! suite opts)
+            first-baseline (first (:baselines first-result))
+            score-path (get-in first-baseline [:artifacts :agentScorePath])
+            manifest-path (get-in first-baseline [:artifacts :contextManifestPath])
+            _ (is (.delete (io/file score-path)))
+            second-result (benchmark/agent-baselines! suite
+                                                      (assoc opts
+                                                             :skip-existing? true
+                                                             :now-ms 2000))
+            second-baseline (first (:baselines second-result))
+            progress (json/read-json
+                      (slurp (benchmark-paths/progress-path suite case opts))
+                      :key-fn keyword)
+            manifest (json/read-json (slurp manifest-path) :key-fn keyword)]
+        (is (= benchmark/agent-baselines-schema (:schema first-result)))
+        (is (= benchmark/agent-baselines-schema (:schema second-result)))
+        (is (= 1 @store-count))
+        (is (= 1 @index-count))
+        (is (= 0 (:skipped second-result)))
+        (is (= "reused" (get-in second-baseline
+                                [:ygg :contextReuse :status])))
+        (is (= manifest-path
+               (get-in second-baseline
+                       [:artifacts :reusedContextManifestPath])))
+        (is (.isFile (io/file score-path)))
+        (is (= benchmark-agent-baseline/agent-baseline-context-schema
+               (:schema manifest)))
+        (is (= "sha256:case" (:caseFingerprint manifest)))
+        (is (some #(and (= "reuse-agent-baseline-context" (:stage %))
+                        (= "completed" (:status %)))
+                  (:events progress)))))))
 
 (deftest benchmark-parser-worker-profile-is-explicit-and-bindable
   (is (= {:mode "java"

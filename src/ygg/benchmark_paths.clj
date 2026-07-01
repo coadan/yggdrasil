@@ -63,6 +63,11 @@
   (io/file (case-output-dir suite case opts)
            "agent-results"
            (str (safe-id (agent-baseline-id opts)) ".context.json")))
+(defn agent-baseline-context-manifest-path
+  [suite case opts]
+  (io/file (case-output-dir suite case opts)
+           "agent-results"
+           (str (safe-id (agent-baseline-id opts)) ".context-manifest.json")))
 (defn local-vector-request-path
   [suite case opts]
   (io/file (case-output-dir suite case opts)

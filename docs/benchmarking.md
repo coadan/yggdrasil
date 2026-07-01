@@ -341,7 +341,9 @@ plugin-fit choice, not just a shorter suspected-file list.
   is skipped only
   when exactly one current score artifact already matches the case fingerprint,
   agent id, mode, and result path; stale, duplicate, or missing artifacts are
-  rerun.
+  rerun. When the final score is missing but the baseline context manifest still
+  matches the case, parser worker, and retrieval/index options, the resumed run
+  reuses that context packet and regenerates the deterministic result and score.
 - `bench improve <suite.edn>` reads the same agent score artifacts as
   `bench agent-report`, writes an updated `agent-report.json`, and writes
   `system-improvement-report.json`. The report is dev-time guidance, not a
