@@ -327,6 +327,10 @@
           result (benchmark/agent-baselines! suite {:out out
                                                     :now-ms 1000})
           baseline (first (:baselines result))
+          skipped-result (benchmark/agent-baselines! suite {:out out
+                                                            :now-ms 2000
+                                                            :skip-existing? true})
+          skipped-baseline (first (:baselines skipped-result))
           score (json/read-json (slurp (get-in baseline
                                                [:artifacts :agentScorePath]))
                                 :key-fn keyword)
@@ -341,8 +345,18 @@
           stage-profile (:stageProfile baseline)
           stages (set (map :stage (:stageElapsedMs stage-profile)))]
       (is (= benchmark/agent-baselines-schema (:schema result)))
+      (is (= benchmark/agent-baselines-schema (:schema skipped-result)))
       (is (= "ygg-baseline-auto" (:agentId baseline)))
       (is (= "auto" (:retriever baseline)))
+      (is (= 1 (:skipped skipped-result)))
+      (is (= "skipped" (:status skipped-baseline)))
+      (is (= "current-score-artifact" (:skipReason skipped-baseline)))
+      (is (= (:scores baseline) (:scores skipped-baseline)))
+      (is (= true (:claimReady skipped-baseline)))
+      (is (= "passed" (get-in skipped-baseline [:maintenancePreflight :status])))
+      (is (= "completed" (get-in skipped-baseline [:stageProfile :status])))
+      (is (= 1 (get-in skipped-result [:timings :cases])))
+      (is (pos? (get-in skipped-result [:timings :elapsedMs])))
       (is (= {:items 1
               :events 1
               :deleted-items 0
@@ -365,6 +379,8 @@
              (get-in baseline
                      [:maintenancePreflight :checks :syncCheck :source])))
       (is (= "completed" (:status stage-profile)))
+      (is (= 1 (get-in result [:timings :cases])))
+      (is (pos? (get-in result [:timings :elapsedMs])))
       (is (pos? (:elapsedMs stage-profile)))
       (is (contains? stages "index-project"))
       (is (contains? stages "embed-search-docs"))

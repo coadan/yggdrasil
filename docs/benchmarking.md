@@ -299,7 +299,12 @@ plugin-fit choice, not just a shorter suspected-file list.
   the snippet limit so lower-ranked but relevant companion files can still be
   selected. Limited Yggdrasil baselines reserve a small slice of the shortlist for
   candidate-file-only evidence so compact file/path matches are not completely
-  crowded out by snippet-bearing retrieved docs.
+  crowded out by snippet-bearing retrieved docs. JSON output includes a
+  `timings` aggregate with stage totals for indexing, embeddings, context
+  packet construction, scoring, and artifact writing. With `--skip-existing`,
+  current score artifacts are reused and returned as skipped baselines while
+  retaining their previous stage profile, so repeat runs are fast but still show
+  where the cached full run spent time.
   Use `--retriever local-vector` to run an optional local semantic-vector
   control lane instead of the graph/context packet. The default worker is
   `python3 scripts/local-vector-baseline.py`, which uses

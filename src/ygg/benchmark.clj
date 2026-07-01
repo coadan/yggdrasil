@@ -375,45 +375,87 @@
 
 (defn- skipped-agent-baseline
   [suite case opts score]
-  {:schema agent-baseline-schema
-   :suite-id (:suite-id score)
-   :case-id (:case-id score)
-   :repo-id (:repo-id score)
-   :project-id (:project-id score)
-   :caseFingerprint (:caseFingerprint score)
-   :agentId (get-in score [:agent :agentId])
-   :mode (get-in score [:agent :mode])
-   :retriever (name (keyword (or (:retriever opts)
-                                 benchmark-agent-baseline/default-agent-baseline-retriever)))
-   :parserWorker (:parserWorker score)
-   :suspectLimit (agent-baseline-suspect-limit opts)
-   :status "skipped"
-   :skipReason "current-score-artifact"
-   :artifacts (cond-> {:agentResultPath (:agentResultPath score)
-                       :agentScorePath (:agentScorePath score)
-                       :progressPath (fs/canonical-path (benchmark-paths/progress-path suite case opts))}
-                (= "local-vector" (get-in score [:agent :mode]))
-                (assoc :localVectorRequestPath
-                       (fs/canonical-path (benchmark-paths/local-vector-request-path suite case opts)))
-                (= "codebase-memory" (get-in score [:agent :mode]))
-                (assoc :codebaseMemoryRequestPath
-                       (fs/canonical-path (benchmark-paths/codebase-memory-request-path suite case opts))
-                       :codebaseMemoryCacheDir
-                       (fs/canonical-path (or (:codebase-memory-cache-dir opts)
-                                              (benchmark-paths/codebase-memory-cache-dir
-                                               suite
-                                               case
-                                               opts))))
-                (= "graphify" (get-in score [:agent :mode]))
-                (assoc :graphifyRequestPath
-                       (fs/canonical-path (benchmark-paths/graphify-request-path suite case opts))
-                       :graphifyOutputDir
-                       (fs/canonical-path (or (:graphify-output-dir opts)
-                                              (benchmark-paths/graphify-output-dir
-                                               suite
-                                               case
-                                               opts)))))
-   :scores (:scores score)})
+  (let [stage-profile (benchmark-results/progress-summary suite case opts)]
+    (cond-> {:schema agent-baseline-schema
+             :suite-id (:suite-id score)
+             :case-id (:case-id score)
+             :repo-id (:repo-id score)
+             :project-id (:project-id score)
+             :caseFingerprint (:caseFingerprint score)
+             :agentInputFingerprint (:agentInputFingerprint score)
+             :agentId (get-in score [:agent :agentId])
+             :mode (get-in score [:agent :mode])
+             :retriever (name (keyword (or (:retriever opts)
+                                           benchmark-agent-baseline/default-agent-baseline-retriever)))
+             :parserWorker (:parserWorker score)
+             :suspectLimit (agent-baseline-suspect-limit opts)
+             :status "skipped"
+             :skipReason "current-score-artifact"
+             :artifacts (cond-> {:agentResultPath (:agentResultPath score)
+                                 :agentScorePath (:agentScorePath score)
+                                 :progressPath (fs/canonical-path
+                                                (benchmark-paths/progress-path
+                                                 suite
+                                                 case
+                                                 opts))}
+                          (= "local-vector" (get-in score [:agent :mode]))
+                          (assoc :localVectorRequestPath
+                                 (fs/canonical-path
+                                  (benchmark-paths/local-vector-request-path suite case opts)))
+                          (= "codebase-memory" (get-in score [:agent :mode]))
+                          (assoc :codebaseMemoryRequestPath
+                                 (fs/canonical-path
+                                  (benchmark-paths/codebase-memory-request-path suite case opts))
+                                 :codebaseMemoryCacheDir
+                                 (fs/canonical-path
+                                  (or (:codebase-memory-cache-dir opts)
+                                      (benchmark-paths/codebase-memory-cache-dir
+                                       suite
+                                       case
+                                       opts))))
+                          (= "graphify" (get-in score [:agent :mode]))
+                          (assoc :graphifyRequestPath
+                                 (fs/canonical-path
+                                  (benchmark-paths/graphify-request-path suite case opts))
+                                 :graphifyOutputDir
+                                 (fs/canonical-path
+                                  (or (:graphify-output-dir opts)
+                                      (benchmark-paths/graphify-output-dir
+                                       suite
+                                       case
+                                       opts)))))
+             :scores (:scores score)}
+      (:benchmarkActivity score)
+      (assoc :benchmarkActivity (:benchmarkActivity score))
+
+      (:syncInspect score)
+      (assoc :syncInspect (:syncInspect score))
+
+      (:maintenancePreflight score)
+      (assoc :maintenancePreflight (:maintenancePreflight score)
+             :claimReady (benchmark-preflight/claim-ready? (:maintenancePreflight score)))
+
+      (:graphExpectations score)
+      (assoc :graphExpectations (:graphExpectations score))
+
+      (:yggHints score)
+      (assoc :yggHints (:yggHints score))
+
+      (:contextGroundTruthRanks score)
+      (assoc :contextGroundTruthRanks (:contextGroundTruthRanks score))
+
+      (:groundTruthRanks score)
+      (assoc :groundTruthRanks (:groundTruthRanks score))
+
+      stage-profile
+      (assoc :stageProfile stage-profile))))
+
+(defn- agent-baseline-timings
+  [suite cases opts]
+  (some->> cases
+           (keep #(benchmark-results/progress-summary suite % opts))
+           seq
+           benchmark-results/aggregate-progress))
 
 (defn- skipped-agent-run
   [suite case opts score]
@@ -536,7 +578,8 @@
                default-cache?
                (assoc :embedding-cache embedding-cache))]
     (try
-      (let [baseline-for-case (fn [case]
+      (let [cases (selected-cases suite (case-selector opts))
+            baseline-for-case (fn [case]
                                 (or (when (:skip-existing? opts)
                                       (some->> {:agent-id (benchmark-paths/agent-baseline-id opts)
                                                 :mode (agent-baseline-mode opts)
@@ -561,13 +604,15 @@
 
                                         :else
                                         (agent-baseline! suite case opts)))))
-            baselines (mapv baseline-for-case
-                            (selected-cases suite (case-selector opts)))]
-        {:schema agent-baselines-schema
-         :suite-id (:id suite)
-         :baselines baselines
-         :completed (count baselines)
-         :skipped (count (filter #(= "skipped" (:status %)) baselines))})
+            baselines (mapv baseline-for-case cases)
+            timings (agent-baseline-timings suite cases opts)]
+        (cond-> {:schema agent-baselines-schema
+                 :suite-id (:id suite)
+                 :baselines baselines
+                 :completed (count baselines)
+                 :skipped (count (filter #(= "skipped" (:status %)) baselines))}
+          timings
+          (assoc :timings timings)))
       (finally
         (when default-cache?
           (embedding/close-cache! embedding-cache))))))
