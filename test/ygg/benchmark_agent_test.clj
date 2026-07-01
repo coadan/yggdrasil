@@ -337,7 +337,9 @@
           token-usage (get-in score [:agent :tokenUsage])
           family-by-name (into {}
                                (map (juxt #(keyword (:family %)) identity))
-                               (get-in baseline [:syncInspect :families]))]
+                               (get-in baseline [:syncInspect :families]))
+          stage-profile (:stageProfile baseline)
+          stages (set (map :stage (:stageElapsedMs stage-profile)))]
       (is (= benchmark/agent-baselines-schema (:schema result)))
       (is (= "ygg-baseline-auto" (:agentId baseline)))
       (is (= "auto" (:retriever baseline)))
@@ -361,7 +363,14 @@
              (context/estimate-tokens context-packet)))
       (is (= "sync-inspect"
              (get-in baseline
-                     [:maintenancePreflight :checks :syncCheck :source]))))))
+                     [:maintenancePreflight :checks :syncCheck :source])))
+      (is (= "completed" (:status stage-profile)))
+      (is (pos? (:elapsedMs stage-profile)))
+      (is (contains? stages "index-project"))
+      (is (contains? stages "embed-search-docs"))
+      (is (contains? stages "context-packet"))
+      (is (contains? stages "score-agent-result"))
+      (is (contains? stages "write-agent-artifacts")))))
 
 (deftest agent-baseline-skip-existing-reuses-context-manifest-when-score-is-missing
   (let [out (temp-dir "ygg-bench-baseline-context-reuse")

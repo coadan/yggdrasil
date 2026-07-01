@@ -10,6 +10,7 @@
             [ygg.benchmark-prediction :as benchmark-prediction]
             [ygg.benchmark-prepare :as benchmark-prepare]
             [ygg.benchmark-progress :as benchmark-progress]
+            [ygg.benchmark-results :as benchmark-results]
             [ygg.benchmark-score :as benchmark-score]
             [ygg.benchmark-util :as benchmark-util]
             [ygg.context :as context]
@@ -516,7 +517,20 @@
         :agentResultPath (fs/canonical-path (:agentResultPath paths))
         :agentScorePath (fs/canonical-path (:agentScorePath paths))
         :contextManifestPath (fs/canonical-path (:contextManifestPath paths))}))
-    baseline))
+    (assoc baseline
+           :stageProfile
+           (select-keys (benchmark-results/progress-summary suite case opts)
+                        [:status
+                         :elapsedMs
+                         :warmElapsedMs
+                         :agentReadyElapsedMs
+                         :amortizedSetupElapsedMs
+                         :caseSetupElapsedMs
+                         :agentPreparationElapsedMs
+                         :embeddingElapsedMs
+                         :scoringElapsedMs
+                         :stageElapsedMs
+                         :stageTiming]))))
 (defn agent-baseline!
   "Generate, write, and score one deterministic Yggdrasil agent-result artifact."
   [suite case opts]
