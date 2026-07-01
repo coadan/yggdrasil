@@ -20,9 +20,11 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
-(deftest deterministic-baseline-uses-full-suspect-compact-surface
-  (is (= @#'benchmark-agent-baseline/default-agent-baseline-suspect-limit
-         @#'benchmark-agent-baseline/default-agent-baseline-compact-result-limit)))
+(deftest deterministic-baseline-emits-tighter-compact-surface
+  (is (= 20 @#'benchmark-agent-baseline/default-agent-baseline-suspect-limit))
+  (is (= 10 @#'benchmark-agent-baseline/default-agent-baseline-compact-result-limit))
+  (is (< @#'benchmark-agent-baseline/default-agent-baseline-compact-result-limit
+         @#'benchmark-agent-baseline/default-agent-baseline-suspect-limit)))
 
 (defn- object-schema?
   [schema]

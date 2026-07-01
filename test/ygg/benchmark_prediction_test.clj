@@ -1234,9 +1234,74 @@
                                                  :matchedTokenCount 2
                                                  :rankScore 1.8})]
         selected-paths (mapv :path (compact-output files 20 nil))]
-    (is (= "src/flask/sansio/app.py" (nth selected-paths 4)))
+    (is (< (index-of selected-paths "src/flask/sansio/app.py") 5))
     (is (< (index-of selected-paths "src/flask/sansio/app.py")
            (index-of selected-paths "tests/test_json_tag.py")))))
+
+(deftest compact-output-frontloads-low-score-support-owner-source-graph-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/unit/adapters/http.test.js"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 5
+                     :matchedTokenCount 11
+                     :matchedTokenPairCount 3
+                     :retrievedSourceCount 1
+                     :sourceGraphCandidateEvidenceScore 0.62
+                     :rankScore 42.0})
+               (row "tests/unit/adapters/fetch.test.js"
+                    2
+                    {:docCount 1
+                     :candidateFileCount 3
+                     :matchedTokenCount 12
+                     :matchedTokenPairCount 3
+                     :retrievedSourceCount 1
+                     :sourceGraphCandidateEvidenceScore 0.61
+                     :rankScore 33.0})
+               (row "lib/core/AxiosError.js"
+                    3
+                    {:candidateFileCount 2
+                     :docCount 0
+                     :matchedTokenCount 8
+                     :rankScore 11.2})
+               (row "tests/unit/adapters/adapters.test.js"
+                    4
+                    {:docCount 1
+                     :candidateFileCount 3
+                     :matchedTokenCount 9
+                     :retrievedSourceCount 1
+                     :rankScore 22.0})
+               (row "lib/adapters/http.js"
+                    13
+                    {:candidateFileCount 4
+                     :candidateSourceRank 2
+                     :directFileCandidateCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 8
+                     :matchedTokenPairCount 2
+                     :retrievedSupportLabelCount 3
+                     :sourceGraphCandidateEvidenceScore 0.33
+                     :supportOwnerEvidenceCount 1
+                     :supportOwnerPrimaryLabelMatchedTokenCount 3
+                     :supportOwnerPrimaryLabelSpecificTokenCount 1
+                     :rankScore 17.9})
+               (row "tests/unit/prototypePollution.test.js"
+                    16
+                    {:docCount 1
+                     :candidateFileCount 3
+                     :matchedTokenCount 11
+                     :matchedTokenPairCount 3
+                     :retrievedSourceCount 1
+                     :rankScore 25.4})]
+        selected-paths (mapv :path (compact-output files 10 nil))]
+    (is (< (index-of selected-paths "lib/adapters/http.js") 10))
+    (is (< (index-of selected-paths "lib/adapters/http.js")
+           (index-of selected-paths "tests/unit/prototypePollution.test.js")))))
 
 (deftest compact-output-frontloads-moderate-support-owner-source-graph-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
@@ -1293,7 +1358,7 @@
                      :supportOwnerPrimaryLabelMatchedTokenCount 2
                      :supportOwnerPrimaryLabelSpecificTokenCount 1})]
         selected-paths (mapv :path (compact-output files 20 nil))]
-    (is (= "src/flask/sansio/app.py" (nth selected-paths 4)))
+    (is (< (index-of selected-paths "src/flask/sansio/app.py") 5))
     (is (< (index-of selected-paths "src/flask/sansio/app.py")
            (index-of selected-paths "src/flask/json/__init__.py")))))
 

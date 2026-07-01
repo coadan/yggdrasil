@@ -388,11 +388,11 @@
 (def ^:private compact-output-doc-source-graph-grep-sort-rank
   0.405)
 (def ^:private compact-output-support-owner-source-graph-sort-rank
-  0.53)
+  0.25)
 (def ^:private compact-output-support-owner-source-graph-limit
   2)
 (def ^:private compact-output-support-owner-source-graph-source-score-min
-  0.45)
+  0.3)
 (def ^:private compact-output-candidate-source-graph-head-sort-rank
   0.402)
 (def ^:private compact-output-after-preserved-head-sort-rank
@@ -429,6 +429,8 @@
   0.55)
 (def ^:private compact-output-query-matched-exported-support-limit
   2)
+(def ^:private compact-output-direct-identity-sort-rank
+  0.2)
 (def ^:private compact-output-doc-supported-source-graph-query-sort-rank
   0.36)
 (def ^:private compact-output-strong-doc-source-graph-query-sort-rank
@@ -5044,7 +5046,9 @@
 
 (defn- compact-output-derived-sort-rank
   [row]
-  (when-let [sort-ranks (->> [(when (compact-output-doc-directory-evidence-row? row)
+  (when-let [sort-ranks (->> [(when (compact-output-direct-identity-row? row)
+                                compact-output-direct-identity-sort-rank)
+                              (when (compact-output-doc-directory-evidence-row? row)
                                 compact-output-doc-directory-evidence-sort-rank)
                               (when (compact-output-retrieved-path-grep-evidence-row? row)
                                 compact-output-retrieved-path-grep-sort-rank)
