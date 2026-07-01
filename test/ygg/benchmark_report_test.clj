@@ -1916,6 +1916,10 @@
                                 :status "running"
                                 :activeStage "context-packet"
                                 :activeElapsedMs 1500}]
+                :timings {:elapsedMs 12000
+                          :warmElapsedMs 3000
+                          :amortizedSetupElapsedMs 9000
+                          :agentReadyElapsedMs 250}
                 :results [{:case-id "case-1"
                            :parserWorker {:mode "all"
                                           :source "option"}
@@ -2055,6 +2059,8 @@
                  :min-measured-architecture-classes 1
                  :require-parser-worker "all"})]
     (is (= benchmark/agent-check-schema (:schema failed)))
+    (is (= (:timings report) (:timings failed)))
+    (is (= (:timings report) (:timings passed)))
     (is (= "failed" (:status failed)))
     (is (= #{"completed"
              "cases"

@@ -749,7 +749,8 @@
   (let [check-base {:schema agent-check-schema
                     :suite-id (:suite-id report)
                     :thresholds (agent-check-thresholds opts)
-                    :report report}
+                    :report report
+                    :timings (:timings report)}
         failures (vec
                   (concat
                    (completeness-failures check-base)

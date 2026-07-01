@@ -1284,12 +1284,32 @@
                                         :meanReciprocalRankFile 0.25
                                         :evidenceCitationRate 0.75
                                         :noiseRatioAt20 0.9}
+                               :timings {:elapsedMs 12000
+                                         :warmElapsedMs 3000
+                                         :amortizedSetupElapsedMs 9000
+                                         :agentReadyElapsedMs 250
+                                         :runningCases 0
+                                         :failedCases 0
+                                         :slowestCases [{:case-id "case-2"
+                                                         :status "completed"
+                                                         :elapsedMs 7000}]}
                                :agentDiagnostics diagnostics}
+                      :timings {:elapsedMs 12000
+                                :warmElapsedMs 3000
+                                :amortizedSetupElapsedMs 9000
+                                :agentReadyElapsedMs 250
+                                :runningCases 0
+                                :failedCases 0
+                                :slowestCases [{:case-id "case-2"
+                                                :status "completed"
+                                                :elapsedMs 7000}]}
                       :failures []}))]
     (doseq [out [report-out check-out]]
       (is (str/includes? out "- missing-predicted-file-runs 1 files 2 cases case-1"))
       (is (str/includes? out "- commandless-runs 1 cases case-2"))
-      (is (str/includes? out "- warning-runs 1 cases case-3")))))
+      (is (str/includes? out "- warning-runs 1 cases case-3")))
+    (is (str/includes? check-out "- timing-ms 12000 warm 3000 amortized-setup 9000 agent-ready 250 running 0 failed 0"))
+    (is (str/includes? check-out "- slowest case-2 completed 7000 ms"))))
 
 (deftest benchmark-summary-prints-artifact-diagnostics
   (let [diagnostics {:unverifiedScoreRuns 2

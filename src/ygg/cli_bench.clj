@@ -537,6 +537,23 @@
       (println "## Claim Readiness Warnings")
       (doseq [warning (:warnings claim-readiness)]
         (println "-" warning)))))
+
+(defn- print-timing-summary
+  [timings]
+  (when timings
+    (println "- timing-ms" (:elapsedMs timings)
+             "warm" (:warmElapsedMs timings)
+             "amortized-setup" (:amortizedSetupElapsedMs timings)
+             "agent-ready" (:agentReadyElapsedMs timings)
+             "running" (:runningCases timings)
+             "failed" (:failedCases timings))
+    (when-let [slowest (first (:slowestCases timings))]
+      (println "- slowest"
+               (:case-id slowest)
+               (:status slowest)
+               (:elapsedMs slowest)
+               "ms"))))
+
 (defn print-benchmark-summary
   [result]
   (println "# Benchmark")
@@ -620,19 +637,7 @@
                  "cases"
                  (str/join "," (get-in result
                                        [:graphExpectationDiagnostics :failedCaseIds]))))
-      (when-let [timings (:timings result)]
-        (println "- timing-ms" (:elapsedMs timings)
-                 "warm" (:warmElapsedMs timings)
-                 "amortized-setup" (:amortizedSetupElapsedMs timings)
-                 "agent-ready" (:agentReadyElapsedMs timings)
-                 "running" (:runningCases timings)
-                 "failed" (:failedCases timings))
-        (when-let [slowest (first (:slowestCases timings))]
-          (println "- slowest"
-                   (:case-id slowest)
-                   (:status slowest)
-                   (:elapsedMs slowest)
-                   "ms")))
+      (print-timing-summary (:timings result))
       (when (seq (:missing result))
         (println "- missing" (str/join "," (:missing result)))))
 
@@ -732,6 +737,8 @@
                                        [:report
                                         :graphExpectationDiagnostics
                                         :failedCaseIds]))))
+      (print-timing-summary (or (:timings result)
+                                (get-in result [:report :timings])))
       (when (seq (:failures result))
         (println "## Failures")
         (doseq [{:keys [metric operator expected actual message]} (:failures result)]
