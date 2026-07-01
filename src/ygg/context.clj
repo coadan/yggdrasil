@@ -52,6 +52,20 @@
 (def compact-evidence-limit
   10)
 
+(defn- now-ns
+  []
+  (System/nanoTime))
+
+(defn- elapsed-ms
+  [started-ns]
+  (long (/ (- (System/nanoTime) started-ns) 1000000)))
+
+(defn- timed-context-step
+  [timings stage f]
+  (let [started (now-ns)
+        value (f)]
+    [value (assoc timings stage (elapsed-ms started))]))
+
 (def ^:private compact-grep-result-reserve-limit
   4)
 
@@ -3218,7 +3232,8 @@
                                      :grep-candidates
                                      :grep-diagnostic-kinds
                                      :graph-adjacency-query-count
-                                     :context-chunks])})))
+                                     :context-chunks])
+      :contextTimingsMs (:context-timings-ms instrumentation)})))
 
 (defn- compact-basis
   [packet]
@@ -4073,102 +4088,136 @@
     (throw (ex-info "Missing context query text." {})))
   (when (str/blank? (str project-id))
     (throw (ex-info "Context query requires --project." {})))
-  (let [overlay (resolve-correction-overlay xtdb nil correction-overlay project-id)
+  (let [context-started (now-ns)
+        overlay (resolve-correction-overlay xtdb nil correction-overlay project-id)
         query-tokens (text/tokenize query-text)
-        search-report (query/search-report xtdb
-                                           query-text
-                                           {:limit retrieval-limit
-                                            :retriever retriever
-                                            :embedding-client embedding-client
-                                            :project-id project-id
-                                            :repo-id repo-id
-                                            :read-context read-context
-                                            :fusion-strategy fusion-strategy
-                                            :sqlite-fts? sqlite-fts?
-                                            :diversity-rerank-limit diversity-rerank-limit
-                                            :fts-candidate-limit fts-candidate-limit
-                                            :fts-weight fts-weight
-                                            :embedding-role embedding-role
-                                            :embedding-roles embedding-roles})
+        [search-report timings] (timed-context-step
+                                 {}
+                                 :search
+                                 #(query/search-report xtdb
+                                                       query-text
+                                                       {:limit retrieval-limit
+                                                        :retriever retriever
+                                                        :embedding-client embedding-client
+                                                        :project-id project-id
+                                                        :repo-id repo-id
+                                                        :read-context read-context
+                                                        :fusion-strategy fusion-strategy
+                                                        :sqlite-fts? sqlite-fts?
+                                                        :diversity-rerank-limit diversity-rerank-limit
+                                                        :fts-candidate-limit fts-candidate-limit
+                                                        :fts-weight fts-weight
+                                                        :embedding-role embedding-role
+                                                        :embedding-roles embedding-roles}))
         results (:results search-report)
-        source-candidates (source-graph-candidates
-                           xtdb
-                           query-tokens
-                           {:project-id project-id
-                            :repo-id repo-id
-                            :read-context read-context})
+        [source-candidates timings] (timed-context-step
+                                     timings
+                                     :source-candidates
+                                     #(source-graph-candidates
+                                       xtdb
+                                       query-tokens
+                                       {:project-id project-id
+                                        :repo-id repo-id
+                                        :read-context read-context}))
         candidate-inputs (ranked-candidate-inputs query-tokens
                                                   results
                                                   source-candidates)
-        candidate-file-rows (candidate-files candidate-inputs)
-        candidate-file-rows (expand-candidate-file-siblings
-                             xtdb
-                             query-tokens
-                             candidate-file-rows
-                             {:project-id project-id
-                              :repo-id repo-id
-                              :read-context read-context})
-        candidate-file-rows (expand-candidate-file-support-owners
-                             xtdb
-                             query-tokens
-                             candidate-file-rows
-                             {:project-id project-id
-                              :repo-id repo-id
-                              :read-context read-context})
-        source-declarations (source-graph-declarations
-                             xtdb
-                             query-tokens
-                             source-candidates
-                             candidate-file-rows
-                             {:project-id project-id
-                              :repo-id repo-id
-                              :read-context read-context})
-        graph-data (graph/system-graph xtdb
-                                       project-id
-                                       {:limit graph/default-node-limit
-                                        :min-confidence min-confidence
-                                        :correction-overlay correction-overlay
-                                        :read-context read-context})
+        base-candidate-file-rows (candidate-files candidate-inputs)
+        [sibling-candidate-file-rows timings] (timed-context-step
+                                               timings
+                                               :expand-candidate-siblings
+                                               #(expand-candidate-file-siblings
+                                                 xtdb
+                                                 query-tokens
+                                                 base-candidate-file-rows
+                                                 {:project-id project-id
+                                                  :repo-id repo-id
+                                                  :read-context read-context}))
+        [candidate-file-rows timings] (timed-context-step
+                                       timings
+                                       :expand-candidate-support-owners
+                                       #(expand-candidate-file-support-owners
+                                         xtdb
+                                         query-tokens
+                                         sibling-candidate-file-rows
+                                         {:project-id project-id
+                                          :repo-id repo-id
+                                          :read-context read-context}))
+        [source-declarations timings] (timed-context-step
+                                       timings
+                                       :source-declarations
+                                       #(source-graph-declarations
+                                         xtdb
+                                         query-tokens
+                                         source-candidates
+                                         candidate-file-rows
+                                         {:project-id project-id
+                                          :repo-id repo-id
+                                          :read-context read-context}))
+        [graph-data timings] (timed-context-step
+                              timings
+                              :system-graph
+                              #(graph/system-graph xtdb
+                                                   project-id
+                                                   {:limit graph/default-node-limit
+                                                    :min-confidence min-confidence
+                                                    :correction-overlay correction-overlay
+                                                    :read-context read-context}))
         entities (select-entities query-tokens results graph-data entity-limit)
         edges (select-edges query-tokens entities graph-data edge-limit)
         accepted-systems (selected-accepted-systems overlay entities results)
         targets (set/union (selected-targets entities edges)
                            (system-targets accepted-systems))
         attachments (attachment-docs-for-targets overlay targets)
-        chunks (context-chunks xtdb
-                               results
-                               attachments
-                               candidate-inputs
-                               {:project-id project-id
-                                :repo-id repo-id
-                                :read-context read-context})
-        activity (activity/select-activity xtdb
-                                           query-text
+        [chunks timings] (timed-context-step
+                          timings
+                          :context-chunks
+                          #(context-chunks xtdb
+                                           results
+                                           attachments
+                                           candidate-inputs
                                            {:project-id project-id
-                                            :read-context read-context
-                                            :target-ids targets})
-        memories (memory/context-memories xtdb
-                                          query-text
-                                          {:project-id project-id
-                                           :repo-id repo-id
-                                           :read-context read-context
-                                           :target-ids targets
-                                           :owner memory-owner
-                                           :exclude-private?
-                                           exclude-private-memory?})
+                                            :repo-id repo-id
+                                            :read-context read-context}))
+        [activity timings] (timed-context-step
+                            timings
+                            :activity
+                            #(activity/select-activity xtdb
+                                                       query-text
+                                                       {:project-id project-id
+                                                        :read-context read-context
+                                                        :target-ids targets}))
+        [memories timings] (timed-context-step
+                            timings
+                            :memories
+                            #(memory/context-memories xtdb
+                                                      query-text
+                                                      {:project-id project-id
+                                                       :repo-id repo-id
+                                                       :read-context read-context
+                                                       :target-ids targets
+                                                       :owner memory-owner
+                                                       :exclude-private?
+                                                       exclude-private-memory?}))
         selected-system-ids (concat (map :id entities)
                                     (map :id accepted-systems))
-        system-evidence (selected-system-evidence
-                         xtdb
-                         selected-system-ids
-                         candidate-inputs
-                         {:project-id project-id
-                          :repo-id repo-id
-                          :read-context read-context})
-        dependency-report (dependency/package-report xtdb
-                                                     {:project-id project-id
-                                                      :repo-id repo-id}
-                                                     {:correction-overlay overlay})
+        [system-evidence timings] (timed-context-step
+                                   timings
+                                   :system-evidence
+                                   #(selected-system-evidence
+                                     xtdb
+                                     selected-system-ids
+                                     candidate-inputs
+                                     {:project-id project-id
+                                      :repo-id repo-id
+                                      :read-context read-context}))
+        [dependency-report timings] (timed-context-step
+                                     timings
+                                     :package-report
+                                     #(dependency/package-report xtdb
+                                                                 {:project-id project-id
+                                                                  :repo-id repo-id}
+                                                                 {:correction-overlay overlay}))
         runtime-evidence (select-system-evidence query-tokens
                                                  selected-system-ids
                                                  candidate-inputs
@@ -4182,13 +4231,20 @@
                    (empty? entities)
                    (conj "no graph entities matched the query"))
         drilldowns (context-drilldowns query-text project-id)
-        docs (->> (concat (attached-docs overlay chunks snippet-chars targets)
-                          (inferred-docs query-tokens
-                                         candidate-inputs
-                                         chunks
-                                         entities
-                                         snippet-chars))
-                  (#(select-docs % results doc-limit query-tokens)))
+        [docs timings] (timed-context-step
+                        timings
+                        :docs
+                        (fn []
+                          (select-docs
+                           (concat (attached-docs overlay chunks snippet-chars targets)
+                                   (inferred-docs query-tokens
+                                                  candidate-inputs
+                                                  chunks
+                                                  entities
+                                                  snippet-chars))
+                           results
+                           doc-limit
+                           query-tokens)))
         search-context (-> (select-keys search-report
                                         [:schema
                                          :query-run-id
@@ -4197,97 +4253,128 @@
                                          :instrumentation])
                            (update :instrumentation assoc
                                    :context-chunks (count chunks)))
-        evidence (query-evidence xtdb
-                                 overlay
-                                 {:project-id project-id
-                                  :repo-id repo-id
-                                  :read-context read-context
-                                  :retriever retriever
-                                  :retriever-effective (:retriever-effective
-                                                        search-report)
-                                  :auto-lexical-short-circuit?
-                                  (get-in search-report
-                                          [:instrumentation
-                                           :auto-lexical-short-circuit?])
-                                  :auto-lexical-short-circuit-reason
-                                  (get-in search-report
-                                          [:instrumentation
-                                           :auto-lexical-short-circuit-reason])
-                                  :embedding-client embedding-client
-                                  :freshness freshness
-                                  :degradation degradation
-                                  :dependency-counts (:counts dependency-report)
-                                  :system-evidence-count (count system-evidence)
-                                  :search-doc-count (get-in search-report
-                                                            [:instrumentation
-                                                             :durable-search-docs])}
-                                 {:entity-count (count entities)
-                                  :doc-count (count docs)
-                                  :memory-count (count memories)
-                                  :activity-count (count activity)
-                                  :runtime-count (count runtime-evidence)
-                                  :validation-count (count (filter #(some (fn [event]
-                                                                            (= :validation (:event-kind event)))
-                                                                          (:events %))
-                                                                   activity))})
-        source-coverage (coverage/context-summary xtdb
-                                                  {:project-id project-id
-                                                   :repo-id repo-id
-                                                   :read-context read-context})
-        architecture (architecture-section {:overlay overlay
-                                            :entities entities
-                                            :results results
-                                            :candidate-inputs candidate-inputs
-                                            :edges edges
-                                            :accepted-systems accepted-systems
-                                            :query-tokens query-tokens
-                                            :runtime-evidence runtime-evidence
-                                            :dependency-report dependency-report
-                                            :docs docs
-                                            :activity activity
-                                            :evidence evidence
-                                            :freshness freshness})
-        candidate-file-rows (vec
-                             (concat candidate-file-rows
-                                     (architecture-candidate-file-rows
-                                      architecture
-                                      (count candidate-file-rows))))
+        [evidence timings] (timed-context-step
+                            timings
+                            :evidence
+                            #(query-evidence xtdb
+                                             overlay
+                                             {:project-id project-id
+                                              :repo-id repo-id
+                                              :read-context read-context
+                                              :retriever retriever
+                                              :retriever-effective (:retriever-effective
+                                                                    search-report)
+                                              :auto-lexical-short-circuit?
+                                              (get-in search-report
+                                                      [:instrumentation
+                                                       :auto-lexical-short-circuit?])
+                                              :auto-lexical-short-circuit-reason
+                                              (get-in search-report
+                                                      [:instrumentation
+                                                       :auto-lexical-short-circuit-reason])
+                                              :embedding-client embedding-client
+                                              :freshness freshness
+                                              :degradation degradation
+                                              :dependency-counts (:counts dependency-report)
+                                              :system-evidence-count (count system-evidence)
+                                              :search-doc-count (get-in search-report
+                                                                        [:instrumentation
+                                                                         :durable-search-docs])}
+                                             {:entity-count (count entities)
+                                              :doc-count (count docs)
+                                              :memory-count (count memories)
+                                              :activity-count (count activity)
+                                              :runtime-count (count runtime-evidence)
+                                              :validation-count (count
+                                                                 (filter
+                                                                  (fn [item]
+                                                                    (some (fn [event]
+                                                                            (= :validation
+                                                                               (:event-kind event)))
+                                                                          (:events item)))
+                                                                  activity))}))
+        [source-coverage timings] (timed-context-step
+                                   timings
+                                   :source-coverage
+                                   #(coverage/context-summary xtdb
+                                                              {:project-id project-id
+                                                               :repo-id repo-id
+                                                               :read-context read-context}))
+        [architecture timings] (timed-context-step
+                                timings
+                                :architecture
+                                #(architecture-section {:overlay overlay
+                                                        :entities entities
+                                                        :results results
+                                                        :candidate-inputs candidate-inputs
+                                                        :edges edges
+                                                        :accepted-systems accepted-systems
+                                                        :query-tokens query-tokens
+                                                        :runtime-evidence runtime-evidence
+                                                        :dependency-report dependency-report
+                                                        :docs docs
+                                                        :activity activity
+                                                        :evidence evidence
+                                                        :freshness freshness}))
+        [candidate-file-rows timings] (timed-context-step
+                                       timings
+                                       :architecture-candidates
+                                       #(vec
+                                         (concat candidate-file-rows
+                                                 (architecture-candidate-file-rows
+                                                  architecture
+                                                  (count candidate-file-rows)))))
         systems (systems-section architecture)
-        audit-scopes (audit-scope/selected-summaries
-                      {:boundary-evidence (:boundaryEvidence architecture)
-                       :runtime-evidence (:runtimeEvidence architecture)
-                       :dependency-evidence (:dependencyEvidence architecture)
-                       :rejected-corrections (:rejectedCorrections architecture)
-                       :docs (:docs architecture)})
+        [audit-scopes timings] (timed-context-step
+                                timings
+                                :audit-scopes
+                                #(audit-scope/selected-summaries
+                                  {:boundary-evidence (:boundaryEvidence architecture)
+                                   :runtime-evidence (:runtimeEvidence architecture)
+                                   :dependency-evidence (:dependencyEvidence architecture)
+                                   :rejected-corrections (:rejectedCorrections architecture)
+                                   :docs (:docs architecture)}))
         plugin-packages (get plugins :packages)
         blast-radius (blast-radius entities edges)
         output-mode (keyword (or output default-output))
-        packet (cond-> (base-packet {:query-text query-text
-                                     :budget budget
-                                     :graph-data graph-data
-                                     :entities entities
-                                     :edges edges
-                                     :activity activity
-                                     :warnings warnings
-                                     :drilldowns drilldowns
-                                     :evidence evidence
-                                     :search-instrumentation search-context
-                                     :freshness freshness
-                                     :source-coverage source-coverage
-                                     :architecture architecture
-                                     :systems systems
-                                     :audit-scopes audit-scopes
-                                     :relationships (relationship-groups edges)
-                                     :blast-radius blast-radius
-                                     :candidate-files candidate-file-rows
-                                     :source-declarations source-declarations
-                                     :plugin-packages plugin-packages
-                                     :memories memories
-                                     :degradation degradation})
-                 (seq (compact-query-input query-input))
-                 (assoc :input query-input))
+        [packet timings] (timed-context-step
+                          timings
+                          :base-packet
+                          #(cond-> (base-packet {:query-text query-text
+                                                 :budget budget
+                                                 :graph-data graph-data
+                                                 :entities entities
+                                                 :edges edges
+                                                 :activity activity
+                                                 :warnings warnings
+                                                 :drilldowns drilldowns
+                                                 :evidence evidence
+                                                 :search-instrumentation search-context
+                                                 :freshness freshness
+                                                 :source-coverage source-coverage
+                                                 :architecture architecture
+                                                 :systems systems
+                                                 :audit-scopes audit-scopes
+                                                 :relationships (relationship-groups edges)
+                                                 :blast-radius blast-radius
+                                                 :candidate-files candidate-file-rows
+                                                 :source-declarations source-declarations
+                                                 :plugin-packages plugin-packages
+                                                 :memories memories
+                                                 :degradation degradation})
+                             (seq (compact-query-input query-input))
+                             (assoc :input query-input)))
+        packet (update-in packet
+                          [:search :instrumentation]
+                          assoc
+                          :context-timings-ms
+                          timings)
         packet (if (= :compact output-mode)
-                 packet
+                 (update-in packet
+                            [:search :instrumentation :context-timings-ms]
+                            assoc
+                            :total
+                            (elapsed-ms context-started))
                  (fit-budget packet docs budget))]
     (packet-output packet
                    query-text

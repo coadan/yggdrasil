@@ -8,11 +8,27 @@
   [value]
   (long (Math/ceil (/ (count (json/write-json-str value)) 4.0))))
 
+(defn- remove-budget-diagnostics
+  [packet]
+  (update-in packet
+             [:search :instrumentation]
+             dissoc
+             :context-chunks
+             :context-timings-ms))
+
 (defn- add-warning-with-budget
   [packet warning budget]
-  (let [with-warning (update packet :warnings conj warning)]
-    (if (<= (estimate-tokens with-warning) budget)
+  (let [with-warning (update packet :warnings conj warning)
+        compact-packet (remove-budget-diagnostics packet)
+        compact-with-warning (update compact-packet :warnings conj warning)]
+    (cond
+      (<= (estimate-tokens with-warning) budget)
       with-warning
+
+      (<= (estimate-tokens compact-with-warning) budget)
+      compact-with-warning
+
+      :else
       packet)))
 (defn compact-evidence-readiness
   [evidence]
@@ -347,7 +363,7 @@
     packet))
 (defn trim-optional-context-metadata
   [packet budget]
-  (let [trim-steps [#(update-in % [:search :instrumentation] dissoc :context-chunks)
+  (let [trim-steps [remove-budget-diagnostics
                     compact-freshness-in-packet
                     compact-source-coverage-in-packet
                     #(dissoc % :sourceCoverage)
@@ -402,7 +418,7 @@
   (reductions (fn [packet trim-step]
                 (trim-step packet))
               packet
-              [#(update-in % [:search :instrumentation] dissoc :context-chunks)
+              [remove-budget-diagnostics
                compact-source-coverage-in-packet
                #(dissoc % :sourceCoverage)
                compact-architecture-in-packet

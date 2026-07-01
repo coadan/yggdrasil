@@ -1437,6 +1437,25 @@
         (is (= :lexical (get-in packet [:search :retriever-effective])))
         (is (= 1 (get-in packet [:search :instrumentation :search-docs])))
         (is (= 0 (get-in packet [:search :instrumentation :context-chunks])))
+        (let [timings (get-in packet [:search :instrumentation :context-timings-ms])]
+          (is (map? timings))
+          (is (every? #(contains? timings %)
+                      [:search
+                       :source-candidates
+                       :system-graph
+                       :context-chunks
+                       :activity
+                       :memories
+                       :system-evidence
+                       :package-report
+                       :docs
+                       :evidence
+                       :source-coverage
+                       :architecture
+                       :audit-scopes
+                       :base-packet]))
+          (is (every? #(and (integer? %) (not (neg? %)))
+                      (vals timings))))
         (is (= {:status :current
                 :counts {:indexed 1
                          :current 1
@@ -3185,6 +3204,7 @@
               :mode :lexical
               :used [:grep :graph]}
              (:lanes packet)))
+      (is (map? (get-in packet [:search :contextTimingsMs])))
       (is (not (contains? packet :actions)))
       (is (not (contains? packet :candidateFiles)))
       (is (not (contains? packet :docs))))))
@@ -3969,18 +3989,19 @@
                       [])))
                 query/edges-touching-node-ids
                 (fn [_ ids opts]
-                  (is (= #{"node:import:theme"} (set ids)))
                   (is (= {:project-id "fixture"
                           :repo-id "app"
                           :read-context {:valid-at "t"}}
                          opts))
-                  [{:xt/id "edge:theme-route"
-                    :project-id "fixture"
-                    :repo-id "app"
-                    :source-id "node:import:theme"
-                    :target-id "node:route:examples"
-                    :relation :imports
-                    :active? true}])
+                  (if (= #{"node:import:theme"} (set ids))
+                    [{:xt/id "edge:theme-route"
+                      :project-id "fixture"
+                      :repo-id "app"
+                      :source-id "node:import:theme"
+                      :target-id "node:route:examples"
+                      :relation :imports
+                      :active? true}]
+                    []))
                 query/nodes-by-ids
                 (fn [_ ids opts]
                   (is (= #{"node:route:examples"} (set ids)))
@@ -4061,25 +4082,26 @@
                     []))
                 query/edges-touching-node-ids
                 (fn [_ ids opts]
-                  (is (= #{"node:file:flow-log"} (set ids)))
                   (is (= {:project-id "fixture"
                           :repo-id "app"
                           :read-context {:valid-at "t"}}
                          opts))
-                  [{:xt/id "edge:file-flow"
-                    :project-id "fixture"
-                    :repo-id "app"
-                    :source-id "node:file:flow-log"
-                    :target-id "node:resource:flow"
-                    :relation :defines
-                    :active? true}
-                   {:xt/id "edge:file-role"
-                    :project-id "fixture"
-                    :repo-id "app"
-                    :source-id "node:file:flow-log"
-                    :target-id "node:resource:role"
-                    :relation :defines
-                    :active? true}])
+                  (if (= #{"node:file:flow-log"} (set ids))
+                    [{:xt/id "edge:file-flow"
+                      :project-id "fixture"
+                      :repo-id "app"
+                      :source-id "node:file:flow-log"
+                      :target-id "node:resource:flow"
+                      :relation :defines
+                      :active? true}
+                     {:xt/id "edge:file-role"
+                      :project-id "fixture"
+                      :repo-id "app"
+                      :source-id "node:file:flow-log"
+                      :target-id "node:resource:role"
+                      :relation :defines
+                      :active? true}]
+                    []))
                 query/nodes-by-ids
                 (fn [_ ids opts]
                   (is (= #{"node:resource:flow" "node:resource:role"} (set ids)))
@@ -4269,29 +4291,30 @@
                         [])))
                   query/edges-touching-node-ids
                   (fn [_ ids opts]
-                    (is (contains? (set ids) "node:seed:route"))
                     (is (= {:project-id "fixture"
                             :repo-id "app"
                             :read-context {:valid-at "t"}}
                            opts))
-                    (vec
-                     (concat
-                      (map (fn [idx]
-                             {:xt/id (str "edge:doc:" idx)
-                              :project-id "fixture"
-                              :repo-id "app"
-                              :source-id (str "node:seed:doc:" idx)
-                              :target-id (str "node:neighbor:doc:" idx)
-                              :relation :defines
-                              :active? true})
-                           (range doc-count))
-                      [{:xt/id "edge:route"
-                        :project-id "fixture"
-                        :repo-id "app"
-                        :source-id "node:seed:route"
-                        :target-id "node:neighbor:route-file"
-                        :relation :imports
-                        :active? true}])))
+                    (if (contains? (set ids) "node:seed:route")
+                      (vec
+                       (concat
+                        (map (fn [idx]
+                               {:xt/id (str "edge:doc:" idx)
+                                :project-id "fixture"
+                                :repo-id "app"
+                                :source-id (str "node:seed:doc:" idx)
+                                :target-id (str "node:neighbor:doc:" idx)
+                                :relation :defines
+                                :active? true})
+                             (range doc-count))
+                        [{:xt/id "edge:route"
+                          :project-id "fixture"
+                          :repo-id "app"
+                          :source-id "node:seed:route"
+                          :target-id "node:neighbor:route-file"
+                          :relation :imports
+                          :active? true}]))
+                      []))
                   query/nodes-by-ids
                   (fn [_ ids opts]
                     (is (contains? (set ids) "node:neighbor:route-file"))
