@@ -1576,6 +1576,10 @@
       (with-redefs [store/storage-path
                     (fn [& _]
                       (throw (ex-info "read-only tool should use explicit request storage" {})))
+                    store/project-sqlite-path
+                    (fn [project-id]
+                      (is (= "fixture" project-id))
+                      "/tmp/ygg/queue")
                     queue/list-summary
                     (fn [root opts]
                       {:schema queue/summary-schema
@@ -1595,7 +1599,7 @@
                                    :id 1
                                    :method "tools/call"
                                    :params {:name "ygg_work_list"
-                                            :arguments {:queueDir "/tmp/ygg/queue"
+                                            :arguments {:projectId "fixture"
                                                         :status "ready"}}}})]
           (is (= true (:ok response)))
           (is (= "ygg.queue.summary/v1"
@@ -1638,7 +1642,7 @@
                                    :id 1
                                    :method "tools/call"
                                    :params {:name "ygg_work_pull"
-                                            :arguments {:queueDir "/tmp/ygg/queue"}}}})]
+                                            :arguments {:projectId "fixture"}}}})]
           (is (= false (:ok response)))
           (is (= daemon-contract/unavailable-exit (:exit response)))
           (is (= "operation-lock-busy" (get-in response [:data :reason])))))
