@@ -439,7 +439,7 @@
                       :noisy-external-api
                       :low
                       (:xt/id system)
-                      "External API node has only support/noise visible connections and no accepted map correction."
+                      "External API node has only support/noise visible connections and no accepted correction."
                       {:system (system-summary system)
                        :edge-count (count edges)
                        :edges (mapv #(edge-summary system-by-id %)

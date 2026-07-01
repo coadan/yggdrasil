@@ -1767,7 +1767,7 @@
                :facts 1
                :topEvidenceTypes [{:kind "shares-config"
                                    :count 1}]}
-              {:kind "map-corrections"
+              {:kind "corrections"
                :basis "selected-architecture-evidence"
                :facts 1
                :topEvidenceTypes [{:kind "correction-reject"

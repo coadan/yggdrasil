@@ -301,8 +301,8 @@ semantics from extensions or paths.
 
 Audit-scope reports group indexed rows into mechanical evidence families such as
 source, docs, dependencies, runtime config, containers, infra, assets,
-map corrections, and unknown text. They do not infer project meaning from path
-names or prose. `map-corrections` is backed by selected accepted corrections,
+corrections, and unknown text. They do not infer project meaning from path
+names or prose. `corrections` is backed by selected accepted corrections,
 so agents can see prior review facts beside source/runtime/dependency evidence. When
 rows cannot be mapped to a known family, the report includes
 `unclassified-extractor` plus `registryDiagnostics`, grouped by source section
@@ -355,14 +355,14 @@ inspect unresolved correction work before trusting or applying it.
 `architecture.evidenceFamilies` is a compact readiness summary for the selected
 work area. Rows use fixed evidence-family names such as `source-structure`,
 `dependency-flow`, `runtime-config`, `deploy-topology`, `docs-contracts`,
-`map-corrections`, and `maintenance`. `deploy-topology` is backed by selected
+`corrections`, and `maintenance`. `deploy-topology` is backed by selected
 container/deploy fact rows such as container images, ports, Docker stages,
 Compose/devcontainer/Helm/Kustomize facts, and runtime commands. `rowCount` and
 `sourceCounts` come from packet rows already present in the architecture
 section. `planes` mirrors matching `evidence` plane statuses when a family
 depends on an indexed evidence plane. These rows help agents see whether an
-answer is backed by code, config, deployment evidence, dependency, docs, map
-correction, or maintenance evidence without classifying architecture from path
+answer is backed by code, config, deployment evidence, dependency, docs,
+accepted corrections, or maintenance evidence without classifying architecture from path
 names or prose.
 
 `architecture.summary` is the smallest architecture signal agents should keep

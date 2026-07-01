@@ -23,7 +23,7 @@
 
 (def ^:private scope-order
   {"source-structure" 0
-   "map-corrections" 1
+   "corrections" 1
    "dependencies" 2
    "dependency-runtime" 3
    "runtime-config" 4
@@ -296,15 +296,15 @@
                  (normalize-key (row-file-kind row))
                  "source-evidence")))
 
-(defn- map-correction-audit-rows
+(defn- correction-audit-rows
   [section row]
   (when (#{"correction-edge" "correction-reject"} (normalize-key (:kind row)))
-    [(audit-row "map-corrections"
+    [(audit-row "corrections"
                 section
                 row
                 (or (normalize-key (:relation row))
                     (normalize-key (:kind row))
-                    "map-correction"))]))
+                    "correction"))]))
 
 (defn- doc-audit-row
   [row]
@@ -352,9 +352,9 @@
            docs rejected-corrections]}]
   (->> (concat (map #(source-audit-row "sourceEvidence" %) source-evidence)
                (map #(source-audit-row "boundaryEvidence" %) boundary-evidence)
-               (mapcat #(map-correction-audit-rows "boundaryEvidence" %)
+               (mapcat #(correction-audit-rows "boundaryEvidence" %)
                        boundary-evidence)
-               (mapcat #(map-correction-audit-rows "rejectedCorrections" %)
+               (mapcat #(correction-audit-rows "rejectedCorrections" %)
                        rejected-corrections)
                (mapcat runtime-audit-rows runtime-evidence)
                (mapcat dependency-audit-rows dependency-evidence)

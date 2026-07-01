@@ -1254,7 +1254,7 @@
    {:family "docs-contracts"
     :source-keys [:docs]
     :planes [:docs]}
-   {:family "map-corrections"
+   {:family "corrections"
     :source-keys [:acceptedSystems :correctionEdges :rejectedCorrections]
     :planes [:correction-overlay]}
    {:family "maintenance"

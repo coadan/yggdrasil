@@ -197,7 +197,7 @@ Project agent setup is noun-scoped: use `ygg agent install` and
 
 - [Dependencies](docs/dependencies.md)
 - [Distribution](docs/distribution.md)
-- [System map corrections](docs/system-map.md)
+- [System corrections](docs/system-map.md)
 - [Project memory](docs/memory.md)
 - [Context packets and doc attachments](docs/context.md)
 - [Graph export schema](docs/graph-export.md)

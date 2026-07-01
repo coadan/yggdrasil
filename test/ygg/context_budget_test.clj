@@ -242,7 +242,7 @@
                  :evidenceFamilyStatusByFamily {"dependency-flow" "missing"
                                                 "docs-contracts" "available"
                                                 "maintenance" "missing"
-                                                "map-corrections" "available"
+                                                "corrections" "available"
                                                 "runtime-config" "available"
                                                 "source-structure" "available"}
                  :validationGapStatuses {"missing" 2
@@ -667,7 +667,7 @@
                                            "deploy-topology" "available"
                                            "docs-contracts" "available"
                                            "maintenance" "available"
-                                           "map-corrections" "available"
+                                           "corrections" "available"
                                            "runtime-config" "available"
                                            "source-structure" "available"}
             :validationGapStatuses {"missing" 1
@@ -741,7 +741,7 @@
                              :count 1}]
              :planes [{:plane "docs"
                        :status "weak"}]}
-            {:family "map-corrections"
+            {:family "corrections"
              :status "available"
              :rowCount 3
              :sourceCounts [{:key "acceptedSystems"
@@ -864,7 +864,7 @@
             "runtime-config" "missing"
             "deploy-topology" "missing"
             "docs-contracts" "missing"
-            "map-corrections" "available"
+            "corrections" "available"
             "maintenance" "missing"}
            (into {}
                  (map (juxt :family :status))

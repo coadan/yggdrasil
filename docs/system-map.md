@@ -1,8 +1,8 @@
-# System Map Corrections
+# System Corrections
 
 Yggdrasil separates mechanical extraction from agent-maintained system meaning.
-The raw graph should emerge from concrete facts; the map records the meaning
-that cannot be safely hard-coded for every project.
+The raw graph should emerge from concrete facts; correction facts record the
+meaning that cannot be safely hard-coded for every project.
 
 The extractor can regenerate facts at any time: files, symbols, imports,
 manifests, URLs, ports, routes, config values, container image producer/consumer
@@ -30,7 +30,7 @@ corrections through `ygg corrections` so validation, required reasons, audit his
 and normalization stay in one place. Query, view, and report surfaces consume a
 resolved projection of raw graph facts plus correction facts.
 
-Generated candidates do not belong in the persisted map. `ygg corrections review`
+Generated candidates do not belong in persisted corrections. `ygg corrections review`
 prints a bounded review packet from the current graph and existing accepted
 corrections, then exits without persisting generated candidate systems as
 accepted project meaning.

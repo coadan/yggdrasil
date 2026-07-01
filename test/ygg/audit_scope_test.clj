@@ -52,7 +52,7 @@
                             :status "accepted"
                             :source {:path "docs/billing.md"}}]})]
     (is (= ["source-structure"
-            "map-corrections"
+            "corrections"
             "dependencies"
             "dependency-runtime"
             "runtime-config"
@@ -87,7 +87,7 @@
                         :status "accepted"
                         :provenance "correction-overlay"
                         :section "boundaryEvidence"}]}
-            {:kind "map-corrections"
+            {:kind "corrections"
              :basis "selected-architecture-evidence"
              :facts 2
              :topEvidenceTypes [{:kind "correction-reject"
