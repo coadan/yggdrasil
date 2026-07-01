@@ -157,8 +157,49 @@
     (is (= 0 (:exit result)))
     (is (str/includes? (:out result) "--check-only"))
     (is (str/includes? (:out result) "--skip-existing"))
+    (is (str/includes? (:out result) "--stage-time-baseline-report"))
     (is (str/includes? (:out result) "--retriever MODE"))
     (is (str/includes? (:out result) "current artifacts already"))))
+
+(deftest dry-run-runs-stage-time-gate-when-threshold-is-set
+  (let [result (run-gate "--dry-run"
+                         "--max-total-stage-ms" "240000"
+                         "--stage" "context-packet"
+                         "--suite" "benchmarks/custom.edn"
+                         "--manifest" "benchmarks/custom-repos.edn"
+                         "--out" ".dev/ygg/benchmark-gate/custom")
+        lines (output-lines result)
+        stage-line (last lines)]
+    (is (= 0 (:exit result)))
+    (is (= 4 (count lines)))
+    (is (str/includes? (nth lines 2)
+                       "bench agent-check benchmarks/custom.edn"))
+    (is (str/includes? stage-line "python3 scripts/stage-time-gate.py"))
+    (is (str/includes? stage-line ".dev/ygg/benchmark-gate/custom/\\*/agent-report.json"))
+    (is (str/includes? stage-line "--out .dev/ygg/benchmark-gate/custom/stage-time-gate.json"))
+    (is (str/includes? stage-line "--max-total-stage-ms 240000"))
+    (is (str/includes? stage-line "--stage context-packet"))))
+
+(deftest dry-run-runs-stage-time-regression-gate-with-baseline
+  (let [result (run-gate "--dry-run"
+                         "--stage-time-baseline-report" "before.json"
+                         "--max-total-stage-regression-ratio" "1.2"
+                         "--max-case-stage-regression-ms" "100"
+                         "--min-stage-regression-ms" "50"
+                         "--suite" "benchmarks/custom.edn"
+                         "--manifest" "benchmarks/custom-repos.edn"
+                         "--out" ".dev/ygg/benchmark-gate/custom")
+        lines (output-lines result)
+        stage-line (last lines)]
+    (is (= 0 (:exit result)))
+    (is (= 4 (count lines)))
+    (is (str/includes? (nth lines 2)
+                       "bench agent-check benchmarks/custom.edn"))
+    (is (str/includes? stage-line "python3 scripts/stage-time-gate.py"))
+    (is (str/includes? stage-line "--baseline-report before.json"))
+    (is (str/includes? stage-line "--max-total-stage-regression-ratio 1.2"))
+    (is (str/includes? stage-line "--max-case-stage-regression-ms 100"))
+    (is (str/includes? stage-line "--min-stage-regression-ms 50"))))
 
 (deftest dry-run-passes-retriever-and-semantic-client-options
   (let [result (run-gate "--dry-run"

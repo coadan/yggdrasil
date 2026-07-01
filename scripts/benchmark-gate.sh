@@ -28,6 +28,24 @@ Options:
   --setup-check       Only check required local benchmark repos.
   --check-only        Reuse existing score artifacts; skip baseline regeneration.
   --skip-existing     Skip regenerating current matching baseline case artifacts.
+  --stage-time-baseline-report PATH
+                      Baseline agent-report JSON/glob for stage timing regression checks.
+                      May be repeated.
+  --max-case-stage-ms N
+                      Fail if any case stage exceeds this elapsed ms.
+  --max-total-stage-ms N
+                      Fail if any aggregate stage exceeds this elapsed ms.
+  --max-case-stage-regression-ms N
+                      Fail if a case stage regresses by more than this ms.
+  --max-total-stage-regression-ms N
+                      Fail if an aggregate stage regresses by more than this ms.
+  --max-case-stage-regression-ratio N
+                      Fail if a case stage current/baseline ratio exceeds this value.
+  --max-total-stage-regression-ratio N
+                      Fail if an aggregate stage current/baseline ratio exceeds this value.
+  --min-stage-regression-ms N
+                      Ignore timing deltas at or below this ms floor.
+  --stage NAME        Limit stage timing checks to one stage. May be repeated.
   --skip-setup-check  Run without checking local benchmark repos first.
   --dry-run           Print commands without running them.
 
@@ -55,6 +73,17 @@ batch_size=""
 setup_check_only=false
 check_only=false
 skip_existing=false
+stage_time_baseline_reports=()
+stage_time_baseline_report_count=0
+max_case_stage_ms=""
+max_total_stage_ms=""
+max_case_stage_regression_ms=""
+max_total_stage_regression_ms=""
+max_case_stage_regression_ratio=""
+max_total_stage_regression_ratio=""
+min_stage_regression_ms=""
+stage_filters=()
+stage_filter_count=0
 skip_setup_check=false
 dry_run=false
 
@@ -127,6 +156,44 @@ while [[ $# -gt 0 ]]; do
     --skip-existing)
       skip_existing=true
       shift
+      ;;
+    --stage-time-baseline-report)
+      stage_time_baseline_reports+=("$2")
+      stage_time_baseline_report_count=$((stage_time_baseline_report_count + 1))
+      shift 2
+      ;;
+    --max-case-stage-ms)
+      max_case_stage_ms="$2"
+      shift 2
+      ;;
+    --max-total-stage-ms)
+      max_total_stage_ms="$2"
+      shift 2
+      ;;
+    --max-case-stage-regression-ms)
+      max_case_stage_regression_ms="$2"
+      shift 2
+      ;;
+    --max-total-stage-regression-ms)
+      max_total_stage_regression_ms="$2"
+      shift 2
+      ;;
+    --max-case-stage-regression-ratio)
+      max_case_stage_regression_ratio="$2"
+      shift 2
+      ;;
+    --max-total-stage-regression-ratio)
+      max_total_stage_regression_ratio="$2"
+      shift 2
+      ;;
+    --min-stage-regression-ms)
+      min_stage_regression_ms="$2"
+      shift 2
+      ;;
+    --stage)
+      stage_filters+=("$2")
+      stage_filter_count=$((stage_filter_count + 1))
+      shift 2
       ;;
     --skip-setup-check)
       skip_setup_check=true
@@ -259,3 +326,50 @@ run_bench agent-check \
   --max-input-hinted-cases 0 \
   --max-unverified-score-runs 0 \
   --out "$out"
+
+stage_time_configured=false
+if [[ "$stage_time_baseline_report_count" -gt 0 \
+  || -n "$max_case_stage_ms" \
+  || -n "$max_total_stage_ms" \
+  || -n "$max_case_stage_regression_ms" \
+  || -n "$max_total_stage_regression_ms" \
+  || -n "$max_case_stage_regression_ratio" \
+  || -n "$max_total_stage_regression_ratio" ]]; then
+  stage_time_configured=true
+fi
+
+if [[ "$stage_time_configured" == true ]]; then
+  stage_time_args=("$out/*/agent-report.json" --out "$out/stage-time-gate.json")
+  if [[ "$stage_time_baseline_report_count" -gt 0 ]]; then
+    for report in "${stage_time_baseline_reports[@]}"; do
+      stage_time_args+=(--baseline-report "$report")
+    done
+  fi
+  if [[ -n "$max_case_stage_ms" ]]; then
+    stage_time_args+=(--max-case-stage-ms "$max_case_stage_ms")
+  fi
+  if [[ -n "$max_total_stage_ms" ]]; then
+    stage_time_args+=(--max-total-stage-ms "$max_total_stage_ms")
+  fi
+  if [[ -n "$max_case_stage_regression_ms" ]]; then
+    stage_time_args+=(--max-case-stage-regression-ms "$max_case_stage_regression_ms")
+  fi
+  if [[ -n "$max_total_stage_regression_ms" ]]; then
+    stage_time_args+=(--max-total-stage-regression-ms "$max_total_stage_regression_ms")
+  fi
+  if [[ -n "$max_case_stage_regression_ratio" ]]; then
+    stage_time_args+=(--max-case-stage-regression-ratio "$max_case_stage_regression_ratio")
+  fi
+  if [[ -n "$max_total_stage_regression_ratio" ]]; then
+    stage_time_args+=(--max-total-stage-regression-ratio "$max_total_stage_regression_ratio")
+  fi
+  if [[ -n "$min_stage_regression_ms" ]]; then
+    stage_time_args+=(--min-stage-regression-ms "$min_stage_regression_ms")
+  fi
+  if [[ "$stage_filter_count" -gt 0 ]]; then
+    for stage in "${stage_filters[@]}"; do
+      stage_time_args+=(--stage "$stage")
+    done
+  fi
+  run python3 scripts/stage-time-gate.py "${stage_time_args[@]}"
+fi
