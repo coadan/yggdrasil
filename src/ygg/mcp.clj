@@ -81,7 +81,6 @@
   {:root (or (option-value args "--root") default-root)
    :config-path (option-value args "--config")
    :project-id (option-value args "--project")
-   :queue-dir (option-value args "--queue-dir")
    :tool-groups (parse-tool-groups (configured-tool-groups args))})
 
 (defn- json-schema
@@ -315,9 +314,7 @@
 
 (defn- queue-root
   [ctx args]
-  (or (:queueDir args)
-      (some-> (queue-project-id ctx args) store/project-sqlite-path)
-      (:queue-dir ctx)
+  (or (some-> (queue-project-id ctx args) store/project-sqlite-path)
       (throw (ex-info "Missing Yggdrasil project for queue."
                       {:schema "ygg.mcp.error/v1"
                        :error "missing-project-queue"

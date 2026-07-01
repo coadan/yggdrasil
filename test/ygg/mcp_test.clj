@@ -39,6 +39,8 @@
          (:config-path (mcp/server-context ["--config" "project.edn"]))))
   (is (nil? (:config-path (mcp/server-context ["--project-config" "legacy.edn"]))))
   (is (nil? (:queue-dir (mcp/server-context []))))
+  (is (not (contains? (mcp/server-context ["--queue-dir" "/tmp/queue"])
+                      :queue-dir)))
   (is (not (contains? (mcp/server-context ["--storage" "/tmp/xtdb"])
                       :storage-path))))
 
@@ -1262,8 +1264,10 @@
            (get-in response [:error :data :error])))))
 
 (deftest sync-activity-tool-imports-queue-activity
-  (let [calls (atom [])]
+  (let [calls (atom [])
+        queue-root ".dev/test-queue"]
     (with-redefs [project/read-project (constantly project-fixture)
+                  store/project-sqlite-path (constantly queue-root)
                   store/with-node (fn [_ f] (f :xtdb))
                   activity/sync-queue! (fn [xtdb project opts]
                                          (swap! calls conj [:activity xtdb (:id project) opts])
@@ -1279,26 +1283,28 @@
                                            "--tools" "sync"])
                       (tool-call 12
                                  "ygg_sync_activity"
-                                 {:queueDir ".dev/test-queue"}))
+                                 {}))
             packet (get-in response [:result :structuredContent])]
         (is (= activity/sync-schema (:schema packet)))
         (is (= "fixture" (:project-id packet)))
-        (is (= ".dev/test-queue" (:queue-root packet)))
+        (is (= queue-root (:queue-root packet)))
         (is (= 1 (get-in packet [:counts :result-schema-mismatch-events])))
-        (is (= [[:activity :xtdb "fixture" {:queue-root ".dev/test-queue"}]]
+        (is (= [[:activity :xtdb "fixture" {:queue-root queue-root}]]
                @calls))))))
 
 (deftest work-complete-rejects-result-without-schema
-  (let [response (mcp/handle-message
-                  (mcp/server-context ["--tools" "work"])
-                  (tool-call 12
-                             "ygg_work_complete"
-                             {:queueDir (temp-dir "ygg-mcp-invalid-result-queue")
-                              :workId "queue:item"
-                              :result {:ok true}}))]
-    (is (= -32602 (get-in response [:error :code])))
-    (is (= "invalid-result" (get-in response [:error :data :error])))
-    (is (= "result.schema" (get-in response [:error :data :field])))))
+  (let [root (temp-dir "ygg-mcp-invalid-result-queue")]
+    (with-redefs [store/project-sqlite-path (constantly root)]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--tools" "work"])
+                      (tool-call 12
+                                 "ygg_work_complete"
+                                 {:projectId "fixture"
+                                  :workId "queue:item"
+                                  :result {:ok true}}))]
+        (is (= -32602 (get-in response [:error :code])))
+        (is (= "invalid-result" (get-in response [:error :data :error])))
+        (is (= "result.schema" (get-in response [:error :data :field])))))))
 
 (deftest work-list-requires-project-queue
   (with-redefs [registry/resolve-project (fn [& _]
@@ -1345,22 +1351,22 @@
                  :project-id "fixture"}
         item (queue/enqueue! payload {:root root
                                       :kind "context"
-                                      :project-id "fixture"})
-        response (mcp/handle-message
-                  (mcp/server-context ["--tools" "work"])
-                  (tool-call 13
-                             "ygg_work_list"
-                             {:queueDir root
-                              :projectId "fixture"
-                              :kind "context"}))
-        listed (get-in response [:result :structuredContent])
-        first-item (first (:items listed))]
-    (is (= queue/list-schema (:schema listed)))
-    (is (= [(:id (:item item))] (mapv :id (:items listed))))
-    (is (= "ready" (:status first-item)))
-    (is (some #(= :claim (:kind %)) (:actions first-item)))
-    (is (= "ready" (get-in (queue/find-item root (:id first-item))
-                           [:item :status])))))
+                                      :project-id "fixture"})]
+    (with-redefs [store/project-sqlite-path (constantly root)]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--tools" "work"])
+                      (tool-call 13
+                                 "ygg_work_list"
+                                 {:projectId "fixture"
+                                  :kind "context"}))
+            listed (get-in response [:result :structuredContent])
+            first-item (first (:items listed))]
+        (is (= queue/list-schema (:schema listed)))
+        (is (= [(:id (:item item))] (mapv :id (:items listed))))
+        (is (= "ready" (:status first-item)))
+        (is (some #(= :claim (:kind %)) (:actions first-item)))
+        (is (= "ready" (get-in (queue/find-item root (:id first-item))
+                               [:item :status])))))))
 
 (deftest work-show-returns-summary-and-embedded-item
   (let [root (temp-dir "ygg-mcp-queue-show")
@@ -1370,31 +1376,34 @@
                  :expectedResultSchema "custom.result/v1"}
         item (queue/enqueue! payload {:root root
                                       :kind "context"
-                                      :project-id "fixture"})
-        response (mcp/handle-message
-                  (mcp/server-context ["--tools" "work"])
-                  (tool-call 14
-                             "ygg_work_show"
-                             {:queueDir root
-                              :workId (:id (:item item))}))
-        shown (get-in response [:result :structuredContent])]
-    (is (= queue/summary-schema (:schema shown)))
-    (is (= (:id (:item item)) (:id shown)))
-    (is (= "ready" (:status shown)))
-    (is (= "custom.result/v1" (:expected-result-schema shown)))
-    (is (= payload (get-in shown [:item :payload])))))
+                                      :project-id "fixture"})]
+    (with-redefs [store/project-sqlite-path (constantly root)]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--tools" "work"])
+                      (tool-call 14
+                                 "ygg_work_show"
+                                 {:projectId "fixture"
+                                  :workId (:id (:item item))}))
+            shown (get-in response [:result :structuredContent])]
+        (is (= queue/summary-schema (:schema shown)))
+        (is (= (:id (:item item)) (:id shown)))
+        (is (= "ready" (:status shown)))
+        (is (= "custom.result/v1" (:expected-result-schema shown)))
+        (is (= payload (get-in shown [:item :payload])))))))
 
 (deftest work-show-returns-queue-error-for-missing-item
-  (let [response (mcp/handle-message
-                  (mcp/server-context ["--tools" "work"])
-                  (tool-call 15
-                             "ygg_work_show"
-                             {:queueDir (temp-dir "ygg-mcp-queue-show-missing")
-                              :workId "queue:missing"}))
-        shown (get-in response [:result :structuredContent])]
-    (is (= "ygg.queue.error/v1" (:schema shown)))
-    (is (= "sync work item not found" (:error shown)))
-    (is (= "queue:missing" (:id shown)))))
+  (let [root (temp-dir "ygg-mcp-queue-show-missing")]
+    (with-redefs [store/project-sqlite-path (constantly root)]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--tools" "work"])
+                      (tool-call 15
+                                 "ygg_work_show"
+                                 {:projectId "fixture"
+                                  :workId "queue:missing"}))
+            shown (get-in response [:result :structuredContent])]
+        (is (= "ygg.queue.error/v1" (:schema shown)))
+        (is (= "sync work item not found" (:error shown)))
+        (is (= "queue:missing" (:id shown)))))))
 
 (deftest work-pull-claims-ready-queue-item
   (let [root (temp-dir "ygg-mcp-queue")
@@ -1402,18 +1411,18 @@
                  :project-id "fixture"}
         item (queue/enqueue! payload {:root root
                                       :kind "context"
-                                      :project-id "fixture"})
-        response (mcp/handle-message
-                  (mcp/server-context ["--tools" "work"])
-                  (tool-call 16
-                             "ygg_work_pull"
-                             {:queueDir root
-                              :projectId "fixture"
-                              :agentId "agent"}))
-        pulled (get-in response [:result :structuredContent])]
-    (is (= (:id (:item item)) (:id pulled)))
-    (is (= "claimed" (:status pulled)))
-    (is (= "agent" (get-in pulled [:lease :agent-id])))))
+                                      :project-id "fixture"})]
+    (with-redefs [store/project-sqlite-path (constantly root)]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--tools" "work"])
+                      (tool-call 16
+                                 "ygg_work_pull"
+                                 {:projectId "fixture"
+                                  :agentId "agent"}))
+            pulled (get-in response [:result :structuredContent])]
+        (is (= (:id (:item item)) (:id pulled)))
+        (is (= "claimed" (:status pulled)))
+        (is (= "agent" (get-in pulled [:lease :agent-id])))))))
 
 (deftest work-heartbeat-extends-claimed-queue-item
   (let [root (temp-dir "ygg-mcp-queue-heartbeat")
@@ -1425,20 +1434,21 @@
                         [:item :id])
         _ (queue/claim-next! root {:agent-id "agent"
                                    :project-id "fixture"
-                                   :lease-ms 1000})
-        response (mcp/handle-message
-                  (mcp/server-context ["--tools" "work"])
-                  (tool-call 17
-                             "ygg_work_heartbeat"
-                             {:queueDir root
-                              :workId item-id
-                              :agentId "agent"
-                              :leaseMinutes 2}))
-        summary (get-in response [:result :structuredContent])]
-    (is (= item-id (:id summary)))
-    (is (= "claimed" (:status summary)))
-    (is (= "agent" (get-in summary [:lease :agent-id])))
-    (is (integer? (get-in summary [:lease :heartbeat-at-ms])))))
+                                   :lease-ms 1000})]
+    (with-redefs [store/project-sqlite-path (constantly root)]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--tools" "work"])
+                      (tool-call 17
+                                 "ygg_work_heartbeat"
+                                 {:projectId "fixture"
+                                  :workId item-id
+                                  :agentId "agent"
+                                  :leaseMinutes 2}))
+            summary (get-in response [:result :structuredContent])]
+        (is (= item-id (:id summary)))
+        (is (= "claimed" (:status summary)))
+        (is (= "agent" (get-in summary [:lease :agent-id])))
+        (is (integer? (get-in summary [:lease :heartbeat-at-ms])))))))
 
 (deftest work-release-returns-claimed-queue-item-to-ready
   (let [root (temp-dir "ygg-mcp-queue-release")
@@ -1449,20 +1459,22 @@
                                          :project-id "fixture"})
                         [:item :id])
         _ (queue/claim-next! root {:agent-id "agent"
-                                   :project-id "fixture"})
-        response (mcp/handle-message
-                  (mcp/server-context ["--tools" "work"])
-                  (tool-call 18
-                             "ygg_work_release"
-                             {:queueDir root
-                              :workId item-id
-                              :reason "needs another agent"}))
-        summary (get-in response [:result :structuredContent])
-        found (queue/find-item root item-id)]
-    (is (= item-id (:id summary)))
-    (is (= "ready" (:status summary)))
-    (is (= "ready" (get-in found [:item :status])))
-    (is (= "needs another agent" (get-in found [:item :release-reason])))))
+                                   :project-id "fixture"})]
+    (with-redefs [store/project-sqlite-path (constantly root)]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--tools" "work"])
+                      (tool-call 18
+                                 "ygg_work_release"
+                                 {:projectId "fixture"
+                                  :workId item-id
+                                  :reason "needs another agent"}))
+            summary (get-in response [:result :structuredContent])
+            found (queue/find-item root item-id)]
+        (is (= item-id (:id summary)))
+        (is (= "ready" (:status summary)))
+        (is (= "ready" (get-in found [:item :status])))
+        (is (= "needs another agent"
+               (get-in found [:item :release-reason])))))))
 
 (deftest work-reject-records-reason
   (let [root (temp-dir "ygg-mcp-queue-reject")
@@ -1471,20 +1483,21 @@
                                         {:root root
                                          :kind "context"
                                          :project-id "fixture"})
-                        [:item :id])
-        response (mcp/handle-message
-                  (mcp/server-context ["--tools" "work"])
-                  (tool-call 19
-                             "ygg_work_reject"
-                             {:queueDir root
-                              :workId item-id
-                              :reason "not applicable"}))
-        summary (get-in response [:result :structuredContent])
-        found (queue/find-item root item-id)]
-    (is (= item-id (:id summary)))
-    (is (= "rejected" (:status summary)))
-    (is (= "rejected" (get-in found [:item :status])))
-    (is (= "not applicable" (get-in found [:item :reason])))))
+                        [:item :id])]
+    (with-redefs [store/project-sqlite-path (constantly root)]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--tools" "work"])
+                      (tool-call 19
+                                 "ygg_work_reject"
+                                 {:projectId "fixture"
+                                  :workId item-id
+                                  :reason "not applicable"}))
+            summary (get-in response [:result :structuredContent])
+            found (queue/find-item root item-id)]
+        (is (= item-id (:id summary)))
+        (is (= "rejected" (:status summary)))
+        (is (= "rejected" (get-in found [:item :status])))
+        (is (= "not applicable" (get-in found [:item :reason])))))))
 
 (deftest stdio-loop-reads-and-writes-newline-delimited-json
   (let [in (java.io.StringReader.

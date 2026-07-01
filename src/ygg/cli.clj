@@ -194,12 +194,19 @@
   (when-not (str/blank? (str project-id))
     (store/project-sqlite-path project-id)))
 
+(defn- require-queue-project-id
+  [args]
+  (or (queue-project-id args)
+      (throw (ex-info "Missing Yggdrasil project for central work queue."
+                      {:option "--project"
+                       :hint "Run inside a repo initialized with ygg init, or pass --project."}))))
+
 (defn- queue-root
   ([args]
-   (project-queue-root (queue-project-id args)))
+   (project-queue-root (require-queue-project-id args)))
   ([args project-id]
-   (project-queue-root (or project-id
-                           (queue-project-id args)))))
+   (project-queue-root (or (some-> project-id str str/trim not-empty)
+                           (require-queue-project-id args)))))
 
 (defn- benchmark-queue-root
   [args]

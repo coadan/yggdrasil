@@ -14,6 +14,7 @@
             [ygg.infra-review :as infra-review]
             [ygg.init :as init]
             [ygg.project :as project]
+            [ygg.project-registry :as registry]
             [ygg.queue :as queue]
             [ygg.query :as query]
             [ygg.system.decision-classifier :as decision-classifier]
@@ -1201,6 +1202,18 @@
     (is (= "custom.packet/v1" (:payload-schema parsed)))
     (is (= "custom.result/v1" (:expected-result-schema parsed)))
     (is (= "custom.packet/v1" (get-in parsed [:item :payload :schema])))))
+
+(deftest sync-work-requires-central-project-queue
+  (with-redefs [registry/resolve-project (constantly nil)]
+    (try
+      (with-out-str
+        (cli/dispatch "sync" ["work" "list" "--json"]))
+      (is false "expected missing project queue error")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= "Missing Yggdrasil project for central work queue."
+               (ex-message e)))
+        (is (= "--project" (:option (ex-data e))))))))
+
 (deftest sync-work-pull-returns-summary-with-full-item
   (let [root (temp-dir "ygg-cli-work-pull")
         id (get-in (queue/enqueue! {:schema infra-review/packet-schema
