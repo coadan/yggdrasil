@@ -136,6 +136,8 @@
           :base-sha "82d1929e669efef4e2ad00611b8a68e7a56e049c"
           :fix-sha "7a28ce8ec6a17a8ca52710e47763f3a52c155110"
           :ground-truth {:localization-files ["modules/vpc-endpoints/main.tf"]}
+          :expectations {:citation-evidence [{:kind :terraform-vpc-endpoint-config
+                                              :path "modules/vpc-endpoints/main.tf"}]}
           :issue {:id "terraform-aws-vpc-1292"
                   :url "https://github.com/terraform-aws-modules/terraform-aws-vpc/pull/1292"
                   :title "fix: Correct dns_options.dns_record_ip_type lookup for aws_vpc_endpoint"
@@ -153,6 +155,8 @@
           :base-sha "06ea505ce2b2042af26e96d35ebf159af7c0869d"
           :fix-sha "9368fb3f3c52d74534d14c1bef03c79c103356cd"
           :ground-truth {:localization-files ["src/flask/sansio/app.py"]}
+          :expectations {:citation-evidence [{:kind :flask-autoescape-runtime
+                                              :path "src/flask/sansio/app.py"}]}
           :issue {:id "flask-6013"
                   :url "https://github.com/pallets/flask/pull/6013"
                   :title "autoescape selection uses case-insensitive comparison"

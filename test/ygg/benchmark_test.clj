@@ -660,8 +660,9 @@
             "historical-flask-autoescape-case-insensitive"]
            claim-quick-case-ids))
     (is (= 11 (count full-case-ids)))
-    (is (= #{"historical-axios-defer-env-proxy-to-node"
-             "historical-dapper-prefer-enum-type-handlers"}
+    (is (every? #(seq (get-in % [:expectations :citation-evidence]))
+                (:cases claim-quick)))
+    (is (= (set claim-quick-case-ids)
            (->> (:cases claim-quick)
                 (filter #(seq (get-in % [:expectations :citation-evidence])))
                 (map :id)
