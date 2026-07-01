@@ -39,7 +39,7 @@
 (def default-agent-baseline-suspect-limit
   20)
 (def default-agent-baseline-compact-result-limit
-  10)
+  7)
 (def default-agent-baseline-embed-batch-size
   64)
 (def default-agent-baseline-embedding-input-max-chars

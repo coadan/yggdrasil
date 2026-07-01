@@ -399,8 +399,14 @@
   (+ (/ (double compact-output-preserved-head-count) 10.0) 0.01))
 (def ^:private compact-output-early-query-evidence-source-sort-rank
   (- compact-output-after-preserved-head-sort-rank 0.005))
-(def ^:private compact-output-retrieved-supported-sort-rank
+(def ^:private compact-output-default-retrieved-supported-sort-rank
   compact-output-early-query-evidence-source-sort-rank)
+(def ^:private compact-output-strong-retrieved-supported-sort-rank
+  0.34)
+(def ^:private compact-output-strong-retrieved-source-count-min
+  2)
+(def ^:private compact-output-strong-retrieved-source-boost-min
+  2.0)
 (def ^:private compact-output-strong-retrieved-label-doc-sort-rank
   0.37)
 (def ^:private compact-output-retrieved-label-doc-sort-rank
@@ -3832,12 +3838,21 @@
        (sort-by #(or (:rank %) Long/MAX_VALUE))
        vec))
 
+(defn- compact-output-strong-retrieved-supported-row?
+  [row]
+  (and (<= compact-output-strong-retrieved-source-count-min
+           (positive-metric row :retrievedSourceCount))
+       (<= compact-output-strong-retrieved-source-boost-min
+           (row-metric-double row :repeatedRetrievedSourceBoost))))
+
 (defn- spread-candidate-support-signature-duplicates
   [rows]
   (let [{:keys [kept deferred]}
         (reduce
          (fn [{:keys [seen] :as acc} row]
            (if-let [k (and (not (prediction-rank-protected? row))
+                           (not (compact-output-strong-retrieved-supported-row?
+                                 row))
                            (prediction-candidate-support-diversity-key row))]
              (if (contains? seen k)
                (update acc :deferred conj row)
@@ -4144,6 +4159,12 @@
    (:rank row)
    (:path row)])
 
+(defn- compact-output-retrieved-supported-sort-rank
+  [row]
+  (if (compact-output-strong-retrieved-supported-row? row)
+    compact-output-strong-retrieved-supported-sort-rank
+    compact-output-default-retrieved-supported-sort-rank))
+
 (defn- compact-output-identity-supported-key
   [row]
   [(- (positive-metric row :fileIdentitySupportLabelCount))
@@ -4218,7 +4239,7 @@
        first
        (#(when %
            (assoc % ::compact-output-sort-rank
-                  compact-output-retrieved-supported-sort-rank)))))
+                  (compact-output-retrieved-supported-sort-rank %))))))
 
 (defn- compact-output-retrieved-label-doc-key
   [row]
@@ -5066,7 +5087,7 @@
                                      row)
                                 compact-output-strong-doc-source-graph-query-sort-rank)
                               (when (compact-output-repeated-retrieved-row? row)
-                                compact-output-retrieved-supported-sort-rank)
+                                (compact-output-retrieved-supported-sort-rank row))
                               (when (compact-output-supported-source-graph-query-evidence-row?
                                      row)
                                 compact-output-source-graph-query-evidence-sort-rank)

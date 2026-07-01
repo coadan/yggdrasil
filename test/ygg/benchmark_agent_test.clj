@@ -22,7 +22,7 @@
 
 (deftest deterministic-baseline-emits-tighter-compact-surface
   (is (= 20 @#'benchmark-agent-baseline/default-agent-baseline-suspect-limit))
-  (is (= 10 @#'benchmark-agent-baseline/default-agent-baseline-compact-result-limit))
+  (is (= 7 @#'benchmark-agent-baseline/default-agent-baseline-compact-result-limit))
   (is (< @#'benchmark-agent-baseline/default-agent-baseline-compact-result-limit
          @#'benchmark-agent-baseline/default-agent-baseline-suspect-limit)))
 

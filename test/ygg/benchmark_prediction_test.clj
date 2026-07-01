@@ -2187,6 +2187,77 @@
         selected-paths (mapv :path (compact-output files 20 nil))]
     (is (= "lib/adapters/http.js" (nth selected-paths 4)))))
 
+(deftest compact-output-frontloads-strong-repeated-retrieved-doc-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "tests/smoke/cjs/tests/files.smoke.test.cjs"
+                    1
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSourceCount 1
+                     :matchedPathQueryTokenCount 2
+                     :matchedTokenCount 7
+                     :matchedTokenPairCount 2
+                     :sourceGraphCandidateEvidenceScore 0.72
+                     :rankScore 24.9})
+               (row "tests/smoke/esm/tests/files.smoke.test.js"
+                    2
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSourceCount 1
+                     :matchedPathQueryTokenCount 2
+                     :matchedTokenCount 7
+                     :matchedTokenPairCount 2
+                     :sourceGraphCandidateEvidenceScore 0.71
+                     :rankScore 24.7})
+               (row "tests/unit/adapters/fetch.test.js"
+                    3
+                    {:docCount 1
+                     :candidateFileCount 5
+                     :retrievedSourceCount 1
+                     :matchedPathQueryTokenCount 2
+                     :matchedTokenCount 11
+                     :matchedTokenPairCount 2
+                     :sourceGraphCandidateEvidenceScore 0.67
+                     :rankScore 19.1})
+               (row "tests/unit/adapters/errorDetails.test.js"
+                    4
+                    {:docCount 1
+                     :candidateFileCount 2
+                     :retrievedSourceCount 1
+                     :matchedPathQueryTokenCount 2
+                     :matchedTokenCount 7
+                     :matchedTokenPairCount 1
+                     :sourceGraphCandidateEvidenceScore 0.61
+                     :rankScore 17.3})
+               (row "tests/setup/server.js"
+                    6
+                    {:docCount 1
+                     :candidateFileCount 1
+                     :retrievedSourceCount 1
+                     :matchedPathQueryTokenCount 1
+                     :matchedTokenCount 5
+                     :matchedTokenPairCount 1
+                     :sourceGraphCandidateEvidenceScore 0.56
+                     :rankScore 8.6})
+               (row "lib/adapters/http.js"
+                    13
+                    {:docCount 2
+                     :candidateFileCount 1
+                     :retrievedSourceCount 2
+                     :repeatedRetrievedSourceBoost 2.9
+                     :matchedPathQueryTokenCount 1
+                     :matchedTokenCount 4
+                     :matchedTokenPairCount 1
+                     :sourceGraphCandidateEvidenceScore 0.49
+                     :rankScore 10.7})]
+        selected-paths (mapv :path (compact-output files 20 nil))]
+    (is (< (.indexOf selected-paths "lib/adapters/http.js")
+           (.indexOf selected-paths "tests/setup/server.js")))))
+
 (deftest compact-output-keeps-repeated-retrieved-doc-before-query-candidate
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]
@@ -2255,7 +2326,8 @@
                      :candidateGrepScore 0.44
                      :rankScore 5.92})]
         selected-paths (mapv :path (compact-output files 20 nil))]
-    (is (= "lib/adapters/http.js" (nth selected-paths 4)))
+    (is (< (.indexOf selected-paths "lib/adapters/http.js")
+           (.indexOf selected-paths "tests/unit/core/AxiosError.test.js")))
     (is (< (.indexOf selected-paths "lib/adapters/http.js")
            (.indexOf selected-paths "lib/axios.js")))))
 
