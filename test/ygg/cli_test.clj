@@ -1290,6 +1290,18 @@
                                          :agentReadyElapsedMs 250
                                          :runningCases 0
                                          :failedCases 0
+                                         :stageTiming {:classes [{:stage "index-project"
+                                                                  :class "graph-setup"}
+                                                                 {:stage "embed-search-docs"
+                                                                  :class "embedding"}
+                                                                 {:stage "context-packet"
+                                                                  :class "agent-preparation"}]}
+                                         :stageElapsedMs [{:stage "context-packet"
+                                                           :elapsedMs 4000}
+                                                          {:stage "embed-search-docs"
+                                                           :elapsedMs 6000}
+                                                          {:stage "index-project"
+                                                           :elapsedMs 8000}]
                                          :slowestCases [{:case-id "case-2"
                                                          :status "completed"
                                                          :elapsedMs 7000}]}
@@ -1300,6 +1312,18 @@
                                 :agentReadyElapsedMs 250
                                 :runningCases 0
                                 :failedCases 0
+                                :stageTiming {:classes [{:stage "index-project"
+                                                         :class "graph-setup"}
+                                                        {:stage "embed-search-docs"
+                                                         :class "embedding"}
+                                                        {:stage "context-packet"
+                                                         :class "agent-preparation"}]}
+                                :stageElapsedMs [{:stage "context-packet"
+                                                  :elapsedMs 4000}
+                                                 {:stage "embed-search-docs"
+                                                  :elapsedMs 6000}
+                                                 {:stage "index-project"
+                                                  :elapsedMs 8000}]
                                 :slowestCases [{:case-id "case-2"
                                                 :status "completed"
                                                 :elapsedMs 7000}]}
@@ -1309,6 +1333,9 @@
       (is (str/includes? out "- commandless-runs 1 cases case-2"))
       (is (str/includes? out "- warning-runs 1 cases case-3")))
     (is (str/includes? check-out "- timing-ms 12000 warm 3000 amortized-setup 9000 agent-ready 250 running 0 failed 0"))
+    (is (str/includes? check-out "- stage-timing index-project class graph-setup elapsed 8000 ms"))
+    (is (str/includes? check-out "- stage-timing embed-search-docs class embedding elapsed 6000 ms"))
+    (is (str/includes? check-out "- stage-timing context-packet class agent-preparation elapsed 4000 ms"))
     (is (str/includes? check-out "- slowest case-2 completed 7000 ms"))))
 
 (deftest benchmark-summary-prints-artifact-diagnostics

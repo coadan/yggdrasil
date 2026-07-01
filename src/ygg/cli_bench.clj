@@ -541,18 +541,32 @@
 (defn- print-timing-summary
   [timings]
   (when timings
-    (println "- timing-ms" (:elapsedMs timings)
-             "warm" (:warmElapsedMs timings)
-             "amortized-setup" (:amortizedSetupElapsedMs timings)
-             "agent-ready" (:agentReadyElapsedMs timings)
-             "running" (:runningCases timings)
-             "failed" (:failedCases timings))
-    (when-let [slowest (first (:slowestCases timings))]
-      (println "- slowest"
-               (:case-id slowest)
-               (:status slowest)
-               (:elapsedMs slowest)
-               "ms"))))
+    (let [stage-class-by-stage (into {}
+                                     (map (juxt :stage :class))
+                                     (get-in timings [:stageTiming :classes]))
+          slowest-stages (->> (:stageElapsedMs timings)
+                              (sort-by (juxt (comp - long :elapsedMs) :stage))
+                              (take 5))]
+      (println "- timing-ms" (:elapsedMs timings)
+               "warm" (:warmElapsedMs timings)
+               "amortized-setup" (:amortizedSetupElapsedMs timings)
+               "agent-ready" (:agentReadyElapsedMs timings)
+               "running" (:runningCases timings)
+               "failed" (:failedCases timings))
+      (doseq [{:keys [stage elapsedMs]} slowest-stages]
+        (println "- stage-timing"
+                 stage
+                 "class"
+                 (or (get stage-class-by-stage stage) "other")
+                 "elapsed"
+                 elapsedMs
+                 "ms"))
+      (when-let [slowest (first (:slowestCases timings))]
+        (println "- slowest"
+                 (:case-id slowest)
+                 (:status slowest)
+                 (:elapsedMs slowest)
+                 "ms")))))
 
 (defn print-benchmark-summary
   [result]

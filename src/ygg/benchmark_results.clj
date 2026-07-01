@@ -23,6 +23,10 @@
     "write-agent-artifacts"
     "write-agent-project"})
 
+(def ^:private embedding-stages
+  #{"embedding-provider-targets"
+    "embed-search-docs"})
+
 (def ^:private agent-execution-stages
   #{"agent-result"})
 
@@ -35,6 +39,7 @@
     (contains? graph-setup-stages stage) "graph-setup"
     (contains? case-setup-stages stage) "case-setup"
     (contains? agent-preparation-stages stage) "agent-preparation"
+    (contains? embedding-stages stage) "embedding"
     (contains? agent-execution-stages stage) "agent-execution"
     (contains? scoring-stages stage) "scoring"
     :else "other"))
@@ -61,6 +66,8 @@
         agent-ready-ms (stage-elapsed-total
                         stage-elapsed
                         #(contains? agent-execution-stages %))
+        embedding-ms (stage-elapsed-total stage-elapsed
+                                          #(contains? embedding-stages %))
         scoring-ms (stage-elapsed-total stage-elapsed
                                         #(contains? scoring-stages %))]
     {:elapsedMs elapsed-ms
@@ -69,6 +76,7 @@
      :amortizedSetupElapsedMs amortized-setup-ms
      :caseSetupElapsedMs case-setup-ms
      :agentPreparationElapsedMs agent-preparation-ms
+     :embeddingElapsedMs embedding-ms
      :scoringElapsedMs scoring-ms
      :stageTiming {:basis "warmElapsedMs assumes a prepared-agent run: the Yggdrasil XTDB graph DB and agent context are already prepared, so graph setup and agent preparation are reported as amortized setup instead of counted in the primary elapsed metric."
                    :primaryElapsedMetric "warmElapsedMs"

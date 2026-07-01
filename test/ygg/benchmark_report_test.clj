@@ -546,6 +546,7 @@
               :amortizedSetupElapsedMs 8000
               :caseSetupElapsedMs 0
               :agentPreparationElapsedMs 3000
+              :embeddingElapsedMs 0
               :scoringElapsedMs 0
               :stageTiming {:basis "warmElapsedMs assumes a prepared-agent run: the Yggdrasil XTDB graph DB and agent context are already prepared, so graph setup and agent preparation are reported as amortized setup instead of counted in the primary elapsed metric."
                             :primaryElapsedMetric "warmElapsedMs"
