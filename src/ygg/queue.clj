@@ -17,9 +17,6 @@
 (def list-schema
   "ygg.queue.list/v1")
 
-(def default-root
-  ".ygg/queue")
-
 (def default-db-file
   "queue.sqlite")
 
@@ -61,10 +58,17 @@
       (str/replace #"^_+" "")
       (str/replace #"_+$" "")))
 
+(defn- require-root
+  [root]
+  (if (str/blank? (str root))
+    (throw (ex-info "Queue root is required."
+                    {:error "missing-queue-root"}))
+    root))
+
 (defn db-path
   "Return the SQLite queue database path for root."
   [root]
-  (let [root (or root default-root)
+  (let [root (require-root root)
         file (io/file root)]
     (if (str/ends-with? (.getName file) ".sqlite")
       (.getPath file)
@@ -370,7 +374,7 @@
   stable item reference of the form <queue-db>#<queue-id>."
   ([payload] (enqueue! payload {}))
   ([payload {:keys [root] :as opts}]
-   (let [root (or root default-root)
+   (let [root (require-root root)
          item (base-item payload opts)]
      (with-db root #(upsert-item! % item))
      (found-record root item))))
@@ -400,7 +404,7 @@
 (defn find-item
   "Find one queue item by id, unique id suffix, or SQLite item reference."
   [root value]
-  (let [root (or root default-root)
+  (let [root (require-root root)
         matches (with-db root
                   (fn [conn]
                     (->> (all-items conn)
@@ -438,7 +442,7 @@
   "Move expired claimed items back to ready. Return number released."
   ([root] (release-expired! root (now-ms)))
   ([root now]
-   (let [root (or root default-root)
+   (let [root (require-root root)
          expired (with-db root
                    (fn [conn]
                      (->> (all-items conn)
@@ -458,7 +462,7 @@
   "Return queue items, optionally filtered by status/project-id and limited."
   ([root] (list-items root {}))
   ([root {:keys [status project-id kind limit]}]
-   (let [root (or root default-root)
+   (let [root (require-root root)
          status (some-> status status-name)
          kind (some-> kind str)]
      (->> (with-db root all-items)
@@ -568,10 +572,11 @@
 (defn list-summary
   "Return a compact queue listing."
   [root opts]
-  {:schema list-schema
-   :root (or root default-root)
-   :queue-db (db-path root)
-   :items (mapv item-summary (list-items root opts))})
+  (let [root (require-root root)]
+    {:schema list-schema
+     :root root
+     :queue-db (db-path root)
+     :items (mapv item-summary (list-items root opts))}))
 
 (defn claim-next!
   "Claim the highest-priority ready item.
@@ -579,7 +584,7 @@
   Expired claimed items are first released back to ready. Returns
   {:path string :item map}, or nil when no ready item exists."
   [root {:keys [agent-id lease-ms project-id kind] :or {lease-ms (* 30 60 1000)}}]
-  (let [root (or root default-root)]
+  (let [root (require-root root)]
     (release-expired! root)
     (when-let [item-found (first (list-items root {:status "ready"
                                                    :project-id project-id
@@ -598,7 +603,7 @@
 (defn complete!
   "Complete a claimed item with a result map."
   [root id result]
-  (let [root (or root default-root)
+  (let [root (require-root root)
         item-found (or (find-item root id)
                        (throw (ex-info "Queue item not found." {:id id})))]
     (when-not (= "claimed" (status-name (get-in item-found [:item :status])))
@@ -615,7 +620,7 @@
 (defn reject!
   "Reject a queue item with a human-readable reason."
   [root id reason]
-  (let [root (or root default-root)
+  (let [root (require-root root)
         item-found (or (find-item root id)
                        (throw (ex-info "Queue item not found." {:id id})))]
     (move-item! root
@@ -629,7 +634,7 @@
   "Reject queue item ids with one direct SQLite update pass. Return count updated."
   [root ids reason]
   (let [ids (vec (remove str/blank? (map str ids)))
-        root (or root default-root)
+        root (require-root root)
         now (now-ms)]
     (if-not (seq ids)
       0
@@ -657,7 +662,7 @@
 (defn fail!
   "Mark a queue item failed with a human-readable reason."
   [root id reason]
-  (let [root (or root default-root)
+  (let [root (require-root root)
         item-found (or (find-item root id)
                        (throw (ex-info "Queue item not found." {:id id})))]
     (move-item! root
@@ -670,7 +675,7 @@
 (defn release!
   "Release a claimed item back to ready."
   [root id reason]
-  (let [root (or root default-root)
+  (let [root (require-root root)
         item-found (or (find-item root id)
                        (throw (ex-info "Queue item not found." {:id id})))]
     (move-item! root
@@ -683,7 +688,7 @@
 (defn heartbeat!
   "Extend a claimed item's lease."
   [root id {:keys [agent-id lease-ms] :or {lease-ms (* 30 60 1000)}}]
-  (let [root (or root default-root)
+  (let [root (require-root root)
         item-found (or (find-item root id)
                        (throw (ex-info "Queue item not found." {:id id})))
         item (:item item-found)

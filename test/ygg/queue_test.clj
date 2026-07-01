@@ -11,6 +11,14 @@
               (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
+(deftest queue-requires-explicit-root
+  (try
+    (queue/enqueue! {:schema "custom.packet/v1"})
+    (is false "Expected missing queue root to be rejected.")
+    (catch clojure.lang.ExceptionInfo e
+      (is (= "Queue root is required." (ex-message e)))
+      (is (= {:error "missing-queue-root"} (ex-data e))))))
+
 (deftest queue-items-claim-and-complete-through-sqlite
   (let [root (temp-dir "ygg-queue")
         payload {:schema "ygg.context/v1"
