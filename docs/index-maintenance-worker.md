@@ -21,7 +21,7 @@ Example:
 {:maintenance
  {:enabled true
   ;; Omit queue-dir/report-dir to use the central per-project state root:
-  ;; <YGG_STORAGE_ROOT>/projects/<project-id>/queue
+  ;; <YGG_STORAGE_ROOT>/projects/<project-id>/project.sqlite
   ;; <YGG_STORAGE_ROOT>/projects/<project-id>/reports/maintenance
   :work {:max-decisions 8
          :max-decisions-per-kind 4

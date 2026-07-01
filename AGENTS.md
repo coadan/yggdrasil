@@ -28,11 +28,12 @@ Deterministic code may rank by mechanical facts such as relation type,
 evidence count, degree, file kind, parser output, and graph topology; it must
 not pretend those facts are final architecture semantics.
 
-Use the filesystem queue as the durable provider-agnostic handoff for agent
-packets. Queue items are transport and lease state only; embedded payloads stay
-explicit JSON, and semantic results must return as auditable JSON artifacts that
-can be validated and folded into correction facts or metadata. Do not make Yggdrasil core
-depend on one LLM provider, hidden agent loop, or semantic classifier path.
+Use the central SQLite-backed project queue as the durable provider-agnostic
+handoff for agent packets. Queue items are transport and lease state only;
+embedded payloads stay explicit JSON, and semantic results must return as
+auditable JSON artifacts that can be validated and folded into correction facts
+or metadata. Do not make Yggdrasil core depend on one LLM provider, hidden agent
+loop, or semantic classifier path.
 
 Keep implementation local-first and deterministic. XTDB stores durable graph
 facts and audit history. The canonical query surface is simple `auto` retrieval:

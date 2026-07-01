@@ -767,8 +767,9 @@ The tracked `benchmarks/multi-repo-quality.edn` suite contains the first
 cross-checkout case. It also uses local benchmark checkouts under
 `.dev/ygg/benchmark-repos/`.
 
-Use `--enqueue --queue-dir <dir>` with `bench agent-packet` to hand packets to
-agents through the project queue:
+Use `--enqueue --queue-dir <sqlite-db-or-dir>` with `bench agent-packet` only
+for dev benchmark handoff. This writes to an explicit SQLite queue outside the
+active project maintenance queue:
 
 ```sh
 bb bench agent-packet benchmark.edn --case penpot-example --enqueue --queue-dir .dev/ygg/queue --json

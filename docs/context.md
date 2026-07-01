@@ -478,12 +478,11 @@ line-numbered doc source windows when the file is available.
 `ygg_work_complete` records an explicit result artifact; validated results can
 then be folded into Yggdrasil correction facts.
 
-## Filesystem Queue
+## Project Queue
 
 Use `--enqueue` when a packet should be picked up by another agent, model, tool,
-or human process. Yggdrasil writes an `ygg.queue.item/v1` JSON file to
-the central project queue, or `.ygg/queue/ready` when no project can be
-resolved, and prints a compact receipt.
+or human process. Yggdrasil writes `ygg.queue.item/v1` rows to the central
+SQLite-backed project queue and prints a compact receipt.
 Queue listings and claimed work summaries use `ygg.queue.summary/v1` and
 include `actions` rows with executable commands for inspecting payloads,
 claiming, extending leases, completing, releasing, rejecting, or applying work

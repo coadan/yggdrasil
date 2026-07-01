@@ -124,12 +124,11 @@ ygg sync work validate queue:abc123
 ```
 
 Do not classify the whole system graph. The classifier receives one decision
-bundle and should return a proposed correction. Use `--enqueue` when the decision
-should be picked up from the central project queue, or `.ygg/queue/ready` when
-no project can be resolved, by a different agent, model,
-or review process. Queue summaries include the bounded decision target,
-graph-basis hash, and allowed patch actions so agents can choose one item
-without loading the whole graph.
+bundle and should return a proposed correction. Use `--enqueue` when the
+decision should be picked up from the central SQLite-backed project queue by a
+different agent, model, or review process. Queue summaries include the bounded
+decision target, graph-basis hash, and allowed patch actions so agents can
+choose one item without loading the whole graph.
 
 Infrastructure gaps use the same queue. `sync check --enqueue` can emit
 `ygg.infra.review-packet/v1` items when mechanical evidence finds bounded
