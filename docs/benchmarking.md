@@ -768,12 +768,12 @@ cross-checkout case. It also uses local benchmark checkouts under
 `.dev/ygg/benchmark-repos/`.
 
 Use `--enqueue --queue-dir <sqlite-db-or-dir>` with `bench agent-packet` only
-for dev benchmark handoff. This writes to an explicit SQLite queue outside the
-active project maintenance queue:
+for dev benchmark packet generation. This writes to an explicit SQLite queue
+outside the active project maintenance queue; active `sync work` commands
+resolve the central project queue instead of accepting a local queue path:
 
 ```sh
 bb bench agent-packet benchmark.edn --case penpot-example --enqueue --queue-dir .dev/ygg/queue --json
-bb sync work pull --kind benchmark-agent --queue-dir .dev/ygg/queue --agent codex
 ```
 
 The queue item stores transport and lease state only. The embedded payload is

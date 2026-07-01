@@ -187,10 +187,7 @@
 (defn- queue-project-id
   [args]
   (or (option-value args "--project")
-      (try
-        (:project-id (registry/resolve-project {:cwd (System/getProperty "user.dir")}))
-        (catch Exception _
-          nil))))
+      (:project-id (registry/resolve-project {:cwd (System/getProperty "user.dir")}))))
 
 (defn- project-queue-root
   [project-id]
@@ -199,13 +196,17 @@
 
 (defn- queue-root
   ([args]
-   (or (option-value args "--queue-dir")
-       (some-> (queue-project-id args) project-queue-root)
-       queue/default-root))
+   (project-queue-root (queue-project-id args)))
   ([args project-id]
-   (or (option-value args "--queue-dir")
-       (project-queue-root project-id)
-       (queue-root args))))
+   (project-queue-root (or project-id
+                           (queue-project-id args)))))
+
+(defn- benchmark-queue-root
+  [args]
+  (or (option-value args "--queue-dir")
+      (throw (ex-info "Benchmark packet enqueue requires --queue-dir."
+                      {:command "bench agent-packet"
+                       :option "--queue-dir"}))))
 
 (defn- corrections-project-ref
   [args]
@@ -600,7 +601,7 @@
                     {:usage usage
                      :print-json print-json
                      :enqueue-output? enqueue-output?
-                     :queue-root queue-root
+                     :queue-root benchmark-queue-root
                      :queue-priority queue-priority}))
 
 (defn- plugin!
@@ -1013,23 +1014,23 @@
     "  sync [<project.edn>] [--project ID] [--repo ID] [--check] [--enqueue] [--query-index] [--dry-run] [--json]"
     "  sync inspect [<project.edn>] [--project ID] [--json]"
     "  sync coverage [<project.edn>] [--project ID] [--json]"
-    "  sync activity [<project.edn>] [--project ID] [--queue-dir DIR] [--json]"
+    "  sync activity [<project.edn>] [--project ID] [--json]"
     "  sync add-repo <project.edn> <repo-path> [--repo ID] [--role ROLE]"
     "  sync docs candidates <target> [--project ID] [--limit N] [--snippet-chars N]"
     "  sync docs for <target> [--project ID] [--snippet-chars N]"
     "  sync docs audit [--project ID]"
     "  sync meta defs|set|get|unset ..."
     "  sync view list|show ..."
-    "  sync work list [--queue-dir DIR] [--status ready|claimed|done|rejected|failed] [--project ID] [--kind KIND] [--limit N]"
-    "  sync work pull [--queue-dir DIR] [--project ID] [--kind KIND] [--agent ID] [--lease-minutes N]"
-    "  sync work show <work-id> [--queue-dir DIR]"
-    "  sync work complete <work-id> --result result.json [--queue-dir DIR]"
-    "  sync work validate <work-id> [--queue-dir DIR]"
-    "  sync work apply <work-id> [--queue-dir DIR] [--project ID]"
-    "  sync work reject <work-id> --reason TEXT [--queue-dir DIR]"
-    "  sync work release <work-id> [--reason TEXT] [--queue-dir DIR]"
-    "  sync work release-expired [--queue-dir DIR]"
-    "  sync work heartbeat <work-id> [--queue-dir DIR] [--agent ID] [--lease-minutes N]"
+    "  sync work list [--status ready|claimed|done|rejected|failed] [--project ID] [--kind KIND] [--limit N]"
+    "  sync work pull [--project ID] [--kind KIND] [--agent ID] [--lease-minutes N]"
+    "  sync work show <work-id> [--project ID]"
+    "  sync work complete <work-id> --result result.json [--project ID]"
+    "  sync work validate <work-id> [--project ID]"
+    "  sync work apply <work-id> [--project ID]"
+    "  sync work reject <work-id> --reason TEXT [--project ID]"
+    "  sync work release <work-id> [--reason TEXT] [--project ID]"
+    "  sync work release-expired [--project ID]"
+    "  sync work heartbeat <work-id> [--project ID] [--agent ID] [--lease-minutes N]"
     "  sync work auto <project.edn> [--json]"
     "  maintenance status [<project.edn>] [--project ID] [--json]"
     "  maintenance enable|disable <project.edn> [--json]"

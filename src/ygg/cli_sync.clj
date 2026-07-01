@@ -261,10 +261,9 @@
   (queue/item-summary
    (queue/enqueue!
     payload
-    {:root (or (option-value args "--queue-dir")
-               (when-not (str/blank? (str project-id))
-                 (store/project-sqlite-path project-id))
-               (queue-root args))
+    {:root (if-not (str/blank? (str project-id))
+             (store/project-sqlite-path project-id)
+             (queue-root args))
      :kind kind
      :project-id project-id
      :priority (queue-priority args priority)
@@ -374,10 +373,9 @@
 
 (defn- project-queue-root
   [args project-id]
-  (or (option-value args "--queue-dir")
-      (when-not (str/blank? (str project-id))
-        (store/project-sqlite-path project-id))
-      (queue-root args)))
+  (if-not (str/blank? (str project-id))
+    (store/project-sqlite-path project-id)
+    (queue-root args)))
 
 (defn enqueue-sync-work!
   ([args report]

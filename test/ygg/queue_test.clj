@@ -176,9 +176,7 @@
              :label "Claim next matching work item"
              :command "ygg sync work pull --project demo --kind custom --agent <agent-id>"}]
            (:actions ready-summary)))
-    (is (= (str "ygg sync work pull --kind custom --agent <agent-id> --queue-dir '"
-                no-project-root
-                "'")
+    (is (= "ygg sync work pull --project <project-id> --kind custom --agent <agent-id>"
            (get-in no-project-summary [:actions 1 :command])))
     (is (= #{:show :heartbeat :complete :release :reject}
            (set (map :kind (:actions claimed-summary)))))

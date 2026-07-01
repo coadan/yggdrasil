@@ -153,6 +153,7 @@
     (with-redefs [project/read-project (fn [path]
                                          (swap! calls conj [:read path])
                                          project-fixture)
+                  store/project-sqlite-path (constantly ".dev/test-queue")
                   store/with-node (fn [_ f] (f :xtdb))
                   project/index-project! (fn [xtdb project opts]
                                            (swap! calls conj [:index xtdb (:id project) opts])
@@ -243,6 +244,7 @@
                            :allowedActions ["none"]
                            :expectedResultSchema dependency-review/result-schema}]
     (with-redefs [project/read-project (constantly project-fixture)
+                  store/project-sqlite-path (constantly root)
                   store/with-node (fn [_ f] (f :xtdb))
                   project/index-project! (fn [_ project _]
                                            {:project-id (:id project)
@@ -264,8 +266,7 @@
                                 ["project.edn"
                                  "--check"
                                  "--enqueue"
-                                 "--json"
-                                 "--queue-dir" root]))
+                                 "--json"]))
             parsed (read-json-output out)
             items (queue/list-items root {:status "ready"})]
         (is (= "ygg.sync/v1" (:schema parsed)))
@@ -297,8 +298,7 @@
                         ["project.edn"
                          "--check"
                          "--enqueue"
-                         "--json"
-                         "--queue-dir" root]))
+                         "--json"]))
         (is (= 3 (count (queue/list-items root {:status "ready"}))))))))
 
 (deftest sync-check-does-not-reenqueue-identical-review-batches
@@ -332,6 +332,7 @@
                                     :expectedResultSchema dependency-review/result-schema})
                                  (range index-maintenance/review-batch-size))]
     (with-redefs [project/read-project (constantly project-fixture)
+                  store/project-sqlite-path (constantly root)
                   store/with-node (fn [_ f] (f :xtdb))
                   project/index-project! (fn [_ project _]
                                            {:project-id (:id project)
@@ -351,8 +352,7 @@
                       ["project.edn"
                        "--check"
                        "--enqueue"
-                       "--json"
-                       "--queue-dir" root]))
+                       "--json"]))
       (let [items (queue/list-items root {:status "ready"})]
         (is (= 2 (count items)))
         (is (= #{infra-review/batch-packet-schema
@@ -363,8 +363,7 @@
                                 ["project.edn"
                                  "--check"
                                  "--enqueue"
-                                 "--json"
-                                 "--queue-dir" root]))
+                                 "--json"]))
             parsed (read-json-output out)]
         (is (= ["existing" "existing"]
                (sort (mapv :enqueue-status (:enqueued parsed)))))
@@ -436,6 +435,7 @@
                                   :hash "basis"}
                           :data {}}]
     (with-redefs [project/read-project (constantly project-fixture)
+                  store/project-sqlite-path (constantly root)
                   store/with-node (fn [_ f] (f :xtdb))
                   project/index-project! (fn [_ project _]
                                            {:project-id (:id project)
@@ -453,8 +453,7 @@
                                 ["project.edn"
                                  "--check"
                                  "--enqueue"
-                                 "--json"
-                                 "--queue-dir" root]))
+                                 "--json"]))
             parsed (read-json-output out)]
         (is (= ["enqueued"] (mapv :enqueue-status (:enqueued parsed))))
         (is (= "rejected" (get-in (queue/find-item root stale-ready-id)
@@ -726,6 +725,7 @@
     (with-redefs [project/read-project (fn [path]
                                          (swap! calls conj [:read path])
                                          project-fixture)
+                  store/project-sqlite-path (constantly ".dev/test-queue")
                   store/with-node (fn [_ f] (f :xtdb))
                   activity/sync-queue! (fn [xtdb project opts]
                                          (swap! calls conj [:activity xtdb (:id project) opts])
@@ -745,12 +745,10 @@
       (let [out (with-out-str
                   (cli/dispatch "sync"
                                 ["activity" "project.edn"
-                                 "--queue-dir" ".dev/test-queue"
                                  "--json"]))
             plain-out (with-out-str
                         (cli/dispatch "sync"
-                                      ["activity" "project.edn"
-                                       "--queue-dir" ".dev/test-queue"]))
+                                      ["activity" "project.edn"]))
             parsed (read-json-output out)]
         (is (= activity/sync-schema (:schema parsed)))
         (is (= "fixture" (:project-id parsed)))
@@ -808,18 +806,19 @@
     (queue/claim-next! root {:agent-id "codex"
                              :project-id "fixture"
                              :lease-ms 1000})
-    (let [out (with-out-str
-                (cli/dispatch "sync"
-                              ["work" "heartbeat" id
-                               "--queue-dir" root
-                               "--agent" "codex"
-                               "--lease-minutes" "5"]))
-          parsed (read-json-output out)]
-      (is (= queue/summary-schema (:schema parsed)))
-      (is (= id (:id parsed)))
-      (is (= "claimed" (:status parsed)))
-      (is (= "codex" (get-in parsed [:lease :agent-id])))
-      (is (integer? (get-in parsed [:lease :heartbeat-at-ms]))))))
+    (with-redefs [store/project-sqlite-path (constantly root)]
+      (let [out (with-out-str
+                  (cli/dispatch "sync"
+                                ["work" "heartbeat" id
+                                 "--project" "fixture"
+                                 "--agent" "codex"
+                                 "--lease-minutes" "5"]))
+            parsed (read-json-output out)]
+        (is (= queue/summary-schema (:schema parsed)))
+        (is (= id (:id parsed)))
+        (is (= "claimed" (:status parsed)))
+        (is (= "codex" (get-in parsed [:lease :agent-id])))
+        (is (integer? (get-in parsed [:lease :heartbeat-at-ms])))))))
 
 (deftest sync-work-release-expired-releases-stale-claims
   (let [root (temp-dir "ygg-cli-work-release-expired")
@@ -832,16 +831,17 @@
     (queue/claim-next! root {:agent-id "codex"
                              :project-id "fixture"
                              :lease-ms -1})
-    (let [out (with-out-str
-                (cli/dispatch "sync"
-                              ["work" "release-expired"
-                               "--queue-dir" root]))
-          parsed (read-json-output out)]
-      (is (= "ygg.queue.release-expired/v1" (:schema parsed)))
-      (is (= 1 (:released parsed)))
-      (is (= "ready" (get-in (queue/find-item root id) [:item :status])))
-      (is (= "lease expired"
-             (get-in (queue/find-item root id) [:item :release-reason]))))))
+    (with-redefs [store/project-sqlite-path (constantly root)]
+      (let [out (with-out-str
+                  (cli/dispatch "sync"
+                                ["work" "release-expired"
+                                 "--project" "fixture"]))
+            parsed (read-json-output out)]
+        (is (= "ygg.queue.release-expired/v1" (:schema parsed)))
+        (is (= 1 (:released parsed)))
+        (is (= "ready" (get-in (queue/find-item root id) [:item :status])))
+        (is (= "lease expired"
+               (get-in (queue/find-item root id) [:item :release-reason])))))))
 
 (deftest sync-work-list-releases-expired-claims-before-listing
   (let [root (temp-dir "ygg-cli-work-list-release-expired")
@@ -854,16 +854,17 @@
     (queue/claim-next! root {:agent-id "codex"
                              :project-id "fixture"
                              :lease-ms -1})
-    (let [out (with-out-str
-                (cli/dispatch "sync"
-                              ["work" "list"
-                               "--queue-dir" root
-                               "--status" "ready"
-                               "--json"]))
-          parsed (read-json-output out)]
-      (is (= queue/list-schema (:schema parsed)))
-      (is (= [id] (mapv :id (:items parsed))))
-      (is (= "ready" (get-in (queue/find-item root id) [:item :status]))))))
+    (with-redefs [store/project-sqlite-path (constantly root)]
+      (let [out (with-out-str
+                  (cli/dispatch "sync"
+                                ["work" "list"
+                                 "--project" "fixture"
+                                 "--status" "ready"
+                                 "--json"]))
+            parsed (read-json-output out)]
+        (is (= queue/list-schema (:schema parsed)))
+        (is (= [id] (mapv :id (:items parsed))))
+        (is (= "ready" (get-in (queue/find-item root id) [:item :status])))))))
 
 (deftest sync-work-validate-reports-valid-invalid-not-done-and-unsupported-results
   (let [root (temp-dir "ygg-cli-work-validate")
@@ -931,66 +932,67 @@
             :reason "Invalid recommendation."
             :correctionPatch []}
            {:indent-str "  "}))
-    (queue/claim-next! root {:agent-id "codex"
-                             :project-id "fixture"
-                             :kind dependency-review/work-kind})
-    (with-out-str
-      (cli/dispatch "sync"
-                    ["work" "complete" valid-id
-                     "--result" valid-result-path
-                     "--queue-dir" root]))
-    (queue/claim-next! root {:agent-id "codex"
-                             :project-id "fixture"
-                             :kind dependency-review/work-kind})
-    (with-out-str
-      (cli/dispatch "sync"
-                    ["work" "complete" invalid-id
-                     "--result" invalid-result-path
-                     "--queue-dir" root]))
-    (queue/claim-next! root {:agent-id "codex"
-                             :project-id "fixture"
-                             :kind "custom"})
-    (with-out-str
-      (cli/dispatch "sync"
-                    ["work" "complete" unsupported-id
-                     "--result" valid-result-path
-                     "--queue-dir" root]))
-    (let [valid (read-json-output
-                 (with-out-str
-                   (cli/dispatch "sync"
-                                 ["work" "validate" valid-id
-                                  "--queue-dir" root])))
-          invalid (read-json-output
+    (with-redefs [store/project-sqlite-path (constantly root)]
+      (queue/claim-next! root {:agent-id "codex"
+                               :project-id "fixture"
+                               :kind dependency-review/work-kind})
+      (with-out-str
+        (cli/dispatch "sync"
+                      ["work" "complete" valid-id
+                       "--project" "fixture"
+                       "--result" valid-result-path]))
+      (queue/claim-next! root {:agent-id "codex"
+                               :project-id "fixture"
+                               :kind dependency-review/work-kind})
+      (with-out-str
+        (cli/dispatch "sync"
+                      ["work" "complete" invalid-id
+                       "--project" "fixture"
+                       "--result" invalid-result-path]))
+      (queue/claim-next! root {:agent-id "codex"
+                               :project-id "fixture"
+                               :kind "custom"})
+      (with-out-str
+        (cli/dispatch "sync"
+                      ["work" "complete" unsupported-id
+                       "--project" "fixture"
+                       "--result" valid-result-path]))
+      (let [valid (read-json-output
                    (with-out-str
                      (cli/dispatch "sync"
-                                   ["work" "validate" invalid-id
-                                    "--queue-dir" root])))
-          not-done (read-json-output
-                    (with-out-str
-                      (cli/dispatch "sync"
-                                    ["work" "validate" ready-id
-                                     "--queue-dir" root])))
-          unsupported (read-json-output
-                       (with-out-str
-                         (cli/dispatch "sync"
-                                       ["work" "validate" unsupported-id
-                                        "--queue-dir" root])))]
-      (is (= "ygg.sync.work.validation/v1" (:schema valid)))
-      (is (= "valid" (:status valid)))
-      (is (= dependency-review/packet-schema (:payload-schema valid)))
-      (is (= dependency-review/result-schema (:result-schema valid)))
-      (is (= dependency-review/result-schema (:expected-result-schema valid)))
-      (is (= "invalid" (:status invalid)))
-      (is (= [{:path ["result" "recommendation"]
-               :error "Result recommendation is required and must be supported."
-               :value "maybe"}]
-             (:errors invalid)))
-      (is (= "not-done" (:status not-done)))
-      (is (= "unsupported" (:status unsupported)))
-      (is (= [{:path ["payload" "schema"]
-               :error "No validation handler for work item payload schema."
-               :value "ygg.custom.work/v1"}]
-             (:errors unsupported))))))
+                                   ["work" "validate" valid-id
+                                    "--project" "fixture"])))
+            invalid (read-json-output
+                     (with-out-str
+                       (cli/dispatch "sync"
+                                     ["work" "validate" invalid-id
+                                      "--project" "fixture"])))
+            not-done (read-json-output
+                      (with-out-str
+                        (cli/dispatch "sync"
+                                      ["work" "validate" ready-id
+                                       "--project" "fixture"])))
+            unsupported (read-json-output
+                         (with-out-str
+                           (cli/dispatch "sync"
+                                         ["work" "validate" unsupported-id
+                                          "--project" "fixture"])))]
+        (is (= "ygg.sync.work.validation/v1" (:schema valid)))
+        (is (= "valid" (:status valid)))
+        (is (= dependency-review/packet-schema (:payload-schema valid)))
+        (is (= dependency-review/result-schema (:result-schema valid)))
+        (is (= dependency-review/result-schema (:expected-result-schema valid)))
+        (is (= "invalid" (:status invalid)))
+        (is (= [{:path ["result" "recommendation"]
+                 :error "Result recommendation is required and must be supported."
+                 :value "maybe"}]
+               (:errors invalid)))
+        (is (= "not-done" (:status not-done)))
+        (is (= "unsupported" (:status unsupported)))
+        (is (= [{:path ["payload" "schema"]
+                 :error "No validation handler for work item payload schema."
+                 :value "ygg.custom.work/v1"}]
+               (:errors unsupported)))))))
 (deftest infra-review-result-requires-supported-recommendation-and-reason
   (let [packet {:schema infra-review/packet-schema
                 :reviewId "infra-review:test"
@@ -1187,8 +1189,11 @@
                                     :kind "custom"
                                     :priority 10})
                    [:item :id])
-        out (with-out-str
-              (cli/dispatch "sync" ["work" "show" id "--queue-dir" root]))
+        out (with-redefs [store/project-sqlite-path (constantly root)]
+              (with-out-str
+                (cli/dispatch "sync"
+                              ["work" "show" id
+                               "--project" "fixture"])))
         parsed (read-json-output out)]
     (is (= queue/summary-schema (:schema parsed)))
     (is (= id (:id parsed)))
@@ -1208,13 +1213,13 @@
                                     :project-id "fixture"
                                     :priority 50})
                    [:item :id])
-        out (with-out-str
-              (cli/dispatch "sync"
-                            ["work" "pull"
-                             "--project" "fixture"
-                             "--kind" "infra-review"
-                             "--agent" "codex"
-                             "--queue-dir" root]))
+        out (with-redefs [store/project-sqlite-path (constantly root)]
+              (with-out-str
+                (cli/dispatch "sync"
+                              ["work" "pull"
+                               "--project" "fixture"
+                               "--kind" "infra-review"
+                               "--agent" "codex"])))
         parsed (read-json-output out)]
     (is (= queue/summary-schema (:schema parsed)))
     (is (= id (:id parsed)))
@@ -1227,6 +1232,9 @@
     (with-redefs [store/with-node (fn [_ f] (f :xtdb))
                   project/read-project (fn [path]
                                          (assoc project-with-plugin-package :path path))
+                  cli-query/embedding-options (constantly {:provider :local
+                                                           :model "test"})
+                  cli-query/query-embedding-client (constantly :embedding-client)
                   evidence/summarize (fn [xtdb project opts]
                                        (swap! summaries conj [xtdb project opts])
                                        {:freshness {:status :current

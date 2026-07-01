@@ -189,24 +189,20 @@
 
 (defn- project-args
   [project-id]
-  (option-args "--project" project-id))
-
-(defn- queue-args
-  [root project-id]
-  (when (str/blank? (str project-id))
-    ["--queue-dir" root]))
+  ["--project" (if (str/blank? (str project-id))
+                 "<project-id>"
+                 (str project-id))])
 
 (defn- kind-args
   [kind]
   (option-args "--kind" kind))
 
 (defn- work-command
-  [{:keys [root item]} action & args]
+  [{:keys [item]} action & args]
   (apply command/command
          (concat ["ygg" "sync" "work" action]
                  args
-                 (project-args (:project-id item))
-                 (queue-args root (:project-id item)))))
+                 (project-args (:project-id item)))))
 
 (defn- item-actions
   [{:keys [item] :as found}]
@@ -222,8 +218,7 @@
                              (concat ["ygg" "sync" "work" "pull"]
                                      (project-args (:project-id item))
                                      (kind-args (:kind item))
-                                     ["--agent" "<agent-id>"]
-                                     (queue-args (:root found) (:project-id item))))})
+                                     ["--agent" "<agent-id>"]))})
 
       (= "claimed" status)
       (conj {:kind :heartbeat
