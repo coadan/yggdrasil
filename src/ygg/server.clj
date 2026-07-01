@@ -562,6 +562,13 @@
     "query"
     "help"})
 
+(def ^:private unlocked-projects-subcommands
+  #{"list"
+    "show"})
+
+(def ^:private unlocked-maintenance-subcommands
+  #{"status"})
+
 (def ^:private unlocked-sync-work-subcommands
   #{"auto"
     "complete"
@@ -581,6 +588,12 @@
         subcommand (second args)
         nested-subcommand (nth args 2 nil)]
     (or (contains? unlocked-cli-commands command)
+        (and (= "projects" command)
+             (or (nil? subcommand)
+                 (contains? unlocked-projects-subcommands subcommand)))
+        (and (= "maintenance" command)
+             (or (nil? subcommand)
+                 (contains? unlocked-maintenance-subcommands subcommand)))
         (and (= "bench" command)
              (= "repos" subcommand)
              (= "check" nested-subcommand))

@@ -445,12 +445,19 @@
         closed (atom 0)
         pool (atom {})]
     (with-redefs [embedding-client/provider-client
-                  (fn [provider model]
-                    (swap! created inc)
-                    {:provider provider
-                     :model model
-                     :embed-batch (fn [_] [])
-                     :close (fn [] (swap! closed inc))})
+                  (fn
+                    ([provider model]
+                     (swap! created inc)
+                     {:provider provider
+                      :model model
+                      :embed-batch (fn [_] [])
+                      :close (fn [] (swap! closed inc))})
+                    ([provider model _opts]
+                     (swap! created inc)
+                     {:provider provider
+                      :model model
+                      :embed-batch (fn [_] [])
+                      :close (fn [] (swap! closed inc))}))
                   cli/dispatch
                   (fn [command args]
                     (let [client (embedding-client/query-embedding-client
@@ -928,7 +935,94 @@
             (deliver release-alpha true)
             (is (= true (:ok @alpha)))))))))
 
-(deftest project-operation-blocks-global-command
+(deftest read-only-project-commands-run-while-project-operation-is-busy
+  (let [ctx {:xtdb :xtdb
+             :token "token"
+             :running (atom true)
+             :operation-locks (atom {})
+             :active-operations (atom {})
+             :node-pool (atom {})}
+        project-started (promise)
+        release-project (promise)]
+    (with-redefs [cli/dispatch
+                  (fn [command args]
+                    (case command
+                      "packages"
+                      (do
+                        (deliver project-started true)
+                        @release-project
+                        (println (str "command=" command
+                                      " args=" (pr-str args))))
+
+                      "projects"
+                      (println (str "projects args=" (pr-str args)))
+
+                      (throw (ex-info "unexpected command"
+                                      {:command command
+                                       :args args}))))]
+      (let [project (future
+                      (server/handle-request ctx
+                                             {:op "packages"
+                                              :token "token"
+                                              :args ["--project" "demo"]}))]
+        (try
+          (is (= true (deref project-started 5000 :timeout)))
+          (doseq [args [["list"] ["show" "demo" "--json"]]]
+            (let [response (server/handle-request ctx
+                                                  {:op "projects"
+                                                   :token "token"
+                                                   :args args})]
+              (is (= true (:ok response)))
+              (is (= (str "projects args=" (pr-str args) "\n")
+                     (:out response)))))
+          (finally
+            (deliver release-project true)
+            (is (= true (:ok @project)))))))))
+
+(deftest read-only-maintenance-status-runs-while-project-operation-is-busy
+  (let [ctx {:xtdb :xtdb
+             :token "token"
+             :running (atom true)
+             :operation-locks (atom {})
+             :active-operations (atom {})
+             :node-pool (atom {})}
+        project-started (promise)
+        release-project (promise)]
+    (with-redefs [cli/dispatch
+                  (fn [command args]
+                    (case command
+                      "packages"
+                      (do
+                        (deliver project-started true)
+                        @release-project
+                        (println (str "command=" command
+                                      " args=" (pr-str args))))
+
+                      "maintenance"
+                      (println (str "maintenance args=" (pr-str args)))
+
+                      (throw (ex-info "unexpected command"
+                                      {:command command
+                                       :args args}))))]
+      (let [project (future
+                      (server/handle-request ctx
+                                             {:op "packages"
+                                              :token "token"
+                                              :args ["--project" "demo"]}))]
+        (try
+          (is (= true (deref project-started 5000 :timeout)))
+          (let [response (server/handle-request ctx
+                                                {:op "maintenance"
+                                                 :token "token"
+                                                 :args ["status" "--project" "demo"]})]
+            (is (= true (:ok response)))
+            (is (= "maintenance args=[\"status\" \"--project\" \"demo\"]\n"
+                   (:out response))))
+          (finally
+            (deliver release-project true)
+            (is (= true (:ok @project)))))))))
+
+(deftest project-operation-blocks-global-mutation-command
   (let [ctx {:xtdb :xtdb
              :token "token"
              :running (atom true)
@@ -945,7 +1039,7 @@
                         @release-project
                         (println (str "command=" command
                                       " args=" (pr-str args))))
-                      (throw (ex-info "global command should not run while project is busy"
+                      (throw (ex-info "global mutation should not run while project is busy"
                                       {:command command
                                        :args args}))))]
       (let [project (future
@@ -958,7 +1052,7 @@
           (let [response (server/handle-request ctx
                                                 {:op "projects"
                                                  :token "token"
-                                                 :args ["list"]})]
+                                                 :args ["register" "project.edn"]})]
             (is (= false (:ok response)))
             (is (= daemon-contract/unavailable-exit (:exit response)))
             (is (= "operation-lock-busy" (get-in response [:data :reason])))
