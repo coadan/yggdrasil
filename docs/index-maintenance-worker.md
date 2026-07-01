@@ -20,8 +20,9 @@ Example:
 ```edn
 {:maintenance
  {:enabled true
-  ;; Omit queue-dir/report-dir to use the central per-project state root:
+  ;; Queue storage is always central:
   ;; <YGG_STORAGE_ROOT>/projects/<project-id>/project.sqlite
+  ;; Report artifacts default to:
   ;; <YGG_STORAGE_ROOT>/projects/<project-id>/reports/maintenance
   :work {:max-decisions 8
          :max-decisions-per-kind 4

@@ -700,7 +700,6 @@
                             :role :application}]
                    :maintenance
                    {:enabled true
-                    :queue-dir "queue"
                     :report-dir "reports"
                     :worker {:enabled true
                              :max-items-per-run 5
@@ -711,25 +710,25 @@
                                           :model "deepseek-v4-flash"
                                           :env "YGG_DEEPSEEK_API_KEY"
                                           :kinds #{:maintenance-decision}}]}}}))
-    (with-redefs [cli-sync/sync-index-project!
+    (with-redefs [store/project-sqlite-path
+                  (fn [project-id]
+                    (is (= "demo" project-id))
+                    queue-root)
+                  cli-sync/sync-index-project!
                   (fn [xtdb project args deps opts]
                     (is (= :xtdb xtdb))
                     (is (= "demo" (:id project)))
                     (is (= [(.getPath project-edn)
-                            "--queue-dir"
-                            queue-root
                             "--check"
                             "--enqueue"
                             "--json"]
                            args))
                     (is (map? deps))
                     (is (= {:config-path (.getPath project-edn)
-                            :queue-dir queue-root
                             :check? true
                             :enqueue? true
                             :json? true}
                            (select-keys opts [:config-path
-                                              :queue-dir
                                               :check?
                                               :enqueue?
                                               :json?])))
@@ -747,8 +746,6 @@
                     (is (= :xtdb xtdb))
                     (is (= "demo" (:id project)))
                     (is (= [(.getPath project-edn)
-                            "--queue-dir"
-                            queue-root
                             "--check"
                             "--enqueue"
                             "--json"]

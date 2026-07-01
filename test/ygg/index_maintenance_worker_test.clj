@@ -5,6 +5,7 @@
             [ygg.project :as project]
             [ygg.queue :as queue]
             [ygg.system.decision-classifier :as decision-classifier]
+            [ygg.xtdb :as store]
             [charred.api :as json]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
@@ -20,22 +21,29 @@
   [path]
   (json/read-json (slurp (io/file path)) :key-fn keyword))
 
+(defn- project-queue-root
+  [root]
+  (.getPath (io/file root "project.sqlite")))
+
 (defn- project-config
   [root worker]
   (let [repo (io/file root "repo")]
     (.mkdirs repo)
-    (project/normalize-project
-     (io/file root)
-     (let [maintenance (cond-> {:enabled true
-                                :worker (dissoc worker :queue-dir :report-dir)}
-                         (:queue-dir worker) (assoc :queue-dir (:queue-dir worker))
-                         (:report-dir worker) (assoc :report-dir (:report-dir worker)))]
-       {:id "demo"
-        :repos [{:id "app"
-                 :root (.getPath repo)
-                 :role :application}]
-        :maintenance maintenance})
-     {:path (.getPath (io/file root "project.edn"))})))
+    (with-redefs [store/project-sqlite-path
+                  (fn [project-id]
+                    (is (= "demo" project-id))
+                    (project-queue-root root))]
+      (project/normalize-project
+       (io/file root)
+       (let [maintenance (cond-> {:enabled true
+                                  :worker (dissoc worker :queue-dir :report-dir)}
+                           (:report-dir worker) (assoc :report-dir (:report-dir worker)))]
+         {:id "demo"
+          :repos [{:id "app"
+                   :root (.getPath repo)
+                   :role :application}]
+          :maintenance maintenance})
+       {:path (.getPath (io/file root "project.edn"))}))))
 
 (defn- decision-packet
   ([] (decision-packet "test"))
@@ -144,7 +152,7 @@
 
 (deftest disabled-worker-does-not-claim-ready-work
   (let [root (temp-dir "ygg-index-maintenance-worker-disabled")
-        queue-root (.getPath (io/file root "queue"))
+        queue-root (project-queue-root root)
         project (project-config
                  root
                  {:enabled false
@@ -161,11 +169,10 @@
 
 (deftest openai-compatible-worker-completes-and-validates-work
   (let [root (temp-dir "ygg-index-maintenance-worker-openai")
-        queue-root (.getPath (io/file root "queue"))
+        queue-root (project-queue-root root)
         project (project-config
                  root
                  {:enabled true
-                  :queue-dir "queue"
                   :report-dir "reports"
                   :apply {:mode :complete-only}
                   :executors [{:id "deepseek"
@@ -197,11 +204,10 @@
 
 (deftest anthropic-compatible-worker-completes-work
   (let [root (temp-dir "ygg-index-maintenance-worker-anthropic")
-        queue-root (.getPath (io/file root "queue"))
+        queue-root (project-queue-root root)
         project (project-config
                  root
                  {:enabled true
-                  :queue-dir "queue"
                   :report-dir "reports"
                   :executors [{:id "deepseek-anthropic"
                                :type :anthropic-compatible
@@ -223,11 +229,10 @@
 
 (deftest command-harness-worker-uses-work-and-result-files
   (let [root (temp-dir "ygg-index-maintenance-worker-command")
-        queue-root (.getPath (io/file root "queue"))
+        queue-root (project-queue-root root)
         project (project-config
                  root
                  {:enabled true
-                  :queue-dir "queue"
                   :report-dir "reports"
                   :executors [{:id "codex"
                                :type :command-harness
@@ -297,11 +302,10 @@
 
 (deftest command-harness-work-input-compacts-large-frontier-decisions
   (let [root (temp-dir "ygg-index-maintenance-worker-command-compact")
-        queue-root (.getPath (io/file root "queue"))
+        queue-root (project-queue-root root)
         project (project-config
                  root
                  {:enabled true
-                  :queue-dir "queue"
                   :report-dir "reports"
                   :executors [{:id "codex"
                                :type :command-harness
@@ -380,11 +384,10 @@
 
 (deftest command-harness-work-input-compacts-review-packets
   (let [root (temp-dir "ygg-index-maintenance-worker-command-review-compact")
-        queue-root (.getPath (io/file root "queue"))
+        queue-root (project-queue-root root)
         project (project-config
                  root
                  {:enabled true
-                  :queue-dir "queue"
                   :report-dir "reports"
                   :max-items-per-run 2
                   :executors [{:id "codex"
@@ -437,11 +440,10 @@
 
 (deftest command-harness-work-input-compacts-review-batches
   (let [root (temp-dir "ygg-index-maintenance-worker-command-review-batch")
-        queue-root (.getPath (io/file root "queue"))
+        queue-root (project-queue-root root)
         project (project-config
                  root
                  {:enabled true
-                  :queue-dir "queue"
                   :report-dir "reports"
                   :executors [{:id "codex"
                                :type :command-harness
@@ -484,11 +486,10 @@
 
 (deftest command-harness-work-input-compacts-decision-batches
   (let [root (temp-dir "ygg-index-maintenance-worker-command-batch-compact")
-        queue-root (.getPath (io/file root "queue"))
+        queue-root (project-queue-root root)
         project (project-config
                  root
                  {:enabled true
-                  :queue-dir "queue"
                   :report-dir "reports"
                   :executors [{:id "codex"
                                :type :command-harness
@@ -546,11 +547,10 @@
 
 (deftest validate-only-fails-invalid-completed-result
   (let [root (temp-dir "ygg-index-maintenance-worker-invalid")
-        queue-root (.getPath (io/file root "queue"))
+        queue-root (project-queue-root root)
         project (project-config
                  root
                  {:enabled true
-                  :queue-dir "queue"
                   :report-dir "reports"
                   :apply {:mode :validate-only}
                   :executors [{:id "deepseek"
@@ -583,11 +583,10 @@
 
 (deftest worker-backs-off-after-repeated-executor-failures
   (let [root (temp-dir "ygg-index-maintenance-worker-backoff")
-        queue-root (.getPath (io/file root "queue"))
+        queue-root (project-queue-root root)
         project (project-config
                  root
                  {:enabled true
-                  :queue-dir "queue"
                   :report-dir "reports"
                   :max-items-per-run 5
                   :max-failures-per-run 1
@@ -620,11 +619,10 @@
 
 (deftest worker-respects-per-run-item-cap
   (let [root (temp-dir "ygg-index-maintenance-worker-cap")
-        queue-root (.getPath (io/file root "queue"))
+        queue-root (project-queue-root root)
         project (project-config
                  root
                  {:enabled true
-                  :queue-dir "queue"
                   :report-dir "reports"
                   :max-items-per-run 1
                   :executors [{:id "deepseek"
@@ -655,11 +653,10 @@
 
 (deftest missing-api-key-leaves-ready-work-unclaimed
   (let [root (temp-dir "ygg-index-maintenance-worker-no-key")
-        queue-root (.getPath (io/file root "queue"))
+        queue-root (project-queue-root root)
         project (project-config
                  root
                  {:enabled true
-                  :queue-dir "queue"
                   :report-dir "reports"
                   :executors [{:id "deepseek"
                                :type :openai-compatible

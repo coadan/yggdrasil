@@ -403,7 +403,7 @@
 
    This keeps scheduled/system-event sync calls on the same option semantics as
    the CLI without requiring those callers to shell out."
-  [{:keys [config-path project-id repo-id queue-dir check? enqueue? query-index? dry-run?
+  [{:keys [config-path project-id repo-id check? enqueue? query-index? dry-run?
            json? no-progress? min-confidence]}]
   (let [args (cond
                config-path [config-path]
@@ -411,7 +411,6 @@
                :else [])]
     (-> args
         (option-flag "--repo" repo-id)
-        (option-flag "--queue-dir" queue-dir)
         (option-flag "--min-confidence" min-confidence)
         (present-flag "--check" check?)
         (present-flag "--enqueue" enqueue?)
@@ -426,7 +425,6 @@
     {:config-path (first positional)
      :project-id (option-value args "--project")
      :repo-id (option-value args "--repo")
-     :queue-dir (option-value args "--queue-dir")
      :check? (boolean (some #{"--check"} args))
      :enqueue? (boolean (some #{"--enqueue"} args))
      :query-index? (boolean (some #{"--query-index"} args))
@@ -448,23 +446,11 @@
     (:project (registry/resolve-project {:project-id project-id
                                          :cwd cwd}))))
 
-(defn- default-worker-queue-dir
-  [project opts]
-  (cond-> opts
-    (and (:enqueue? opts)
-         (not (:queue-dir opts))
-         (get-in project [:maintenance :queue-dir]))
-    (assoc :queue-dir (get-in project [:maintenance :queue-dir]))))
-
-(defn- worker-run-options
-  [opts]
-  (select-keys opts [:queue-dir]))
-
 (defn- run-index-maintenance-worker
-  [project opts enqueued]
+  [project _opts enqueued]
   (when (and (seq enqueued)
              (get-in project [:maintenance :worker]))
-    (index-maintenance-worker/run! project (worker-run-options opts))))
+    (index-maintenance-worker/run! project {})))
 
 (defn- attach-index-maintenance-worker
   [project opts result]
@@ -499,7 +485,6 @@
    system-event handlers."
   [xtdb {:keys [repo-id check? enqueue? dry-run?] :as opts}]
   (let [project (sync-project opts)
-        opts (default-worker-queue-dir project opts)
         args (sync-options->args opts)
         sync-deps (cli-sync-deps)
         run-index! (fn [index-xtdb]

@@ -48,7 +48,6 @@
                            :max-dependency-reviews 16
                            :decision-batch-size 6
                            :review-batch-size 8}
-                    :queue-dir "queue"
                     :report-dir "reports"
                     :schedules [{:id "sync"
                                  :task :sync
@@ -86,7 +85,7 @@
              (get-in (project/read-project (.getPath project-edn))
                      [:repos 0 :ignore-paths])))
       (is (= true (:enabled worker)))
-      (is (= (.getCanonicalPath (io/file root "queue")) (:queue-dir maintenance)))
+      (is (= (store/project-sqlite-path "demo") (:queue-dir maintenance)))
       (is (= (.getCanonicalPath (io/file root "reports")) (:report-dir maintenance)))
       (is (= (:queue-dir maintenance) (:queue-dir worker)))
       (is (= [{:id "sync"
@@ -116,6 +115,27 @@
       (is (= "high" (get-in worker [:executors 0 :reasoning])))
       (is (= "medium" (get-in worker [:executors 1 :reasoning])))
       (is (= ["codex-maintenance"] (get-in worker [:executors 1 :command]))))))
+
+(deftest project-config-rejects-configured-maintenance-queue-dir
+  (let [root (temp-dir "ygg-project-index-maintenance-queue-dir")
+        repo (io/file root "repo")
+        project-edn (io/file root "project.edn")]
+    (.mkdirs repo)
+    (spit project-edn
+          (pr-str {:id "demo"
+                   :repos [{:id "app" :root "repo"}]
+                   :maintenance
+                   {:enabled true
+                    :queue-dir "queue"}}))
+    (try
+      (project/read-project (.getPath project-edn))
+      (is false "Expected configured maintenance queue directory to be rejected.")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= "Maintenance queue storage is central and cannot be configured."
+               (ex-message e)))
+        (is (= {:project-id "demo"
+                :key :queue-dir}
+               (ex-data e)))))))
 
 (deftest project-config-defaults-maintenance-to-central-project-state
   (let [root (temp-dir "ygg-project-index-maintenance-worker-defaults")

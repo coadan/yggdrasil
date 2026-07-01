@@ -399,13 +399,15 @@
 (defn- normalize-maintenance
   [base project-id data]
   (when-let [maintenance (:maintenance data)]
+    (when (contains? maintenance :queue-dir)
+      (throw (ex-info "Maintenance queue storage is central and cannot be configured."
+                      {:project-id project-id
+                       :key :queue-dir})))
     (let [maintenance (assoc maintenance
                              :enabled (boolean (:enabled maintenance))
                              :work (index-maintenance/normalize-work-controls
                                     (:work maintenance))
-                             :queue-dir (if (:queue-dir maintenance)
-                                          (resolve-root base (:queue-dir maintenance))
-                                          (store/project-sqlite-path project-id))
+                             :queue-dir (store/project-sqlite-path project-id)
                              :report-dir (if (:report-dir maintenance)
                                            (resolve-root base (:report-dir maintenance))
                                            (store/project-data-path project-id

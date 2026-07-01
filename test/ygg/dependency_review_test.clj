@@ -124,7 +124,7 @@
         repo (io/file workspace "repo")
         project-path (.getPath (io/file workspace "project.edn"))
         xtdb-path (temp-dir "ygg-dependency-review-dogfood-xtdb")
-        queue-root (.getPath (io/file workspace "queue"))
+        queue-root (.getPath (io/file workspace "project.sqlite"))
         result-path (.getPath (io/file workspace "result.json"))
         project-id "dependency-review-dogfood"
         project-data {:id project-id
@@ -148,13 +148,15 @@
           (is (= 1 (get-in report [:counts :packages])))
           (is (= 1 (get-in report [:counts :unresolved-imports])))
           (is (= ["left_pad"] (mapv :import (:unresolved-imports report)))))))
-    (with-redefs [store/storage-path (constantly xtdb-path)]
+    (with-redefs [store/storage-path (constantly xtdb-path)
+                  store/project-sqlite-path
+                  (fn [requested-project-id]
+                    (is (= project-id requested-project-id))
+                    queue-root)]
       (let [check-result (sync-dispatch-json project-path
                                              "--check"
                                              "--enqueue"
-                                             "--json"
-                                             "--queue-dir"
-                                             queue-root)
+                                             "--json")
             queued-items (queue/list-items queue-root
                                            {:status "ready"
                                             :project-id project-id
@@ -166,9 +168,7 @@
                                         "--kind"
                                         dependency-review/work-kind
                                         "--agent"
-                                        "codex"
-                                        "--queue-dir"
-                                        queue-root)
+                                        "codex")
             work-id (:id claimed)
             packet (get-in claimed [:item :payload])
             evidence-id (get-in packet [:facts :evidence 0 :id])
@@ -198,15 +198,15 @@
         (let [completed (sync-dispatch-json "work"
                                             "complete"
                                             work-id
+                                            "--project"
+                                            project-id
                                             "--result"
-                                            result-path
-                                            "--queue-dir"
-                                            queue-root)
+                                            result-path)
               applied (sync-dispatch-json "work"
                                           "apply"
                                           work-id
-                                          "--queue-dir"
-                                          queue-root)
+                                          "--project"
+                                          project-id)
               overlay (store/with-node xtdb-path
                         (fn [xtdb]
                           (corrections/overlay xtdb project-id)))
