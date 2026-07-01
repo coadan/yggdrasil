@@ -178,6 +178,10 @@
                      :schedules []
                      :worker {:configured true
                               :enabled true
+                              :leaseMinutes 30
+                              :maxItemsPerRun 8
+                              :maxFailuresPerRun 3
+                              :apply {:mode :complete-only}
                               :availableExecutorCount 1
                               :executorCount 1
                               :executors []}})]
@@ -189,7 +193,8 @@
         (is (string? (:cwd @resolve-opts)))
         (is (str/includes? out "- project fixture"))
         (is (str/includes? out "- project-ref /repo/.ygg/project.edn"))
-        (is (str/includes? out "- maintenance enabled"))))))
+        (is (str/includes? out "- maintenance enabled"))
+        (is (str/includes? out "- worker-controls lease=30m max-items=8 max-failures=3 apply=complete-only"))))))
 
 (deftest projects-register-command-registers-existing-config
   (let [root (temp-dir "ygg-cli-projects-register")

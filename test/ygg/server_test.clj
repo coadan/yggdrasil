@@ -1441,7 +1441,10 @@
                                 :enqueue true}))]
         (try
           (is (= true (deref worker-started 5000 :timeout)))
-          (is (empty? @(:active-operations ctx)))
+          (is (= "maintenance-worker"
+                 (get-in @(:active-operations ctx)
+                         ["maintenance-worker:demo:check" :op])))
+          (is (not (contains? @(:active-operations ctx) "project:demo")))
           (let [response (server/handle-request ctx
                                                 {:op "packages"
                                                  :token "token"
@@ -1495,6 +1498,36 @@
         (is (= "new-project"
                (get-in updated-response
                        [:data :maintenance :projects 0 :project-id])))))))
+
+(deftest server-status-output-includes-worker-operational-controls
+  (let [out (with-out-str
+              (#'server/print-server-status
+               []
+               {:schema "ygg.server.status/v1"
+                :status "running"
+                :pid 1
+                :busy false
+                :queuedRequests 0
+                :openNodes 0
+                :openNodePaths []
+                :semanticClients 0
+                :semanticClientKeys []
+                :maintenance {:scheduler {:running true
+                                          :pollMs 5000
+                                          :recentRuns []}
+                              :projects [{:project-id "demo"
+                                          :enabled true
+                                          :schedules []
+                                          :worker {:configured true
+                                                   :enabled true
+                                                   :maxItemsPerRun 8
+                                                   :maxFailuresPerRun 3
+                                                   :availableExecutorCount 1
+                                                   :executorCount 1}}]
+                              :projectCount 1
+                              :enabledProjectCount 1
+                              :scheduleCount 0}}))]
+    (is (str/includes? out "demo enabled schedules=0 worker=enabled executors=1/1 max-items=8 max-failures=3"))))
 
 (deftest mcp-request-handles-tools-list-through-server
   (with-redefs [store/storage-path (fn

@@ -150,6 +150,30 @@
      :batchId (:batchId payload)
      :results (mapv valid-review-result items)}))
 
+(deftest config-status-exposes-worker-operational-controls
+  (let [root (temp-dir "ygg-index-maintenance-worker-status")
+        project (project-config
+                 root
+                 {:enabled true
+                  :lease-minutes 30
+                  :max-items-per-run 8
+                  :max-failures-per-run 2
+                  :report-dir "reports"
+                  :apply {:mode :complete-only}
+                  :executors [{:id "codex"
+                               :type :command-harness
+                               :command ["codex"]
+                               :kinds #{:maintenance-decision}}]})
+        status (index-maintenance-worker/config-status project)]
+    (is (= 30 (get-in status [:worker :leaseMinutes])))
+    (is (= 8 (get-in status [:worker :maxItemsPerRun])))
+    (is (= 2 (get-in status [:worker :maxFailuresPerRun])))
+    (is (= {:mode :complete-only}
+           (get-in status [:worker :apply])))
+    (is (= (project-queue-root root)
+           (get-in status [:worker :queueRoot])))
+    (is (some? (get-in status [:worker :reportDir])))))
+
 (deftest disabled-worker-does-not-claim-ready-work
   (let [root (temp-dir "ygg-index-maintenance-worker-disabled")
         queue-root (project-queue-root root)

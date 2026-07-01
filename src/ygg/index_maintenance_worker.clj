@@ -115,7 +115,12 @@
      :reportDir (:report-dir maintenance)
      :worker {:configured (boolean config)
               :enabled (boolean (:enabled config))
+              :leaseMinutes (:lease-minutes config)
+              :maxItemsPerRun (:max-items-per-run config)
+              :maxFailuresPerRun (:max-failures-per-run config)
               :apply (:apply config)
+              :queueRoot (:queue-dir config)
+              :reportDir (:report-dir config)
               :executors executor-statuses
               :executorCount (count executor-statuses)
               :availableExecutorCount (count available-executors)

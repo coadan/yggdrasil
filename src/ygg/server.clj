@@ -458,6 +458,11 @@
     (assoc result :maintenance-worker worker-run)
     result))
 
+(defn- scheduled-worker-run?
+  [project result]
+  (and (seq (:enqueued result))
+       (get-in project [:maintenance :worker])))
+
 (defn- repo-index-change-count
   [repo]
   (when-let [stats (:stats repo)]
@@ -686,6 +691,14 @@
                (dissoc operations lock-key)
                operations)))))
 
+(defn- with-active-operation
+  [ctx operation-key operation f]
+  (let [active-operation (start-active-operation! ctx operation-key operation)]
+    (try
+      (f)
+      (finally
+        (clear-active-operation! ctx operation-key active-operation)))))
+
 (defn- locked-operation
   ([ctx on-busy f]
    (locked-operation ctx nil on-busy f))
@@ -783,7 +796,17 @@
                       :sync (run-sync! xtdb (assoc opts :run-worker? false))))))]
     (if (= scheduler-busy result)
       result
-      (attach-index-maintenance-worker project opts result))))
+      (if (scheduled-worker-run? project result)
+        (with-active-operation
+          ctx
+          (str "maintenance-worker:" (:id project) ":" (:id schedule))
+          {:schema "ygg.server.active-operation/v1"
+           :op "maintenance-worker"
+           :projectId (:id project)
+           :scheduleId (:id schedule)
+           :task (some-> (:task schedule) name)}
+          #(attach-index-maintenance-worker project opts result))
+        result))))
 
 (defn- due-schedule?
   [state now-ms project-id schedule]
@@ -1011,20 +1034,24 @@
       (doseq [{:keys [project-id enabled schedules worker work error]} (get-in status
                                                                                [:maintenance
                                                                                 :projects])]
-        (println "-"
-                 project-id
-                 (if enabled "enabled" "disabled")
-                 (str "schedules=" (count schedules))
-                 (str "worker="
-                      (cond
-                        error "error"
-                        (not (:configured worker)) "not-configured"
-                        (:enabled worker) "enabled"
-                        :else "disabled"))
-                 (str "executors="
-                      (:availableExecutorCount worker)
-                      "/"
-                      (:executorCount worker)))
+        (apply println
+               (cond-> ["-"
+                        project-id
+                        (if enabled "enabled" "disabled")
+                        (str "schedules=" (count schedules))
+                        (str "worker="
+                             (cond
+                               error "error"
+                               (not (:configured worker)) "not-configured"
+                               (:enabled worker) "enabled"
+                               :else "disabled"))
+                        (str "executors="
+                             (:availableExecutorCount worker)
+                             "/"
+                             (:executorCount worker))]
+                 (:configured worker)
+                 (conj (str "max-items=" (:maxItemsPerRun worker))
+                       (str "max-failures=" (:maxFailuresPerRun worker)))))
         (when work
           (println "  work"
                    (str "decisions=" (:max-decisions work))

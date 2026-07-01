@@ -842,6 +842,14 @@
                         (not (get-in status [:worker :configured])) "not-configured"
                         (get-in status [:worker :enabled]) "enabled"
                         :else "disabled"))
+  (when (get-in status [:worker :configured])
+    (println "- worker-controls"
+             (str "lease=" (get-in status [:worker :leaseMinutes]) "m")
+             (str "max-items=" (get-in status [:worker :maxItemsPerRun]))
+             (str "max-failures=" (get-in status [:worker :maxFailuresPerRun]))
+             (str "apply=" (or (some-> (get-in status [:worker :apply :mode])
+                                       name)
+                               "unspecified"))))
   (println "- executors"
            (str (get-in status [:worker :availableExecutorCount])
                 "/"
