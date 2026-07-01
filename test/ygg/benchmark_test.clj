@@ -19,6 +19,7 @@
             [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
+            [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
@@ -266,7 +267,20 @@
                                          [case-id
                                           (set (filter benchmark-classes/recall-class-tag?
                                                        tags))]))
-                                  tags-by-case)]
+                                  tags-by-case)
+        complex-recall-tags #{"recall-hybrid"
+                              "recall-graph"
+                              "recall-lexical"
+                              "recall-semantic"}
+        complex-recall-cases (fn [problem-tag]
+                               (->> tags-by-case
+                                    (keep (fn [[case-id tags]]
+                                            (when (and (contains? tags problem-tag)
+                                                       (set/subset? complex-recall-tags
+                                                                    tags))
+                                              case-id)))
+                                    sort
+                                    vec))]
     (is (= "task-category-broad" (:id suite)))
     (is (= 21 (count (:cases suite))))
     (is (every? #(contains? % "ygg-should-win")
@@ -283,6 +297,10 @@
     (is (<= 8 (count (cases-with-tag "recall-semantic"))))
     (is (<= 12 (count (cases-with-tag "recall-graph"))))
     (is (<= 8 (count (cases-with-tag "recall-lexical"))))
+    (is (<= 8 (count (complex-recall-cases "ygg-should-win"))))
+    (is (<= 2 (count (complex-recall-cases "problem-planning"))))
+    (is (<= 2 (count (complex-recall-cases "problem-implementation"))))
+    (is (<= 2 (count (complex-recall-cases "problem-review"))))
     (is (every? (fn [case]
                   (or (not (seq (:repos case)))
                       (every? #(seq (:index-files %)) (:repos case))))
