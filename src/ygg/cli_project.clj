@@ -40,22 +40,41 @@
 (defn- files-reused
   [stats]
   (or (:files-reused stats) (:files-skipped stats)))
+
+(defn- git-state-fragments
+  [{:keys [git-branch git-upstream git-upstream-status git-upstream-current?
+           git-ahead git-behind]
+    :as git-state}]
+  (when (seq git-state)
+    (remove nil?
+            [(when git-branch (str "branch=" git-branch))
+             (str "upstream=" (or git-upstream "none"))
+             (str "upstream-status=" (name (or git-upstream-status :unknown)))
+             (when (contains? git-state :git-upstream-current?)
+               (str "upstream-current=" (boolean git-upstream-current?)))
+             (when (contains? git-state :git-ahead)
+               (str "ahead=" git-ahead))
+             (when (contains? git-state :git-behind)
+               (str "behind=" git-behind))])))
+
 (defn print-project-index-summary
   [{:keys [project-id status repos]}]
   (println "# Project Index")
   (println "- project" project-id)
   (println "- status" (name status))
-  (doseq [{:keys [repo-id status stats index-profile]} repos]
-    (println "-"
-             repo-id
-             (name status)
-             (str "profile=" (name (or index-profile index/default-index-profile)))
-             (:files-scanned stats)
-             "scanned,"
-             (:files-indexed stats)
-             "indexed,"
-             (files-reused stats)
-             (str "reused unchanged" (or (timing-total-text stats) "")))))
+  (doseq [{:keys [repo-id status stats index-profile git-state]} repos]
+    (apply println
+           "-"
+           repo-id
+           (name status)
+           (str "profile=" (name (or index-profile index/default-index-profile)))
+           (:files-scanned stats)
+           "scanned,"
+           (:files-indexed stats)
+           "indexed,"
+           (files-reused stats)
+           (str "reused unchanged" (or (timing-total-text stats) ""))
+           (git-state-fragments git-state))))
 (defn print-project-add-repo-summary
   [{:keys [project repo index-summary system-summary next]}]
   (println "# Project Repo Added")
@@ -249,17 +268,19 @@
     (println "- repo" repo-id))
   (when index-summary
     (println "- indexed-repos" (count (:repos index-summary)))
-    (doseq [{:keys [repo-id status stats index-profile]} (:repos index-summary)]
-      (println "-"
-               repo-id
-               (name status)
-               (str "profile=" (name (or index-profile index/default-index-profile)))
-               (:files-scanned stats)
-               "scanned,"
-               (:files-indexed stats)
-               "indexed,"
-               (files-reused stats)
-               (str "reused unchanged" (or (timing-total-text stats) "")))))
+    (doseq [{:keys [repo-id status stats index-profile git-state]} (:repos index-summary)]
+      (apply println
+             "-"
+             repo-id
+             (name status)
+             (str "profile=" (name (or index-profile index/default-index-profile)))
+             (:files-scanned stats)
+             "scanned,"
+             (:files-indexed stats)
+             "indexed,"
+             (files-reused stats)
+             (str "reused unchanged" (or (timing-total-text stats) ""))
+             (git-state-fragments git-state))))
   (when system-summary
     (println "- system-evidence" (:system-evidence system-summary))
     (println "- system-nodes" (:system-nodes system-summary))

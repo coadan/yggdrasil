@@ -34,7 +34,8 @@
                             (cond-> {:id (:repo-id repo)
                                      :status (:status repo)
                                      :counts (:counts repo)}
-                              (:samples repo) (assoc :samples (:samples repo))))
+                              (:samples repo) (assoc :samples (:samples repo))
+                              (:git-state repo) (assoc :gitState (:git-state repo))))
                           (:repos freshness))
      :coverage (evidence/status-coverage evidence-summary)
      :nextActions (:nextActions evidence-summary)
@@ -64,6 +65,37 @@
                 (name status)
                 (when (seq counts)
                   (str " " (family-count-text counts))))))
+
+(defn- git-state-fragments
+  [{:keys [git-branch git-upstream git-upstream-status git-upstream-current?
+           git-ahead git-behind]
+    :as git-state}]
+  (when (seq git-state)
+    (remove nil?
+            [(when git-branch (str "branch=" git-branch))
+             (str "upstream=" (or git-upstream "none"))
+             (str "upstream-status=" (name (or git-upstream-status :unknown)))
+             (when (contains? git-state :git-upstream-current?)
+               (str "upstream-current=" (boolean git-upstream-current?)))
+             (when (contains? git-state :git-ahead)
+               (str "ahead=" git-ahead))
+             (when (contains? git-state :git-behind)
+               (str "behind=" git-behind))])))
+
+(defn- freshness-count-fragments
+  [counts]
+  [(str "indexed=" (:indexed counts 0))
+   (str "current=" (:current counts 0))
+   (str "changed=" (:changed counts 0))
+   (str "missing=" (:missing counts 0))
+   (str "unindexed=" (:unindexed counts 0))])
+
+(defn- print-repo-freshness
+  [{:keys [repo-id status counts git-state]}]
+  (apply println
+         (concat ["-" repo-id (name status)]
+                 (freshness-count-fragments counts)
+                 (git-state-fragments git-state))))
 
 (defn- print-evidence-summary
   [{:keys [available counts freshness next families]}]
@@ -106,7 +138,12 @@
     (println "- current" (get-in freshness [:counts :current] 0))
     (println "- changed" (get-in freshness [:counts :changed] 0))
     (println "- missing" (get-in freshness [:counts :missing] 0))
-    (println "- unindexed" (get-in freshness [:counts :unindexed] 0)))
+    (println "- unindexed" (get-in freshness [:counts :unindexed] 0))
+    (when (seq (:repos freshness))
+      (println)
+      (println "## Repo Freshness")
+      (doseq [repo (:repos freshness)]
+        (print-repo-freshness repo))))
   (when (seq next)
     (println)
     (println "## Next")

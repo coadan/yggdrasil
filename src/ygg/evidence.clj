@@ -764,6 +764,30 @@
   {:repo-id repo-id
    :path path})
 
+(def ^:private git-state-fields
+  [:git-branch
+   :git-upstream
+   :git-upstream-sha
+   :git-upstream-current?
+   :git-upstream-status
+   :git-ahead
+   :git-behind])
+
+(defn- snapshot-git-state
+  [snapshot]
+  (not-empty (select-keys snapshot git-state-fields)))
+
+(defn- latest-source-snapshots-by-repo
+  [xtdb project-id read-context]
+  (->> (active-rows xtdb
+                    (:source-snapshots store/tables)
+                    {:project-id project-id
+                     :read-context read-context})
+       (group-by :repo-id)
+       (map (fn [[repo-id snapshots]]
+              [repo-id (last (sort-by :basis-instant snapshots))]))
+       (into {})))
+
 (defn- current-files
   [{:keys [id root]}]
   (try
@@ -785,8 +809,9 @@
                (mapv #(select-keys % [:path])))})
 
 (defn- repo-freshness
-  ([indexed-files repo] (repo-freshness indexed-files repo nil))
-  ([indexed-files {:keys [id root] :as repo} coverage-files]
+  ([indexed-files repo] (repo-freshness indexed-files repo nil nil))
+  ([indexed-files repo coverage-files] (repo-freshness indexed-files repo coverage-files nil))
+  ([indexed-files {:keys [id root] :as repo} coverage-files source-snapshot]
    (let [indexed (filter #(= id (:repo-id %)) indexed-files)
          scan (if (and (empty? indexed) (some? coverage-files))
                 (coverage-current-files id root coverage-files)
@@ -819,6 +844,8 @@
                        :missing (count missing)
                        :unindexed (count unindexed)}}
        (:error scan) (assoc :error (:error scan))
+       (snapshot-git-state source-snapshot) (assoc :git-state
+                                                   (snapshot-git-state source-snapshot))
        (seq changed) (assoc-in [:samples :changed]
                                (mapv #(path-sample id %) (take freshness-sample-limit changed)))
        (seq missing) (assoc-in [:samples :missing]
@@ -841,13 +868,16 @@
 
 (defn- freshness-summary
   ([indexed-files project repo-id]
-   (freshness-summary indexed-files project repo-id nil))
+   (freshness-summary indexed-files project repo-id nil {}))
   ([indexed-files project repo-id coverage-files-by-repo]
+   (freshness-summary indexed-files project repo-id coverage-files-by-repo {}))
+  ([indexed-files project repo-id coverage-files-by-repo source-snapshots-by-repo]
    (let [repos (cond->> (:repos project)
                  repo-id (filter #(= repo-id (:id %))))
          repo-statuses (mapv #(repo-freshness indexed-files
                                               %
-                                              (get coverage-files-by-repo (:id %)))
+                                              (get coverage-files-by-repo (:id %))
+                                              (get source-snapshots-by-repo (:id %)))
                              repos)
          counts (reduce add-counts
                         {:indexed 0
@@ -905,6 +935,9 @@
                                                    :limit 0
                                                    :summary? summary?})
         files (active-rows xtdb (:files store/tables) read-scope)
+        source-snapshots-by-repo (latest-source-snapshots-by-repo xtdb
+                                                                  (:id project)
+                                                                  read-context)
         file-fact-count (active-row-total xtdb (:file-facts store/tables) read-scope)
         file-fact-kind-counts (active-field-counts xtdb
                                                    (:file-facts store/tables)
@@ -935,7 +968,11 @@
         system-edge-count (active-row-total xtdb (:system-edges store/tables) project-scope)
         activity-summary-counts (activity-counts xtdb (:id project) read-context)
         memory-summary-counts (memory-summary-counts xtdb read-scope opts)
-        freshness (freshness-summary files project repo-id coverage-files-by-repo)
+        freshness (freshness-summary files
+                                     project
+                                     repo-id
+                                     coverage-files-by-repo
+                                     source-snapshots-by-repo)
         counts (merge {:files (count files)
                        :file-facts file-fact-count
                        :nodes node-count

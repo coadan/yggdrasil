@@ -602,7 +602,19 @@
                                                            :changed 1
                                                            :missing 0
                                                            :unindexed 1}
-                                                  :repos []}
+                                                  :repos [{:repo-id "app"
+                                                           :status :stale
+                                                           :counts {:indexed 2
+                                                                    :current 3
+                                                                    :changed 1
+                                                                    :missing 0
+                                                                    :unindexed 1}
+                                                           :git-state {:git-branch "main"
+                                                                       :git-upstream "origin/main"
+                                                                       :git-upstream-status :behind
+                                                                       :git-upstream-current? false
+                                                                       :git-ahead 0
+                                                                       :git-behind 4}}]}
                                       :counts {:files 2
                                                :nodes 3
                                                :edges 4
@@ -675,7 +687,19 @@
                        :changed 1
                        :missing 0
                        :unindexed 1}
-              :repos []}
+              :repos [{:repo-id "app"
+                       :status "stale"
+                       :counts {:indexed 2
+                                :current 3
+                                :changed 1
+                                :missing 0
+                                :unindexed 1}
+                       :git-state {:git-branch "main"
+                                   :git-upstream "origin/main"
+                                   :git-upstream-status "behind"
+                                   :git-upstream-current? false
+                                   :git-ahead 0
+                                   :git-behind 4}}]}
              (:freshness parsed)))
       (is (= [{:kind "query"
                :command "ygg query \"where is this handled?\" --project fixture --json"}]
@@ -711,6 +735,9 @@
       (is (str/includes? plain-out "- missing-query-index true"))
       (is (str/includes? plain-out "- changed 1"))
       (is (str/includes? plain-out "- unindexed 1"))
+      (is (str/includes? plain-out "## Repo Freshness"))
+      (is (str/includes? plain-out
+                         "- app stale indexed=2 current=3 changed=1 missing=0 unindexed=1 branch=main upstream=origin/main upstream-status=behind upstream-current=false ahead=0 behind=4"))
       (let [status-out (with-out-str
                          (cli/dispatch "status" ["project.edn" "--json"]))
             status-parsed (read-json-output status-out)]

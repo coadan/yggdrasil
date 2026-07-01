@@ -58,12 +58,26 @@
                           :stats {:files-scanned 3
                                   :files-indexed 1
                                   :files-reused 2
-                                  :files-skipped 2}}]}]
+                                  :files-skipped 2}
+                          :git-state {:git-branch "main"
+                                      :git-upstream "origin/main"
+                                      :git-upstream-current? false
+                                      :git-upstream-status :behind
+                                      :git-ahead 0
+                                      :git-behind 3}}]}]
     (is (str/includes? (with-out-str
                          (cli-project/print-project-index-summary summary))
+                       "app completed profile=query 3 scanned, 1 indexed, 2 reused unchanged"))
+    (is (str/includes? (with-out-str
+                         (cli-project/print-project-index-summary summary))
+                       "branch=main upstream=origin/main upstream-status=behind upstream-current=false ahead=0 behind=3"))
+    (is (str/includes? (with-out-str
+                         (cli-project/print-sync-summary
+                          {:project-id "fixture"
+                           :index-summary summary}))
                        "app completed profile=query 3 scanned, 1 indexed, 2 reused unchanged"))
     (is (str/includes? (with-out-str
                          (cli-project/print-sync-summary
                           {:project-id "fixture"
                            :index-summary summary}))
-                       "app completed profile=query 3 scanned, 1 indexed, 2 reused unchanged"))))
+                       "branch=main upstream=origin/main upstream-status=behind upstream-current=false ahead=0 behind=3"))))

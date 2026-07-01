@@ -336,6 +336,12 @@
                                                                     :changed 1
                                                                     :missing 0
                                                                     :unindexed 0}
+                                                           :git-state {:git-branch "main"
+                                                                       :git-upstream "origin/main"
+                                                                       :git-upstream-status :behind
+                                                                       :git-upstream-current? false
+                                                                       :git-ahead 0
+                                                                       :git-behind 2}
                                                            :samples {:changed [{:repo-id "app"
                                                                                 :path "AGENTS.md"}]}}]}
                                       :families []
@@ -357,6 +363,12 @@
                         :changed 1
                         :missing 0
                         :unindexed 0}
+               :gitState {:git-branch "main"
+                          :git-upstream "origin/main"
+                          :git-upstream-status "behind"
+                          :git-upstream-current? false
+                          :git-ahead 0
+                          :git-behind 2}
                :samples {:changed [{:repo-id "app"
                                     :path "AGENTS.md"}]}}]
              (:repoFreshness parsed))))))

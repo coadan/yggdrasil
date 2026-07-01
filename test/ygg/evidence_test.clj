@@ -812,6 +812,17 @@
                                                 :path "src/deleted.clj"
                                                 :content-sha "sha256:deleted"
                                                 :active? true}]
+                                   :ygg/source-snapshots [{:xt/id "snapshot:fixture:app:head"
+                                                           :project-id "fixture"
+                                                           :repo-id "app"
+                                                           :basis-instant #inst "2026-01-01T00:00:00.000Z"
+                                                           :git-branch "main"
+                                                           :git-upstream "origin/main"
+                                                           :git-upstream-sha "sha-upstream"
+                                                           :git-upstream-current? false
+                                                           :git-upstream-status :behind
+                                                           :git-ahead 0
+                                                           :git-behind 2}]
                                    []))
                 query/all-nodes (fn [& _] [])
                 query/all-edges (fn [& _] [])
@@ -844,6 +855,14 @@
       (is (= [{:repo-id "app"
                :path "src/new.clj"}]
              (get-in summary [:freshness :repos 0 :samples :unindexed])))
+      (is (= {:git-branch "main"
+              :git-upstream "origin/main"
+              :git-upstream-sha "sha-upstream"
+              :git-upstream-current? false
+              :git-upstream-status :behind
+              :git-ahead 0
+              :git-behind 2}
+             (get-in summary [:freshness :repos 0 :git-state])))
       (is (some #(= {:kind :freshness
                      :label "Refresh indexed graph basis"
                      :count 3
