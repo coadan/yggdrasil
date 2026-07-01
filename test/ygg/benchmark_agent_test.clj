@@ -5512,6 +5512,57 @@
             "src/query_dispatch.py"]
            (mapv :path result)))))
 
+(deftest compact-output-core-prune-preserves-doc-and-architecture-evidence
+  (let [prune @#'benchmark-prediction/compact-output-prune-score-tail
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        selected [(row "src/direct.cs" 1
+                       {:candidateFileCount 2
+                        :docCount 0
+                        :directFileCandidateCount 1
+                        :fileIdentitySupportLabelCount 4
+                        :architectureSupportBoost 5.0
+                        :matchedTokenCount 8
+                        :rankScore 14.6})
+                  (row "src/retrieved.cs" 2
+                       {:candidateFileCount 1
+                        :docCount 2
+                        :matchedTokenCount 2
+                        :retrievedSourceCount 2
+                        :repeatedRetrievedSourceBoost 2.4
+                        :rankScore 20.9})
+                  (row "src/source_graph.cs" 3
+                       {:candidateFileCount 1
+                        :docCount 1
+                        :retrievedSourceCount 1
+                        :matchedTokenCount 8
+                        :matchedTokenPairCount 2
+                        :matchedCompoundTokenPairCount 1
+                        :matchedIdentityCompoundTokenPairCount 1
+                        :sourceGraphCandidateEvidenceScore 0.59
+                        :rankScore 11.3})
+                  (row "deploy/docker-compose.yml" 4
+                       {:candidateFileCount 2
+                        :docCount 0
+                        :architectureSupportBoost 1.6
+                        :matchedTokenCount 3
+                        :matchedTokenPairCount 1
+                        :rareQueryTokenScore 1.1
+                        :rankScore 7.8})
+                  (row "src/fill.cs" 5
+                       {:candidateFileCount 1
+                        :docCount 0
+                        :matchedTokenCount 4
+                        :rankScore 8.3})]
+        result (prune selected 5 nil [] {})]
+    (is (= ["src/direct.cs"
+            "src/source_graph.cs"
+            "src/retrieved.cs"
+            "deploy/docker-compose.yml"]
+           (mapv :path result)))))
+
 (deftest compact-output-caps-all-candidate-only-surface
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank score]

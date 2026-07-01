@@ -416,7 +416,7 @@
 (def ^:private compact-output-query-evidence-doc-sort-rank
   2.5)
 (def ^:private compact-output-retrieved-path-self-identity-sort-rank
-  0.34)
+  0.326)
 (def ^:private compact-output-retrieved-path-self-identity-sort-step
   0.005)
 (def ^:private compact-output-retrieved-path-self-identity-limit
@@ -438,13 +438,17 @@
 (def ^:private compact-output-direct-identity-sort-rank
   0.2)
 (def ^:private compact-output-doc-supported-source-graph-query-sort-rank
-  0.36)
+  0.33)
 (def ^:private compact-output-strong-doc-source-graph-query-sort-rank
-  0.335)
+  0.325)
+(def ^:private compact-output-architecture-supported-sort-rank
+  1.49)
 (def ^:private compact-output-retrieved-label-source-sort-rank
   3.5)
 (def ^:private compact-output-identity-compound-source-sort-rank
   2.25)
+(def ^:private compact-output-direct-source-graph-query-evidence-sort-rank
+  0.328)
 (def ^:private compact-output-source-graph-query-evidence-sort-rank
   0.38)
 (def ^:private compact-result-command-limit
@@ -3504,11 +3508,13 @@
   (and (candidate-file-only-row? row)
        (<= candidate-file-only-query-evidence-token-min
            (positive-metric row :matchedTokenCount))
-       (<= candidate-file-only-query-evidence-score-min
-           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (or (<= candidate-file-only-query-evidence-score-min
+               (row-metric-double row :sourceGraphCandidateEvidenceScore))
+           (pos? (row-metric-double row :sourceGraphQueryEvidenceBoost)))
        (or (pos? (row-metric-double row :candidateGrepScore))
            (pos? (row-metric-double row :candidateLexicalComponentBoost))
-           (pos? (positive-metric row :matchedIdentityCompoundTokenPairCount)))))
+           (pos? (positive-metric row :matchedIdentityCompoundTokenPairCount))
+           (pos? (row-metric-double row :sourceGraphQueryEvidenceBoost)))))
 
 (defn- query-evidence-source-candidate-key
   [row]
@@ -3517,6 +3523,7 @@
    (- (positive-metric row :matchedTokenCount))
    (- (row-metric-double row :candidateGrepScore))
    (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
+   (- (row-metric-double row :sourceGraphQueryEvidenceBoost))
    (- (row-metric-double row :candidateLexicalComponentBoost))
    (:rank row)
    (row-candidate-source-rank row)
@@ -4189,18 +4196,28 @@
    (:rank row)
    (:path row)])
 
+(defn- compact-output-architecture-supported-row?
+  [row]
+  (and (zero? (positive-metric row :docCount))
+       (pos? (row-metric-double row :architectureSupportBoost))
+       (<= compact-output-architecture-rare-token-min
+           (row-metric-double row :rareQueryTokenScore))
+       (or (<= compact-output-architecture-token-min
+               (positive-metric row :matchedTokenCount))
+           (pos? (positive-metric row :matchedTokenPairCount))
+           (pos? (positive-metric row :matchedCompoundTokenPairCount))
+           (pos? (positive-metric row :matchedIdentityCompoundTokenPairCount)))))
+
 (defn- compact-output-architecture-supported-row
   [files selected-keys]
   (->> files
        (filter #(and (not (contains? selected-keys (file-row-key %)))
-                     (zero? (positive-metric % :docCount))
-                     (pos? (row-metric-double % :architectureSupportBoost))
-                     (<= compact-output-architecture-rare-token-min
-                         (row-metric-double % :rareQueryTokenScore))
-                     (<= compact-output-architecture-token-min
-                         (positive-metric % :matchedTokenCount))))
+                     (compact-output-architecture-supported-row? %)))
        (sort-by compact-output-architecture-supported-key)
-       first))
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  compact-output-architecture-supported-sort-rank)))))
 
 (defn- compact-output-doc-supported-row
   [files selected-keys]
@@ -4608,8 +4625,11 @@
              (assoc % ::compact-output-sort-rank
                     (if (and (compact-output-directory-promotable-query-source-row?
                               %)
-                             (<= (row-candidate-source-rank %)
-                                 compact-output-early-source-graph-rank-window))
+                             (or (<= (row-candidate-source-rank %)
+                                     compact-output-early-source-graph-rank-window)
+                                 (pos? (row-metric-double
+                                        %
+                                        :sourceGraphQueryEvidenceBoost))))
                       (min compact-output-early-query-evidence-source-sort-rank
                            directory-sort-rank)
                       (if (compact-output-directory-promotable-query-source-row?
@@ -4950,11 +4970,13 @@
   (and (pos? (row-metric-double row :sourceGraphQueryEvidenceBoost))
        (<= candidate-file-only-query-evidence-token-min
            (positive-metric row :matchedTokenCount))
-       (<= candidate-file-only-query-evidence-score-min
-           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (or (<= candidate-file-only-query-evidence-score-min
+               (row-metric-double row :sourceGraphCandidateEvidenceScore))
+           (pos? (row-metric-double row :sourceGraphQueryEvidenceBoost)))
        (or (pos? (positive-metric row :matchedTokenPairCount))
            (pos? (positive-metric row :matchedCompoundTokenPairCount))
            (pos? (positive-metric row :matchedIdentityCompoundTokenPairCount))
+           (pos? (row-metric-double row :sourceGraphQueryEvidenceBoost))
            (<= rank-score-source-graph-query-evidence-path-token-min
                (positive-metric row :matchedPathQueryTokenCount)))))
 
@@ -4984,6 +5006,7 @@
   (and (compact-output-source-graph-query-evidence-row? row)
        (or (pos? (positive-metric row :docCount))
            (< 1 (positive-metric row :candidateFileCount))
+           (pos? (positive-metric row :directFileCandidateCount))
            (pos? (positive-metric row :retrievedSourceCount))
            (query-evidence-source-candidate-row? row)
            (compact-output-early-source-graph-row? row)
@@ -5086,11 +5109,18 @@
                               (when (compact-output-strong-doc-source-graph-query-row?
                                      row)
                                 compact-output-strong-doc-source-graph-query-sort-rank)
+                              (when (compact-output-architecture-supported-row?
+                                     row)
+                                compact-output-architecture-supported-sort-rank)
                               (when (compact-output-repeated-retrieved-row? row)
                                 (compact-output-retrieved-supported-sort-rank row))
                               (when (compact-output-supported-source-graph-query-evidence-row?
                                      row)
-                                compact-output-source-graph-query-evidence-sort-rank)
+                                (if (pos? (positive-metric
+                                           row
+                                           :directFileCandidateCount))
+                                  compact-output-direct-source-graph-query-evidence-sort-rank
+                                  compact-output-source-graph-query-evidence-sort-rank))
                               (when (compact-output-identity-compound-source-row? row)
                                 compact-output-identity-compound-source-sort-rank)]
                              (keep identity)
@@ -5128,6 +5158,11 @@
                    (filter compact-output-repeated-retrieved-row? selected))
         core (ordered-row-union
               base-core
+              (filter compact-output-strong-doc-source-graph-query-row? selected)
+              (filter compact-output-architecture-supported-row? selected)
+              (filter compact-output-doc-supported-source-graph-query-row? selected)
+              (filter compact-output-supported-source-graph-query-evidence-row?
+                      selected)
               (filter query-evidence-source-candidate-row? selected)
               (filter compact-output-retrieved-label-source-row? selected))]
     (when (and (< 1 (count base-core))
