@@ -1238,6 +1238,65 @@
     (is (< (index-of selected-paths "src/flask/sansio/app.py")
            (index-of selected-paths "tests/test_json_tag.py")))))
 
+(deftest compact-output-frontloads-moderate-support-owner-source-graph-evidence
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "src/flask/config.py" 1 {:docCount 1
+                                             :rankScore 15.7})
+               (row "src/flask/cli.py" 2 {:candidateFileCount 2
+                                          :docCount 0
+                                          :matchedTokenCount 2
+                                          :rankScore 10.95
+                                          :retrievedSupportLabelCount 2
+                                          :sourceGraphCandidateEvidenceScore 0.49})
+               (row "src/flask/sansio/scaffold.py"
+                    3
+                    {:candidateFileCount 2
+                     :docCount 0
+                     :matchedTokenCount 3
+                     :rankScore 8.76
+                     :retrievedSupportLabelCount 5
+                     :sourceGraphCandidateEvidenceScore 0.45})
+               (row "src/flask/debughelpers.py" 4 {:docCount 1
+                                                   :rankScore 7.65})
+               (row "src/flask/signals.py" 5 {:docCount 1
+                                              :rankScore 7.63})
+               (row "src/flask/templating.py" 6 {:docCount 1
+                                                 :rankScore 7.27})
+               (row "src/flask/blueprints.py" 7 {:docCount 1
+                                                 :rankScore 7.04})
+               (row "examples/tutorial/flaskr/auth.py" 8 {:docCount 1
+                                                          :rankScore 6.66})
+               (row "tests/test_request.py" 9 {:docCount 1
+                                               :rankScore 6.29})
+               (row "src/flask/json/__init__.py" 10 {:candidateFileCount 1
+                                                     :docCount 0
+                                                     :matchedTokenCount 2
+                                                     :rankScore 4.41
+                                                     :retrievedSupportLabelCount 5
+                                                     :sourceGraphCandidateEvidenceScore 0.49})
+               (row "src/flask/sansio/app.py"
+                    20
+                    {:candidateFileCount 1
+                     :candidateSourceRank 7
+                     :directFileCandidateCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 3
+                     :rankScore 4.87
+                     :retrievedSupportLabelCount 6
+                     :sourceGraphCandidateEvidenceScore 0.4586
+                     :supportOwnerEvidenceCount 1
+                     :supportOwnerPrimaryLabelMatchedTokenCount 2
+                     :supportOwnerPrimaryLabelSpecificTokenCount 1})]
+        selected-paths (mapv :path (compact-output files 20 nil))]
+    (is (= "src/flask/sansio/app.py" (nth selected-paths 4)))
+    (is (< (index-of selected-paths "src/flask/sansio/app.py")
+           (index-of selected-paths "src/flask/json/__init__.py")))))
+
 (deftest compact-output-frontloads-doc-source-graph-grep-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]

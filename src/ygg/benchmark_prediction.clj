@@ -392,7 +392,7 @@
 (def ^:private compact-output-support-owner-source-graph-limit
   2)
 (def ^:private compact-output-support-owner-source-graph-source-score-min
-  0.5)
+  0.45)
 (def ^:private compact-output-candidate-source-graph-head-sort-rank
   0.56)
 (def ^:private compact-output-after-preserved-head-sort-rank
