@@ -158,6 +158,39 @@
     (is (str/includes? usage "--require-parser-worker none|java|dotnet|javascript|typescript|all"))
     (is (not (str/includes? usage "overlay")))))
 
+(deftest maintenance-status-resolves-project-from-current-directory
+  (let [resolve-opts (atom nil)
+        status-project (atom nil)]
+    (with-redefs [registry/resolve-project
+                  (fn [opts]
+                    (reset! resolve-opts opts)
+                    {:project-id "fixture"
+                     :project project-fixture
+                     :source :project-ref
+                     :project-ref "/repo/.ygg/project.edn"
+                     :registry "/config/projects.edn"})
+                  index-maintenance-worker/config-status
+                  (fn [project]
+                    (reset! status-project project)
+                    {:project-id (:id project)
+                     :configured true
+                     :enabled true
+                     :schedules []
+                     :worker {:configured true
+                              :enabled true
+                              :availableExecutorCount 1
+                              :executorCount 1
+                              :executors []}})]
+      (let [out (with-out-str
+                  (cli/dispatch "maintenance" ["status"]))]
+        (is (= project-fixture @status-project))
+        (is (nil? (:project-id @resolve-opts)))
+        (is (nil? (:config-path @resolve-opts)))
+        (is (string? (:cwd @resolve-opts)))
+        (is (str/includes? out "- project fixture"))
+        (is (str/includes? out "- project-ref /repo/.ygg/project.edn"))
+        (is (str/includes? out "- maintenance enabled"))))))
+
 (deftest projects-register-command-registers-existing-config
   (let [root (temp-dir "ygg-cli-projects-register")
         config-path (.getPath (io/file root "project.edn"))

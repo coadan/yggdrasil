@@ -227,6 +227,27 @@
            :root (canonical-dir root)
            :path path})))))
 
+(defn- project-ref-root
+  [^java.io.File file]
+  (let [parent (.getParentFile file)
+        root (if (and parent (= ".ygg" (.getName parent)))
+               (.getParentFile parent)
+               parent)]
+    (when root
+      (canonical-dir root))))
+
+(defn- read-project-ref-file
+  [path]
+  (let [file (.getCanonicalFile (io/file path))]
+    (when (.isFile file)
+      (let [data (edn/read-string (slurp file))
+            project-id (or (:project-id data) (:projectId data))]
+        (when (and (= project-ref-schema (:schema data))
+                   (not (str/blank? (str project-id))))
+          {:project-id (str project-id)
+           :root (project-ref-root file)
+           :path (.getPath file)})))))
+
 (defn project-ref-for-cwd
   "Return the nearest repo-local project reference for cwd, if present."
   [cwd]
@@ -334,11 +355,19 @@
        :registry (registry-path)}
 
       config-path
-      (let [project (project/read-project config-path)]
-        {:project-id (:id project)
-         :project project
-         :config-path config-path
-         :source :config-path})
+      (if-let [{:keys [project-id root path]} (read-project-ref-file config-path)]
+        {:project-id project-id
+         :root root
+         :project (read-project registry project-id)
+         :config-path path
+         :source :project-ref
+         :project-ref path
+         :registry (registry-path)}
+        (let [project (project/read-project config-path)]
+          {:project-id (:id project)
+           :project project
+           :config-path config-path
+           :source :config-path}))
 
       :else
       (or (referenced-project registry cwd)

@@ -762,10 +762,13 @@
                        :usage "projects list|show <project-id>|register <project.edn>|remove <project-id>"})))))
 
 (defn- maintenance-status-result
-  [project config-path]
-  {:schema "ygg.maintenance.config/v1"
-   :config-path config-path
-   :status (index-maintenance-worker/config-status project)})
+  ([project config-path]
+   (maintenance-status-result project config-path nil))
+  ([project config-path project-ref]
+   {:schema "ygg.maintenance.config/v1"
+    :config-path config-path
+    :project-ref project-ref
+    :status (index-maintenance-worker/config-status project)}))
 
 (defn- executor-label
   [{:keys [id type provider model kinds reasoning available missing-env]}]
@@ -805,10 +808,13 @@
     "not-configured"))
 
 (defn- print-maintenance-status
-  [{:keys [config-path status]}]
+  [{:keys [config-path project-ref status]}]
   (println "# Auto Maintenance")
   (println "- project" (:project-id status))
-  (println "- config" config-path)
+  (when config-path
+    (println "- config" config-path))
+  (when project-ref
+    (println "- project-ref" project-ref))
   (println "- maintenance" (cond
                              (not (:configured status)) "not-configured"
                              (:enabled status) "enabled"
@@ -921,6 +927,12 @@
               {:client (llm-client provider model args)
                :decision decision}))))))))
 
+(defn- maintenance-status-project
+  [args]
+  (registry/resolve-project {:project-id (option-value args "--project")
+                             :config-path (first (positional-args args))
+                             :cwd (System/getProperty "user.dir")}))
+
 (defn- maintenance!
   [args]
   (let [action (keyword (or (first args) "status"))
@@ -948,11 +960,20 @@
       (= :classify action)
       (maintenance-classify! maintenance-args)
 
+      (= :status action)
+      (let [{:keys [project config-path project-ref]} (maintenance-status-project
+                                                       maintenance-args)]
+        (print-maintenance-result maintenance-args
+                                  (maintenance-status-result project
+                                                             config-path
+                                                             project-ref)))
+
       :else
       (let [config-path (first (positional-args maintenance-args))]
         (when-not config-path
           (throw (ex-info "Missing project config path."
-                          {:usage (str "maintenance status|enable|disable|schedule <project.edn>"
+                          {:usage (str "maintenance enable|disable|schedule <project.edn>"
+                                       " | maintenance status [<project.edn>]"
                                        " | maintenance candidates|classify ...")})))
         (let [project (case action
                         :status (project/read-project config-path)
@@ -968,8 +989,8 @@
                                      opts))
                         (throw (ex-info "Unknown maintenance command."
                                         {:command action
-                                         :usage (str "maintenance status|enable|disable|schedule|worker"
-                                                     " <project.edn>"
+                                         :usage (str "maintenance status [<project.edn>]"
+                                                     " | maintenance enable|disable|schedule|worker <project.edn>"
                                                      " | maintenance candidates|classify ...")})))
               result (maintenance-status-result project config-path)]
           (print-maintenance-result maintenance-args result))))))
@@ -1010,7 +1031,7 @@
     "  sync work release-expired [--queue-dir DIR]"
     "  sync work heartbeat <work-id> [--queue-dir DIR] [--agent ID] [--lease-minutes N]"
     "  sync work auto <project.edn> [--json]"
-    "  maintenance status <project.edn> [--json]"
+    "  maintenance status [<project.edn>] [--project ID] [--json]"
     "  maintenance enable|disable <project.edn> [--json]"
     "  maintenance worker enable|disable <project.edn> [--json]"
     "  maintenance schedule <project.edn> [--id ID] [--every-minutes N] [--check|--no-check] [--enqueue|--no-enqueue] [--query-index|--no-query-index] [--run-on-start|--no-run-on-start] [--disable] [--json]"
