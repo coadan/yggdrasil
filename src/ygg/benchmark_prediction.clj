@@ -361,6 +361,14 @@
   0.5)
 (def ^:private compact-output-doc-source-graph-grep-grep-score-min
   0.5)
+(def ^:private compact-output-doc-supported-source-graph-head-rank-window
+  8)
+(def ^:private compact-output-doc-supported-source-graph-head-token-min
+  2)
+(def ^:private compact-output-doc-supported-source-graph-head-source-score-min
+  0.5)
+(def ^:private compact-output-doc-supported-source-graph-head-grep-score-min
+  0.5)
 (def ^:private compact-output-candidate-source-graph-head-source-score-min
   0.5)
 (def ^:private compact-output-identity-support-min
@@ -387,6 +395,8 @@
   0.48)
 (def ^:private compact-output-doc-source-graph-grep-sort-rank
   0.405)
+(def ^:private compact-output-doc-supported-source-graph-head-sort-rank-base
+  0.403)
 (def ^:private compact-output-support-owner-source-graph-sort-rank
   0.25)
 (def ^:private compact-output-support-owner-source-graph-limit
@@ -4372,6 +4382,47 @@
                   (min (double (or (:rank %) Long/MAX_VALUE))
                        compact-output-doc-source-graph-grep-sort-rank))))))
 
+(defn- compact-output-doc-supported-source-graph-head-row?
+  [row]
+  (and (pos? (positive-metric row :docCount))
+       (pos? (positive-metric row :candidateFileCount))
+       (<= (row-candidate-source-rank row)
+           compact-output-doc-supported-source-graph-head-rank-window)
+       (<= compact-output-doc-supported-source-graph-head-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= compact-output-doc-supported-source-graph-head-source-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (<= compact-output-doc-supported-source-graph-head-grep-score-min
+           (row-metric-double row :candidateGrepScore))))
+
+(defn- compact-output-doc-supported-source-graph-head-key
+  [row]
+  [(row-candidate-source-rank row)
+   (- (row-metric-double row :candidateGrepScore))
+   (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-rank-score row))
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-doc-supported-source-graph-head-sort-rank
+  [row]
+  (+ compact-output-doc-supported-source-graph-head-sort-rank-base
+     (* 0.0001 (row-candidate-source-rank row))))
+
+(defn- compact-output-doc-supported-source-graph-head-row
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (compact-output-doc-supported-source-graph-head-row? %)))
+       (sort-by compact-output-doc-supported-source-graph-head-key)
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  (compact-output-doc-supported-source-graph-head-sort-rank
+                   %))))))
+
 (defn- row-query-matched-path-self-identity?
   [row]
   (true? (get-in row [:metrics :queryMatchedPathSelfIdentity])))
@@ -5026,12 +5077,50 @@
       (compact-output-doc-directory-evidence-row? row)
       (compact-output-retrieved-path-grep-evidence-row? row)
       (compact-output-doc-source-graph-grep-row? row)
+      (compact-output-doc-supported-source-graph-head-row? row)
       (compact-output-support-owner-source-graph-row? row)
       (compact-output-candidate-source-graph-head-row? row)
       (compact-output-strong-doc-source-graph-query-row? row)
       (compact-output-source-graph-query-evidence-row? row)
       (query-evidence-source-candidate-row? row)
       (candidate-file-only-row? row)))
+
+(defn- compact-output-weak-late-source-head-row?
+  [row]
+  (and (pos? (positive-metric row :docCount))
+       (pos? (positive-metric row :candidateFileCount))
+       (zero? (positive-metric row :entityCount))
+       (zero? (positive-metric row :directFileCandidateCount))
+       (<= (positive-metric row :retrievedSourceCount) 1)
+       (zero? (positive-metric row :fileIdentitySupportLabelCount))
+       (zero? (positive-metric row :retrievedSupportLabelCount))
+       (zero? (positive-metric row :matchedTokenPairCount))
+       (zero? (positive-metric row :matchedCompoundTokenPairCount))
+       (zero? (positive-metric row :matchedIdentityCompoundTokenPairCount))
+       (zero? (row-metric-double row :repeatedRetrievedSourceBoost))
+       (zero? (row-metric-double row :docSupportedArchitectureTokenBoost))
+       (zero? (row-metric-double row :directFileArchitectureGraphBoost))
+       (zero? (row-metric-double row :directoryEvidenceBoost))
+       (zero? (row-metric-double row :sourceGraphQueryEvidenceBoost))
+       (zero? (row-metric-double row :docSupportedSourceGraphQueryBoost))
+       (zero? (row-metric-double row :retrievedPathSelfIdentityBoost))
+       (zero? (row-metric-double row :retrievedPathQueryTokenBoost))
+       (zero? (row-metric-double row :retrievedPathGrepEvidenceBoost))
+       (< compact-output-doc-supported-source-graph-head-rank-window
+          (row-candidate-source-rank row))
+       (< (row-metric-double row :sourceGraphCandidateEvidenceScore)
+          compact-output-doc-supported-source-graph-head-source-score-min)))
+
+(defn- compact-output-selectable-files
+  [files limit source-kinds kind-by-path]
+  (if (<= (long limit) compact-output-score-tail-max-limit)
+    (let [files (vec files)
+          filtered (remove compact-output-weak-late-source-head-row? files)]
+      (if (and (<= (min (long limit) (count files)) (count filtered))
+               (covers-source-kinds? source-kinds kind-by-path filtered))
+        (vec filtered)
+        files))
+    files))
 
 (defn- compact-output-score-tail-cut
   [selected source-kinds kind-by-path]
@@ -5098,6 +5187,10 @@
                                 compact-output-retrieved-path-grep-sort-rank)
                               (when (compact-output-doc-source-graph-grep-row? row)
                                 compact-output-doc-source-graph-grep-sort-rank)
+                              (when (compact-output-doc-supported-source-graph-head-row?
+                                     row)
+                                (compact-output-doc-supported-source-graph-head-sort-rank
+                                 row))
                               (when (compact-output-candidate-source-graph-head-row? row)
                                 compact-output-candidate-source-graph-head-sort-rank)
                               (when (compact-output-retrieved-path-self-identity-row?
@@ -5226,7 +5319,11 @@
        (vec (take limit files))
 
        :else
-       (let [head-count (min compact-output-preserved-head-count limit)
+       (let [files (compact-output-selectable-files files
+                                                    limit
+                                                    source-kinds
+                                                    kind-by-path)
+             head-count (min compact-output-preserved-head-count limit)
              head-rows (map-indexed (fn [idx row]
                                       (assoc row
                                              ::compact-output-sort-rank
@@ -5268,6 +5365,11 @@
              selected (add-compact-output-row
                        selected
                        (compact-output-doc-source-graph-grep-row
+                        files
+                        (:keys selected)))
+             selected (add-compact-output-row
+                       selected
+                       (compact-output-doc-supported-source-graph-head-row
                         files
                         (:keys selected)))
              selected (reduce add-compact-output-row

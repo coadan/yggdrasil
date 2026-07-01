@@ -1176,6 +1176,100 @@
         selected-paths (mapv :path (compact-output rows 20 nil))]
     (is (= "main.tf" (nth selected-paths 4)))))
 
+(deftest compact-output-small-surface-prefers-early-doc-supported-source-graph-head
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        files [(row "Directory.Build.props"
+                    1
+                    {:candidateFileCount 2
+                     :candidateGrepScore 0.86
+                     :candidateLexicalComponentBoost 0.04
+                     :candidateSourceRank 21
+                     :docCount 1
+                     :matchedTokenCount 4
+                     :rankScore 8.63
+                     :sourceGraphCandidateEvidenceScore 0.44})
+               (row "Directory.Packages.props"
+                    2
+                    {:candidateFileCount 1
+                     :candidateSourceRank 22
+                     :directFileCandidateCount 1
+                     :directoryEvidenceBoost 8.0
+                     :docCount 0
+                     :matchedPathQueryTokenCount 1
+                     :matchedTokenCount 3
+                     :rankScore 9.84
+                     :sourceGraphCandidateEvidenceScore 0.37})
+               (row "tests/Dapper.Tests/Dapper.Tests.csproj"
+                    3
+                    {:candidateFileCount 2
+                     :candidateGrepScore 0.83
+                     :candidateSourceRank 8
+                     :docCount 1
+                     :matchedTokenCount 2
+                     :rankScore 8.70
+                     :sourceGraphCandidateEvidenceScore 0.61})
+               (row "Dapper.SqlBuilder/Dapper.SqlBuilder.csproj"
+                    4
+                    {:candidateFileCount 1
+                     :candidateGrepScore 0.66
+                     :candidateSourceRank 10
+                     :docCount 1
+                     :matchedTokenCount 3
+                     :rankScore 8.13
+                     :sourceGraphCandidateEvidenceScore 0.58})
+               (row "Dapper.Rainbow/Dapper.Rainbow.csproj"
+                    5
+                    {:candidateFileCount 1
+                     :candidateGrepScore 0.50
+                     :candidateSourceRank 12
+                     :docCount 1
+                     :matchedTokenCount 3
+                     :rankScore 7.52
+                     :sourceGraphCandidateEvidenceScore 0.56})
+               (row "Dapper.EntityFramework/Dapper.EntityFramework.csproj"
+                    7
+                    {:candidateFileCount 1
+                     :candidateGrepScore 0.62
+                     :candidateSourceRank 6
+                     :docCount 1
+                     :matchedTokenCount 3
+                     :rankScore 7.40
+                     :sourceGraphCandidateEvidenceScore 0.70})
+               (row "Dapper.EntityFramework.StrongName/Dapper.EntityFramework.StrongName.csproj"
+                    8
+                    {:candidateFileCount 1
+                     :candidateGrepScore 0.65
+                     :candidateSourceRank 11
+                     :docCount 1
+                     :matchedTokenCount 2
+                     :rankScore 6.93
+                     :sourceGraphCandidateEvidenceScore 0.57})
+               (row "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"
+                    9
+                    {:candidateFileCount 1
+                     :candidateGrepScore 0.91
+                     :candidateSourceRank 5
+                     :docCount 1
+                     :matchedTokenCount 2
+                     :rankScore 6.80
+                     :sourceGraphCandidateEvidenceScore 0.71})]
+        paths (mapv :path (compact-output files 7 nil))]
+    (is (not-any? #{"Directory.Build.props"} paths))
+    (is (= ["Directory.Packages.props"
+            "tests/Dapper.Tests/Dapper.Tests.csproj"
+            "Dapper.SqlBuilder/Dapper.SqlBuilder.csproj"
+            "Dapper.Rainbow/Dapper.Rainbow.csproj"
+            "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"]
+           (subvec paths 0 5)))
+    (is (every? (set paths)
+                ["Directory.Packages.props"
+                 "Dapper.SqlBuilder/Dapper.SqlBuilder.csproj"
+                 "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"]))))
+
 (deftest compact-output-frontloads-support-owner-source-graph-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]
