@@ -76,8 +76,8 @@ expected to need composed Yggdrasil context, and add `recall-graph`,
 `recall-lexical`, or `recall-semantic` for the concrete recall signals the case
 is intended to exercise. The broad should-win lane must retain hybrid and
 semantic recall coverage; single-mode recall tags are ablation labels, not the
-default product path. Keep at least two planning, implementation, and review
-cases tagged with all of `recall-hybrid`, `recall-graph`, `recall-lexical`, and
+default product path. Every case included in `task-category-broad.edn` should be
+tagged with all of `recall-hybrid`, `recall-graph`, `recall-lexical`, and
 `recall-semantic` so the should-win lane stays about composed recall.
 
 ```sh

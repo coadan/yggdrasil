@@ -20,6 +20,7 @@
                  :ygg-should-win
                  :recall-hybrid
                  :recall-graph
+                 :recall-lexical
                  :recall-semantic
                  :problem-architecture
                  :architecture-cross-system-impact
@@ -48,6 +49,7 @@
                  :recall-hybrid
                  :recall-graph
                  :recall-lexical
+                 :recall-semantic
                  :problem-architecture
                  :architecture-data-ownership
                  :audit-scope-runtime-config
@@ -75,6 +77,7 @@
                  :ygg-should-win
                  :recall-hybrid
                  :recall-graph
+                 :recall-lexical
                  :recall-semantic
                  :problem-architecture
                  :architecture-cross-system-impact
@@ -102,6 +105,7 @@
                  :ygg-should-win
                  :recall-hybrid
                  :recall-graph
+                 :recall-lexical
                  :recall-semantic
                  :problem-architecture
                  :architecture-data-ownership

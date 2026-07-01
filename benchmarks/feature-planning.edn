@@ -90,6 +90,7 @@
                  :recall-hybrid
                  :recall-graph
                  :recall-lexical
+                 :recall-semantic
                  :architecture-data-ownership
                  :architecture-runtime-boundary
                  :audit-scope-runtime-config

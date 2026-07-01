@@ -75,6 +75,7 @@
                  :recall-hybrid
                  :recall-graph
                  :recall-lexical
+                 :recall-semantic
                  :problem-maintenance
                  :architecture-data-ownership
                  :architecture-runtime-boundary

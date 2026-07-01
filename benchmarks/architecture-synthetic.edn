@@ -112,6 +112,7 @@
                  :recall-hybrid
                  :recall-graph
                  :recall-lexical
+                 :recall-semantic
                  :problem-architecture
                  :architecture-data-ownership
                  :audit-scope-runtime-config
@@ -145,6 +146,7 @@
                  :recall-hybrid
                  :recall-graph
                  :recall-lexical
+                 :recall-semantic
                  :problem-architecture
                  :architecture-runtime-boundary
                  :audit-scope-runtime-config

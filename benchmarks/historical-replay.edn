@@ -108,6 +108,7 @@
                  :ygg-should-win
                  :recall-hybrid
                  :recall-graph
+                 :recall-lexical
                  :recall-semantic
                  :problem-architecture
                  :problem-cross-file

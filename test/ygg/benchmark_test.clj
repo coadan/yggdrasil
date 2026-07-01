@@ -268,15 +268,15 @@
                                           (set (filter benchmark-classes/recall-class-tag?
                                                        tags))]))
                                   tags-by-case)
-        complex-recall-tags #{"recall-hybrid"
-                              "recall-graph"
-                              "recall-lexical"
-                              "recall-semantic"}
+        composed-recall-tags #{"recall-hybrid"
+                               "recall-graph"
+                               "recall-lexical"
+                               "recall-semantic"}
         complex-recall-cases (fn [problem-tag]
                                (->> tags-by-case
                                     (keep (fn [[case-id tags]]
                                             (when (and (contains? tags problem-tag)
-                                                       (set/subset? complex-recall-tags
+                                                       (set/subset? composed-recall-tags
                                                                     tags))
                                               case-id)))
                                     sort
@@ -293,11 +293,13 @@
     (is (<= 2 (count (cases-with-tag "problem-implementation"))))
     (is (<= 2 (count (cases-with-tag "problem-review"))))
     (is (every? seq (vals recall-tags-by-case)))
-    (is (<= 21 (count (cases-with-tag "recall-hybrid"))))
-    (is (<= 8 (count (cases-with-tag "recall-semantic"))))
-    (is (<= 12 (count (cases-with-tag "recall-graph"))))
-    (is (<= 8 (count (cases-with-tag "recall-lexical"))))
-    (is (<= 8 (count (complex-recall-cases "ygg-should-win"))))
+    (is (every? #(set/subset? composed-recall-tags %)
+                (vals recall-tags-by-case)))
+    (is (= 21 (count (cases-with-tag "recall-hybrid"))))
+    (is (= 21 (count (cases-with-tag "recall-semantic"))))
+    (is (= 21 (count (cases-with-tag "recall-graph"))))
+    (is (= 21 (count (cases-with-tag "recall-lexical"))))
+    (is (= 21 (count (complex-recall-cases "ygg-should-win"))))
     (is (<= 2 (count (complex-recall-cases "problem-planning"))))
     (is (<= 2 (count (complex-recall-cases "problem-implementation"))))
     (is (<= 2 (count (complex-recall-cases "problem-review"))))
