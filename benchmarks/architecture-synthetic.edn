@@ -18,6 +18,10 @@
           :coverage {:source-kinds [:web-framework]}
           :tags [:synthetic
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
                  :problem-architecture
                  :architecture-cross-system-impact
                  :audit-scope-docs
@@ -62,6 +66,10 @@
           :coverage {:source-kinds [:manifest :web-framework]}
           :tags [:synthetic
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
                  :problem-architecture
                  :architecture-dependency-flow
                  :audit-scope-dependencies
@@ -101,6 +109,9 @@
           :coverage {:source-kinds [:env :sql]}
           :tags [:synthetic
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
                  :problem-architecture
                  :architecture-data-ownership
                  :audit-scope-runtime-config
@@ -131,6 +142,9 @@
           :coverage {:source-kinds [:javascript]}
           :tags [:synthetic
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
                  :problem-architecture
                  :architecture-runtime-boundary
                  :audit-scope-runtime-config
@@ -153,6 +167,10 @@
           :coverage {:source-kinds [:dotnet :compose]}
           :tags [:synthetic
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
                  :problem-architecture
                  :architecture-dependency-flow
                  :audit-scope-dependencies

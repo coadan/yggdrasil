@@ -34,6 +34,23 @@
     "problem-localization"
     "problem-cross-file"))
 
+(deftest recall-class-tags-are-explicit-benchmark-coverage-tags
+  (is (= #{"recall-graph"
+           "recall-hybrid"
+           "recall-lexical"
+           "recall-semantic"}
+         benchmark-classes/recall-class-tags))
+  (are [tag] (benchmark-classes/recall-class-tag? tag)
+    "recall-graph"
+    "recall-hybrid"
+    "recall-lexical"
+    "recall-semantic")
+  (are [tag] (not (benchmark-classes/recall-class-tag? tag))
+    "problem-planning"
+    "architecture-runtime-boundary"
+    "hybrid"
+    :recall-hybrid))
+
 (deftest class-tag-predicates-ignore-non-string-values
   (are [tag] (not (benchmark-classes/problem-class-tag? tag))
     nil

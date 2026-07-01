@@ -70,6 +70,14 @@ accepted correction/history facts where relevant. Treat lexical-only,
 semantic-only, graph-only, local-vector, Codebase Memory, and Graphify runs as
 ablation or comparison lanes, not the default should-win path:
 
+Tag should-win cases with explicit `recall-*` coverage metadata so benchmark
+claims can be audited by recall shape. Use `recall-hybrid` for cases that are
+expected to need composed Yggdrasil context, and add `recall-graph`,
+`recall-lexical`, or `recall-semantic` for the concrete recall signals the case
+is intended to exercise. The broad should-win lane must retain hybrid and
+semantic recall coverage; single-mode recall tags are ablation labels, not the
+default product path.
+
 ```sh
 bb bench repos check --suite benchmarks/task-category-broad.edn
 bb agent-efficiency all \

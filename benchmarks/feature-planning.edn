@@ -21,6 +21,10 @@
                  :synthetic
                  :problem-planning
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
                  :architecture-dependency-flow
                  :audit-scope-dependencies
                  :web-framework-config
@@ -83,6 +87,9 @@
                  :synthetic
                  :problem-planning
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
                  :architecture-data-ownership
                  :architecture-runtime-boundary
                  :audit-scope-runtime-config
@@ -181,6 +188,10 @@
                  :synthetic
                  :problem-planning
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
                  :architecture-dependency-flow
                  :audit-scope-dependencies
                  :audit-scope-containers

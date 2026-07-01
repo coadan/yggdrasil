@@ -18,6 +18,9 @@
           :coverage {:source-kinds [:go]}
           :tags [:synthetic
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-semantic
                  :problem-architecture
                  :architecture-cross-system-impact
                  :audit-scope-dependencies
@@ -42,6 +45,9 @@
           :coverage {:source-kinds [:terraform]}
           :tags [:synthetic
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
                  :problem-architecture
                  :architecture-data-ownership
                  :audit-scope-runtime-config
@@ -67,6 +73,9 @@
           :coverage {:source-kinds [:python]}
           :tags [:synthetic
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-semantic
                  :problem-architecture
                  :architecture-cross-system-impact
                  :audit-scope-runtime-config
@@ -91,6 +100,9 @@
           :coverage {:source-kinds [:java]}
           :tags [:synthetic
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-semantic
                  :problem-architecture
                  :architecture-data-ownership
                  :audit-scope-dependencies

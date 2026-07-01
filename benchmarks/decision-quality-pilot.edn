@@ -20,6 +20,10 @@
                  :synthetic
                  :problem-review
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
                  :problem-architecture
                  :architecture-cross-system-impact
                  :audit-scope-docs
@@ -68,6 +72,9 @@
                  :synthetic
                  :problem-review
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
                  :problem-maintenance
                  :architecture-data-ownership
                  :architecture-runtime-boundary
@@ -161,6 +168,10 @@
                  :synthetic
                  :problem-review
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
                  :problem-architecture
                  :plugin-fit
                  :architecture-dependency-flow
@@ -220,6 +231,10 @@
                  :synthetic
                  :problem-review
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
                  :problem-architecture
                  :architecture-dependency-flow
                  :not-one-size-fits-all

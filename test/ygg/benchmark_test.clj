@@ -260,7 +260,13 @@
                                       (when (contains? tags tag)
                                         case-id)))
                               sort
-                              vec))]
+                              vec))
+        recall-tags-by-case (into {}
+                                  (map (fn [[case-id tags]]
+                                         [case-id
+                                          (set (filter benchmark-classes/recall-class-tag?
+                                                       tags))]))
+                                  tags-by-case)]
     (is (= "task-category-broad" (:id suite)))
     (is (= 21 (count (:cases suite))))
     (is (every? #(contains? % "ygg-should-win")
@@ -272,6 +278,11 @@
     (is (<= 2 (count (cases-with-tag "problem-planning"))))
     (is (<= 2 (count (cases-with-tag "problem-implementation"))))
     (is (<= 2 (count (cases-with-tag "problem-review"))))
+    (is (every? seq (vals recall-tags-by-case)))
+    (is (<= 21 (count (cases-with-tag "recall-hybrid"))))
+    (is (<= 8 (count (cases-with-tag "recall-semantic"))))
+    (is (<= 12 (count (cases-with-tag "recall-graph"))))
+    (is (<= 8 (count (cases-with-tag "recall-lexical"))))
     (is (every? (fn [case]
                   (or (not (seq (:repos case)))
                       (every? #(seq (:index-files %)) (:repos case))))

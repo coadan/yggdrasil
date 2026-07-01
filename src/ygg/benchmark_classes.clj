@@ -13,6 +13,12 @@
     "audit-scope-containers"
     "audit-scope-docs"})
 
+(def recall-class-tags
+  #{"recall-graph"
+    "recall-hybrid"
+    "recall-lexical"
+    "recall-semantic"})
+
 (defn problem-class-tag?
   [tag]
   (and (string? tag)
@@ -21,3 +27,7 @@
 (defn architecture-class-tag?
   [tag]
   (contains? architecture-class-tags tag))
+
+(defn recall-class-tag?
+  [tag]
+  (contains? recall-class-tags tag))

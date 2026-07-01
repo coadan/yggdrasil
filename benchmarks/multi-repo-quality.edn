@@ -39,6 +39,9 @@
           :tags [:synthetic
                  :problem-review
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-semantic
                  :problem-architecture
                  :multi-repo-quality
                  :architecture-cross-system-impact

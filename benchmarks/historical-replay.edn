@@ -54,6 +54,10 @@
           :tags [:historical
                  :problem-implementation
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
                  :problem-cross-file
                  :problem-api-contract
                  :architecture-data-ownership
@@ -102,6 +106,9 @@
           :tags [:historical
                  :problem-implementation
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-semantic
                  :problem-architecture
                  :problem-cross-file
                  :architecture-runtime-boundary
@@ -157,6 +164,10 @@
           :tags [:historical
                  :problem-implementation
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
                  :problem-cross-file
                  :problem-api-contract
                  :architecture-data-ownership
@@ -325,6 +336,10 @@
           :tags [:historical
                  :problem-implementation
                  :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
                  :problem-dependency-boundary
                  :problem-runtime-config
                  :architecture-runtime-boundary
