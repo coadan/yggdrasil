@@ -27,6 +27,7 @@ Options:
   --batch-size N      Embedding batch size for semantic/hybrid retrievers.
   --setup-check       Only check required local benchmark repos.
   --check-only        Reuse existing score artifacts; skip baseline regeneration.
+  --skip-existing     Skip regenerating current matching baseline case artifacts.
   --skip-setup-check  Run without checking local benchmark repos first.
   --dry-run           Print commands without running them.
 
@@ -53,6 +54,7 @@ model=""
 batch_size=""
 setup_check_only=false
 check_only=false
+skip_existing=false
 skip_setup_check=false
 dry_run=false
 
@@ -120,6 +122,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --check-only)
       check_only=true
+      shift
+      ;;
+    --skip-existing)
+      skip_existing=true
       shift
       ;;
     --skip-setup-check)
@@ -213,6 +219,9 @@ if [[ "$check_only" != true ]]; then
   fi
   if [[ -n "$batch_size" ]]; then
     baseline_args+=(--batch-size "$batch_size")
+  fi
+  if [[ "$skip_existing" == true ]]; then
+    baseline_args+=(--skip-existing)
   fi
   run_bench agent-baseline "${baseline_args[@]}"
 fi

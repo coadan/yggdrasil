@@ -134,10 +134,29 @@
     (is (str/includes? (nth lines 1)
                        "--max-case-total-tokens 24000"))))
 
+(deftest skip-existing-dry-run-forwards-only-to-baseline-generation
+  (let [result (run-gate "--dry-run"
+                         "--skip-existing"
+                         "--suite" "benchmarks/custom.edn"
+                         "--manifest" "benchmarks/custom-repos.edn"
+                         "--out" ".dev/ygg/benchmark-gate/custom")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 3 (count lines)))
+    (is (str/includes? (nth lines 1)
+                       "bench agent-baseline benchmarks/custom.edn"))
+    (is (str/includes? (nth lines 1)
+                       "--skip-existing"))
+    (is (str/includes? (nth lines 2)
+                       "bench agent-check benchmarks/custom.edn"))
+    (is (not (str/includes? (nth lines 2)
+                            "--skip-existing")))))
+
 (deftest help-lists-check-only
   (let [result (run-gate "--help")]
     (is (= 0 (:exit result)))
     (is (str/includes? (:out result) "--check-only"))
+    (is (str/includes? (:out result) "--skip-existing"))
     (is (str/includes? (:out result) "--retriever MODE"))
     (is (str/includes? (:out result) "current artifacts already"))))
 
