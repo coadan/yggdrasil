@@ -50,6 +50,18 @@ bb agent-efficiency all \
   --out .dev/ygg/agent-efficiency/historical-replay-quick
 ```
 
+Use the claim quick lane when you need a small non-synthetic claim-readiness
+check with expected-evidence citation metrics. This lane is intentionally only a
+selector over curated historical cases that define `:expectations
+{:citation-evidence ...}`:
+
+```sh
+bb bench repos check --suite benchmarks/historical-replay-claim-quick.edn
+bb agent-efficiency all \
+  --suite benchmarks/historical-replay-claim-quick.edn \
+  --out .dev/ygg/agent-efficiency/historical-replay-claim-quick
+```
+
 Use the task-category lane to test should-win planning, implementation, and
 review/decision tasks as separate measured problem classes. Should-win cases
 should exercise composed Yggdrasil recall: graph topology, parser facts,
@@ -65,8 +77,8 @@ bb agent-efficiency all \
   --out .dev/ygg/agent-efficiency/task-category-broad
 ```
 
-Use the full lane when the heavy multi-repo replay case should be part of the
-claim:
+Use the full lane as the authoritative non-synthetic claim lane, including the
+heavy multi-repo replay case:
 
 ```sh
 bb agent-efficiency all \

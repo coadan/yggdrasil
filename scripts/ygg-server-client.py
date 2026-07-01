@@ -16,6 +16,7 @@ DEFAULT_SERVER_PORT = 62121
 DEFAULT_CONNECT_TIMEOUT_MS = 30000
 CONNECT_RETRY_INTERVAL_SECONDS = 5.0
 DEFAULT_REQUEST_TIMEOUT_MS = 600000
+DEFAULT_BENCH_AGENT_BASELINE_REQUEST_TIMEOUT_MS = 3600000
 SERVER_FRAME_SCHEMA = "ygg.server.frame/v1"
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 YGG_BIN = ROOT / "bin" / "ygg"
@@ -94,8 +95,18 @@ def env_int(name, default):
         return default
 
 
-def request_timeout_seconds():
-    timeout_ms = env_int("YGG_SERVER_REQUEST_TIMEOUT_MS", DEFAULT_REQUEST_TIMEOUT_MS)
+def default_request_timeout_ms(op=None, args=None):
+    args = args or []
+    if op == "bench" and args[:1] == ["agent-baseline"]:
+        return DEFAULT_BENCH_AGENT_BASELINE_REQUEST_TIMEOUT_MS
+    return DEFAULT_REQUEST_TIMEOUT_MS
+
+
+def request_timeout_seconds(op=None, args=None):
+    timeout_ms = env_int(
+        "YGG_SERVER_REQUEST_TIMEOUT_MS",
+        default_request_timeout_ms(op, args),
+    )
     if timeout_ms <= 0:
         return None
     return timeout_ms / 1000.0
@@ -215,7 +226,7 @@ def request(op, args, extra=None, stream=False, render_progress=False, connect_t
         payload["stream"] = True
     host = server_host()
     port = server_port()
-    timeout_seconds = request_timeout_seconds()
+    timeout_seconds = request_timeout_seconds(op, args)
     start = time.monotonic()
     sock = connect_socket(host, port, connect_timeout_override_ms)
     if sock is None:

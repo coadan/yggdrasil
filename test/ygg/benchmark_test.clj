@@ -613,15 +613,25 @@
 
 (deftest historical-replay-lanes-split-quick-and-full-coverage
   (let [quick (benchmark/read-suite "benchmarks/historical-replay-quick.edn")
+        claim-quick (benchmark/read-suite "benchmarks/historical-replay-claim-quick.edn")
         full (benchmark/read-suite "benchmarks/historical-replay-full.edn")
         quick-case-ids (mapv :id (:cases quick))
+        claim-quick-case-ids (mapv :id (:cases claim-quick))
         full-case-ids (mapv :id (:cases full))
         quick-repo-ids (set (map :id (:repos quick)))
+        claim-quick-repo-ids (set (map :id (:repos claim-quick)))
         full-repo-ids (set (map :id (:repos full)))]
     (is (= "historical-replay-quick" (:id quick)))
+    (is (= "historical-replay-claim-quick" (:id claim-quick)))
     (is (= "historical-replay-full" (:id full)))
     (is (= 7 (count quick-case-ids)))
+    (is (= ["historical-axios-defer-env-proxy-to-node"
+            "historical-dapper-prefer-enum-type-handlers"]
+           claim-quick-case-ids))
     (is (= 11 (count full-case-ids)))
+    (is (every? #(seq (get-in % [:expectations :citation-evidence]))
+                (:cases claim-quick)))
+    (is (= #{"axios" "dapper"} claim-quick-repo-ids))
     (is (not (contains? (set quick-case-ids)
                         "historical-otel-routing-default-error-mode")))
     (is (contains? (set full-case-ids)

@@ -49,6 +49,30 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual(client.DEFAULT_CONNECT_TIMEOUT_MS,
                          client.connect_timeout_ms())
 
+    def test_bench_agent_baseline_uses_longer_default_request_timeout(self):
+        client = load_client()
+
+        self.assertEqual(
+            client.DEFAULT_BENCH_AGENT_BASELINE_REQUEST_TIMEOUT_MS / 1000.0,
+            client.request_timeout_seconds(
+                "bench",
+                ["agent-baseline", "benchmarks/historical-replay-full.edn"],
+            ),
+        )
+        self.assertEqual(
+            client.DEFAULT_REQUEST_TIMEOUT_MS / 1000.0,
+            client.request_timeout_seconds("bench", ["agent-check"]),
+        )
+
+        os.environ["YGG_SERVER_REQUEST_TIMEOUT_MS"] = "2500"
+        self.assertEqual(
+            2.5,
+            client.request_timeout_seconds(
+                "bench",
+                ["agent-baseline", "benchmarks/historical-replay-full.edn"],
+            ),
+        )
+
     def test_server_command_routes_to_matching_server_op(self):
         client = load_client()
         cases = [
