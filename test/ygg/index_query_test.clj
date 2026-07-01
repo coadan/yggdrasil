@@ -25,6 +25,17 @@
     (spit file content)
     file))
 
+(defn- sh!
+  [& args]
+  (let [{:keys [exit out err] :as result} (apply shell/sh args)]
+    (when-not (zero? exit)
+      (throw (ex-info "Shell command failed."
+                      {:args (vec args)
+                       :out out
+                       :err err
+                       :exit exit})))
+    result))
+
 (deftest indexable-extraction-drops-nil-optional-values
   (let [result (#'index/indexable-extraction
                 "run:test"
@@ -2194,6 +2205,46 @@
                 (is (nil? (query/find-node xtdb
                                            "demo.b"
                                            {:read-context {:valid-at second-valid}})))))))))))
+
+(deftest index-source-snapshot-records-git-upstream-state
+  (let [xtdb-path (temp-dir "ygg-index-git-state-xtdb")
+        remote (temp-dir "ygg-index-git-state-remote")
+        repo (temp-dir "ygg-index-git-state-repo")]
+    (sh! "git" "init" "--bare" remote)
+    (sh! "git" "clone" remote repo)
+    (sh! "git" "-C" repo "config" "user.email" "ygg@example.test")
+    (sh! "git" "-C" repo "config" "user.name" "Yggdrasil Test")
+    (sh! "git" "-C" repo "checkout" "-b" "main")
+    (spit-file! repo "src/app.clj" "(ns app)\n(defn value [] 1)\n")
+    (sh! "git" "-C" repo "add" ".")
+    (sh! "git" "-C" repo "commit" "-m" "initial")
+    (sh! "git" "-C" repo "push" "-u" "origin" "main")
+    (store/with-node xtdb-path
+      (fn [xtdb]
+        (let [summary (index/index-repo! xtdb
+                                         repo
+                                         {:project-id "git-state"
+                                          :repo-id "app"})
+              snapshot (store/row-by-id xtdb
+                                        (store/table-ref :source-snapshots)
+                                        (:snapshot-id summary))]
+          (is (= :git-commit (:basis-kind snapshot)))
+          (is (= (:git-sha summary) (:git-sha snapshot)))
+          (is (= "main" (:git-branch snapshot)))
+          (is (= "origin/main" (:git-upstream snapshot)))
+          (is (= (:git-sha snapshot) (:git-upstream-sha snapshot)))
+          (is (= true (:git-upstream-current? snapshot)))
+          (is (= :up-to-date (:git-upstream-status snapshot)))
+          (is (= 0 (:git-ahead snapshot)))
+          (is (= 0 (:git-behind snapshot)))
+          (is (= {:git-branch "main"
+                  :git-upstream "origin/main"
+                  :git-upstream-sha (:git-sha snapshot)
+                  :git-upstream-current? true
+                  :git-upstream-status :up-to-date
+                  :git-ahead 0
+                  :git-behind 0}
+                 (:git-state summary))))))))
 
 (deftest index-skips-by-content-and-extractor-fingerprint
   (let [xtdb-path (temp-dir "ygg-index-fingerprint-xtdb")

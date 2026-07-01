@@ -90,29 +90,66 @@
         (= 1 finished)
         (zero? (mod finished progress-interval)))))
 
-(defn- git-sha
-  [root]
-  (let [{:keys [exit out]} (shell/sh "git" "-C" root "rev-parse" "HEAD")]
+(defn- git-output
+  [root & args]
+  (let [{:keys [exit out]} (apply shell/sh "git" "-C" root args)]
     (when (zero? exit)
       (str/trim out))))
+
+(defn- git-sha
+  [root]
+  (git-output root "rev-parse" "HEAD"))
 
 (defn- git-tree-sha
   [root]
-  (let [{:keys [exit out]} (shell/sh "git" "-C" root "rev-parse" "HEAD^{tree}")]
-    (when (zero? exit)
-      (str/trim out))))
+  (git-output root "rev-parse" "HEAD^{tree}"))
 
 (defn- git-commit-instant
   [root]
-  (let [{:keys [exit out]} (shell/sh "git" "-C" root "show" "-s" "--format=%cI" "HEAD")]
-    (when (zero? exit)
-      (Date/from (Instant/parse (str/trim out))))))
+  (when-let [out (git-output root "show" "-s" "--format=%cI" "HEAD")]
+    (Date/from (Instant/parse out))))
 
 (defn- git-dirty?
   [root]
   (let [{:keys [exit out]} (shell/sh "git" "-C" root "status" "--porcelain=v1" "--untracked-files=normal")]
     (when (zero? exit)
       (not (str/blank? out)))))
+
+(defn- parse-long-value
+  [value]
+  (Long/parseLong (str value)))
+
+(defn- git-ahead-behind
+  [root]
+  (when-let [out (git-output root "rev-list" "--left-right" "--count" "HEAD...@{u}")]
+    (let [[ahead behind] (str/split out #"\s+")]
+      {:git-ahead (parse-long-value ahead)
+       :git-behind (parse-long-value behind)})))
+
+(defn- git-upstream-status
+  [{:keys [git-upstream git-ahead git-behind]}]
+  (cond
+    (nil? git-upstream) :no-upstream
+    (or (nil? git-ahead) (nil? git-behind)) :unknown
+    (and (zero? git-ahead) (zero? git-behind)) :up-to-date
+    (zero? git-behind) :ahead
+    (zero? git-ahead) :behind
+    :else :diverged))
+
+(defn- git-ref-state
+  [root git-sha]
+  (let [branch (git-output root "rev-parse" "--abbrev-ref" "HEAD")
+        upstream (git-output root "rev-parse" "--abbrev-ref" "--symbolic-full-name" "@{u}")
+        upstream-sha (when upstream
+                       (git-output root "rev-parse" "@{u}"))
+        state (cond-> {:git-upstream-status :no-upstream}
+                branch (assoc :git-branch branch)
+                upstream (assoc :git-upstream upstream)
+                upstream-sha (assoc :git-upstream-sha upstream-sha)
+                (and git-sha upstream-sha) (assoc :git-upstream-current?
+                                                  (= git-sha upstream-sha)))
+        state (merge state (git-ahead-behind root))]
+    (assoc state :git-upstream-status (git-upstream-status state))))
 
 (defn run-id
   ([root started-at-ms] (run-id root started-at-ms nil nil))
@@ -143,6 +180,8 @@
   [project-id repo-id root started-at-ms files]
   (let [git-sha (git-sha root)
         tree-sha (when git-sha (git-tree-sha root))
+        git-ref-state (when git-sha
+                        (git-ref-state root git-sha))
         dirty? (if git-sha (boolean (git-dirty? root)) true)
         basis-kind (cond
                      (and git-sha (not dirty?)) :git-commit
@@ -172,6 +211,7 @@
              :basis-instant basis-instant
              :source-root root
              :content-fingerprint fingerprint}
+      git-ref-state (merge git-ref-state)
       git-sha (assoc :git-sha git-sha)
       tree-sha (assoc :tree-sha tree-sha))))
 
@@ -394,6 +434,14 @@
                             :repo-id repo-id})
         valid-from (:basis-instant snapshot)
         run-id (run-id root-path started project-id repo-id)
+        git-state (select-keys snapshot
+                               [:git-branch
+                                :git-upstream
+                                :git-upstream-sha
+                                :git-upstream-current?
+                                :git-upstream-status
+                                :git-ahead
+                                :git-behind])
         initial {:run-id run-id
                  :snapshot-id (:xt/id snapshot)
                  :valid-from valid-from
@@ -404,6 +452,7 @@
                  :index-profile index-profile
                  :git-sha (:git-sha snapshot)
                  :tree-sha (:tree-sha snapshot)
+                 :git-state git-state
                  :status :running
                  :started-at-ms started
                  :finished-at-ms nil
