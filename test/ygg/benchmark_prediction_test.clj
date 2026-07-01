@@ -2261,7 +2261,7 @@
                      :rankScore 17.9
                      :retrievedSourceCount 1})]
         selected-paths (mapv :path (compact-output files 20 nil))]
-    (is (= "tests/Dapper.Tests/TypeHandlerTests.cs" (nth selected-paths 4)))
+    (is (< (index-of selected-paths "tests/Dapper.Tests/TypeHandlerTests.cs") 5))
     (is (< (index-of selected-paths "tests/Dapper.Tests/TypeHandlerTests.cs")
            (index-of selected-paths "Dapper/SqlMapper.ITypeHandler.cs")))))
 

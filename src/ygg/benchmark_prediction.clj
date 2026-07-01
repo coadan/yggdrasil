@@ -394,7 +394,7 @@
 (def ^:private compact-output-support-owner-source-graph-source-score-min
   0.45)
 (def ^:private compact-output-candidate-source-graph-head-sort-rank
-  0.56)
+  0.402)
 (def ^:private compact-output-after-preserved-head-sort-rank
   (+ (/ (double compact-output-preserved-head-count) 10.0) 0.01))
 (def ^:private compact-output-early-query-evidence-source-sort-rank
@@ -431,6 +431,8 @@
   2)
 (def ^:private compact-output-doc-supported-source-graph-query-sort-rank
   0.36)
+(def ^:private compact-output-strong-doc-source-graph-query-sort-rank
+  0.335)
 (def ^:private compact-output-retrieved-label-source-sort-rank
   3.5)
 (def ^:private compact-output-identity-compound-source-sort-rank
@@ -4937,6 +4939,17 @@
   [row]
   (pos? (row-metric-double row :docSupportedSourceGraphQueryBoost)))
 
+(defn- compact-output-strong-doc-source-graph-query-row?
+  [row]
+  (and (pos? (positive-metric row :docCount))
+       (pos? (positive-metric row :candidateFileCount))
+       (pos? (positive-metric row :retrievedSourceCount))
+       (compact-output-strong-doc-supported-row? row)
+       (<= candidate-file-only-query-evidence-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (or (pos? (positive-metric row :matchedIdentityCompoundTokenPairCount))
+           (pos? (positive-metric row :matchedCompoundTokenPairCount)))))
+
 (defn- compact-output-candidate-source-graph-head-row?
   [row]
   (and (pos? (row-metric-double row :candidateOnlySourceGraphHeadBoost))
@@ -4969,6 +4982,7 @@
       (compact-output-doc-source-graph-grep-row? row)
       (compact-output-support-owner-source-graph-row? row)
       (compact-output-candidate-source-graph-head-row? row)
+      (compact-output-strong-doc-source-graph-query-row? row)
       (compact-output-source-graph-query-evidence-row? row)
       (query-evidence-source-candidate-row? row)
       (candidate-file-only-row? row)))
@@ -5044,6 +5058,9 @@
                               (when (compact-output-doc-supported-source-graph-query-row?
                                      row)
                                 compact-output-doc-supported-source-graph-query-sort-rank)
+                              (when (compact-output-strong-doc-source-graph-query-row?
+                                     row)
+                                compact-output-strong-doc-source-graph-query-sort-rank)
                               (when (compact-output-repeated-retrieved-row? row)
                                 compact-output-retrieved-supported-sort-rank)
                               (when (compact-output-supported-source-graph-query-evidence-row?

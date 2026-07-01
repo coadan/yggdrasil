@@ -3,4 +3,6 @@
  :description "Small non-synthetic claim-readiness lane with expected-evidence citation targets. Keep historical-replay-full.edn as the authoritative lane."
  :include-suites [{:path "historical-replay.edn"
                    :case-ids ["historical-axios-defer-env-proxy-to-node"
-                              "historical-dapper-prefer-enum-type-handlers"]}]}
+                              "historical-dapper-prefer-enum-type-handlers"
+                              "historical-terraform-vpc-endpoint-dns-record-ip-type"
+                              "historical-flask-autoescape-case-insensitive"]}]}

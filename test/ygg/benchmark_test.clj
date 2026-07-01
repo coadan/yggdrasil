@@ -626,12 +626,19 @@
     (is (= "historical-replay-full" (:id full)))
     (is (= 7 (count quick-case-ids)))
     (is (= ["historical-axios-defer-env-proxy-to-node"
-            "historical-dapper-prefer-enum-type-handlers"]
+            "historical-dapper-prefer-enum-type-handlers"
+            "historical-terraform-vpc-endpoint-dns-record-ip-type"
+            "historical-flask-autoescape-case-insensitive"]
            claim-quick-case-ids))
     (is (= 11 (count full-case-ids)))
-    (is (every? #(seq (get-in % [:expectations :citation-evidence]))
-                (:cases claim-quick)))
-    (is (= #{"axios" "dapper"} claim-quick-repo-ids))
+    (is (= #{"historical-axios-defer-env-proxy-to-node"
+             "historical-dapper-prefer-enum-type-handlers"}
+           (->> (:cases claim-quick)
+                (filter #(seq (get-in % [:expectations :citation-evidence])))
+                (map :id)
+                set)))
+    (is (= #{"axios" "dapper" "terraform-aws-vpc" "flask"}
+           claim-quick-repo-ids))
     (is (not (contains? (set quick-case-ids)
                         "historical-otel-routing-default-error-mode")))
     (is (contains? (set full-case-ids)
