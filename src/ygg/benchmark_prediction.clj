@@ -5082,8 +5082,7 @@
       (compact-output-candidate-source-graph-head-row? row)
       (compact-output-strong-doc-source-graph-query-row? row)
       (compact-output-source-graph-query-evidence-row? row)
-      (query-evidence-source-candidate-row? row)
-      (candidate-file-only-row? row)))
+      (query-evidence-source-candidate-row? row)))
 
 (defn- compact-output-weak-late-source-head-row?
   [row]

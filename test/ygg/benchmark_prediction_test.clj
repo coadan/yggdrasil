@@ -1270,6 +1270,42 @@
                  "Dapper.SqlBuilder/Dapper.SqlBuilder.csproj"
                  "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"]))))
 
+(deftest compact-output-prunes-weak-candidate-only-score-tail
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        doc-row (fn [path rank score]
+                  (row path
+                       rank
+                       {:docCount 1
+                        :candidateFileCount 0
+                        :entityCount 0
+                        :matchedTokenCount 3
+                        :rankScore score}))
+        weak-candidate-row (fn [path rank score]
+                             (row path
+                                  rank
+                                  {:candidateFileCount 1
+                                   :docCount 0
+                                   :entityCount 0
+                                   :matchedTokenCount 1
+                                   :rankScore score}))
+        files [(doc-row "src/high-a.cs" 1 20.0)
+               (doc-row "src/high-b.cs" 2 18.0)
+               (doc-row "src/high-c.cs" 3 16.0)
+               (doc-row "src/high-d.cs" 4 15.0)
+               (weak-candidate-row "Directory.Build.props" 5 4.0)
+               (weak-candidate-row "tests/Directory.Build.props" 6 3.8)
+               (weak-candidate-row "benchmarks/Directory.Build.props" 7 3.6)]
+        selected (compact-output files 7 nil)]
+    (is (= ["src/high-a.cs"
+            "src/high-b.cs"
+            "src/high-c.cs"
+            "src/high-d.cs"]
+           (mapv :path selected)))))
+
 (deftest compact-output-frontloads-support-owner-source-graph-evidence
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]
