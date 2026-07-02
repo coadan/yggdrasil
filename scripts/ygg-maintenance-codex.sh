@@ -111,20 +111,35 @@ CODEX_ARGS+=(-c "model_reasoning_effort=\"${CODEX_REASONING}\"")
 codex exec \
   "${CODEX_ARGS[@]}" \
   - <<EOF
-You are completing one Yggdrasil index maintenance queue item.
+You are completing Yggdrasil index maintenance queue work.
 
-Input work item JSON path:
+Input work JSON path:
 ${WORK_PATH}
 
 Required result JSON path:
 ${RESULT_PATH}
 
-Read the work item JSON. Follow payload.instructions first when present. Its
+Read the work JSON. It is either a single work item with schema
+ygg.index-maintenance.command-work/v1 or a batch with schema
+ygg.index-maintenance.command-work-batch/v1.
+
+For a single work item, follow payload.instructions first when present. Its
 payload contains the task, allowed actions, expectedResultSchema, and usually an
-expectedOutput example. For Codex command harnesses the payload is compact: use
-project.repos[].root to inspect the attached source repositories only when a
-bounded fact needs verification. Produce a single JSON object that matches the
-expected result schema and write it to the required result path.
+expectedOutput example. Produce a single JSON object that matches the expected
+result schema and write it to the required result path.
+
+For a batch, complete every item in items[]. For each item, follow its
+payload.instructions first when present. Write one JSON object with this shape:
+{
+  "schema": "ygg.index-maintenance.command-work-result-batch/v1",
+  "results": [
+    {"workItemId": "<items[].workItem.id>", "result": { ...expected result... }}
+  ]
+}
+
+For Codex command harnesses the payload is compact: use project.repos[].root to
+inspect the attached source repositories only when a bounded fact needs
+verification.
 
 Rules:
 - Do not edit source repositories, project configs, correction facts, or queue

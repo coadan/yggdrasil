@@ -18,6 +18,12 @@
 (def command-work-schema
   "ygg.index-maintenance.command-work/v1")
 
+(def command-work-batch-schema
+  "ygg.index-maintenance.command-work-batch/v1")
+
+(def command-work-result-batch-schema
+  "ygg.index-maintenance.command-work-result-batch/v1")
+
 (def ^:private decision-target-limit
   12)
 
@@ -70,6 +76,10 @@
 (defn- executor-for-kind
   [executors kind]
   (first (filter #(contains? (:kinds %) (str kind)) executors)))
+
+(defn- executor-kinds
+  [executor]
+  (set (map str (:kinds executor))))
 
 (defn- available-kinds
   [executors]
@@ -367,6 +377,21 @@
      :fullPayload {:storedInQueue true
                    :reason "Queue payload remains durable for validation and audit; command harness input is compact so repo-aware agents inspect attached source directories directly."}}))
 
+(defn- command-work-batch-input
+  [project claimed-items dir]
+  {:schema command-work-batch-schema
+   :workItems (mapv queue/item-summary claimed-items)
+   :project {:id (:id project)
+             :repos (mapv repo-summary (:repos project))}
+   :artifactDir (.getPath (io/file dir))
+   :items (mapv (fn [claimed]
+                  (let [item (:item claimed)]
+                    {:workItem (queue/item-summary claimed)
+                     :payload (compact-payload (:payload item))
+                     :fullPayload {:storedInQueue true
+                                   :reason "Queue payload remains durable for validation and audit; command harness input is compact so repo-aware agents inspect attached source directories directly."}}))
+                claimed-items)})
+
 (defn- openai-client
   [executor]
   ((dep :openai-client openai-compatible/client)
@@ -471,6 +496,18 @@
        :failure (work/fail-invalid-result! root id validation)}
       {:validation validation})))
 
+(defn- complete-and-validate!
+  [config root claimed result]
+  (let [work-id (get-in claimed [:item :id])
+        completed (complete-result! root work-id result)
+        {:keys [validation failure]} (validate-completed! config root work-id)]
+    {:status (if failure "failed" "completed")
+     :item (queue/item-summary (if failure
+                                 (queue/find-item root work-id)
+                                 completed))
+     :validation validation
+     :failure failure}))
+
 (defn- process-claimed!
   [project config executor claimed]
   (let [root (:queue-dir config)
@@ -499,14 +536,12 @@
                                         :artifacts {:work input-path
                                                     :result result-path}
                                         :process process})
-          (let [completed (complete-result! root work-id result)
-                {:keys [validation failure]} (validate-completed! config root work-id)]
+          (let [{:keys [status item validation failure]}
+                (complete-and-validate! config root claimed result)]
             (write-json-file! result-path result)
-            {:status (if failure "failed" "completed")
+            {:status status
              :executor (:id executor)
-             :item (queue/item-summary (if failure
-                                         (queue/find-item root work-id)
-                                         completed))
+             :item item
              :validation validation
              :failure failure
              :artifacts {:work input-path
@@ -523,9 +558,132 @@
                                :result result-path}
                    :error-data (ex-data e)})))))
 
+(defn- batch-id
+  [claimed-items now]
+  (str "batch-" (hash/short-hash [(mapv (comp :id :item) claimed-items) now])))
+
+(defn- batch-run-dir
+  [config claimed-items now]
+  (io/file (:report-dir config)
+           (str now "-" (hash/short-hash [(batch-id claimed-items now) now]))))
+
+(defn- batch-result-rows
+  [result]
+  (when-not (= command-work-result-batch-schema (:schema result))
+    (throw (ex-info "Command index maintenance batch result has the wrong schema."
+                    {:expected command-work-result-batch-schema
+                     :actual (:schema result)})))
+  (when-not (vector? (:results result))
+    (throw (ex-info "Command index maintenance batch result must include a results vector."
+                    {:schema (:schema result)
+                     :value (:results result)})))
+  (:results result))
+
+(defn- batch-result-row-id
+  [row]
+  (:workItemId row))
+
+(defn- batch-results-by-work-id
+  [result]
+  (reduce (fn [out row]
+            (let [work-id (batch-result-row-id row)]
+              (when (str/blank? (str work-id))
+                (throw (ex-info "Command index maintenance batch result row is missing workItemId."
+                                {:row (dissoc row :result)})))
+              (when-not (map? (:result row))
+                (throw (ex-info "Command index maintenance batch result row must include result object."
+                                {:workItemId work-id})))
+              (if (contains? out work-id)
+                (throw (ex-info "Command index maintenance batch result contains duplicate workItemId."
+                                {:workItemId work-id}))
+                (assoc out work-id (:result row)))))
+          {}
+          (batch-result-rows result)))
+
+(defn- process-command-batch!
+  [project config executor claimed-items]
+  (let [root (:queue-dir config)
+        now (now-ms)
+        dir (batch-run-dir config claimed-items now)
+        input-path (.getPath (io/file dir "work.json"))
+        result-path (.getPath (io/file dir "result.json"))]
+    (write-json-file! input-path
+                      (command-work-batch-input project claimed-items dir))
+    (try
+      (let [{:keys [result error process]}
+            (complete-with-command! config executor input-path result-path)]
+        (if error
+          (mapv (fn [claimed]
+                  (failure! root
+                            (get-in claimed [:item :id])
+                            error
+                            {:executor (:id executor)
+                             :failure-kind "executor"
+                             :artifacts {:work input-path
+                                         :result result-path}
+                             :process process}))
+                claimed-items)
+          (let [results-by-work-id (batch-results-by-work-id result)]
+            (write-json-file! result-path result)
+            (mapv (fn [claimed]
+                    (let [work-id (get-in claimed [:item :id])]
+                      (if-let [item-result (get results-by-work-id work-id)]
+                        (let [{:keys [status item validation failure]}
+                              (complete-and-validate! config root claimed item-result)]
+                          {:status status
+                           :executor (:id executor)
+                           :item item
+                           :validation validation
+                           :failure failure
+                           :artifacts {:work input-path
+                                       :result result-path}
+                           :process process})
+                        (failure! root
+                                  work-id
+                                  "Command index maintenance batch result omitted work item."
+                                  {:executor (:id executor)
+                                   :failure-kind "executor"
+                                   :artifacts {:work input-path
+                                               :result result-path}
+                                   :process process}))))
+                  claimed-items))))
+      (catch Exception e
+        (mapv (fn [claimed]
+                (failure! root
+                          (get-in claimed [:item :id])
+                          (str "Index maintenance executor failed: "
+                               (or (ex-message e) (.getMessage e)))
+                          {:executor (:id executor)
+                           :failure-kind "executor"
+                           :artifacts {:work input-path
+                                       :result result-path}
+                           :error-data (ex-data e)}))
+              claimed-items)))))
+
+(defn- claim-next-for-kinds!
+  [project config kinds]
+  (when-let [kind (next-ready-kind (:queue-dir config) (:id project) kinds)]
+    (queue/claim-next! (:queue-dir config)
+                       {:agent-id (:agent-id config)
+                        :lease-ms (* 60 1000 (:lease-minutes config))
+                        :project-id (:id project)
+                        :kind kind})))
+
+(defn- claim-more-for-executor!
+  [project config executor limit]
+  (loop [remaining limit
+         claimed []]
+    (if (pos? remaining)
+      (if-let [next-claimed (claim-next-for-kinds! project
+                                                   config
+                                                   (executor-kinds executor))]
+        (recur (dec remaining) (conj claimed next-claimed))
+        claimed)
+      claimed)))
+
 (defn process-next!
-  "Claim and process one ready queue item for project/config. Return nil when empty."
-  [project config]
+  "Claim and process ready queue items for project/config. Return nil when empty."
+  [project config limit]
   (let [root (:queue-dir config)
         executors (available-executors config)
         kinds (available-kinds executors)]
@@ -537,7 +695,17 @@
                                                :project-id (:id project)
                                                :kind kind})]
           (let [executor (executor-for-kind executors (get-in claimed [:item :kind]))]
-            (process-claimed! project config executor claimed)))))))
+            (if (and (= :command-harness (:type executor))
+                     (< 1 (long limit)))
+              (let [claimed-items (into [claimed]
+                                        (claim-more-for-executor! project
+                                                                  config
+                                                                  executor
+                                                                  (dec (long limit))))]
+                (if (< 1 (count claimed-items))
+                  (process-command-batch! project config executor claimed-items)
+                  [(process-claimed! project config executor claimed)]))
+              [(process-claimed! project config executor claimed)])))))))
 
 (defn- run-status
   [config results exhausted?]
@@ -611,12 +779,17 @@
                   :stop-reason :limit-reached}
 
                  :else
-                 (if-let [result (process-next! project config)]
-                   (recur (dec remaining)
-                          (cond-> executor-failures
-                            (executor-failure? result) inc)
-                          (conj out result))
-                   {:results out})))
+                 (let [max-failures (long (or (:max-failures-per-run config) 0))
+                       failure-budget (if (pos? max-failures)
+                                        (max 1 (- max-failures executor-failures))
+                                        remaining)
+                       claim-limit (min remaining failure-budget)]
+                   (if-let [results (seq (process-next! project config claim-limit))]
+                     (recur (- remaining (count results))
+                            (+ executor-failures
+                               (count (filter executor-failure? results)))
+                            (into out results))
+                     {:results out}))))
              exhausted? (and (pos? max-items)
                              (= max-items (count results))
                              (ready-work-remains? project config))

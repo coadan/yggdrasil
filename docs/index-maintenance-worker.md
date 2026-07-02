@@ -3,9 +3,11 @@
 Yggdrasil can run project-configured maintenance schedules for sync and
 sync/check. When a scheduled or manual sync/check enqueues work, the maintenance
 worker can claim queue items through the
-SQLite-backed project queue, writes per-item input/result artifacts, completes the work
-item, and validates the returned JSON through the normal `sync work validate`
-path.
+SQLite-backed project queue, writes input/result audit artifacts, completes each
+work item, and validates the returned JSON through the normal
+`sync work validate` path. Command harness executors may receive a bounded batch
+in one process invocation; queue leases, completion, validation, and status
+remain per item.
 
 The default apply policy is conservative:
 
@@ -50,7 +52,7 @@ Example:
   {:enabled true
    :agent-id "ygg-auto"
    :lease-minutes 10
-   :max-items-per-run 1
+   :max-items-per-run 8
    :max-failures-per-run 3
    :apply {:mode :complete-only}
 
@@ -110,11 +112,18 @@ ygg init . --project my-project --out project.edn --maintenance openrouter
 ```
 
 Command harness executors are called with `--work <input.json> --result
-<result.json>` appended to the configured command. The harness must write a
-valid JSON result to the result path. Executor `:reasoning` defaults to
-`:medium` and supports `:low`, `:medium`, `:high`, and `:xhigh`. Command
-harnesses receive the normalized value as `YGG_MAINTENANCE_REASONING`; the Codex
-wrapper maps it to `model_reasoning_effort` and still allows a last-mile
+<result.json>` appended to the configured command. The work file is either one
+`ygg.index-maintenance.command-work/v1` item or one
+`ygg.index-maintenance.command-work-batch/v1` envelope. Batch results must use
+`ygg.index-maintenance.command-work-result-batch/v1` with one
+`{:workItemId ..., :result ...}` row per batch item. The worker stores the
+shared batch artifact paths on each claimed item result, then completes and
+validates each queue row independently.
+
+Executor `:reasoning` defaults to `:medium` and supports `:low`, `:medium`,
+`:high`, and `:xhigh`. Command harnesses receive the normalized value as
+`YGG_MAINTENANCE_REASONING`; the Codex wrapper maps it to
+`model_reasoning_effort` and still allows a last-mile
 `YGG_CODEX_MAINTENANCE_REASONING` override.
 
 Maintenance packets carry first-class `:instructions`, `:expectedResultSchema`,

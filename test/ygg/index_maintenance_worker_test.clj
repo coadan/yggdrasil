@@ -66,14 +66,18 @@
                             :project-id "demo"})
            [:item :id])))
 
-(defn- valid-result
-  []
+(defn- valid-result-for
+  [decision-id]
   {:schema decision-classifier/schema
-   :decisionId "maintenance-decision:test"
+   :decisionId decision-id
    :recommendation "investigate"
    :confidence 0.7
    :reason "Evidence is insufficient for an automatic correction patch."
    :correctionPatch []})
+
+(defn- valid-result
+  []
+  (valid-result-for "maintenance-decision:test"))
 
 (defn- valid-batch-result
   [payload]
@@ -293,6 +297,66 @@
         (is (= "done" (get-in (queue/find-item queue-root work-id)
                               [:item :status])))))))
 
+(deftest command-harness-worker-batches-ready-work-items
+  (let [root (temp-dir "ygg-index-maintenance-worker-command-batch")
+        queue-root (project-queue-root root)
+        project (project-config
+                 root
+                 {:enabled true
+                  :report-dir "reports"
+                  :max-items-per-run 3
+                  :executors [{:id "codex"
+                               :type :command-harness
+                               :command ["codex-maintenance"]
+                               :kinds #{:maintenance-decision}}]})
+        work-ids [(enqueue-decision! queue-root "first")
+                  (enqueue-decision! queue-root "second")
+                  (enqueue-decision! queue-root "third")]
+        invocations* (atom [])]
+    (binding [index-maintenance-worker/*deps*
+              {:command-runner (fn [{:keys [argv]}]
+                                 (let [work-input (read-json (nth argv (- (count argv) 3)))
+                                       result-path (last argv)]
+                                   (swap! invocations* conj {:argv argv
+                                                             :work-input work-input})
+                                   (spit result-path
+                                         (json/write-json-str
+                                          {:schema index-maintenance-worker/command-work-result-batch-schema
+                                           :results (mapv (fn [item]
+                                                            {:workItemId (get-in item [:workItem :id])
+                                                             :result (valid-result-for
+                                                                      (get-in item [:payload :decisionId]))})
+                                                          (:items work-input))})))
+                                 {:exit 0 :out "" :err ""})}]
+      (let [result (index-maintenance-worker/run! project)
+            invocation (first @invocations*)
+            work-input (:work-input invocation)
+            artifact-paths (set (map #(get-in % [:artifacts :work])
+                                     (:items result)))]
+        (is (= 1 (count @invocations*)))
+        (is (= index-maintenance-worker/command-work-batch-schema
+               (:schema work-input)))
+        (is (= work-ids
+               (mapv #(get-in % [:workItem :id]) (:items work-input))))
+        (is (= ["codex-maintenance" "--work"
+                (nth (:argv invocation) 2)
+                "--result"
+                (last (:argv invocation))]
+               (:argv invocation)))
+        (is (= "completed" (:status result)))
+        (is (= {:claimed 3
+                :completed 3
+                :failed 0
+                :executor-failures 0
+                :validated 3}
+               (:counts result)))
+        (is (= 1 (count artifact-paths)))
+        (doseq [work-id work-ids]
+          (is (= "done" (get-in (queue/find-item queue-root work-id)
+                                [:item :status]))))
+        (is (= ["valid" "valid" "valid"]
+               (mapv #(get-in % [:validation :status]) (:items result))))))))
+
 (deftest codex-maintenance-script-supports-empty-bash-arrays
   (let [root (temp-dir "ygg-codex-maintenance-script")
         bin-dir (io/file root "bin")
@@ -434,29 +498,34 @@
     (binding [index-maintenance-worker/*deps*
               {:command-runner (fn [{:keys [argv]}]
                                  (let [work-input (read-json (nth argv (- (count argv) 3)))
-                                       result-path (last argv)
-                                       payload (:payload work-input)]
+                                       result-path (last argv)]
                                    (swap! work-inputs* conj work-input)
                                    (spit result-path
                                          (json/write-json-str
-                                          (valid-review-result payload))))
+                                          {:schema index-maintenance-worker/command-work-result-batch-schema
+                                           :results (mapv (fn [item]
+                                                            {:workItemId (get-in item [:workItem :id])
+                                                             :result (valid-review-result (:payload item))})
+                                                          (:items work-input))})))
                                  {:exit 0 :out "" :err ""})}]
       (let [result (index-maintenance-worker/run! project)
+            work-input (first @work-inputs*)
             by-kind (into {}
                           (map (juxt #(get-in % [:workItem :kind]) identity))
-                          @work-inputs*)]
+                          (:items work-input))]
+        (is (= 1 (count @work-inputs*)))
+        (is (= index-maintenance-worker/command-work-batch-schema
+               (:schema work-input)))
         (is (= "completed" (:status result)))
         (is (= "done" (get-in (queue/find-item queue-root infra-id)
                               [:item :status])))
         (is (= "done" (get-in (queue/find-item queue-root dependency-id)
                               [:item :status])))
         (doseq [kind [infra-review/work-kind dependency-review/work-kind]]
-          (let [work-input (get by-kind kind)]
-            (is (= index-maintenance-worker/command-work-schema
-                   (:schema work-input)))
-            (is (nil? (get-in work-input [:payload :messages])))
-            (is (= 2 (get-in work-input [:payload :omitted :messages])))
-            (is (= true (get-in work-input [:fullPayload :storedInQueue])))))
+          (let [batch-item (get by-kind kind)]
+            (is (nil? (get-in batch-item [:payload :messages])))
+            (is (= 2 (get-in batch-item [:payload :omitted :messages])))
+            (is (= true (get-in batch-item [:fullPayload :storedInQueue])))))
         (is (= infra-review/packet-schema
                (get-in by-kind [infra-review/work-kind :payload :schema])))
         (is (= dependency-review/packet-schema
