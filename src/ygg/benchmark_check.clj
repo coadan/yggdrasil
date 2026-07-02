@@ -27,6 +27,8 @@
                  [:max-noise-at-20 :maxNoiseRatioAt20]
                  [:min-evidence-citation-rate :minEvidenceCitationRate]
                  [:min-path-evidence-citation-rate :minPathEvidenceCitationRate]
+                 [:min-expected-evidence-citation-rate
+                  :minExpectedEvidenceCitationRate]
                  [:min-decision-f1 :minDecisionF1]
                  [:min-decision-evidence-citation-rate
                   :minDecisionEvidenceCitationRate]
@@ -41,6 +43,8 @@
                  [:min-case-evidence-citation-rate :minCaseEvidenceCitationRate]
                  [:min-case-path-evidence-citation-rate
                   :minCasePathEvidenceCitationRate]
+                 [:min-case-expected-evidence-citation-rate
+                  :minCaseExpectedEvidenceCitationRate]
                  [:min-case-decision-f1 :minCaseDecisionF1]
                  [:max-case-total-tokens :maxCaseTotalTokens]
                  [:max-case-input-tokens :maxCaseInputTokens]
@@ -232,6 +236,9 @@
                 [:minCasePathEvidenceCitationRate
                  :pathEvidenceCitationRate
                  "case.pathEvidenceCitationRate"]
+                [:minCaseExpectedEvidenceCitationRate
+                 :expectedEvidenceCitationRate
+                 "case.expectedEvidenceCitationRate"]
                 [:minCaseDecisionF1
                  :decisionF1
                  "case.decisionF1"]])
@@ -679,6 +686,7 @@
    :noiseRatioAt20
    :evidenceCitationRate
    :pathEvidenceCitationRate
+   :expectedEvidenceCitationRate
    :decisionRecall
    :decisionPrecision
    :decisionF1
@@ -772,6 +780,9 @@
                           [:minPathEvidenceCitationRate
                            :pathEvidenceCitationRate
                            "pathEvidenceCitationRate"]
+                          [:minExpectedEvidenceCitationRate
+                           :expectedEvidenceCitationRate
+                           "expectedEvidenceCitationRate"]
                           [:minDecisionF1
                            :decisionF1
                            "decisionF1"]

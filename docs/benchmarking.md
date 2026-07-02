@@ -44,6 +44,16 @@ baseline regeneration but still rejects missing, stale, unverified, graph-failin
 maintained-graph-blocked, or per-case estimated context-packet token-budget
 violating score artifacts. If artifacts predate deterministic baseline token
 estimates, run the full gate once before using check-only mode for token claims.
+
+Use `bb bench:claim-quick` for the small non-synthetic claim-readiness lane.
+It runs `benchmarks/historical-replay-claim-quick.edn`, stores artifacts under
+`.dev/ygg/claim-quick-gate`, and gates expected evidence with
+`--min-expected-evidence-citation-rate 0.80` and
+`--min-case-expected-evidence-citation-rate 0.50` by default. It keeps the
+standard recall floors and uses `--min-mrr 0.30` because the lane checks
+historical claim-readiness rather than synthetic exact-rank behavior. The full
+historical replay remains the authoritative claim lane.
+
 If a checkout exists only under the legacy `.dev/oss-test-cases/repos/` cache,
 the preflight reports that path so it can be moved or symlinked into the common
 cache without committing generated files.
@@ -242,7 +252,7 @@ bb bench agent-run benchmark.edn --agent codex --command 'codex -a never exec --
 bb bench agent-score benchmark.edn --case penpot-example --result agent-result.json
 bb bench agent-report benchmark.edn
 bb bench improve benchmark.edn --mode ygg --agent ygg-baseline-auto --out .dev/reports/bench
-bb bench agent-check benchmark.edn --mode ygg --agent ygg-baseline-auto --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --min-evidence-citation-rate 1.0 --min-path-evidence-citation-rate 1.0 --min-case-evidence-citation-rate 1.0 --min-case-path-evidence-citation-rate 1.0 --max-total-tokens 120000 --max-case-total-tokens 30000 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
+bb bench agent-check benchmark.edn --mode ygg --agent ygg-baseline-auto --min-cases 4 --min-runs 4 --min-file-recall-at-10 1.0 --min-case-file-recall-at-10 1.0 --min-mrr 1.0 --min-case-mrr 1.0 --min-evidence-citation-rate 1.0 --min-path-evidence-citation-rate 1.0 --min-expected-evidence-citation-rate 1.0 --min-case-evidence-citation-rate 1.0 --min-case-path-evidence-citation-rate 1.0 --min-case-expected-evidence-citation-rate 1.0 --max-total-tokens 120000 --max-case-total-tokens 30000 --max-noise-at-20 0.5 --max-case-noise-at-20 0.75
 bb bench agent-check benchmarks/decision-quality-pilot.edn --mode ygg --agent codex --min-decision-f1 0.8 --min-case-decision-f1 0.6 --min-decision-evidence-citation-rate 0.8 --max-missing-decision-runs 0
 bb bench agent-compare benchmark.edn --baseline-report .dev/ygg/bench-before/agent-report.json --candidate-report .dev/ygg/bench-after/agent-report.json
 bb bench claim-pack benchmark.edn --shell-report .dev/ygg/agent-efficiency/shell-only/agent-report.json --ygg-report .dev/ygg/agent-efficiency/ygg/agent-report.json --out .dev/reports/claim-pack
@@ -491,9 +501,11 @@ plugin-fit choice, not just a shorter suspected-file list.
   `--min-case-file-recall-at-10`, `--min-case-file-recall-at-20`, `--min-mrr`,
   `--min-case-mrr`, `--min-evidence-citation-rate`,
   `--min-path-evidence-citation-rate`,
+  `--min-expected-evidence-citation-rate`,
   `--min-decision-f1`, `--min-decision-evidence-citation-rate`,
   `--min-case-evidence-citation-rate`,
-  `--min-case-path-evidence-citation-rate`, `--min-case-decision-f1`,
+  `--min-case-path-evidence-citation-rate`,
+  `--min-case-expected-evidence-citation-rate`, `--min-case-decision-f1`,
   `--max-total-tokens`, `--max-input-tokens`, `--max-output-tokens`,
   `--max-cost-usd`, `--max-case-total-tokens`,
   `--max-case-input-tokens`, `--max-case-output-tokens`,
@@ -964,6 +976,8 @@ ground truth remains a single-repo shorthand.
   cited by the agent result evidence strings. Path-bearing expectation rows
   require a matching path citation; rows without a path fall back to the declared
   label. The metric is emitted only for cases that declare expectation evidence.
+  Gate it with `--min-expected-evidence-citation-rate` and
+  `--min-case-expected-evidence-citation-rate`.
 - `expectationDiagnostics`: report-level and grouped counters showing how many
   runs declared expected evidence and how many had scored
   `expectedEvidenceCitationRate` metrics. Claim readiness requires at least one

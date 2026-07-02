@@ -22,6 +22,14 @@ Options:
   --fts-candidate-limit N
                       Candidate limit for the SQLite FTS lane.
   --fts-weight N      Source weight for the SQLite FTS lane.
+  --min-file-recall-at-5 N
+                      Minimum aggregate file recall@5. Default: 0.60.
+  --min-file-recall-at-10 N
+                      Minimum aggregate file recall@10. Default: 0.60.
+  --min-file-recall-at-20 N
+                      Minimum aggregate file recall@20. Default: 0.80.
+  --min-mrr N         Minimum aggregate file MRR. Default: 0.50.
+  --max-noise-at-20 N Maximum aggregate noise@20. Default: 0.90.
   --provider PROVIDER Embedding provider for semantic/hybrid retrievers.
   --model MODEL       Embedding model for semantic/hybrid retrievers.
   --batch-size N      Embedding batch size for semantic/hybrid retrievers.
@@ -43,6 +51,10 @@ Options:
                       Fail if a case stage current/baseline ratio exceeds this value.
   --max-total-stage-regression-ratio N
                       Fail if an aggregate stage current/baseline ratio exceeds this value.
+  --min-expected-evidence-citation-rate N
+                      Fail if aggregate expected-evidence citation rate is below N.
+  --min-case-expected-evidence-citation-rate N
+                      Fail if any case expected-evidence citation rate is below N.
   --min-stage-regression-ms N
                       Ignore timing deltas at or below this ms floor.
   --stage NAME        Limit stage timing checks to one stage. May be repeated.
@@ -67,6 +79,11 @@ sqlite_fts=false
 diversity_rerank_limit=""
 fts_candidate_limit=""
 fts_weight=""
+min_file_recall_at_5="0.60"
+min_file_recall_at_10="0.60"
+min_file_recall_at_20="0.80"
+min_mrr="0.50"
+max_noise_at_20="0.90"
 provider=""
 model=""
 batch_size=""
@@ -81,6 +98,8 @@ max_case_stage_regression_ms=""
 max_total_stage_regression_ms=""
 max_case_stage_regression_ratio=""
 max_total_stage_regression_ratio=""
+min_expected_evidence_citation_rate=""
+min_case_expected_evidence_citation_rate=""
 min_stage_regression_ms=""
 stage_filters=()
 stage_filter_count=0
@@ -131,6 +150,26 @@ while [[ $# -gt 0 ]]; do
       ;;
     --fts-weight)
       fts_weight="$2"
+      shift 2
+      ;;
+    --min-file-recall-at-5)
+      min_file_recall_at_5="$2"
+      shift 2
+      ;;
+    --min-file-recall-at-10)
+      min_file_recall_at_10="$2"
+      shift 2
+      ;;
+    --min-file-recall-at-20)
+      min_file_recall_at_20="$2"
+      shift 2
+      ;;
+    --min-mrr)
+      min_mrr="$2"
+      shift 2
+      ;;
+    --max-noise-at-20)
+      max_noise_at_20="$2"
       shift 2
       ;;
     --provider)
@@ -184,6 +223,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --max-total-stage-regression-ratio)
       max_total_stage_regression_ratio="$2"
+      shift 2
+      ;;
+    --min-expected-evidence-citation-rate)
+      min_expected_evidence_citation_rate="$2"
+      shift 2
+      ;;
+    --min-case-expected-evidence-citation-rate)
+      min_case_expected_evidence_citation_rate="$2"
       shift 2
       ;;
     --min-stage-regression-ms)
@@ -310,22 +357,31 @@ if [[ -n "$fts_weight" ]]; then
   agent_id="$agent_id-ftsw-$fts_weight"
 fi
 
-run_bench agent-check \
-  --mode ygg \
-  --agent "$agent_id" \
-  --min-cases "$min_count" \
-  --min-runs "$min_count" \
-  --min-file-recall-at-5 0.60 \
-  --min-file-recall-at-10 0.60 \
-  --min-file-recall-at-20 0.80 \
-  --min-mrr 0.50 \
-  --max-noise-at-20 0.90 \
-  --max-graph-expectation-failures 0 \
-  --max-maintenance-preflight-blockers 0 \
-  --max-case-total-tokens 24000 \
-  --max-input-hinted-cases 0 \
-  --max-unverified-score-runs 0 \
+agent_check_args=(
+  --mode ygg
+  --agent "$agent_id"
+  --min-cases "$min_count"
+  --min-runs "$min_count"
+  --min-file-recall-at-5 "$min_file_recall_at_5"
+  --min-file-recall-at-10 "$min_file_recall_at_10"
+  --min-file-recall-at-20 "$min_file_recall_at_20"
+  --min-mrr "$min_mrr"
+  --max-noise-at-20 "$max_noise_at_20"
+  --max-graph-expectation-failures 0
+  --max-maintenance-preflight-blockers 0
+  --max-case-total-tokens 24000
+  --max-input-hinted-cases 0
+  --max-unverified-score-runs 0
   --out "$out"
+)
+if [[ -n "$min_expected_evidence_citation_rate" ]]; then
+  agent_check_args+=(--min-expected-evidence-citation-rate "$min_expected_evidence_citation_rate")
+fi
+if [[ -n "$min_case_expected_evidence_citation_rate" ]]; then
+  agent_check_args+=(--min-case-expected-evidence-citation-rate "$min_case_expected_evidence_citation_rate")
+fi
+
+run_bench agent-check "${agent_check_args[@]}"
 
 stage_time_configured=false
 if [[ "$stage_time_baseline_report_count" -gt 0 \

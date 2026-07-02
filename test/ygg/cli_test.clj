@@ -146,8 +146,10 @@
     (is (str/includes? usage "--cases ID,ID"))
     (is (str/includes? usage "--min-evidence-citation-rate N"))
     (is (str/includes? usage "--min-path-evidence-citation-rate N"))
+    (is (str/includes? usage "--min-expected-evidence-citation-rate N"))
     (is (str/includes? usage "--min-case-evidence-citation-rate N"))
     (is (str/includes? usage "--min-case-path-evidence-citation-rate N"))
+    (is (str/includes? usage "--min-case-expected-evidence-citation-rate N"))
     (is (str/includes? usage "--max-commandless-runs N"))
     (is (str/includes? usage "--max-missing-predicted-file-runs N"))
     (is (str/includes? usage "--max-warning-runs N"))
@@ -2140,6 +2142,7 @@
                                  "--max-noise-at-20" "0.5"
                                  "--min-evidence-citation-rate" "0.8"
                                  "--min-path-evidence-citation-rate" "0.6"
+                                 "--min-expected-evidence-citation-rate" "0.7"
                                  "--min-decision-f1" "0.75"
                                  "--min-decision-evidence-citation-rate" "0.65"
                                  "--max-total-tokens" "10000"
@@ -2150,6 +2153,7 @@
                                  "--min-case-mrr" "0.9"
                                  "--min-case-evidence-citation-rate" "0.7"
                                  "--min-case-path-evidence-citation-rate" "0.55"
+                                 "--min-case-expected-evidence-citation-rate" "0.45"
                                  "--min-case-decision-f1" "0.5"
                                  "--max-case-total-tokens" "4000"
                                  "--max-case-input-tokens" "3200"
@@ -2201,6 +2205,7 @@
                   :max-noise-at-20 0.5
                   :min-evidence-citation-rate 0.8
                   :min-path-evidence-citation-rate 0.6
+                  :min-expected-evidence-citation-rate 0.7
                   :min-decision-f1 0.75
                   :min-decision-evidence-citation-rate 0.65
                   :max-total-tokens 10000.0
@@ -2211,6 +2216,7 @@
                   :min-case-mrr 0.9
                   :min-case-evidence-citation-rate 0.7
                   :min-case-path-evidence-citation-rate 0.55
+                  :min-case-expected-evidence-citation-rate 0.45
                   :min-case-decision-f1 0.5
                   :max-case-total-tokens 4000.0
                   :max-case-input-tokens 3200.0

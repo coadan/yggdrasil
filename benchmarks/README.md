@@ -56,11 +56,16 @@ selector over curated historical cases that define `:expectations
 {:citation-evidence ...}`:
 
 ```sh
-bb bench repos check --suite benchmarks/historical-replay-claim-quick.edn
-bb agent-efficiency all \
-  --suite benchmarks/historical-replay-claim-quick.edn \
-  --out .dev/ygg/agent-efficiency/historical-replay-claim-quick
+bb bench:claim-quick --setup-check
+bb bench:claim-quick --skip-existing
 ```
+
+`bb bench:claim-quick` uses the deterministic Yggdrasil baseline, stores
+artifacts under `.dev/ygg/claim-quick-gate`, and gates expected-evidence
+citation coverage with an aggregate floor of `0.80` and per-case floor of
+`0.50`. It keeps the regular recall floors and uses a non-synthetic readiness
+MRR floor of `0.30`; the full historical replay remains the authoritative claim
+lane.
 
 Use the task-category lane to test should-win planning, implementation, and
 review/decision tasks as separate measured problem classes. Should-win cases

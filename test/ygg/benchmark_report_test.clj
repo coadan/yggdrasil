@@ -1836,6 +1836,7 @@
                          :noiseRatioAt20 0.75
                          :evidenceCitationRate 0.25
                          :pathEvidenceCitationRate 0.0
+                         :expectedEvidenceCitationRate 0.0
                          :unsupportedGroundTruthFiles 1}
                 :parserWorkers [{:mode "all"
                                  :source "option"
@@ -1949,7 +1950,8 @@
                                     :meanReciprocalRankFile 0.5
                                     :noiseRatioAt20 0.75
                                     :evidenceCitationRate 0.25
-                                    :pathEvidenceCitationRate 0.0}}]}
+                                    :pathEvidenceCitationRate 0.0
+                                    :expectedEvidenceCitationRate 0.0}}]}
         failed (benchmark/check-agent-report
                 report
                 {:min-cases 3
@@ -1959,10 +1961,12 @@
                  :max-noise-at-20 0.5
                  :min-evidence-citation-rate 0.9
                  :min-path-evidence-citation-rate 0.9
+                 :min-expected-evidence-citation-rate 0.9
                  :min-case-file-recall-at-10 0.9
                  :min-case-mrr 0.8
                  :min-case-evidence-citation-rate 0.9
                  :min-case-path-evidence-citation-rate 0.9
+                 :min-case-expected-evidence-citation-rate 0.9
                  :max-case-noise-at-20 0.5
                  :max-input-hinted-cases 0
                  :max-unsupported-ground-truth-files 0
@@ -2030,10 +2034,12 @@
                  :max-noise-at-20 0.75
                  :min-evidence-citation-rate 0.25
                  :min-path-evidence-citation-rate 0.0
+                 :min-expected-evidence-citation-rate 0.0
                  :min-case-file-recall-at-10 0.75
                  :min-case-mrr 0.5
                  :min-case-evidence-citation-rate 0.25
                  :min-case-path-evidence-citation-rate 0.0
+                 :min-case-expected-evidence-citation-rate 0.0
                  :max-case-noise-at-20 0.75
                  :max-input-hinted-cases 1
                  :max-unsupported-ground-truth-files 1
@@ -2071,10 +2077,12 @@
              "noiseRatioAt20"
              "evidenceCitationRate"
              "pathEvidenceCitationRate"
+             "expectedEvidenceCitationRate"
              "case.fileRecallAt10"
              "case.meanReciprocalRankFile"
              "case.evidenceCitationRate"
              "case.pathEvidenceCitationRate"
+             "case.expectedEvidenceCitationRate"
              "case.noiseRatioAt20"
              "inputHintedCases"
              "unsupportedGroundTruthFiles"
@@ -2121,6 +2129,7 @@
                    "case.meanReciprocalRankFile"
                    "case.evidenceCitationRate"
                    "case.pathEvidenceCitationRate"
+                   "case.expectedEvidenceCitationRate"
                    "case.noiseRatioAt20"
                    "case.graphExpectations"
                    "maintenancePreflightBlockers"
@@ -2158,7 +2167,8 @@
             :meanReciprocalRankFile 0.5
             :noiseRatioAt20 0.75
             :evidenceCitationRate 0.25
-            :pathEvidenceCitationRate 0.0}
+            :pathEvidenceCitationRate 0.0
+            :expectedEvidenceCitationRate 0.0}
            (get-in failed [:caseDiagnostics 0 :scores])))
     (is (= {:case-id "case-2"
             :status "missing"}
@@ -2181,10 +2191,12 @@
             :maxNoiseRatioAt20 0.5
             :minEvidenceCitationRate 0.9
             :minPathEvidenceCitationRate 0.9
+            :minExpectedEvidenceCitationRate 0.9
             :minCaseFileRecallAt10 0.9
             :minCaseMeanReciprocalRankFile 0.8
             :minCaseEvidenceCitationRate 0.9
             :minCasePathEvidenceCitationRate 0.9
+            :minCaseExpectedEvidenceCitationRate 0.9
             :maxCaseNoiseRatioAt20 0.5
             :maxInputHintedCases 0.0
             :maxUnsupportedGroundTruthFiles 0.0

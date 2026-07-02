@@ -11,6 +11,10 @@
   [& args]
   (apply shell/sh "bash" "scripts/benchmark-gate.sh" args))
 
+(defn- run-claim-quick-gate
+  [& args]
+  (apply shell/sh "bash" "scripts/claim-quick-gate.sh" args))
+
 (defn- output-lines
   [result]
   (->> (:out result)
@@ -160,6 +164,55 @@
     (is (str/includes? (:out result) "--stage-time-baseline-report"))
     (is (str/includes? (:out result) "--retriever MODE"))
     (is (str/includes? (:out result) "current artifacts already"))))
+
+(deftest claim-quick-dry-run-uses-claim-suite-and-expected-evidence-gates
+  (let [result (run-claim-quick-gate "--dry-run")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 3 (count lines)))
+    (is (str/includes? (nth lines 0)
+                       "bb bench repos check --manifest benchmarks/repos.edn --suite benchmarks/historical-replay-claim-quick.edn"))
+    (is (str/includes? (nth lines 1)
+                       "bench agent-baseline benchmarks/historical-replay-claim-quick.edn"))
+    (is (str/includes? (nth lines 1)
+                       "--out .dev/ygg/claim-quick-gate"))
+    (is (str/includes? (nth lines 2)
+                       "bench agent-check benchmarks/historical-replay-claim-quick.edn"))
+    (is (str/includes? (nth lines 2)
+                       "--min-mrr 0.30"))
+    (is (str/includes? (nth lines 2)
+                       "--min-expected-evidence-citation-rate 0.80"))
+    (is (str/includes? (nth lines 2)
+                       "--min-case-expected-evidence-citation-rate 0.50"))))
+
+(deftest claim-quick-dry-run-allows-threshold-overrides
+  (let [result (run-claim-quick-gate "--dry-run"
+                                     "--min-expected-evidence-citation-rate"
+                                     "0.5"
+                                     "--min-case-expected-evidence-citation-rate"
+                                     "0.25")
+        check-line (last (output-lines result))]
+    (is (= 0 (:exit result)))
+    (is (str/includes? check-line
+                       "--min-expected-evidence-citation-rate 0.5"))
+    (is (str/includes? check-line
+                       "--min-case-expected-evidence-citation-rate 0.25"))
+    (is (not (str/includes? check-line
+                            "--min-expected-evidence-citation-rate 1.0")))
+    (is (not (str/includes? check-line
+                            "--min-case-expected-evidence-citation-rate 1.0")))))
+
+(deftest claim-quick-help-documents-defaults
+  (let [result (run-claim-quick-gate "--help")]
+    (is (= 0 (:exit result)))
+    (is (str/includes? (:out result)
+                       "benchmarks/historical-replay-claim-quick.edn"))
+    (is (str/includes? (:out result)
+                       "--min-mrr 0.30"))
+    (is (str/includes? (:out result)
+                       "--min-expected-evidence-citation-rate 0.80"))
+    (is (str/includes? (:out result)
+                       "--min-case-expected-evidence-citation-rate 0.50"))))
 
 (deftest dry-run-runs-stage-time-gate-when-threshold-is-set
   (let [result (run-gate "--dry-run"

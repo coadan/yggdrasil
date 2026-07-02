@@ -172,6 +172,11 @@
                                                                       (parse-optional-double
                                                                        args
                                                                        "--min-path-evidence-citation-rate"))
+    (parse-optional-double args "--min-expected-evidence-citation-rate") (assoc
+                                                                          :min-expected-evidence-citation-rate
+                                                                          (parse-optional-double
+                                                                           args
+                                                                           "--min-expected-evidence-citation-rate"))
     (parse-optional-double args "--min-decision-f1") (assoc
                                                       :min-decision-f1
                                                       (parse-optional-double
@@ -231,6 +236,11 @@
                                                                            (parse-optional-double
                                                                             args
                                                                             "--min-case-path-evidence-citation-rate"))
+    (parse-optional-double args "--min-case-expected-evidence-citation-rate")
+    (assoc :min-case-expected-evidence-citation-rate
+           (parse-optional-double
+            args
+            "--min-case-expected-evidence-citation-rate"))
     (parse-optional-double args "--min-case-decision-f1") (assoc
                                                            :min-case-decision-f1
                                                            (parse-optional-double
@@ -633,6 +643,9 @@
                (format "%.2f" (double (get-in result [:scores :meanReciprocalRankFile] 0.0))))
       (println "- evidence-citation"
                (format "%.2f" (double (get-in result [:scores :evidenceCitationRate] 0.0))))
+      (when-some [rate (get-in result [:scores :expectedEvidenceCitationRate])]
+        (println "- expected-evidence-citation"
+                 (format "%.2f" (double rate))))
       (print-parser-worker-summary (:parserWorkers result))
       (print-agent-diagnostics-summary (:agentDiagnostics result))
       (print-decision-diagnostics-summary (:decisionDiagnostics result))
@@ -722,6 +735,9 @@
                (format "%.2f" (double (get-in result
                                               [:report :scores :evidenceCitationRate]
                                               0.0))))
+      (when-some [rate (get-in result [:report :scores :expectedEvidenceCitationRate])]
+        (println "- expected-evidence-citation"
+                 (format "%.2f" (double rate))))
       (print-parser-worker-summary (get-in result [:report :parserWorkers]))
       (print-agent-diagnostics-summary (get-in result [:report :agentDiagnostics]))
       (print-decision-diagnostics-summary (get-in result [:report :decisionDiagnostics]))
