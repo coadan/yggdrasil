@@ -549,6 +549,13 @@ plugin-fit choice, not just a shorter suspected-file list.
   Token budget gates require agent result `tokenUsage`; if token usage is absent
   and a token gate is configured, `agent-check` fails instead of treating the
   missing measurement as zero.
+- `bb stage-time-gate REPORT... [--out stage-time-gate.json]` reads agent
+  reports and emits a replayable timing profile even when no thresholds are
+  configured. Use `stageTotals` for exact benchmark stages and
+  `stageClassTotals` / `slowestCaseStageClasses` to see whether a full lane is
+  spending time in graph setup, case setup, agent preparation, embeddings,
+  agent execution, or scoring. Add `--baseline-report` to include stage and
+  stage-class deltas against an earlier artifact.
 - `bench claim-pack <suite.edn> --shell-report <path> --ygg-report <path>`
   writes a replayable proof bundle under the benchmark output root:
   `efficiency-summary.json`, `efficiency-summary.md`,

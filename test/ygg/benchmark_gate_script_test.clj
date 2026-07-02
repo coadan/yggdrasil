@@ -77,17 +77,24 @@
     report-path))
 
 (defn- stage-report!
-  [root path {:keys [total-ms case-ms]}]
+  [root path {:keys [stage total-ms case-ms stage-class]
+              :or {stage "index-project"}}]
   (spit-json! root
               path
               {:schema "ygg.benchmark.agent-report/v2"
                :suite-id "fixture"
                :timings {:cases 1
-                         :stageElapsedMs [{:stage "index-project"
-                                           :elapsedMs total-ms}]}
+                         :stageElapsedMs [{:stage stage
+                                           :elapsedMs total-ms}]
+                         :stageTiming
+                         {:classes (cond-> []
+                                     stage-class
+                                     (conj {:stage stage
+                                            :class stage-class
+                                            :elapsedMs total-ms}))}}
                :caseProgress [{:case-id "case-1"
                                :repo-id "fixture-repo"
-                               :stageElapsedMs [{:stage "index-project"
+                               :stageElapsedMs [{:stage stage
                                                  :elapsedMs case-ms}]}]}))
 
 (deftest dry-run-prints-full-strict-gate
@@ -455,3 +462,76 @@
     (is (= "passed" (:status parsed)))
     (is (= 40 (:deltaMs (first (:stageDeltas parsed)))))
     (is (= [] (:failures parsed)))))
+
+(deftest stage-time-gate-aggregates-stage-class-profile
+  (let [root (temp-dir "ygg-stage-time-gate-stage-class-profile")
+        report-path (spit-json!
+                     root
+                     "current.json"
+                     {:schema "ygg.benchmark.agent-report/v2"
+                      :suite-id "fixture"
+                      :timings {:cases 1
+                                :stageElapsedMs [{:stage "index-project"
+                                                  :elapsedMs 1000}
+                                                 {:stage "embed-search-docs"
+                                                  :elapsedMs 700}
+                                                 {:stage "score-agent-result"
+                                                  :elapsedMs 200}
+                                                 {:stage "write-agent-artifacts"
+                                                  :elapsedMs 150}]
+                                :stageTiming
+                                {:classes [{:stage "index-project"
+                                            :class "graph-setup"
+                                            :elapsedMs 1000}
+                                           {:stage "embed-search-docs"
+                                            :class "embedding"
+                                            :elapsedMs 700}
+                                           {:stage "score-agent-result"
+                                            :class "scoring"
+                                            :elapsedMs 200}
+                                           {:stage "write-agent-artifacts"
+                                            :class "agent-preparation"
+                                            :elapsedMs 150}]}}
+                      :caseProgress [{:case-id "case-1"
+                                      :repo-id "fixture-repo"
+                                      :stageElapsedMs [{:stage "index-project"
+                                                        :elapsedMs 500}
+                                                       {:stage "embed-search-docs"
+                                                        :elapsedMs 350}
+                                                       {:stage "score-agent-result"
+                                                        :elapsedMs 100}
+                                                       {:stage "write-agent-artifacts"
+                                                        :elapsedMs 75}]}]})
+        result (run-stage-gate report-path)
+        parsed (json/read-json (:out result) :key-fn keyword)
+        totals-by-class (into {}
+                              (map (juxt :stageClass :elapsedMs))
+                              (:stageClassTotals parsed))
+        case-totals-by-class (into {}
+                                   (map (juxt :stageClass :elapsedMs))
+                                   (:slowestCaseStageClasses parsed))]
+    (is (= 0 (:exit result)) (:out result))
+    (is (= "passed" (:status parsed)))
+    (is (= {"graph-setup" 1000
+            "embedding" 700
+            "scoring" 200
+            "agent-preparation" 150}
+           totals-by-class))
+    (is (= {"graph-setup" 500
+            "embedding" 350
+            "scoring" 100
+            "agent-preparation" 75}
+           case-totals-by-class))))
+
+(deftest stage-time-gate-falls-back-to-mechanical-stage-classes
+  (let [root (temp-dir "ygg-stage-time-gate-stage-class-fallback")
+        report-path (stage-report! root
+                                   "current.json"
+                                   {:stage "embed-search-docs"
+                                    :total-ms 700
+                                    :case-ms 350})
+        result (run-stage-gate report-path)
+        parsed (json/read-json (:out result) :key-fn keyword)]
+    (is (= 0 (:exit result)) (:out result))
+    (is (= "embedding" (:stageClass (first (:stageClassTotals parsed)))))
+    (is (= "embedding" (:stageClass (first (:slowestCaseStageClasses parsed)))))))

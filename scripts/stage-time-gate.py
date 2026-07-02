@@ -8,6 +8,34 @@ import sys
 
 GATE_SCHEMA = "ygg.dev.stage-time-gate/v1"
 
+GRAPH_SETUP_STAGES = {
+    "index-project",
+    "infer-project",
+    "prepare-graph-index",
+}
+CASE_SETUP_STAGES = {
+    "prepare-worktree",
+    "prepare-ground-truth",
+    "write-prepared-case",
+}
+AGENT_PREPARATION_STAGES = {
+    "context-packet",
+    "context-related-files",
+    "reuse-agent-artifacts",
+    "write-agent-artifacts",
+    "write-agent-project",
+}
+EMBEDDING_STAGES = {
+    "embedding-provider-targets",
+    "embed-search-docs",
+}
+AGENT_EXECUTION_STAGES = {
+    "agent-result",
+}
+SCORING_STAGES = {
+    "score-agent-result",
+}
+
 
 def read_json(path):
     with path.open("r", encoding="utf-8") as handle:
@@ -29,7 +57,37 @@ def stage_allowed(stage, allowed_stages):
     return not allowed_stages or stage in allowed_stages
 
 
+def fallback_stage_class(stage):
+    if stage in GRAPH_SETUP_STAGES:
+        return "graph-setup"
+    if stage in CASE_SETUP_STAGES:
+        return "case-setup"
+    if stage in AGENT_PREPARATION_STAGES:
+        return "agent-preparation"
+    if stage in EMBEDDING_STAGES:
+        return "embedding"
+    if stage in AGENT_EXECUTION_STAGES:
+        return "agent-execution"
+    if stage in SCORING_STAGES:
+        return "scoring"
+    return "other"
+
+
+def stage_class_lookup(report):
+    rows = ((report.get("timings") or {}).get("stageTiming") or {}).get("classes") or []
+    return {
+        row.get("stage"): row.get("class")
+        for row in rows
+        if row.get("stage") and row.get("class")
+    }
+
+
+def stage_class(stage, class_by_stage):
+    return class_by_stage.get(stage) or fallback_stage_class(stage)
+
+
 def report_stage_totals(report_path, report, allowed_stages):
+    class_by_stage = stage_class_lookup(report)
     rows = []
     for row in (report.get("timings") or {}).get("stageElapsedMs") or []:
         stage = row.get("stage")
@@ -39,6 +97,7 @@ def report_stage_totals(report_path, report, allowed_stages):
                     "report": str(report_path),
                     "suiteId": report.get("suite-id"),
                     "stage": stage,
+                    "stageClass": stage_class(stage, class_by_stage),
                     "elapsedMs": int(row.get("elapsedMs") or 0),
                 }
             )
@@ -46,6 +105,7 @@ def report_stage_totals(report_path, report, allowed_stages):
 
 
 def report_case_stage_rows(report_path, report, allowed_stages):
+    class_by_stage = stage_class_lookup(report)
     rows = []
     for progress in report.get("caseProgress") or []:
         case_id = progress.get("case-id") or progress.get("caseId")
@@ -60,6 +120,7 @@ def report_case_stage_rows(report_path, report, allowed_stages):
                         "caseId": case_id,
                         "repoId": repo_id,
                         "stage": stage,
+                        "stageClass": stage_class(stage, class_by_stage),
                         "elapsedMs": int(row.get("elapsedMs") or 0),
                     }
                 )
@@ -246,10 +307,32 @@ def check(
         baseline["stageTotals"],
         ["suiteId", "stage"],
     )
+    stage_class_deltas = compared_rows(
+        current["stageTotals"],
+        baseline["stageTotals"],
+        ["suiteId", "stageClass"],
+    )
     case_stage_deltas = compared_rows(
         current["caseStageRows"],
         baseline["caseStageRows"],
         ["suiteId", "caseId", "repoId", "stage"],
+    )
+    case_stage_class_deltas = compared_rows(
+        current["caseStageRows"],
+        baseline["caseStageRows"],
+        ["suiteId", "caseId", "repoId", "stageClass"],
+    )
+    stage_class_totals = list(
+        aggregate_rows(
+            current["stageTotals"],
+            ["report", "suiteId", "stageClass"],
+        ).values()
+    )
+    case_stage_class_totals = list(
+        aggregate_rows(
+            current["caseStageRows"],
+            ["report", "suiteId", "caseId", "repoId", "stageClass"],
+        ).values()
     )
 
     failures.extend(
@@ -293,9 +376,13 @@ def check(
             "minStageRegressionMs": min_regression_ms,
         },
         "stageTotals": slowest(current["stageTotals"], 25),
+        "stageClassTotals": slowest(stage_class_totals, 25),
         "slowestCaseStages": slowest(current["caseStageRows"], 25),
+        "slowestCaseStageClasses": slowest(case_stage_class_totals, 25),
         "stageDeltas": largest_regressions(stage_deltas, 25),
+        "stageClassDeltas": largest_regressions(stage_class_deltas, 25),
         "caseStageDeltas": largest_regressions(case_stage_deltas, 25),
+        "caseStageClassDeltas": largest_regressions(case_stage_class_deltas, 25),
         "failures": failures,
     }
 
