@@ -57,9 +57,14 @@ not exist or are stale, regenerate them with `bb bench:gate`. The gate must pass
 with claim readiness supported, graph expectations passing, and zero maintenance
 preflight blockers.
 
-Use `.dev/` for local XTDB data, caches, and generated reports. Put local plan
-artifacts under `.dev/plans/` and local report artifacts under `.dev/reports/`.
-Do not commit generated graph databases.
+Use `.ygg/` for repo-local Yggdrasil references, hooks, plugins, and other
+repo-local Yggdrasil files. Shared project state is central by project id:
+XTDB, SQLite queues, vector/embedding state, maintenance reports, and other
+cross-repo project data live under `YGG_STORAGE_ROOT` or
+`~/.local/share/ygg/projects/<project-id>/`. Keep local plan artifacts under
+`.dev/plans/`, local ad hoc reports under `.dev/reports/`, and benchmark scratch
+outputs under `.dev/ygg/`. Do not commit generated graph databases or central
+project state.
 
 After finishing a bounded work slice and passing the relevant checks, commit it
 before starting the next slice. Prefer several small, coherent commits over one
@@ -68,16 +73,16 @@ uncertain group with a clear message rather than leaving finished work dirty.
 
 Core commands:
 
-- `bb start`
-- `bb init <repo-root> --project <project-id> --sync`
-- `bb status`
-- `bb sync <project.edn>`
-- `bb sync <project.edn> --check`
-- `bb sync work pull --project <project-id> --agent <agent-id>`
-- `bb query "text" --project <project-id>`
-- `bb view systems --project <project-id>`
-- `bb packages --project <project-id> --json`
-- `bb bench efficiency <shell-agent-report.json> <ygg-agent-report.json> --json`
+- `ygg start`
+- `ygg init <repo-root> --project <project-id> --sync`
+- `ygg status`
+- `ygg sync <project.edn>`
+- `ygg sync <project.edn> --check`
+- `ygg sync work pull --project <project-id> --agent <agent-id>`
+- `ygg query "text" --project <project-id>`
+- `ygg view systems --project <project-id>`
+- `ygg packages --project <project-id> --json`
+- `ygg bench efficiency <shell-agent-report.json> <ygg-agent-report.json> --json`
 - `bb report <project.edn> --out ygg-out`
 - `ygg-mcp --config project.edn`
 - `bb test`
@@ -103,15 +108,15 @@ exists or the user asks to create one. Do not create a root `project.edn` just
 to satisfy agent guidance. If a project config exists, prefer:
 
 ```sh
-bb sync inspect project.edn
-bb sync project.edn --check
+ygg sync inspect project.edn
+ygg sync project.edn --check
 ```
 
-Use `bb query` for graph questions. Plain query commands should rely on the
+Use `ygg query` for graph questions. Plain query commands should rely on the
 default `auto` retriever; pass `--retriever lexical`, `--retriever semantic`, or
 other retriever overrides only for focused debugging and benchmark ablations. Do
 not dump the whole graph into context unless the task explicitly needs broad
-inventory. Use `bb view` only when a rendered or exported graph slice helps.
+inventory. Use `ygg view` only when a rendered or exported graph slice helps.
 
 If sync reports maintenance work, claim one bounded item at a time and inspect
 the evidence. For structured work results, complete the item first, then
@@ -119,9 +124,9 @@ validate or apply it through supported Yggdrasil commands so results stay
 auditable:
 
 ```sh
-bb sync work pull --project <project-id> --agent <agent-id>
-bb sync work complete <work-id> --result result.json
-bb sync work validate <work-id>
+ygg sync work pull --project <project-id> --agent <agent-id>
+ygg sync work complete <work-id> --result result.json
+ygg sync work validate <work-id>
 ```
 
 Prefer small, pure extractors and one store boundary that writes a complete
