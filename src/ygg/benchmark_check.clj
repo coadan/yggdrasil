@@ -63,8 +63,8 @@
                  [:max-identity-mismatch-runs :maxIdentityMismatchRuns]
                  [:max-unverified-score-runs :maxUnverifiedScoreRuns]
                  [:max-graph-expectation-failures :maxGraphExpectationFailures]
-                 [:max-maintenance-preflight-blockers
-                  :maxMaintenancePreflightBlockers]
+                 [:max-benchmark-preflight-blockers
+                  :maxBenchmarkPreflightBlockers]
                  [:max-missing-declared-source-kind-runs :maxMissingDeclaredSourceKindRuns]
                  [:max-missed-runs :maxMissedRuns]
                  [:max-context-rank-missing-runs :maxContextRankMissingRuns]
@@ -597,22 +597,22 @@
                        {:summary (get-in result [:graphExpectations :summary])
                         :message "Graph/evidence/chunk benchmark expectations failed for this run."}))
               failed-results))))))
-(defn- maintenance-preflight-failures
+(defn- benchmark-preflight-failures
   [check]
   (when-some [expected (get-in check
                                [:thresholds
-                                :maxMaintenancePreflightBlockers])]
+                                :maxBenchmarkPreflightBlockers])]
     (let [diagnostics (get-in check
-                              [:report :maintenancePreflightDiagnostics])
+                              [:report :benchmarkPreflightDiagnostics])
           actual (double (:blockedRuns diagnostics 0))]
       (when (> actual expected)
-        [(merge (metric-failure "maintenancePreflightBlockers"
+        [(merge (metric-failure "benchmarkPreflightBlockers"
                                 "<="
                                 expected
                                 actual)
                 {:case-ids (:blockedCaseIds diagnostics)
                  :checks (:checks diagnostics)
-                 :message "Some Yggdrasil-mode runs failed maintained-graph preflight checks required before making claims."})]))))
+                 :message "Some Yggdrasil-mode runs failed benchmark preflight checks required before making claims."})]))))
 (defn- measured-problem-class-count
   [check class-key]
   (count (filter #(= "measured" (:claimStatus %))
@@ -812,7 +812,7 @@
                    (identity-mismatch-run-failures check-base)
                    (unverified-score-failures check-base)
                    (graph-expectation-failures check-base)
-                   (maintenance-preflight-failures check-base)
+                   (benchmark-preflight-failures check-base)
                    (coverage-diagnostic-failures check-base)
                    (improvement-target-failures check-base)
                    (problem-class-claim-failures check-base)

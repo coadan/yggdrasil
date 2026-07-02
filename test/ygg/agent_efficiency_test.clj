@@ -180,7 +180,7 @@
                          :expectedEvidenceCitationMetrics true
                          :decisionQualityMetrics true
                          :commandTelemetry true
-                         :maintenancePreflight true
+                         :benchmarkPreflight true
                          :measuredProblemClasses measured-problem?
                          :measuredArchitectureClasses measured-architecture?}
           :warnings (cond-> []

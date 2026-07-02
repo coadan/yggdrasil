@@ -7,8 +7,8 @@
             [ygg.context :as context]
             [clojure.test :refer [deftest is]]))
 
-(def passing-maintenance-preflight
-  {:schema benchmark-preflight/maintenance-preflight-schema
+(def passing-benchmark-preflight
+  {:schema benchmark-preflight/benchmark-preflight-schema
    :status "passed"
    :checks {:index {:status "passed"
                     :summary {:files 1}}
@@ -23,9 +23,9 @@
                         :validationGaps []
                         :blockingValidationGaps []}}})
 
-(def failing-sync-maintenance-preflight
+(def failing-sync-benchmark-preflight
   (assoc-in
-   (assoc passing-maintenance-preflight :status "failed")
+   (assoc passing-benchmark-preflight :status "failed")
    [:checks :syncCheck]
    {:status "failed"
     :validationGaps [{:plane "dependencies"
@@ -381,7 +381,7 @@
               "audit-scope-trust-boundary"
               "source-skipped-files"
               "graph-expectation-failures"
-              "maintenance-preflight"
+              "benchmark-preflight"
               "commandless-runs"
               "missing-token-usage"
               "warning-runs"
@@ -749,7 +749,7 @@
               "audit-scope-trust-boundary"
               "source-skipped-files"
               "graph-expectation-failures"
-              "maintenance-preflight"
+              "benchmark-preflight"
               "warning-runs"
               "obsolete-agent-result-contract"
               "unverified-score-artifacts"]
@@ -1307,7 +1307,7 @@
                          :case-id case-id
                          :repo-id "repo"
                          :tags tags
-                         :maintenancePreflight passing-maintenance-preflight
+                         :benchmarkPreflight passing-benchmark-preflight
                          :expectations {:evidence [{:kind "architecture-reference"
                                                     :path (str case-id ".clj")}]}
                          :agent {:agentId "codex"
@@ -1403,7 +1403,7 @@
                              :expectedEvidenceCitationMetrics true
                              :decisionQualityMetrics true
                              :commandTelemetry true
-                             :maintenancePreflight true}
+                             :benchmarkPreflight true}
               :warnings ["No measured architecture-class groups; architecture tags are present only below the class-claim threshold or absent."]}
              (:claimReadiness report))))))
 (deftest agent-report-claim-readiness-recognizes-measured-architecture-coverage
@@ -1430,7 +1430,7 @@
                          :case-id case-id
                          :repo-id "repo"
                          :tags tags
-                         :maintenancePreflight passing-maintenance-preflight
+                         :benchmarkPreflight passing-benchmark-preflight
                          :expectations {:evidence [{:kind "architecture-reference"
                                                     :path (str case-id ".clj")}]}
                          :agent {:agentId "codex"
@@ -1483,8 +1483,8 @@
       (is (= []
              (get-in report [:claimReadiness :warnings]))))))
 
-(deftest agent-report-claim-readiness-requires-maintenance-preflight
-  (let [out (temp-dir "ygg-agent-report-maintenance-preflight")
+(deftest agent-report-claim-readiness-requires-benchmark-preflight
+  (let [out (temp-dir "ygg-agent-report-benchmark-preflight")
         suite {:id "suite"
                :cases [{:id "arch-deps-1"
                         :tags [:problem-architecture
@@ -1498,7 +1498,7 @@
                        {:id "audit-docs-2"
                         :tags [:problem-architecture
                                :audit-scope-docs]}]}
-        write-score! (fn [case-id tags maintenance-preflight]
+        write-score! (fn [case-id tags benchmark-preflight]
                        (spit-json!
                         out
                         (str "suite/cases/" case-id "/agent-scores/run.score.json")
@@ -1507,7 +1507,7 @@
                          :case-id case-id
                          :repo-id "repo"
                          :tags tags
-                         :maintenancePreflight maintenance-preflight
+                         :benchmarkPreflight benchmark-preflight
                          :expectations {:evidence [{:kind "architecture-reference"
                                                     :path (str case-id ".clj")}]}
                          :agent {:agentId "codex"
@@ -1537,32 +1537,32 @@
                                   :unsupportedGroundTruthFiles 0}}))]
     (write-score! "arch-deps-1"
                   ["problem-architecture" "architecture-dependency-flow"]
-                  failing-sync-maintenance-preflight)
+                  failing-sync-benchmark-preflight)
     (write-score! "arch-deps-2"
                   ["problem-architecture" "architecture-dependency-flow"]
-                  passing-maintenance-preflight)
+                  passing-benchmark-preflight)
     (write-score! "audit-docs-1"
                   ["problem-architecture" "audit-scope-docs"]
-                  passing-maintenance-preflight)
+                  passing-benchmark-preflight)
     (write-score! "audit-docs-2"
                   ["problem-architecture" "audit-scope-docs"]
-                  passing-maintenance-preflight)
+                  passing-benchmark-preflight)
     (let [report (benchmark/report-agent-suite suite {:out out
                                                       :allow-unverified-scores? true})]
       (is (= "not-supported" (get-in report [:claimReadiness :status])))
       (is (= false
              (get-in report
-                     [:claimReadiness :requirements :maintenancePreflight])))
-      (is (= "failed" (get-in report [:maintenancePreflightDiagnostics :status])))
+                     [:claimReadiness :requirements :benchmarkPreflight])))
+      (is (= "failed" (get-in report [:benchmarkPreflightDiagnostics :status])))
       (is (= ["arch-deps-1"]
-             (get-in report [:maintenancePreflightDiagnostics :failedCaseIds])))
-      (is (= ["Yggdrasil maintenance preflight did not pass; index, inference, graph expectations, hint diagnostics, and sync/check-equivalent status must pass before making maintained-graph claims."]
+             (get-in report [:benchmarkPreflightDiagnostics :failedCaseIds])))
+      (is (= ["Yggdrasil benchmark preflight did not pass; index, inference, graph expectations, hint diagnostics, and sync/check-equivalent status must pass before making benchmark claims."]
              (get-in report [:claimReadiness :warnings])))
       (is (= {:kind "sync-check-gaps"
-              :area "graph-maintenance"
+              :area "benchmark-readiness"
               :runs 1
               :caseIds ["arch-deps-1"]
-              :message "Yggdrasil sync/check-equivalent validation gaps block maintained-graph claims."
+              :message "Yggdrasil sync/check-equivalent validation gaps block benchmark claims."
               :details [{:check "syncCheck"
                          :status "failed"
                          :failedRuns 1
@@ -1602,7 +1602,7 @@
                          :case-id case-id
                          :repo-id "repo"
                          :tags tags
-                         :maintenancePreflight passing-maintenance-preflight
+                         :benchmarkPreflight passing-benchmark-preflight
                          :expectations {:evidence [{:kind "architecture-reference"
                                                     :path (str case-id ".clj")}]}
                          :agent {:agentId "codex"
@@ -1672,7 +1672,7 @@
       :case-id "case-1"
       :repo-id "repo"
       :tags ["problem-architecture" "architecture-dependency-flow"]
-      :maintenancePreflight passing-maintenance-preflight
+      :benchmarkPreflight passing-benchmark-preflight
       :expectations {:citation-evidence [{:kind "runtime-config"
                                           :path "config/runtime.env"}]}
       :agent {:agentId "codex"
@@ -1882,16 +1882,16 @@
                                               :failedCaseIds ["case-1"]
                                               :notRunRuns 0
                                               :notRunCaseIds []}
-                :maintenancePreflightDiagnostics {:status "failed"
-                                                  :runs 1
-                                                  :passedRuns 0
-                                                  :failedRuns 1
-                                                  :blockedRuns 1
-                                                  :blockedCaseIds ["case-1"]
-                                                  :checks [{:check "syncCheck"
-                                                            :status "failed"
-                                                            :failedRuns 1
-                                                            :failedCaseIds ["case-1"]}]}
+                :benchmarkPreflightDiagnostics {:status "failed"
+                                                :runs 1
+                                                :passedRuns 0
+                                                :failedRuns 1
+                                                :blockedRuns 1
+                                                :blockedCaseIds ["case-1"]
+                                                :checks [{:check "syncCheck"
+                                                          :status "failed"
+                                                          :failedRuns 1
+                                                          :failedCaseIds ["case-1"]}]}
                 :localizationDiagnostics {:missedRuns 1
                                           :missedCaseIds ["case-1"]
                                           :contextRankMissingRuns 1
@@ -1978,7 +1978,7 @@
                  :max-identity-mismatch-runs 0
                  :max-unverified-score-runs 0
                  :max-graph-expectation-failures 0
-                 :max-maintenance-preflight-blockers 0
+                 :max-benchmark-preflight-blockers 0
                  :max-missing-declared-source-kind-runs 0
                  :max-missed-runs 0
                  :max-context-rank-missing-runs 0
@@ -2051,7 +2051,7 @@
                  :max-identity-mismatch-runs 1
                  :max-unverified-score-runs 1
                  :max-graph-expectation-failures 1
-                 :max-maintenance-preflight-blockers 1
+                 :max-benchmark-preflight-blockers 1
                  :max-missing-declared-source-kind-runs 1
                  :max-missed-runs 1
                  :max-context-rank-missing-runs 0
@@ -2094,7 +2094,7 @@
              "identityMismatchRuns"
              "unverifiedScoreRuns"
              "graphExpectationFailures"
-             "maintenancePreflightBlockers"
+             "benchmarkPreflightBlockers"
              "missingDeclaredSourceKindRuns"
              "case.graphExpectations"
              "missedRuns"
@@ -2132,7 +2132,7 @@
                    "case.expectedEvidenceCitationRate"
                    "case.noiseRatioAt20"
                    "case.graphExpectations"
-                   "maintenancePreflightBlockers"
+                   "benchmarkPreflightBlockers"
                    "missingPredictedFileRuns"
                    "hintDiagnosticRuns"
                    "contextRankMissingRuns"
@@ -2208,7 +2208,7 @@
             :maxIdentityMismatchRuns 0.0
             :maxUnverifiedScoreRuns 0.0
             :maxGraphExpectationFailures 0.0
-            :maxMaintenancePreflightBlockers 0.0
+            :maxBenchmarkPreflightBlockers 0.0
             :maxMissingDeclaredSourceKindRuns 0.0
             :maxMissedRuns 0.0
             :maxContextRankMissingRuns 0.0

@@ -2,8 +2,8 @@
   (:require [ygg.benchmark-preflight :as benchmark-preflight]
             [clojure.test :refer [deftest is]]))
 
-(deftest maintenance-preflight-prefers-sync-inspect-family-status
-  (let [preflight (benchmark-preflight/maintenance-preflight
+(deftest benchmark-preflight-prefers-sync-inspect-family-status
+  (let [preflight (benchmark-preflight/benchmark-preflight
                    {:index-summary {:status "completed"}
                     :system-summary {:status "completed"}
                     :graph-expectations {:status "passed"
@@ -67,8 +67,8 @@
                             :command "ygg sync init project.edn"}]}]
            (:blockingValidationGaps sync-check)))))
 
-(deftest maintenance-preflight-blocks-stale-sync-inspect-freshness
-  (let [preflight (benchmark-preflight/maintenance-preflight
+(deftest benchmark-preflight-blocks-stale-sync-inspect-freshness
+  (let [preflight (benchmark-preflight/benchmark-preflight
                    {:index-summary {:status "completed"}
                     :system-summary {:status "completed"}
                     :graph-expectations {:status "passed"}
@@ -115,14 +115,14 @@
                             :command "ygg sync project.edn --check"}]}]
            (:blockingValidationGaps sync-check)))))
 
-(deftest claim-readiness-requires-passed-maintenance-preflight
+(deftest claim-readiness-requires-passed-benchmark-preflight
   (is (true? (benchmark-preflight/claim-ready? {:status "passed"})))
   (doseq [status ["failed" "not-run" "not-configured" nil]]
     (is (false? (benchmark-preflight/claim-ready? {:status status}))))
-  (is (= {:maintenancePreflight {:status "failed"}
+  (is (= {:benchmarkPreflight {:status "failed"}
           :claimReady false}
          (benchmark-preflight/assoc-run-preflight {} {:status "failed"})))
-  (is (= {:maintenancePreflight {:status "passed"}
+  (is (= {:benchmarkPreflight {:status "passed"}
           :claimReady true}
          (benchmark-preflight/assoc-run-preflight {} {:status "passed"})))
   (is (= {}

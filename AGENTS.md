@@ -54,7 +54,7 @@ hypotheses until measured.
 Before making architecture or extractor improvement claims, run the cheap current
 artifact proof with `bb bench:gate --check-only`; if current score artifacts do
 not exist or are stale, regenerate them with `bb bench:gate`. The gate must pass
-with claim readiness supported, graph expectations passing, and zero maintenance
+with claim readiness supported, graph expectations passing, and zero benchmark
 preflight blockers.
 
 Use `.ygg/` for repo-local Yggdrasil references, hooks, plugins, and other

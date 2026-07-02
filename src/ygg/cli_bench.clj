@@ -325,11 +325,11 @@
                                                                      (parse-optional-double
                                                                       args
                                                                       "--max-graph-expectation-failures"))
-    (parse-optional-double args "--max-maintenance-preflight-blockers") (assoc
-                                                                         :max-maintenance-preflight-blockers
-                                                                         (parse-optional-double
-                                                                          args
-                                                                          "--max-maintenance-preflight-blockers"))
+    (parse-optional-double args "--max-benchmark-preflight-blockers") (assoc
+                                                                       :max-benchmark-preflight-blockers
+                                                                       (parse-optional-double
+                                                                        args
+                                                                        "--max-benchmark-preflight-blockers"))
     (parse-optional-double args "--max-missing-declared-source-kind-runs") (assoc
                                                                             :max-missing-declared-source-kind-runs
                                                                             (parse-optional-double
@@ -512,10 +512,10 @@
                                   "stale-score-runs"
                                   :staleScoreRuns
                                   :staleScoreCaseIds)))
-(defn- print-maintenance-preflight-summary
+(defn- print-benchmark-preflight-summary
   [preflight]
   (when (and preflight (:requiredForClaim preflight))
-    (println "- maintenance-preflight"
+    (println "- benchmark-preflight"
              (:status preflight)
              "blocked"
              (long (or (:blockedRuns preflight) 0))
@@ -529,7 +529,7 @@
                                 distinct
                                 sort)]
             :when (pos? (+ failed-runs not-run-runs))]
-      (println "- maintenance-preflight-check"
+      (println "- benchmark-preflight-check"
                (:check check)
                (:status check)
                "failed"
@@ -650,7 +650,7 @@
       (print-agent-diagnostics-summary (:agentDiagnostics result))
       (print-decision-diagnostics-summary (:decisionDiagnostics result))
       (print-artifact-diagnostics-summary (:artifactDiagnostics result))
-      (print-maintenance-preflight-summary (:maintenancePreflightDiagnostics result))
+      (print-benchmark-preflight-summary (:benchmarkPreflightDiagnostics result))
       (print-claim-readiness (:claimReadiness result))
       (when-let [blocker (first (get-in result
                                         [:localizationDiagnostics
@@ -742,9 +742,9 @@
       (print-agent-diagnostics-summary (get-in result [:report :agentDiagnostics]))
       (print-decision-diagnostics-summary (get-in result [:report :decisionDiagnostics]))
       (print-artifact-diagnostics-summary (get-in result [:report :artifactDiagnostics]))
-      (print-maintenance-preflight-summary (get-in result
-                                                   [:report
-                                                    :maintenancePreflightDiagnostics]))
+      (print-benchmark-preflight-summary (get-in result
+                                                 [:report
+                                                  :benchmarkPreflightDiagnostics]))
       (print-claim-readiness (get-in result [:report :claimReadiness]))
       (println "- noise@20"
                (format "%.2f" (double (get-in result

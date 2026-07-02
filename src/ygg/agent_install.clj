@@ -198,7 +198,7 @@
        "`bb bench:gate --check-only` when current score artifacts exist; run "
        "`bb bench:gate` when they are missing or stale. The gate must pass with "
        "claim readiness supported, graph expectations passing, and zero "
-       "maintenance preflight blockers.\n"
+       "benchmark preflight blockers.\n"
        end-marker "\n"))
 
 (defn- broad-search-hook

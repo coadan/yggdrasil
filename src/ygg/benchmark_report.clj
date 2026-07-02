@@ -813,12 +813,12 @@
   (or (sibling-agent-hints result)
       (:yggHints result)))
 
-(defn- result-maintenance-preflight
+(defn- result-benchmark-preflight
   [result]
-  (or (:maintenancePreflight result)
+  (or (:benchmarkPreflight result)
       (when (ygg-result? result)
         (let [agent-run (sibling-agent-run result)]
-          (benchmark-preflight/maintenance-preflight
+          (benchmark-preflight/benchmark-preflight
            {:index-summary (or (get-in result [:ygg :indexSummary])
                                (get-in agent-run [:ygg :indexSummary]))
             :system-summary (or (get-in result [:ygg :systemSummary])
@@ -937,12 +937,12 @@
       (= :syncCheck check-key)
       (assoc :blockingReasons (sync-check-blocking-reasons pairs)))))
 
-(defn- aggregate-maintenance-preflight
+(defn- aggregate-benchmark-preflight
   [results]
   (let [pairs (->> results
                    (filter ygg-result?)
                    (map (fn [result]
-                          [result (result-maintenance-preflight result)]))
+                          [result (result-benchmark-preflight result)]))
                    vec)
         by-status (group-by (comp preflight-status second) pairs)
         required? (seq pairs)
@@ -1120,8 +1120,8 @@
                                  :expectationDiagnostics (aggregate-expectation-diagnostics
                                                           rows)
                                  :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
-                                 :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
-                                                                   rows)
+                                 :benchmarkPreflightDiagnostics (aggregate-benchmark-preflight
+                                                                 rows)
                                  :decisionDiagnostics (aggregate-decision-diagnostics rows)
                                  :localizationDiagnostics (aggregate-localization-diagnostics rows)
                                  :coverageDiagnostics (aggregate-coverage-diagnostics rows)
@@ -1159,8 +1159,8 @@
                                  :expectationDiagnostics (aggregate-expectation-diagnostics
                                                           rows)
                                  :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics rows)
-                                 :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
-                                                                   rows)
+                                 :benchmarkPreflightDiagnostics (aggregate-benchmark-preflight
+                                                                 rows)
                                  :decisionDiagnostics (aggregate-decision-diagnostics rows)
                                  :localizationDiagnostics (aggregate-localization-diagnostics rows)
                                  :coverageDiagnostics (aggregate-coverage-diagnostics rows)
@@ -1253,9 +1253,9 @@
                                              [:decisionDiagnostics
                                               :missingDecisionRuns]
                                              0)))))
-        maintenance-preflight (:maintenancePreflightDiagnostics report)
-        maintenance-preflight? (or (not (:requiredForClaim maintenance-preflight))
-                                   (= "passed" (:status maintenance-preflight)))
+        benchmark-preflight (:benchmarkPreflightDiagnostics report)
+        benchmark-preflight? (or (not (:requiredForClaim benchmark-preflight))
+                                 (= "passed" (:status benchmark-preflight)))
         requirements {:completedCases completed?
                       :hasRuns has-runs?
                       :measuredProblemClasses (boolean (seq measured-problem-tags))
@@ -1265,7 +1265,7 @@
                       :expectedEvidenceCitationMetrics expected-evidence-metrics?
                       :decisionQualityMetrics decision-metrics?
                       :commandTelemetry command-telemetry?
-                      :maintenancePreflight maintenance-preflight?}
+                      :benchmarkPreflight benchmark-preflight?}
         supported? (every? true? (vals requirements))]
     {:status (if supported? "supported" "not-supported")
      :broadArchitectureClaimSupported supported?
@@ -1297,8 +1297,8 @@
                  (not command-telemetry?)
                  (conj "Command telemetry is unavailable; shell/search/read-loop costs are unproven.")
 
-                 (not maintenance-preflight?)
-                 (conj "Yggdrasil maintenance preflight did not pass; index, inference, graph expectations, hint diagnostics, and sync/check-equivalent status must pass before making maintained-graph claims.")
+                 (not benchmark-preflight?)
+                 (conj "Yggdrasil benchmark preflight did not pass; index, inference, graph expectations, hint diagnostics, and sync/check-equivalent status must pass before making benchmark claims.")
 
                  (:syntheticOnly dataset-diagnostics)
                  (conj "Selected benchmark cases are all synthetic; restrict broad efficiency claims or add non-synthetic replay cases."))}))
@@ -1324,8 +1324,8 @@
   (first (filter #(= kind (:kind %)) hint-details)))
 
 (defn- blocking-preflight-checks
-  [maintenance-preflight]
-  (->> (:checks maintenance-preflight)
+  [benchmark-preflight]
+  (->> (:checks benchmark-preflight)
        (filter (fn [{:keys [failedRuns notRunRuns]}]
                  (pos? (+ (long (or failedRuns 0))
                           (long (or notRunRuns 0))))))
@@ -1337,9 +1337,9 @@
                               :notRunCaseIds]))))
 
 (defn- preflight-check
-  [maintenance-preflight check-name]
+  [benchmark-preflight check-name]
   (first (filter #(= check-name (:check %))
-                 (:checks maintenance-preflight))))
+                 (:checks benchmark-preflight))))
 
 (defn- report-improvement-summary
   [report]
@@ -1349,8 +1349,8 @@
         localization (:localizationDiagnostics report)
         coverage (:coverageDiagnostics report)
         graph-expectations (:graphExpectationDiagnostics report)
-        maintenance-preflight (:maintenancePreflightDiagnostics report)
-        sync-check (preflight-check maintenance-preflight "syncCheck")
+        benchmark-preflight (:benchmarkPreflightDiagnostics report)
+        sync-check (preflight-check benchmark-preflight "syncCheck")
         artifacts (:artifactDiagnostics report)
         hint-details (hint-diagnostic-details agent-diagnostics)
         blocking-hint-details (blocking-hint-diagnostic-details agent-diagnostics)
@@ -1449,18 +1449,18 @@
               :case-ids (:failedCaseIds graph-expectations)
               :message "Configured graph expectations failed for these benchmark runs."})
             (improvement-row
-             {:kind "maintenance-preflight"
-              :area "graph-maintenance"
-              :runs (:blockedRuns maintenance-preflight)
-              :case-ids (:blockedCaseIds maintenance-preflight)
-              :message "Yggdrasil maintenance preflight did not pass for these benchmark runs."
-              :details (blocking-preflight-checks maintenance-preflight)})
+             {:kind "benchmark-preflight"
+              :area "benchmark-readiness"
+              :runs (:blockedRuns benchmark-preflight)
+              :case-ids (:blockedCaseIds benchmark-preflight)
+              :message "Yggdrasil benchmark preflight did not pass for these benchmark runs."
+              :details (blocking-preflight-checks benchmark-preflight)})
             (improvement-row
              {:kind "sync-check-gaps"
-              :area "graph-maintenance"
+              :area "benchmark-readiness"
               :runs (:failedRuns sync-check)
               :case-ids (:failedCaseIds sync-check)
-              :message "Yggdrasil sync/check-equivalent validation gaps block maintained-graph claims."
+              :message "Yggdrasil sync/check-equivalent validation gaps block benchmark claims."
               :details (when sync-check
                          [(select-keys sync-check
                                        [:check
@@ -1533,8 +1533,8 @@
                                                                 rows)
                                        :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
                                                                      rows)
-                                       :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
-                                                                         rows)
+                                       :benchmarkPreflightDiagnostics (aggregate-benchmark-preflight
+                                                                       rows)
                                        :decisionDiagnostics (aggregate-decision-diagnostics
                                                              rows)
                                        :localizationDiagnostics (aggregate-localization-diagnostics
@@ -1920,8 +1920,8 @@
                                                       results)
                              :graphExpectationDiagnostics (aggregate-graph-expectation-diagnostics
                                                            results)
-                             :maintenancePreflightDiagnostics (aggregate-maintenance-preflight
-                                                               results)
+                             :benchmarkPreflightDiagnostics (aggregate-benchmark-preflight
+                                                             results)
                              :decisionDiagnostics (aggregate-decision-diagnostics results)
                              :localizationDiagnostics (aggregate-localization-diagnostics results)
                              :coverageDiagnostics (aggregate-coverage-diagnostics results)
@@ -1956,7 +1956,7 @@
                                                                     :caseFingerprint
                                                                     :tags
                                                                     :expectations
-                                                                    :maintenancePreflight
+                                                                    :benchmarkPreflight
                                                                     :graphExpectations
                                                                     :decisionScoring
                                                                     :inputHints
@@ -1972,8 +1972,8 @@
                                                     (localization-diagnostic %)
                                                     :agentOutput
                                                     (agent-output-diagnostic %)
-                                                    :maintenancePreflight
-                                                    (result-maintenance-preflight %)
+                                                    :benchmarkPreflight
+                                                    (result-benchmark-preflight %)
                                                     :decision
                                                     (decision-diagnostic %)
                                                     :artifact

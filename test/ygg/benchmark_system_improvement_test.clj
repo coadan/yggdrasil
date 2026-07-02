@@ -45,8 +45,8 @@
                                                          :id "plan-runtime"
                                                          :runs 1
                                                          :caseIds ["case-1"]}]}
-                     :maintenancePreflightDiagnostics {:blockedRuns 1
-                                                       :blockedCaseIds ["case-1"]}
+                     :benchmarkPreflightDiagnostics {:blockedRuns 1
+                                                     :blockedCaseIds ["case-1"]}
                      :problemClasses {:classes []
                                       :architectureClasses []}}
         signals (signal-by-kind
@@ -54,8 +54,8 @@
                   base-report))]
     (is (= "indexing-gap"
            (get-in signals ["graph-expectation-failures" :lane])))
-    (is (= "maintenance-emitter-gap"
-           (get-in signals ["maintenance-preflight-gaps" :lane])))
+    (is (= "benchmark-readiness-gap"
+           (get-in signals ["benchmark-preflight-gaps" :lane])))
     (is (= "indexing-gap"
            (get-in signals ["missed-files-absent-from-context" :lane])))
     (is (= "retrieval-gap"

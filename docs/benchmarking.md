@@ -42,7 +42,7 @@ and always writes `stage-time-gate.json` under the output root. Use
 `bb bench:gate --check-only` immediately before architecture or extractor claims
 when current score artifacts already exist. Check-only mode skips
 baseline regeneration but still rejects missing, stale, unverified, graph-failing,
-maintained-graph-blocked, or per-case estimated context-packet token-budget
+benchmark-preflight-blocked, or per-case estimated context-packet token-budget
 violating score artifacts. If artifacts predate deterministic baseline token
 estimates, run the full gate once before using check-only mode for token claims.
 
@@ -366,7 +366,7 @@ plugin-fit choice, not just a shorter suspected-file list.
   `system-improvement-report.json`. The report is dev-time guidance, not a
   repair workflow: it does not enqueue `sync work`, does not patch
   correction facts, and does not waive benchmark failures. It groups benchmark
-  diagnostics into `maintenance-emitter-gap`, `indexing-gap`, `extractor-gap`,
+  diagnostics into `benchmark-readiness-gap`, `indexing-gap`, `extractor-gap`,
   `retrieval-gap`, `decision-quality-gap`, `benchmark-suite-gap`, and
   `agent-protocol-gap` lanes with affected cases, declared
   problem/architecture class rollups, evidence, owner area, confidence, and a
@@ -437,7 +437,7 @@ plugin-fit choice, not just a shorter suspected-file list.
 - `bench agent-score <suite.edn> --case <case-id> --result result.json` scores
   one agent result JSON against hidden ground truth. For Yggdrasil-mode results,
   rescoring also refreshes compatible sibling context ranks, hint diagnostics,
-  current graph expectations, and maintenance preflight from existing benchmark
+  current graph expectations, and benchmark preflight from existing benchmark
   artifacts when the result path matches the recorded agent run.
 - `bench agent-report <suite.edn>` aggregates existing agent score artifacts
   across selected cases. Use `--mode ygg` or `--mode shell-only` to compare
@@ -459,12 +459,12 @@ plugin-fit choice, not just a shorter suspected-file list.
   a score. When Yggdrasil-mode runs generated hint diagnostics, reports count
   all rows by kind, and separately count blocking warning/error rows for
   result-health improvement targets.
-  Yggdrasil-mode reports also include `maintenancePreflightDiagnostics`, which
+  Yggdrasil-mode reports also include `benchmarkPreflightDiagnostics`, which
   records whether each run had completed index and inference summaries,
   configured graph expectations where required, clean warning/error hint
   diagnostics, and a sync/check-equivalent validation-gaps status. Shell-only
   reports mark this preflight as `not-applicable`; Yggdrasil reports must pass it
-  before the lane is claim-ready for maintained-graph claims.
+  before the lane is claim-ready for benchmark claims.
   Decision-quality reports include `decisionDiagnostics`, which counts
   configured decision runs, missing decision outputs, missed required choices,
   wrongly included choices, unknown ids, uncited choices, and grouped choice-gap
@@ -474,7 +474,7 @@ plugin-fit choice, not just a shorter suspected-file list.
   Reports also include `improvementSummary`, a compact ordered list of
   mechanically derived remediation targets such as extraction/retrieval gaps,
   ranking or context-budget misses, citation gaps, coverage declaration issues,
-  graph expectation failures, graph maintenance preflight gaps, and artifact
+  graph expectation failures, graph benchmark preflight gaps, and artifact
   hygiene.
   Reports also include `artifactDiagnostics`, which classifies score artifacts
   as current, legacy, or stale against the current score schema and suite case
@@ -528,7 +528,7 @@ plugin-fit choice, not just a shorter suspected-file list.
   matching score artifacts are legacy or stale relative to the current suite file,
   `--max-graph-expectation-failures` to fail when graph/evidence expectations
   do not match the indexed facts,
-  `--max-maintenance-preflight-blockers` to fail when maintained-graph preflight
+  `--max-benchmark-preflight-blockers` to fail when benchmark preflight
   checks block Yggdrasil-mode claims,
   `--max-missing-declared-source-kind-runs` to fail when selected cases declare
   source kinds that produce no scoreable coverage, `--max-missed-runs`,
@@ -1083,13 +1083,13 @@ ground truth remains a single-repo shorthand.
   `improvementTargetRuns`, exposes `improvementTargetRunsByKind`, and treats
   total or per-kind increases as lower-is-better regressions when reports are
   comparable.
-- `maintenancePreflightDiagnostics`: Yggdrasil-mode claim gate for maintained
-  graph runs. It aggregates per-run index, inference, graph expectation, hint
+- `benchmarkPreflightDiagnostics`: Yggdrasil-mode benchmark claim gate. It
+  aggregates per-run index, inference, graph expectation, hint
   diagnostic, and sync/check-equivalent checks from the score artifact or
   sibling agent artifacts. Failed or missing checks mark the Yggdrasil lane
-  claim-ready `false`; the paired `improvementSummary` rows
-  `maintenance-preflight` and `sync-check-gaps` point at the affected cases.
-  Use `--max-maintenance-preflight-blockers 0` when `agent-check` should reject
+  benchmark-ready `false`; the paired `improvementSummary` rows
+  `benchmark-preflight` and `sync-check-gaps` point at the affected cases.
+  Use `--max-benchmark-preflight-blockers 0` when `agent-check` should reject
   reports that are not claim-ready.
 - `artifactDiagnostics`: aggregate score-artifact freshness counters.
   `agent-compare` treats increases in unverified score runs, obsolete score

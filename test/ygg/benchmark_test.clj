@@ -2,7 +2,7 @@
   (:require [ygg.benchmark :as benchmark]
             [ygg.benchmark-agent-packet :as benchmark-agent-packet]
             [ygg.benchmark-classes :as benchmark-classes]
-            [ygg.benchmark-maintenance :as benchmark-maintenance]
+            [ygg.benchmark-readiness :as benchmark-readiness]
             [ygg.benchmark-paths :as benchmark-paths]
             [ygg.benchmark-prepare :as benchmark-prepare]
             [ygg.benchmark-progress :as benchmark-progress]
@@ -2429,7 +2429,7 @@
                 :source "agent-result"}
                (:parserWorker scored)))))))
 
-(deftest score-agent-result-refreshes-ygg-maintenance-artifacts
+(deftest score-agent-result-refreshes-ygg-benchmark-readiness-artifacts
   (let [root (temp-dir "ygg-bench-agent-score-ygg-artifacts")
         _ (spit-file! root "src/app.clj" "(ns app)\n")
         suite {:id "suite"}
@@ -2541,26 +2541,26 @@
         (is (= ["code"]
                (get-in written-hints [:selection :coverageSourceKinds])))
         (is (empty? (:diagnostics written-hints)))
-        (is (= "passed" (get-in scored [:maintenancePreflight :status])))
+        (is (= "passed" (get-in scored [:benchmarkPreflight :status])))
         (is (= "passed"
                (get-in scored
-                       [:maintenancePreflight :checks :graphExpectations :status])))
+                       [:benchmarkPreflight :checks :graphExpectations :status])))
         (is (= "passed"
                (get-in scored
-                       [:maintenancePreflight :checks :hintDiagnostics :status])))
+                       [:benchmarkPreflight :checks :hintDiagnostics :status])))
         (is (= "passed"
                (get-in scored
-                       [:maintenancePreflight :checks :syncCheck :status])))
+                       [:benchmarkPreflight :checks :syncCheck :status])))
         (is (= true (:claimReady scored)))
         (is (= (select-keys scored [:graphExpectations
                                     :contextGroundTruthRanks
                                     :yggHints
-                                    :maintenancePreflight
+                                    :benchmarkPreflight
                                     :claimReady])
                (select-keys written [:graphExpectations
                                      :contextGroundTruthRanks
                                      :yggHints
-                                     :maintenancePreflight
+                                     :benchmarkPreflight
                                      :claimReady])))))))
 
 (deftest score-agent-result-preserves-richer-existing-ygg-preflight
@@ -2606,7 +2606,7 @@
                       :commands ["bb query app --project suite-case-1"]
                       :warnings []
                       :summary "Found the app file."}
-        passing-preflight {:schema "ygg.benchmark.maintenance-preflight/v1"
+        passing-preflight {:schema "ygg.benchmark.preflight/v1"
                            :status "passed"
                            :checks {:index {:status "passed"}
                                     :infer {:status "passed"}
@@ -2643,10 +2643,10 @@
                  :agent {:mode "ygg"
                          :agentId "codex"}
                  :scores {:fileRecallAt10 0.0}
-                 :maintenancePreflight passing-preflight
+                 :benchmarkPreflight passing-preflight
                  :claimReady true})
     (with-redefs [benchmark/prepare-case! (fn [_suite _case _opts] prepared)
-                  benchmark-maintenance/record-benchmark-agent-activity-from-artifacts!
+                  benchmark-readiness/record-benchmark-agent-activity-from-artifacts!
                   (fn [& _args]
                     {:syncInspect sync-inspect})]
       (let [scored (benchmark/score-agent-result! suite
@@ -2661,17 +2661,17 @@
                                            [:contextGroundTruthRanks :files]))
                             [:path :found?])))
         (is (pos? (get-in scored [:contextArtifacts :contextBytes])))
-        (is (= "passed" (get-in scored [:maintenancePreflight :status])))
+        (is (= "passed" (get-in scored [:benchmarkPreflight :status])))
         (is (= true (:claimReady scored)))
         (is (= (select-keys scored [:scores
                                     :contextGroundTruthRanks
                                     :contextArtifacts
-                                    :maintenancePreflight
+                                    :benchmarkPreflight
                                     :claimReady])
                (select-keys written [:scores
                                      :contextGroundTruthRanks
                                      :contextArtifacts
-                                     :maintenancePreflight
+                                     :benchmarkPreflight
                                      :claimReady])))))))
 
 (deftest benchmark-agent-activity-rows-record-schema-validation-only
@@ -2685,12 +2685,12 @@
                       :mode "ygg"
                       :agentInputFingerprint "agent-input-fingerprint"
                       :suspectedFiles [{:path "src/answer.clj"}]}
-        rows (benchmark-maintenance/benchmark-activity-rows prepared
-                                                            agent-result
-                                                            result-file
-                                                            {:agent-id "codex"}
-                                                            "passed"
-                                                            1000)
+        rows (benchmark-readiness/benchmark-activity-rows prepared
+                                                          agent-result
+                                                          result-file
+                                                          {:agent-id "codex"}
+                                                          "passed"
+                                                          1000)
         item (first (:items rows))
         event (first (:events rows))]
     (is (= :benchmark-codex (:source rows)))
@@ -2727,7 +2727,7 @@
                       :agentInputFingerprint "agent-input-fingerprint"}]
     (store/with-node (benchmark-paths/xtdb-dir suite case opts)
       (fn [_xtdb] nil))
-    (let [recorded (benchmark-maintenance/record-benchmark-agent-activity-from-artifacts!
+    (let [recorded (benchmark-readiness/record-benchmark-agent-activity-from-artifacts!
                     suite
                     case
                     prepared
@@ -2775,9 +2775,9 @@
         prepared {:project-id "suite-case-1"}]
     (store/with-node (benchmark-paths/xtdb-dir suite case opts)
       (fn [xtdb]
-        (let [_ (benchmark-maintenance/prepare-agent-corrections! xtdb case prepared opts)
-              _ (benchmark-maintenance/prepare-agent-corrections! xtdb case prepared opts)
-              overlay (benchmark-maintenance/prepare-agent-overlay! xtdb case prepared opts)]
+        (let [_ (benchmark-readiness/prepare-agent-corrections! xtdb case prepared opts)
+              _ (benchmark-readiness/prepare-agent-corrections! xtdb case prepared opts)
+              overlay (benchmark-readiness/prepare-agent-overlay! xtdb case prepared opts)]
           (is (= "suite-case-1" (:project overlay)))
           (is (= [{:import "LinqToDB"
                    :ecosystem "nuget"
@@ -2802,13 +2802,13 @@
     (store/with-node (benchmark-paths/xtdb-dir suite case opts)
       (fn [xtdb]
         (try
-          (benchmark-maintenance/prepare-agent-corrections! xtdb case prepared opts)
+          (benchmark-readiness/prepare-agent-corrections! xtdb case prepared opts)
           (is false "expected incomplete package import to fail")
           (catch clojure.lang.ExceptionInfo e
             (is (= {:missing-fields [:package]
                     :required-fields [:import :ecosystem :package]}
                    (select-keys (ex-data e) [:missing-fields :required-fields])))))
-        (is (= [] (:packageImports (benchmark-maintenance/prepare-agent-overlay!
+        (is (= [] (:packageImports (benchmark-readiness/prepare-agent-overlay!
                                     xtdb
                                     {:id "empty"}
                                     prepared

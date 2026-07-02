@@ -1472,7 +1472,7 @@
       (is (str/includes? out "## Claim Readiness Warnings"))
       (is (str/includes? out "- No measured architecture-class groups.")))))
 
-(deftest benchmark-summary-prints-maintenance-preflight
+(deftest benchmark-summary-prints-benchmark-preflight
   (let [preflight {:status "failed"
                    :requiredForClaim true
                    :blockedRuns 2
@@ -1499,7 +1499,7 @@
                        :scores {:fileRecallAt10 0.5
                                 :meanReciprocalRankFile 0.25
                                 :evidenceCitationRate 0.75}
-                       :maintenancePreflightDiagnostics preflight}))
+                       :benchmarkPreflightDiagnostics preflight}))
         check-out (with-out-str
                     (cli-bench/print-benchmark-summary
                      {:schema benchmark/agent-check-schema
@@ -1512,11 +1512,11 @@
                                         :meanReciprocalRankFile 0.25
                                         :evidenceCitationRate 0.75
                                         :noiseRatioAt20 0.5}
-                               :maintenancePreflightDiagnostics preflight}
+                               :benchmarkPreflightDiagnostics preflight}
                       :failures []}))]
     (doseq [out [report-out check-out]]
-      (is (str/includes? out "- maintenance-preflight failed blocked 2 cases case-1,case-2"))
-      (is (str/includes? out "- maintenance-preflight-check syncCheck failed failed 1 not-run 1 cases case-1,case-2")))))
+      (is (str/includes? out "- benchmark-preflight failed blocked 2 cases case-1,case-2"))
+      (is (str/includes? out "- benchmark-preflight-check syncCheck failed failed 1 not-run 1 cases case-1,case-2")))))
 
 (deftest benchmark-summary-prints-compare-comparability
   (let [out (with-out-str

@@ -108,7 +108,7 @@
     "--max-identity-mismatch-runs"
     "--max-unverified-score-runs"
     "--max-graph-expectation-failures"
-    "--max-maintenance-preflight-blockers"
+    "--max-benchmark-preflight-blockers"
     "--max-missing-declared-source-kind-runs"
     "--max-missed-runs"
     "--max-context-rank-missing-runs"

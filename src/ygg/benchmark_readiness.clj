@@ -1,5 +1,5 @@
-(ns ygg.benchmark-maintenance
-  "Shared benchmark maintenance helpers for maintained-graph claim readiness."
+(ns ygg.benchmark-readiness
+  "Shared helpers that prepare benchmark claim-readiness evidence."
   (:require [ygg.activity :as activity]
             [ygg.benchmark-agent-packet :as benchmark-agent-packet]
             [ygg.benchmark-agent-score :as benchmark-agent-score]

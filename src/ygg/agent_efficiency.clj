@@ -358,7 +358,7 @@
    :expectedEvidenceCitationMetrics
    :decisionQualityMetrics
    :commandTelemetry
-   :maintenancePreflight
+   :benchmarkPreflight
    :measuredProblemClasses
    :measuredArchitectureClasses])
 

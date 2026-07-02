@@ -370,7 +370,7 @@ agent_check_args=(
   --min-mrr "$min_mrr"
   --max-noise-at-20 "$max_noise_at_20"
   --max-graph-expectation-failures 0
-  --max-maintenance-preflight-blockers 0
+  --max-benchmark-preflight-blockers 0
   --max-case-total-tokens 24000
   --max-input-hinted-cases 0
   --max-unverified-score-runs 0

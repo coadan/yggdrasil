@@ -6,7 +6,7 @@
             [ygg.benchmark-agent-score :as benchmark-agent-score]
             [ygg.benchmark-expectations :as benchmark-expectations]
             [ygg.benchmark-hints :as benchmark-hints]
-            [ygg.benchmark-maintenance :as benchmark-maintenance]
+            [ygg.benchmark-readiness :as benchmark-readiness]
             [ygg.benchmark-paths :as benchmark-paths]
             [ygg.benchmark-prediction :as benchmark-prediction]
             [ygg.benchmark-prepare :as benchmark-prepare]
@@ -353,7 +353,7 @@
       (is (= "current-score-artifact" (:skipReason skipped-baseline)))
       (is (= (:scores baseline) (:scores skipped-baseline)))
       (is (= true (:claimReady skipped-baseline)))
-      (is (= "passed" (get-in skipped-baseline [:maintenancePreflight :status])))
+      (is (= "passed" (get-in skipped-baseline [:benchmarkPreflight :status])))
       (is (= "completed" (get-in skipped-baseline [:stageProfile :status])))
       (is (= 1 (get-in skipped-result [:timings :cases])))
       (is (pos? (get-in skipped-result [:timings :elapsedMs])))
@@ -377,7 +377,7 @@
              (context/estimate-tokens context-packet)))
       (is (= "sync-inspect"
              (get-in baseline
-                     [:maintenancePreflight :checks :syncCheck :source])))
+                     [:benchmarkPreflight :checks :syncCheck :source])))
       (is (= "completed" (:status stage-profile)))
       (is (= 1 (get-in result [:timings :cases])))
       (is (pos? (get-in result [:timings :elapsedMs])))
@@ -427,8 +427,8 @@
                   store/with-node (fn [_ f]
                                     (swap! store-count inc)
                                     (f {:indexed? (atom false)}))
-                  benchmark-maintenance/prepare-agent-overlay! (fn [& _] {})
-                  benchmark-maintenance/record-benchmark-agent-activity!
+                  benchmark-readiness/prepare-agent-overlay! (fn [& _] {})
+                  benchmark-readiness/record-benchmark-agent-activity!
                   (fn [& _]
                     {:activity {:items 1
                                 :events 1
@@ -813,9 +813,9 @@
               :mode "ygg"}]
     (with-redefs [store/with-node (fn [_ f]
                                     (f {:indexed? (atom false)}))
-                  benchmark-maintenance/prepare-agent-overlay! (fn [& _] {})
-                  benchmark-maintenance/sync-inspect-summary (fn [& _]
-                                                               {:status "completed"})
+                  benchmark-readiness/prepare-agent-overlay! (fn [& _] {})
+                  benchmark-readiness/sync-inspect-summary (fn [& _]
+                                                             {:status "completed"})
                   project/index-project! (fn [xtdb _project _opts]
                                            (reset! (:indexed? xtdb) true)
                                            {:status "completed"})
@@ -1154,9 +1154,9 @@
         index-count (atom 0)]
     (with-redefs [store/with-node (fn [_ f]
                                     (f {:indexed? (atom false)}))
-                  benchmark-maintenance/prepare-agent-overlay! (fn [& _] {})
-                  benchmark-maintenance/sync-inspect-summary (fn [& _]
-                                                               {:status "completed"})
+                  benchmark-readiness/prepare-agent-overlay! (fn [& _] {})
+                  benchmark-readiness/sync-inspect-summary (fn [& _]
+                                                             {:status "completed"})
                   project/index-project! (fn [xtdb _project _opts]
                                            (swap! index-count inc)
                                            (reset! (:indexed? xtdb) true)

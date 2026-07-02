@@ -1,8 +1,8 @@
 (ns ygg.benchmark-preflight
   (:require [ygg.benchmark-util :as benchmark-util]))
 
-(def maintenance-preflight-schema
-  "ygg.benchmark.maintenance-preflight/v1")
+(def benchmark-preflight-schema
+  "ygg.benchmark.preflight/v1")
 
 (def blocking-sync-planes
   #{"dependencies" "activity" "validation-history" "correction-overlay" "freshness"})
@@ -194,7 +194,7 @@
       (some #{"not-run"} statuses) "not-run"
       :else "passed")))
 
-(defn maintenance-preflight
+(defn benchmark-preflight
   [{:keys [index-summary system-summary graph-expectations expectations hints sync-inspect]}]
   (let [checks {:index (completed-summary-check index-summary)
                 :infer (completed-summary-check system-summary)
@@ -202,22 +202,22 @@
                                                             expectations)
                 :hintDiagnostics (hint-diagnostic-check hints)
                 :syncCheck (sync-check hints sync-inspect)}]
-    {:schema maintenance-preflight-schema
+    {:schema benchmark-preflight-schema
      :status (overall-status checks)
      :checks checks}))
 
 (defn claim-ready?
-  "Return true when a run can support maintained-graph benchmark claims."
-  [maintenance-preflight]
-  (= "passed" (normalized-name (:status maintenance-preflight))))
+  "Return true when a run can support benchmark claims."
+  [benchmark-preflight]
+  (= "passed" (normalized-name (:status benchmark-preflight))))
 
 (defn assoc-run-preflight
-  "Attach maintenance preflight and derived claim readiness to a run or score map."
-  [result maintenance-preflight]
+  "Attach benchmark preflight and derived claim readiness to a run or score map."
+  [result benchmark-preflight]
   (cond-> result
-    maintenance-preflight
-    (assoc :maintenancePreflight maintenance-preflight
-           :claimReady (claim-ready? maintenance-preflight))))
+    benchmark-preflight
+    (assoc :benchmarkPreflight benchmark-preflight
+           :claimReady (claim-ready? benchmark-preflight))))
 
 (defn pass-status?
   [status]

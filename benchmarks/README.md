@@ -118,7 +118,7 @@ bb bench:gate --check-only
 ```
 
 This still runs checkout preflight and strict `agent-check` thresholds, including
-stale-artifact, maintained-graph claim-readiness, and per-case estimated context
+stale-artifact, benchmark claim-readiness, and per-case estimated context
 packet token budgets, but skips baseline regeneration. If current artifacts were
 created before deterministic baseline token estimates were recorded, run the full
 gate once to refresh them before using check-only mode for token claims.

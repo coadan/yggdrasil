@@ -24,7 +24,7 @@
             [ygg.benchmark-local-vector :as benchmark-local-vector]
             [ygg.benchmark-codebase-memory :as benchmark-codebase-memory]
             [ygg.benchmark-graphify :as benchmark-graphify]
-            [ygg.benchmark-maintenance :as benchmark-maintenance]
+            [ygg.benchmark-readiness :as benchmark-readiness]
             [ygg.benchmark-score-artifacts :as benchmark-score-artifacts]
             [ygg.benchmark-context-artifacts :as benchmark-context-artifacts]
             [ygg.benchmark-agent-baseline :as benchmark-agent-baseline]
@@ -431,9 +431,9 @@
       (:syncInspect score)
       (assoc :syncInspect (:syncInspect score))
 
-      (:maintenancePreflight score)
-      (assoc :maintenancePreflight (:maintenancePreflight score)
-             :claimReady (benchmark-preflight/claim-ready? (:maintenancePreflight score)))
+      (:benchmarkPreflight score)
+      (assoc :benchmarkPreflight (:benchmarkPreflight score)
+             :claimReady (benchmark-preflight/claim-ready? (:benchmarkPreflight score)))
 
       (:graphExpectations score)
       (assoc :graphExpectations (:graphExpectations score))
@@ -1253,7 +1253,7 @@
          {:path (fs/canonical-path path)}))
       (store/with-node (benchmark-paths/xtdb-dir suite case opts)
         (fn [xtdb]
-          (let [correction-overlay (benchmark-maintenance/prepare-agent-overlay!
+          (let [correction-overlay (benchmark-readiness/prepare-agent-overlay!
                                     xtdb
                                     case
                                     prepared
@@ -1283,7 +1283,7 @@
                          :systemSummary system-summary
                          :graphExpectations (evaluate-graph-expectations xtdb
                                                                          prepared)
-                         :syncInspect (benchmark-maintenance/sync-inspect-summary
+                         :syncInspect (benchmark-readiness/sync-inspect-summary
                                        xtdb
                                        suite
                                        case
@@ -1457,15 +1457,15 @@
       (try
         (store/with-node xtdb-dir
           (fn [xtdb]
-            (benchmark-maintenance/prepare-agent-corrections! xtdb
-                                                              case
-                                                              prepared
-                                                              opts)
-            (benchmark-maintenance/sync-inspect-summary xtdb
-                                                        suite
-                                                        case
-                                                        prepared
-                                                        opts)))
+            (benchmark-readiness/prepare-agent-corrections! xtdb
+                                                            case
+                                                            prepared
+                                                            opts)
+            (benchmark-readiness/sync-inspect-summary xtdb
+                                                      suite
+                                                      case
+                                                      prepared
+                                                      opts)))
         (catch Exception _
           nil)))))
 
@@ -1502,12 +1502,12 @@
     (benchmark-paths/agent-baseline-context-path suite case opts)]))
 
 (defn- preflight-status
-  [maintenance-preflight]
-  (str (or (:status maintenance-preflight) "not-run")))
+  [benchmark-preflight]
+  (str (or (:status benchmark-preflight) "not-run")))
 
 (defn- richer-existing-preflight
   [existing-score computed-preflight]
-  (let [existing-preflight (:maintenancePreflight existing-score)]
+  (let [existing-preflight (:benchmarkPreflight existing-score)]
     (cond
       (nil? existing-preflight)
       computed-preflight
@@ -1565,7 +1565,7 @@
                                                                     case
                                                                     prepared
                                                                     artifact-opts)
-          benchmark-activity (benchmark-maintenance/record-benchmark-agent-activity-from-artifacts!
+          benchmark-activity (benchmark-readiness/record-benchmark-agent-activity-from-artifacts!
                               suite
                               case
                               prepared
@@ -1579,20 +1579,20 @@
                                                             prepared
                                                             artifact-opts)
                            (:syncInspect run-summary))
-          maintenance-preflight (when (or run-summary
-                                          context-ranks
-                                          hints
-                                          graph-expectations
-                                          sync-inspect)
-                                  (benchmark-preflight/maintenance-preflight
-                                   {:index-summary (:indexSummary run-summary)
-                                    :system-summary (:systemSummary run-summary)
-                                    :graph-expectations graph-expectations
-                                    :expectations (:expectations prepared)
-                                    :hints hints
-                                    :sync-inspect sync-inspect}))
-          maintenance-preflight (richer-existing-preflight existing-score
-                                                           maintenance-preflight)]
+          benchmark-preflight (when (or run-summary
+                                        context-ranks
+                                        hints
+                                        graph-expectations
+                                        sync-inspect)
+                                (benchmark-preflight/benchmark-preflight
+                                 {:index-summary (:indexSummary run-summary)
+                                  :system-summary (:systemSummary run-summary)
+                                  :graph-expectations graph-expectations
+                                  :expectations (:expectations prepared)
+                                  :hints hints
+                                  :sync-inspect sync-inspect}))
+          benchmark-preflight (richer-existing-preflight existing-score
+                                                         benchmark-preflight)]
       (-> (cond-> scored
             context-ranks
             (assoc :contextGroundTruthRanks context-ranks)
@@ -1608,7 +1608,7 @@
             (assoc :syncInspect sync-inspect)
             (:agentPreparation run)
             (assoc :agentPreparation (:agentPreparation run)))
-          (benchmark-preflight/assoc-run-preflight maintenance-preflight)))
+          (benchmark-preflight/assoc-run-preflight benchmark-preflight)))
     scored))
 
 (defn agent-run!
@@ -1694,7 +1694,7 @@
                  "passed"
                  "failed")
         benchmark-activity (when ygg-summary
-                             (benchmark-maintenance/record-benchmark-agent-activity-from-artifacts!
+                             (benchmark-readiness/record-benchmark-agent-activity-from-artifacts!
                               suite
                               case
                               prepared
@@ -1707,14 +1707,14 @@
         ygg-summary (cond-> ygg-summary
                       sync-inspect
                       (assoc :syncInspect sync-inspect))
-        maintenance-preflight (when ygg-summary
-                                (benchmark-preflight/maintenance-preflight
-                                 {:index-summary (:indexSummary ygg-summary)
-                                  :system-summary (:systemSummary ygg-summary)
-                                  :graph-expectations (:graphExpectations ygg-summary)
-                                  :expectations (:expectations prepared)
-                                  :hints hints
-                                  :sync-inspect sync-inspect}))
+        benchmark-preflight (when ygg-summary
+                              (benchmark-preflight/benchmark-preflight
+                               {:index-summary (:indexSummary ygg-summary)
+                                :system-summary (:systemSummary ygg-summary)
+                                :graph-expectations (:graphExpectations ygg-summary)
+                                :expectations (:expectations prepared)
+                                :hints hints
+                                :sync-inspect sync-inspect}))
         scored (benchmark-progress/progress-stage!
                 suite
                 case
@@ -1725,7 +1725,7 @@
                            (assoc (score-agent-result prepared agent-result)
                                   :agentResultPath (fs/canonical-path result-path)
                                   :parserWorker (parser-worker-profile opts))
-                           maintenance-preflight)
+                           benchmark-preflight)
                     (:preparation ygg-prep)
                     (assoc :agentPreparation (:preparation ygg-prep))
                     context-ranks
@@ -1789,9 +1789,9 @@
                      :benchmarkActivity (:activity benchmark-activity)
                      :syncInspect sync-inspect
                      :contextArtifacts context-artifacts
-                     :maintenancePreflight maintenance-preflight
+                     :benchmarkPreflight benchmark-preflight
                      :claimReady (benchmark-preflight/claim-ready?
-                                  maintenance-preflight)
+                                  benchmark-preflight)
                      :graphExpectations (:graphExpectations ygg-summary)
                      :scores (:scores scored)
                      :warnings (get-in scored [:agent :warnings])}

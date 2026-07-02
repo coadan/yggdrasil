@@ -9,10 +9,10 @@
   "ygg.benchmark.system-improvement-report/v1")
 
 (def system-improvement-lanes
-  {"maintenance-emitter-gap"
-   {:ownerArea "maintenance"
-    :rootCauseCategory "maintenance-emitter-gap"
-    :recommendedSystemChange "Add or improve regular maintenance emitters so repeated graph validation gaps become project maintenance work outside benchmark runs."}
+  {"benchmark-readiness-gap"
+   {:ownerArea "benchmarking"
+    :rootCauseCategory "benchmark-readiness-gap"
+    :recommendedSystemChange "Improve deterministic benchmark setup checks, freshness checks, or validators before using the run for benchmark claims."}
    "indexing-gap"
    {:ownerArea "indexing"
     :rootCauseCategory "indexing-gap"
@@ -148,7 +148,7 @@
         coverage (:coverageDiagnostics report)
         graph (:graphExpectationDiagnostics report)
         localization (:localizationDiagnostics report)
-        maintenance (:maintenancePreflightDiagnostics report)
+        benchmark-preflight (:benchmarkPreflightDiagnostics report)
         decision (:decisionDiagnostics report)
         expectation (:expectationDiagnostics report)
         source-extraction (hint-detail report "source-extraction-diagnostics")
@@ -168,12 +168,12 @@
          :evidence [(select-keys graph [:configuredRuns :failedRuns :failedCaseIds])]
          :rationale "Configured graph expectations failed, so benchmark evidence points at graph fact or row-shape quality rather than a one-off benchmark repair."})
        (signal
-        {:kind "maintenance-preflight-gaps"
-         :lane "maintenance-emitter-gap"
-         :runs (:blockedRuns maintenance)
-         :case-ids (:blockedCaseIds maintenance)
-         :evidence (:checks maintenance)
-         :rationale "Maintenance-equivalent benchmark preflight did not pass; repeated failures should become regular maintenance emitters or validations."})
+        {:kind "benchmark-preflight-gaps"
+         :lane "benchmark-readiness-gap"
+         :runs (:blockedRuns benchmark-preflight)
+         :case-ids (:blockedCaseIds benchmark-preflight)
+         :evidence (:checks benchmark-preflight)
+         :rationale "Benchmark preflight did not pass; repeated failures should become explicit benchmark setup checks or deterministic validators."})
        (signal
         {:kind "missed-files-absent-from-context"
          :lane "indexing-gap"
