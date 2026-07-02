@@ -39,7 +39,7 @@ Each extractor must not:
 - classify architecture from names or path vocabulary
 - infer runtime semantics from substring lists
 - merge systems
-- write map corrections
+- write accepted correction facts
 - call an LLM during deterministic indexing
 
 ## TypeScript And JavaScript
