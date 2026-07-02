@@ -187,6 +187,17 @@
     (is (= 321 (:input-max-chars override)))
     (is (= 9 (:batch-size override)))))
 
+(deftest agent-baseline-context-cache-key-includes-implementation-fingerprint
+  (let [prepared {:project-id "project"
+                  :repo-id "repo"
+                  :repos [{:id "repo"}]}
+        key (#'benchmark-agent-baseline/baseline-context-cache-key
+             prepared
+             {}
+             nil)]
+    (is (str/starts-with? (:contextImplementationFingerprint key)
+                          "sha256:"))))
+
 (deftest provider-embedding-targets-use-bounded-lexical-prepass
   (let [calls (atom [])]
     (with-redefs [query/search-report

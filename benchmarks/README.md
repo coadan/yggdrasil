@@ -65,7 +65,10 @@ artifacts under `.dev/ygg/claim-quick-gate`, and gates expected-evidence
 citation coverage with an aggregate floor of `0.80` and per-case floor of
 `0.50`. It keeps the regular recall floors and uses a non-synthetic readiness
 MRR floor of `0.30` plus an aggregate `noise@20` ceiling of `0.80`; the full
-historical replay remains the authoritative claim lane.
+historical replay remains the authoritative claim lane. Regenerating the gate
+reuses compatible baseline context manifests by default, keyed by benchmark
+options and a Yggdrasil implementation fingerprint. Use `--fresh-context` when
+profiling full rebuild cost or intentionally replacing context artifacts.
 
 Use the task-category lane to test should-win planning, implementation, and
 review/decision tasks as separate measured problem classes. Should-win cases
@@ -110,6 +113,13 @@ bb bench:gate
 Every deterministic gate also writes `stage-time-gate.json` under its output
 root so indexing, embedding, context-packet, execution, and scoring time remain
 visible even when no timing thresholds are configured.
+
+Baseline regeneration uses `--reuse-context` by default so repeated gates can
+refresh scores and preflight without rebuilding unchanged context packets. The
+cache key includes the selected case input, parser worker, retrieval and
+embedding options, index options, and a source-content fingerprint for the
+Yggdrasil implementation. Pass `--fresh-context` to force full graph, embedding,
+and context-packet regeneration.
 
 When current score artifacts already exist, use the cheaper claim check:
 

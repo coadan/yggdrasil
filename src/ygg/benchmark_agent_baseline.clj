@@ -17,9 +17,11 @@
             [ygg.embedding :as embedding]
             [ygg.embedding-client :as embedding-client]
             [ygg.fs :as fs]
+            [ygg.hash :as hash]
             [ygg.project :as project]
             [ygg.query :as query]
             [ygg.xtdb :as store]
+            [charred.api :as json]
             [clojure.java.io :as io]))
 
 (def agent-baseline-schema
@@ -262,9 +264,44 @@
           (select-keys [:provider :model])
           json-stable-value))
 
+(defn- clojure-source-file?
+  [file]
+  (and (.isFile file)
+       (.endsWith (.getName file) ".clj")))
+
+(defn- implementation-source-entries
+  []
+  (let [root (io/file "src" "ygg")]
+    (if (.isDirectory root)
+      (->> (file-seq root)
+           (filter clojure-source-file?)
+           (map (fn [file]
+                  [(-> (.toPath root)
+                       (.relativize (.toPath file))
+                       str)
+                   (slurp file)]))
+           (sort-by first)
+           vec)
+      [])))
+
+(defn- compute-context-implementation-fingerprint
+  []
+  (str "sha256:"
+       (hash/sha256-hex
+        (json/write-json-str
+         {:sources (implementation-source-entries)}))))
+
+(def ^:private context-implementation-fingerprint-cache
+  (delay (compute-context-implementation-fingerprint)))
+
+(defn- context-implementation-fingerprint
+  []
+  @context-implementation-fingerprint-cache)
+
 (defn- baseline-context-cache-key
   [prepared opts embedding-client]
   {:parserWorker (benchmark-agent-packet/parser-worker-profile opts)
+   :contextImplementationFingerprint (context-implementation-fingerprint)
    :contextOptions (-> (agent-baseline-context-options
                         prepared
                         (cond-> opts

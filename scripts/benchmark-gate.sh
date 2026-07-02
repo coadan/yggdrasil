@@ -35,7 +35,8 @@ Options:
   --batch-size N      Embedding batch size for semantic/hybrid retrievers.
   --setup-check       Only check required local benchmark repos.
   --check-only        Reuse existing score artifacts; skip baseline regeneration.
-  --reuse-context     Reuse compatible baseline context manifests while regenerating scores.
+  --reuse-context     Reuse compatible baseline context manifests while regenerating scores. Default.
+  --fresh-context     Rebuild baseline contexts even when compatible manifests exist.
   --skip-existing     Skip regenerating current matching baseline case artifacts.
   --stage-time-baseline-report PATH
                       Baseline agent-report JSON/glob for stage timing regression checks.
@@ -63,11 +64,15 @@ Options:
   --dry-run           Print commands without running them.
 
 The gate runs the deterministic Yggdrasil baseline and checks the generated
-score artifacts. Use --check-only before a claim when current artifacts already
-exist; stale or missing score artifacts still fail the strict check. Generated
-worktrees, XTDB stores, reports, and scores stay under the output root. Every
-gate run also writes stage-time-gate.json so performance regressions and slow
-stage classes are visible without configuring timing thresholds.
+score artifacts. Baseline regeneration reuses compatible context manifests by
+default; the manifest key includes benchmark options and a Yggdrasil
+implementation fingerprint, so code changes force a fresh context. Use
+--fresh-context to profile full rebuild costs. Use --check-only before a claim
+when current artifacts already exist; stale or missing score artifacts still
+fail the strict check. Generated worktrees, XTDB stores, reports, and scores
+stay under the output root. Every gate run also writes stage-time-gate.json so
+performance regressions and slow stage classes are visible without configuring
+timing thresholds.
 EOF
 }
 
@@ -92,7 +97,7 @@ model=""
 batch_size=""
 setup_check_only=false
 check_only=false
-reuse_context=false
+reuse_context=true
 skip_existing=false
 stage_time_baseline_reports=()
 stage_time_baseline_report_count=0
@@ -198,6 +203,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --reuse-context)
       reuse_context=true
+      shift
+      ;;
+    --fresh-context)
+      reuse_context=false
       shift
       ;;
     --skip-existing)

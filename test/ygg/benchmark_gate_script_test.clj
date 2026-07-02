@@ -111,6 +111,8 @@
                        "bench agent-baseline benchmarks/custom.edn"))
     (is (str/includes? (nth lines 1)
                        "--retriever auto"))
+    (is (str/includes? (nth lines 1)
+                       "--reuse-context"))
     (is (str/includes? (nth lines 2)
                        "bench agent-check benchmarks/custom.edn"))
     (is (str/includes? (nth lines 2)
@@ -174,11 +176,26 @@
     (is (not (str/includes? (nth lines 2)
                             "--skip-existing")))))
 
+(deftest fresh-context-dry-run-disables-default-context-reuse
+  (let [result (run-gate "--dry-run"
+                         "--fresh-context"
+                         "--suite" "benchmarks/custom.edn"
+                         "--manifest" "benchmarks/custom-repos.edn"
+                         "--out" ".dev/ygg/benchmark-gate/custom")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 4 (count lines)))
+    (is (str/includes? (nth lines 1)
+                       "bench agent-baseline benchmarks/custom.edn"))
+    (is (not (str/includes? (nth lines 1)
+                            "--reuse-context")))))
+
 (deftest help-lists-check-only
   (let [result (run-gate "--help")]
     (is (= 0 (:exit result)))
     (is (str/includes? (:out result) "--check-only"))
     (is (str/includes? (:out result) "--reuse-context"))
+    (is (str/includes? (:out result) "--fresh-context"))
     (is (str/includes? (:out result) "--skip-existing"))
     (is (str/includes? (:out result) "--stage-time-baseline-report"))
     (is (str/includes? (:out result) "--retriever MODE"))
@@ -195,6 +212,8 @@
                        "bench agent-baseline benchmarks/historical-replay-claim-quick.edn"))
     (is (str/includes? (nth lines 1)
                        "--out .dev/ygg/claim-quick-gate"))
+    (is (str/includes? (nth lines 1)
+                       "--reuse-context"))
     (is (str/includes? (nth lines 2)
                        "bench agent-check benchmarks/historical-replay-claim-quick.edn"))
     (is (str/includes? (nth lines 2)

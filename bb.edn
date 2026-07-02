@@ -44,7 +44,7 @@
                     :task (apply shell "bash" "scripts/agent-efficiency-bench.sh"
                                  *command-line-args*)}
 
-  bench:gate {:doc "Run the deterministic tracked benchmark gate. Usage: bb bench:gate [--suite PATH] [--manifest PATH] [--out DIR] [--case ID|--cases IDS] [--setup-check] [--check-only] [--skip-setup-check] [--dry-run]"
+  bench:gate {:doc "Run the deterministic tracked benchmark gate. Usage: bb bench:gate [--suite PATH] [--manifest PATH] [--out DIR] [--case ID|--cases IDS] [--setup-check] [--check-only] [--fresh-context] [--skip-setup-check] [--dry-run]"
               :task (let [{:keys [exit]} (apply shell
                                                 {:continue true}
                                                 "bash"
@@ -52,7 +52,7 @@
                                                 *command-line-args*)]
                       (System/exit exit))}
 
-  bench:claim-quick {:doc "Run the small non-synthetic claim-readiness gate. Usage: bb bench:claim-quick [--check-only] [--skip-existing] [--setup-check] [--case ID|--cases IDS] [--dry-run]"
+  bench:claim-quick {:doc "Run the small non-synthetic claim-readiness gate. Usage: bb bench:claim-quick [--check-only] [--fresh-context] [--skip-existing] [--setup-check] [--case ID|--cases IDS] [--dry-run]"
                      :task (let [{:keys [exit]} (apply shell
                                                        {:continue true}
                                                        "bash"
