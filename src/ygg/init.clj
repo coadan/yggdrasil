@@ -51,11 +51,38 @@
         (prn value)))
     (.getPath file)))
 
-(defn- repos-json-count
+(defn- repos-json-repo-ids
   [workbench-root]
   (let [file (io/file workbench-root "repos.json")]
     (when (.exists file)
-      (count (:repos (json/read-json (slurp file) :key-fn keyword))))))
+      (->> (:repos (json/read-json (slurp file) :key-fn keyword))
+           keys
+           (map name)
+           sort
+           vec))))
+
+(defn- repos-json-count
+  [workbench-root]
+  (count (repos-json-repo-ids workbench-root)))
+
+(defn- existing-dir
+  [& paths]
+  (some (fn [path]
+          (when path
+            (let [file (io/file path)]
+              (when (.isDirectory file)
+                (fs/canonical-path file)))))
+        paths))
+
+(defn- workbench-repo-ref-roots
+  [workbench-root task]
+  (let [root (fs/canonical-path workbench-root)]
+    (keep (fn [repo-id]
+            (existing-dir
+             (when task
+               (io/file root ".worktrees" (str task) repo-id))
+             (io/file root ".workbench" "repos" repo-id)))
+          (repos-json-repo-ids root))))
 
 (defn- sync-command
   [project-id config-path & args]
@@ -213,6 +240,20 @@
   [project-id root]
   (registry/write-project-ref! root project-id))
 
+(defn- project-ref-roots
+  [config]
+  (let [workbench-root (:workbench-root config)]
+    (distinct
+     (concat
+      (keep (comp existing-dir :root) (:repos config))
+      (when workbench-root
+        (workbench-repo-ref-roots workbench-root
+                                  (:workbench-task config)))))))
+
+(defn- write-project-refs!
+  [project-id roots]
+  (mapv #(write-project-ref! project-id %) roots))
+
 (defn- maybe-assoc-maintenance
   [config opts]
   (if-let [maintenance (maintenance-config opts (:maintenance-platform opts))]
@@ -295,7 +336,8 @@
         init-record (registry/record-init!)
         project-id (:id config)
         root (or (:workbench-root config) (get-in config [:repos 0 :root]))
-        project-ref (write-project-ref! project-id root)
+        project-refs (write-project-refs! project-id (project-ref-roots config))
+        project-ref (first project-refs)
         repo-count (if workbench?
                      (+ (count (:repos config))
                         (or (repos-json-count (:workbench-root config)) 0))
@@ -318,6 +360,7 @@
              :mode (if workbench? "workbench" "repo")
              :root root
              :project-ref project-ref
+             :project-refs project-refs
              :repos repo-count
              :registry (:registry init-record)
              :first-init (:first-init init-record)

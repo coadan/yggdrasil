@@ -40,6 +40,7 @@
         (is (= true (:first-init result)))
         (is (= 1 (:init-count result)))
         (is (= registry-path (:registry result)))
+        (is (= [(:project-ref result)] (:project-refs result)))
         (let [raw (edn/read-string (slurp out))
               project (project/read-project out)]
           (is (= {:id "demo"
@@ -68,6 +69,7 @@
         (is (= true (:first-init result)))
         (is (= 1 (:init-count result)))
         (is (not (.exists (io/file root "project.edn"))))
+        (is (= [(:project-ref result)] (:project-refs result)))
         (is (= "demo" (:id registered)))
         (is (= canonical-root (get-in registered [:repos 0 :root])))
         (is (= "demo"
@@ -92,8 +94,12 @@
 (deftest init-writes-workbench-project-config
   (let [root (temp-dir "ygg-init-workbench")
         canonical-root (fs/canonical-path root)
+        app-root (io/file root ".workbench" "repos" "app")
+        cli-root (io/file root ".worktrees" "task-1" "cli")
         out (.getPath (io/file root "project.edn"))
         registry-path (registry-path root)]
+    (.mkdirs app-root)
+    (.mkdirs cli-root)
     (spit (io/file root "repos.json")
           (json/write-json-str {:repos {:app {:url "https://example.invalid/app.git"}
                                         :cli {:url "https://example.invalid/cli.git"}}}))
@@ -106,6 +112,16 @@
         (is (= "workbench" (:mode result)))
         (is (= 3 (:repos result)))
         (is (= true (:first-init result)))
+        (is (= #{(registry/project-ref-path canonical-root)
+                 (registry/project-ref-path (.getPath app-root))
+                 (registry/project-ref-path (.getPath cli-root))}
+               (set (:project-refs result))))
+        (is (= (registry/project-ref-path canonical-root)
+               (:project-ref result)))
+        (doseq [ref (:project-refs result)]
+          (is (= {:schema registry/project-ref-schema
+                  :project-id "bench"}
+                 (edn/read-string (slurp ref)))))
         (is (= {:id "bench"
                 :name "bench"
                 :workbench-root canonical-root
