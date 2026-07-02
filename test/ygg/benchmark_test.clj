@@ -316,7 +316,7 @@
                 :repos
                 (mapv :repo-id))))))
 
-(deftest should-win-tags-do-not-include-shell-sufficient-controls
+(deftest should-win-tags-require-composed-recall-and-class-coverage
   (let [suite-paths ["benchmarks/feature-planning.edn"
                      "benchmarks/decision-quality-pilot.edn"
                      "benchmarks/historical-replay.edn"
@@ -324,18 +324,45 @@
                      "benchmarks/architecture-coverage.edn"
                      "benchmarks/multi-repo-quality.edn"
                      "benchmarks/task-category-broad.edn"]
-        conflicts (->> suite-paths
-                       (mapcat (fn [suite-path]
-                                 (let [suite (benchmark/read-suite suite-path)]
-                                   (keep (fn [case]
-                                           (let [tags (set (:tags case))]
-                                             (when (and (contains? tags :ygg-should-win)
-                                                        (contains? tags :shell-sufficient-control))
-                                               {:suite suite-path
-                                                :case-id (:id case)})))
-                                         (:cases suite)))))
-                       vec)]
-    (is (= [] conflicts))))
+        required-recall-tags #{"recall-hybrid"
+                               "recall-graph"
+                               "recall-lexical"
+                               "recall-semantic"}
+        violations (->> suite-paths
+                        (mapcat (fn [suite-path]
+                                  (let [suite (benchmark/read-suite suite-path)]
+                                    (keep (fn [case]
+                                            (let [tags (set (:tags case))]
+                                              (when (contains? tags "ygg-should-win")
+                                                (cond-> {:suite suite-path
+                                                         :case-id (:id case)}
+                                                  (contains? tags
+                                                             "shell-sufficient-control")
+                                                  (assoc :shell-sufficient-control true)
+
+                                                  (not (set/subset?
+                                                        required-recall-tags
+                                                        tags))
+                                                  (assoc :missing-recall-tags
+                                                         (sort
+                                                          (set/difference
+                                                           required-recall-tags
+                                                           tags)))
+
+                                                  (not-any?
+                                                   benchmark-classes/problem-class-tag?
+                                                   tags)
+                                                  (assoc :missing-problem-class true)
+
+                                                  (not-any?
+                                                   benchmark-classes/architecture-class-tag?
+                                                   tags)
+                                                  (assoc :missing-architecture-class
+                                                         true)))))
+                                          (:cases suite)))))
+                        (remove #(= (set (keys %)) #{:suite :case-id}))
+                        vec)]
+    (is (= [] violations))))
 
 (deftest read-suite-rejects-unknown-included-case-selection
   (let [suite-dir (temp-dir "ygg-bench-suite-include-case-missing")
@@ -1619,6 +1646,7 @@
                        :maxConfidence 1.0
                        :rankScore 2.92
                        :matchedTokenCount 2
+                       :matchedPathQueryTokenCount 1
                        :definitionKinds ["function"]}
              :evidence ["context-doc:src/app.clj lines 2-4 provenance=retrieved-doc"]
              :reason "Yggdrasil context doc \"app/broken\" from src/app.clj lines 2-4 with provenance retrieved-doc."}]
