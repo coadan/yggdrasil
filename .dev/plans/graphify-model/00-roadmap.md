@@ -72,8 +72,8 @@ The roadmap is complete when a fresh repo can run:
 ```sh
 ygg start .
 ygg init .
-ygg sync project.edn --check --map ygg.map.json
-ygg install-agent --platform codex --project
+ygg sync project.edn --check
+ygg agent install --platform codex --project
 ygg hook install
 ygg report project.edn
 ygg-mcp

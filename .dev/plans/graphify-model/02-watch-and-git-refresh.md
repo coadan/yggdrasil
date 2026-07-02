@@ -12,8 +12,8 @@ refresh loop, but keep Yggdrasil's sync profile explicit and deterministic.
 ## Target Commands
 
 ```text
-ygg watch <project.edn> [--map ygg.map.json] [--query-index] [--debounce-ms N]
-ygg hook install <project.edn> [--map ygg.map.json] [--query-index]
+ygg watch <project.edn> [--query-index] [--debounce-ms N]
+ygg hook install <project.edn> [--query-index]
 ygg hook uninstall
 ygg hook status
 ```
@@ -28,7 +28,7 @@ Default watch should:
 - debounce bursts of changes
 - run graph-maintenance sync by default
 - print compact summaries, not full JSON reports
-- never write `ygg.map.json` except through explicit correction commands
+- never write semantic corrections from hooks or watch refreshes
 
 Use `--query-index` when the user wants searchable chunks and embeddings inputs
 refreshed during watch.
@@ -92,8 +92,8 @@ corrections.
 
 Implemented surface:
 
-- `ygg watch <project.edn> [--map ygg.map.json] [--query-index] [--debounce-ms N]`
-- `ygg hook install <project.edn> [--map ygg.map.json] [--query-index]`
+- `ygg watch <project.edn> [--query-index] [--debounce-ms N]`
+- `ygg hook install <project.edn> [--query-index]`
 - `ygg hook uninstall <project.edn>`
 - `ygg hook status <project.edn>`
 

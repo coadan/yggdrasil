@@ -14,7 +14,7 @@ hand-write `project.edn` before seeing value.
 ```text
 ygg init <repo-or-workspace-root> [--project ID] [--name NAME] [--out project.edn]
 ygg init --workbench <root> [--task TASK] [--project ID] [--out project.edn]
-ygg init . --sync --map ygg.map.json
+ygg init . --sync
 ```
 
 Convenience command added after `init` stabilized:
@@ -23,9 +23,8 @@ Convenience command added after `init` stabilized:
 ygg start .
 ```
 
-`start` initializes or reuses `project.edn`, ensures an explicit map unless
-`--no-map` is supplied, runs `sync --check`, imports local queue activity, and
-writes a report bundle.
+`start` initializes or reuses `project.edn`, runs `sync --check`, imports local
+queue activity, and writes a report bundle.
 
 ## Behavior
 
@@ -47,8 +46,7 @@ For a workbench:
 With `--sync`:
 
 1. Run `ygg sync <project.edn> --check`.
-2. Generate or update `ygg.map.json` only when explicitly requested.
-3. Print high-level indexed/skipped counts and top next commands.
+2. Print high-level indexed/skipped counts and top next commands.
 
 ## Output Shape
 
@@ -94,22 +92,20 @@ Next:
 
 ## Done Criteria
 
-A new user can run `ygg init . --sync --map ygg.map.json` in a repository
-and immediately receive a valid project config, a completed sync, and clear next
-commands.
+A new user can run `ygg init . --sync` in a repository and immediately receive
+a valid project config, a completed sync, and clear next commands.
 
 Implemented surface:
 
 - `ygg init <repo-root> [--project ID] [--name NAME] [--out project.edn] [--force]`
 - `ygg init --workbench <root> [--task TASK] [--project ID] [--name NAME] [--out project.edn] [--force]`
-- `ygg init <repo-root> --sync [--map ygg.map.json] [--query-index]`
-- `ygg start <repo-root> [--project ID] [--out project.edn] [--map ygg.map.json] [--report-out ygg-out]`
+- `ygg init <repo-root> --sync [--query-index]`
+- `ygg start <repo-root> [--project ID] [--out project.edn] [--report-out ygg-out]`
 
 Notes:
 
 - Plain repo init writes one `app` repo with role `:application`; it does not
   infer semantic role from directory names.
 - Workbench init writes `:workbench-root` and optional `:workbench-task`.
-- `--map` creates an empty correction map only when the path is explicitly
-  supplied and missing.
+- Semantic corrections are stored through correction facts, not local map files.
 - `--sync` captures the existing `sync --check` output in the init result.

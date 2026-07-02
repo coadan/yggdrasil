@@ -28,14 +28,13 @@ stable.
 The generated instruction block should tell agents:
 
 - run `ygg sync inspect <project.edn>` before broad project assumptions
-- run `ygg sync <project.edn> --check --map ygg.map.json` when sync state
-  matters
+- run `ygg sync <project.edn> --check` when sync state matters
 - use `ygg ask --json` for one-shot graph evidence packets
 - use `ygg explore` for longer investigations
 - use `ygg view systems --detail primary` before drilling into `expanded`,
   `evidence`, or `raw`
 - use `sync work pull`, `complete`, and `apply` for queued maintenance packets
-- update `ygg.map.json` only through supported sync commands when possible
+- write accepted semantic decisions as corrections instead of local map files
 - avoid full graph dumps unless explicitly needed
 
 The block must also carry Yggdrasil's hard boundary:
@@ -73,7 +72,7 @@ Hook output should recommend scoped commands:
 
 ```text
 ygg ask "<question>" --project <id> --json
-ygg explore create "<question>" --project <id> --map ygg.map.json
+ygg explore create "<question>" --project <id>
 ygg view systems --project <id> --detail primary
 ```
 

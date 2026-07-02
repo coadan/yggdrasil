@@ -28,7 +28,7 @@ The CLI usage should make the happy path obvious:
 
 ```text
 ygg init .
-ygg sync project.edn --check --map ygg.map.json
+ygg sync project.edn --check
 ygg ask "..." --project ID --json
 ygg explore create "..." --project ID
 ygg view systems --project ID
@@ -72,7 +72,7 @@ Add focused smoke commands:
 
 ```sh
 bb sync inspect .dev/ygg-context-smoke/project.edn
-bb sync .dev/ygg-context-smoke/project.edn --check --map .dev/ygg-context-smoke/ygg.map.json
+bb sync .dev/ygg-context-smoke/project.edn --check
 bb ask "api gateway connections" --project fixture --json
 bb view systems --project fixture --format json
 ```

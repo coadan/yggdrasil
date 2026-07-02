@@ -10,14 +10,13 @@ repeat local use.
 ## Command
 
 ```text
-ygg start <repo-root> [--project ID] [--name NAME] [--out project.edn] [--map ygg.map.json] [--report-out ygg-out] [--force] [--query-index]
+ygg start <repo-root> [--project ID] [--name NAME] [--out project.edn] [--report-out ygg-out] [--force] [--query-index]
 ```
 
 ## Behavior
 
 - Initializes `project.edn` when it is missing.
 - Reuses an existing project config unless `--force` is supplied.
-- Uses `ygg.map.json` by default; `--no-map` disables the correction map.
 - Runs the same graph sync/check path as `ygg sync <project.edn> --check`.
 - Imports local queue activity with `sync activity` semantics.
 - Writes a report bundle with `ygg report` semantics.
@@ -26,7 +25,7 @@ ygg start <repo-root> [--project ID] [--name NAME] [--out project.edn] [--map yg
 ## Guardrails
 
 - No semantic inference from names, paths, or hosts.
-- No hidden map mutation beyond creating an explicit empty map for first run.
+- No hidden correction mutation during startup.
 - No embeddings or LLM calls.
 - No Git hook or agent instruction install unless the user runs those commands.
 - No full sync, maintenance, activity, graph evidence, or semantic connection
