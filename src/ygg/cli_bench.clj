@@ -816,12 +816,13 @@
   (assoc result
          :enqueued
          (mapv (fn [packet]
-                 (queue/item-summary
-                  (queue/enqueue! packet
-                                  {:root (queue-root args)
-                                   :kind "benchmark-agent"
-                                   :project-id (:project-id packet)
-                                   :priority (queue-priority args 50)})))
+                 (let [project-id (:project-id packet)]
+                   (queue/item-summary
+                    (queue/enqueue! packet
+                                    {:root (queue-root args project-id)
+                                     :kind "benchmark-agent"
+                                     :project-id project-id
+                                     :priority (queue-priority args 50)}))))
                (:packets result))))
 
 (defn- print-efficiency-summary

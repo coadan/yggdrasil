@@ -62,7 +62,7 @@
     "--entity-limit" "--edge-limit" "--doc-limit" "--snippet-chars" "--role"
     "--heading" "--start-line" "--end-line" "--valid-at" "--known-at"
     "--snapshot-token" "--type" "--source" "--confidence" "--view" "--query"
-    "--relation" "--base-url" "--detail" "--queue-dir" "--status" "--agent"
+    "--relation" "--base-url" "--detail" "--status" "--agent"
     "--lease-minutes" "--result" "--kind" "--priority" "--format" "--platform"
     "--debounce-ms" "--name" "--workbench" "--task" "--case" "--mode" "--tools"
     "--files" "--since" "--harness" "--maintenance" "--maintenance-model"

@@ -1803,7 +1803,8 @@
                @calls))))))
 
 (deftest bench-agent-packet-can-enqueue-provider-neutral-work
-  (let [root (temp-dir "ygg-cli-agent-bench-queue")]
+  (let [root (temp-dir "ygg-cli-agent-bench-queue")
+        queue-projects (atom [])]
     (with-redefs [benchmark/read-suite (constantly {:id "suite"})
                   benchmark/agent-packets! (fn [suite opts]
                                              {:schema "ygg.benchmark.agent-packets/v1"
@@ -1815,7 +1816,10 @@
                                                          :repo-id "repo"
                                                          :project-id "suite-case-1"
                                                          :mode "ygg"
-                                                         :artifacts {:packetPath "/tmp/packet.json"}}]})]
+                                                         :artifacts {:packetPath "/tmp/packet.json"}}]})
+                  store/project-sqlite-path (fn [project-id]
+                                              (swap! queue-projects conj project-id)
+                                              root)]
       (let [out (with-out-str
                   (cli/dispatch "bench"
                                 ["agent-packet" "benchmark.edn"
@@ -1823,7 +1827,6 @@
                                  "--mode" "ygg"
                                  "--parser-worker" "dotnet"
                                  "--enqueue"
-                                 "--queue-dir" root
                                  "--json"]))
             parsed (read-json-output out)]
         (is (= "ygg.benchmark.agent-packets/v1" (:schema parsed)))
@@ -1837,7 +1840,37 @@
                (:opts parsed)))
         (is (= ["benchmark-agent"] (mapv :kind (:enqueued parsed))))
         (is (= [benchmark/agent-packet-schema]
-               (mapv :payload-schema (:enqueued parsed))))))))
+               (mapv :payload-schema (:enqueued parsed))))
+        (is (= ["suite-case-1"] @queue-projects))))))
+
+(deftest bench-agent-packet-rejects-local-queue-dir
+  (let [root (temp-dir "ygg-cli-agent-bench-queue-reject")
+        error (atom nil)]
+    (with-redefs [benchmark/read-suite (constantly {:id "suite"})
+                  benchmark/agent-packets! (fn [suite _opts]
+                                             {:schema "ygg.benchmark.agent-packets/v1"
+                                              :suite-id (:id suite)
+                                              :packets [{:schema benchmark/agent-packet-schema
+                                                         :suite-id (:id suite)
+                                                         :case-id "case-1"
+                                                         :repo-id "repo"
+                                                         :project-id "suite-case-1"
+                                                         :mode "ygg"}]})]
+      (with-out-str
+        (try
+          (cli/dispatch "bench"
+                        ["agent-packet" "benchmark.edn"
+                         "--case" "case-1"
+                         "--enqueue"
+                         "--queue-dir" root
+                         "--json"])
+          (catch clojure.lang.ExceptionInfo e
+            (reset! error e))))
+      (is (= "Benchmark packet enqueue uses the central project queue."
+             (ex-message @error)))
+      (is (= {:command "bench agent-packet"
+              :option "--queue-dir"}
+             (ex-data @error))))))
 
 (deftest bench-agent-score-dispatches-to-benchmark-scorer
   (let [calls (atom [])]
