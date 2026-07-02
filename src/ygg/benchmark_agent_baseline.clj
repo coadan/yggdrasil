@@ -596,6 +596,7 @@
                :progress-path progress-path}
         agent-id (benchmark-paths/agent-baseline-id opts)]
     (try
+      (benchmark-progress/reset-progress! suite case opts)
       (benchmark-progress/progress-stage!
        suite
        case

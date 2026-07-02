@@ -79,6 +79,18 @@
      :case-id (:id case)
      :events []}))
 
+(defn reset-progress!
+  "Replace a benchmark case progress artifact with an empty current-run record."
+  [suite case opts]
+  (let [path (benchmark-paths/progress-path suite case opts)]
+    (benchmark-io/write-json-file! path
+                                   {:schema "ygg.benchmark.case-progress/v1"
+                                    :suite-id (:id suite)
+                                    :case-id (:id case)
+                                    :updatedAt (now-string)
+                                    :events []})
+    path))
+
 (defn- append-progress-event!
   [suite case opts event]
   (let [path (benchmark-paths/progress-path suite case opts)

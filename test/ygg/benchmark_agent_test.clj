@@ -497,6 +497,7 @@
             progress (json/read-json
                       (slurp (benchmark-paths/progress-path suite case opts))
                       :key-fn keyword)
+            progress-stages (set (map :stage (:events progress)))
             manifest (json/read-json (slurp manifest-path) :key-fn keyword)]
         (is (= benchmark/agent-baselines-schema (:schema first-result)))
         (is (= benchmark/agent-baselines-schema (:schema second-result)))
@@ -520,6 +521,9 @@
         (is (= benchmark-agent-baseline/agent-baseline-context-schema
                (:schema manifest)))
         (is (= "sha256:case" (:caseFingerprint manifest)))
+        (is (contains? progress-stages "reuse-agent-baseline-context"))
+        (is (not (contains? progress-stages "index-project")))
+        (is (not (contains? progress-stages "context-packet")))
         (is (some #(and (= "reuse-agent-baseline-context" (:stage %))
                         (= "completed" (:status %)))
                   (:events progress)))))))
