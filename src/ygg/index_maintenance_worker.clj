@@ -111,7 +111,7 @@
      :enabled (boolean (:enabled maintenance))
      :schedules (vec (:schedules maintenance))
      :work (:work maintenance)
-     :queueRoot (:queue-dir maintenance)
+     :queueDb (:queue-dir maintenance)
      :reportDir (:report-dir maintenance)
      :worker {:configured (boolean config)
               :enabled (boolean (:enabled config))
@@ -119,7 +119,7 @@
               :maxItemsPerRun (:max-items-per-run config)
               :maxFailuresPerRun (:max-failures-per-run config)
               :apply (:apply config)
-              :queueRoot (:queue-dir config)
+              :queueDb (:queue-dir config)
               :reportDir (:report-dir config)
               :executors executor-statuses
               :executorCount (count executor-statuses)
@@ -627,7 +627,7 @@
                             backoff? "backoff"
                             exhausted? "limit-reached"
                             :else (run-status config results exhausted?))
-                  :queue-root (:queue-dir config)
+                  :queue-db (:queue-dir config)
                   :report-dir (:report-dir config)
                   :counts (result-counts results)
                   :items (mapv #(select-keys % [:status :executor :item :validation :failure

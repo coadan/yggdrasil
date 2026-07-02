@@ -23,6 +23,10 @@
                                                 (make-array java.nio.file.attribute.FileAttribute
                                                             0))))
 
+(defn- temp-queue-db
+  [prefix]
+  (.getPath (io/file (temp-dir prefix) "project.sqlite")))
+
 (defn- read-json
   [path]
   (json/read-json (slurp (io/file path)) :key-fn keyword))
@@ -690,7 +694,7 @@
   (let [root (temp-dir "ygg-server-index-maintenance")
         repo-root (io/file root "repo")
         project-edn (io/file root "project.edn")
-        queue-root (.getCanonicalPath (io/file root "queue"))
+        queue-root (temp-queue-db "ygg-server-index-maintenance-queue")
         report-root (.getCanonicalPath (io/file root "reports"))]
     (.mkdirs repo-root)
     (spit project-edn
@@ -1609,11 +1613,11 @@
                     store/project-sqlite-path
                     (fn [project-id]
                       (is (= "fixture" project-id))
-                      "/tmp/ygg/queue")
+                      "/tmp/ygg/project.sqlite")
                     queue/list-summary
                     (fn [root opts]
                       {:schema queue/summary-schema
-                       :root root
+                       :queue-db root
                        :opts opts
                        :items []})]
         (let [response (server/handle-request
@@ -1634,8 +1638,8 @@
           (is (= true (:ok response)))
           (is (= "ygg.queue.summary/v1"
                  (get-in response [:data :result :structuredContent :schema])))
-          (is (= "/tmp/ygg/queue"
-                 (get-in response [:data :result :structuredContent :root])))))
+          (is (= "/tmp/ygg/project.sqlite"
+                 (get-in response [:data :result :structuredContent :queue-db])))))
       (finally
         (deliver release true)
         @holder))))

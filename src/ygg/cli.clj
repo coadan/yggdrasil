@@ -860,8 +860,8 @@
                 "/"
                 (get-in status [:worker :executorCount])
                 " available"))
-  (when (:queueRoot status)
-    (println "- queue" (:queueRoot status)))
+  (when (:queueDb status)
+    (println "- queue-db" (:queueDb status)))
   (when (:reportDir status)
     (println "- reports" (:reportDir status)))
   (doseq [executor (get-in status [:worker :executors])]

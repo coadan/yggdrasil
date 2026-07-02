@@ -31,6 +31,10 @@
               (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
+(defn- temp-queue-db
+  [prefix]
+  (.getPath (io/file (temp-dir prefix) "project.sqlite")))
+
 (defn- read-json-output
   [s]
   (json/read-json s :key-fn keyword))
@@ -154,7 +158,7 @@
     (with-redefs [project/read-project (fn [path]
                                          (swap! calls conj [:read path])
                                          project-fixture)
-                  store/project-sqlite-path (constantly ".dev/test-queue")
+                  store/project-sqlite-path (constantly ".dev/test-project.sqlite")
                   store/with-node (fn [_ f] (f :xtdb))
                   project/index-project! (fn [xtdb project opts]
                                            (swap! calls conj [:index xtdb (:id project) opts])
@@ -210,7 +214,7 @@
             [:infer :xtdb "fixture"]]
            @calls))))
 (deftest sync-check-enqueues-maintenance-work
-  (let [root (temp-dir "ygg-cli-queue")
+  (let [root (temp-queue-db "ygg-cli-queue")
         decision {:id "maintenance-decision:test"
                   :project-id "fixture"
                   :kind :unclustered-system
@@ -303,7 +307,7 @@
         (is (= 3 (count (queue/list-items root {:status "ready"}))))))))
 
 (deftest sync-check-does-not-reenqueue-identical-review-batches
-  (let [root (temp-dir "ygg-cli-review-batch-queue")
+  (let [root (temp-queue-db "ygg-cli-review-batch-queue")
         infra-packets (mapv (fn [idx]
                               {:schema infra-review/packet-schema
                                :reviewId (str "infra-review:batch-" idx)
@@ -371,7 +375,7 @@
         (is (= 2 (count (queue/list-items root))))))))
 
 (deftest sync-check-supersedes-stale-maintenance-work
-  (let [root (temp-dir "ygg-cli-stale-maintenance-queue")
+  (let [root (temp-queue-db "ygg-cli-stale-maintenance-queue")
         stale-packet {:schema decision-classifier/batch-packet-schema
                       :batchId "maintenance-decision-batch:stale"
                       :project-id "fixture"
@@ -753,13 +757,13 @@
     (with-redefs [project/read-project (fn [path]
                                          (swap! calls conj [:read path])
                                          project-fixture)
-                  store/project-sqlite-path (constantly ".dev/test-queue")
+                  store/project-sqlite-path (constantly ".dev/test-project.sqlite")
                   store/with-node (fn [_ f] (f :xtdb))
                   activity/sync-queue! (fn [xtdb project opts]
                                          (swap! calls conj [:activity xtdb (:id project) opts])
                                          {:schema activity/sync-schema
                                           :project-id (:id project)
-                                          :queue-root (:queue-root opts)
+                                          :queue-db (:queue-db opts)
                                           :counts {:items 1
                                                    :events 2
                                                    :validation-events 1
@@ -791,9 +795,9 @@
         (is (str/includes? plain-out
                            "- queue:abc expected expected/v1 actual actual/v1 status done item activity-item:abc"))
         (is (= [[:read "project.edn"]
-                [:activity :xtdb "fixture" {:queue-root ".dev/test-queue"}]
+                [:activity :xtdb "fixture" {:queue-db ".dev/test-project.sqlite"}]
                 [:read "project.edn"]
-                [:activity :xtdb "fixture" {:queue-root ".dev/test-queue"}]]
+                [:activity :xtdb "fixture" {:queue-db ".dev/test-project.sqlite"}]]
                @calls))))))
 (deftest bench-run-dispatches-to-benchmark-runner
   (let [calls (atom [])]
@@ -824,7 +828,7 @@
                   :command nil}]]
                @calls))))))
 (deftest sync-work-heartbeat-extends-claimed-work-lease
-  (let [root (temp-dir "ygg-cli-work-heartbeat")
+  (let [root (temp-queue-db "ygg-cli-work-heartbeat")
         id (get-in (queue/enqueue! {:schema context/schema
                                     :project-id "fixture"}
                                    {:root root
@@ -849,7 +853,7 @@
         (is (integer? (get-in parsed [:lease :heartbeat-at-ms])))))))
 
 (deftest sync-work-release-expired-releases-stale-claims
-  (let [root (temp-dir "ygg-cli-work-release-expired")
+  (let [root (temp-queue-db "ygg-cli-work-release-expired")
         id (get-in (queue/enqueue! {:schema context/schema
                                     :project-id "fixture"}
                                    {:root root
@@ -872,7 +876,7 @@
                (get-in (queue/find-item root id) [:item :release-reason])))))))
 
 (deftest sync-work-list-releases-expired-claims-before-listing
-  (let [root (temp-dir "ygg-cli-work-list-release-expired")
+  (let [root (temp-queue-db "ygg-cli-work-list-release-expired")
         id (get-in (queue/enqueue! {:schema context/schema
                                     :project-id "fixture"}
                                    {:root root
@@ -895,7 +899,7 @@
         (is (= "ready" (get-in (queue/find-item root id) [:item :status])))))))
 
 (deftest sync-work-validate-reports-valid-invalid-not-done-and-unsupported-results
-  (let [root (temp-dir "ygg-cli-work-validate")
+  (let [root (temp-queue-db "ygg-cli-work-validate")
         dir (temp-dir "ygg-cli-work-validate-results")
         valid-result-path (.getPath (io/file dir "valid.json"))
         invalid-result-path (.getPath (io/file dir "invalid.json"))
@@ -1208,7 +1212,7 @@
              :payload packet
              :result missing-result})))))
 (deftest sync-work-show-returns-summary-with-full-item
-  (let [root (temp-dir "ygg-cli-work-show")
+  (let [root (temp-queue-db "ygg-cli-work-show")
         id (get-in (queue/enqueue! {:schema "custom.packet/v1"
                                     :project-id "fixture"
                                     :expectedResultSchema "custom.result/v1"
@@ -1242,7 +1246,7 @@
         (is (= "--project" (:option (ex-data e))))))))
 
 (deftest sync-work-pull-returns-summary-with-full-item
-  (let [root (temp-dir "ygg-cli-work-pull")
+  (let [root (temp-queue-db "ygg-cli-work-pull")
         id (get-in (queue/enqueue! {:schema infra-review/packet-schema
                                     :reviewId "infra-review:test"
                                     :project-id "fixture"

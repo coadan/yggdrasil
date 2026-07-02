@@ -1129,9 +1129,9 @@
       (assoc ctx :project-id (:id project))
       #(activity/sync-queue! %
                              project
-                             {:queue-root (queue-root
-                                           (assoc ctx :project-id (:id project))
-                                           args)}))))
+                             {:queue-db (queue-root
+                                         (assoc ctx :project-id (:id project))
+                                         args)}))))
 
 (defn- work-list
   [ctx args]
@@ -1168,7 +1168,7 @@
     (or (some-> found queue/item-summary)
         {:schema queue/summary-schema
          :status "empty"
-         :root root})))
+         :queue-db root})))
 
 (defn- work-complete
   [ctx args]

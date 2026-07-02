@@ -393,11 +393,11 @@
 
 (defn sync-queue!
   "Import project SQLite queue items as durable activity rows."
-  [xtdb project {:keys [queue-root now]}]
-  (let [queue-root (or queue-root (store/project-sqlite-path (:id project)))
+  [xtdb project {:keys [queue-db now]}]
+  (let [queue-db (or queue-db (store/project-sqlite-path (:id project)))
         now (long (or now (now-ms)))
-        run-id (str "activity-run:" (hash/short-hash [(:id project) queue-root now]))
-        founds (queue/list-items queue-root {:project-id (:id project)})
+        run-id (str "activity-run:" (hash/short-hash [(:id project) queue-db now]))
+        founds (queue/list-items queue-db {:project-id (:id project)})
         items (mapv #(queue-item->row run-id %) founds)
         events (into [] (mapcat #(queue-item->events run-id %)) founds)
         schema-statuses (->> founds
@@ -420,7 +420,7 @@
     {:schema sync-schema
      :project-id (:id project)
      :source "queue"
-     :queue-root queue-root
+     :queue-db queue-db
      :run-id run-id
      :counts (assoc counts
                     :ready (count (filter #(= :ready (:status %)) items))

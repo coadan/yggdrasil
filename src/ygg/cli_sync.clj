@@ -407,10 +407,10 @@
             (print-json report)
             (print-source-coverage report)))))))
 (defn- print-activity-sync
-  [{:keys [project-id queue-root counts result-schema-mismatches]}]
+  [{:keys [project-id queue-db counts result-schema-mismatches]}]
   (println "# Activity Sync")
   (println "- project" project-id)
-  (println "- queue-root" queue-root)
+  (println "- queue-db" queue-db)
   (println "- items" (:items counts 0))
   (println "- events" (:events counts 0))
   (println "- validation-events" (:validation-events counts 0))
@@ -436,8 +436,8 @@
       (fn [xtdb]
         (let [result (activity/sync-queue! xtdb
                                            project
-                                           {:queue-root (project-queue-root args
-                                                                            (:id project))})]
+                                           {:queue-db (project-queue-root args
+                                                                          (:id project))})]
           (if (json-output? args)
             (print-json result)
             (print-activity-sync result)))))))
@@ -535,7 +535,7 @@
          (assoc (queue/item-summary found) :item (:item found))
          {:schema queue/summary-schema
           :status "empty"
-          :root @root}))
+          :queue-db @root}))
 
       :show
       (let [id (first positional)]
@@ -596,7 +596,7 @@
 
       :release-expired
       (print-json {:schema "ygg.queue.release-expired/v1"
-                   :root @root
+                   :queue-db @root
                    :released (queue/release-expired! @root)})
 
       :heartbeat

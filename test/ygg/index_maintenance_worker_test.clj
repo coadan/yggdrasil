@@ -171,7 +171,7 @@
     (is (= {:mode :complete-only}
            (get-in status [:worker :apply])))
     (is (= (project-queue-root root)
-           (get-in status [:worker :queueRoot])))
+           (get-in status [:worker :queueDb])))
     (is (some? (get-in status [:worker :reportDir])))))
 
 (deftest disabled-worker-does-not-claim-ready-work

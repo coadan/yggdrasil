@@ -11,16 +11,27 @@
               (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
-(deftest queue-requires-explicit-root
+(defn- temp-queue-db
+  [prefix]
+  (.getPath (io/file (temp-dir prefix) "project.sqlite")))
+
+(deftest queue-requires-explicit-database-path
   (try
     (queue/enqueue! {:schema "custom.packet/v1"})
-    (is false "Expected missing queue root to be rejected.")
+    (is false "Expected missing queue database path to be rejected.")
     (catch clojure.lang.ExceptionInfo e
-      (is (= "Queue root is required." (ex-message e)))
-      (is (= {:error "missing-queue-root"} (ex-data e))))))
+      (is (= "Queue database path is required." (ex-message e)))
+      (is (= {:error "missing-queue-db"} (ex-data e)))))
+  (try
+    (queue/enqueue! {:schema "custom.packet/v1"} {:root (temp-dir "ygg-queue-dir")})
+    (is false "Expected queue directory path to be rejected.")
+    (catch clojure.lang.ExceptionInfo e
+      (is (= "Queue database path must point at a SQLite file."
+             (ex-message e)))
+      (is (= "invalid-queue-db" (:error (ex-data e)))))))
 
 (deftest queue-items-claim-and-complete-through-sqlite
-  (let [root (temp-dir "ygg-queue")
+  (let [root (temp-queue-db "ygg-queue")
         payload {:schema "ygg.context/v1"
                  :query "projection boundary"
                  :basis {:project-id "fixture"}}
@@ -52,7 +63,7 @@
                           (queue/list-items root {:status "done"}))))))))
 
 (deftest claimed-items-can-be-released-or-expired
-  (let [root (temp-dir "ygg-queue-release")
+  (let [root (temp-queue-db "ygg-queue-release")
         payload {:schema "ygg.context/v1"
                  :query "projection boundary"
                  :basis {:project-id "fixture"}}
@@ -66,7 +77,7 @@
     (is (= "ready" (get-in (queue/find-item root id) [:item :status])))))
 
 (deftest complete-requires-claimed-item
-  (let [root (temp-dir "ygg-queue-complete")
+  (let [root (temp-queue-db "ygg-queue-complete")
         id (get-in (queue/enqueue! {:schema "custom.packet/v1"} {:root root})
                    [:item :id])]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
@@ -74,7 +85,7 @@
                           (queue/complete! root id {:ok true})))))
 
 (deftest queue-list-summary-is-compact
-  (let [root (temp-dir "ygg-queue-summary")
+  (let [root (temp-queue-db "ygg-queue-summary")
         id (get-in (queue/enqueue! {:schema "custom.packet/v1"
                                     :project-id "demo"}
                                    {:root root
@@ -83,12 +94,14 @@
                    [:item :id])
         summary (queue/list-summary root {:project-id "demo"})]
     (is (= queue/list-schema (:schema summary)))
+    (is (= root (:queue-db summary)))
+    (is (not (contains? summary :root)))
     (is (= [id] (mapv :id (:items summary))))
     (is (= [queue/summary-schema] (mapv :schema (:items summary))))
     (is (not (contains? (first (:items summary)) :payload)))))
 
 (deftest queue-summary-includes-payload-target-context
-  (let [root (temp-dir "ygg-queue-payload-summary")
+  (let [root (temp-queue-db "ygg-queue-payload-summary")
         infra-id (get-in (queue/enqueue! {:schema "ygg.infra.review-packet/v1"
                                           :reviewId "infra-review:test"
                                           :project-id "demo"
@@ -151,8 +164,8 @@
            (:expected-result-schema (get by-id batch-id))))))
 
 (deftest queue-summary-includes-state-specific-actions
-  (let [root (str (temp-dir "ygg-queue actions") "/queue root")
-        no-project-root (str (temp-dir "ygg-queue no project") "/queue root")
+  (let [root (temp-queue-db "ygg-queue-actions")
+        no-project-root (temp-queue-db "ygg-queue-no-project")
         ready-id (get-in (queue/enqueue! {:schema "custom.packet/v1"
                                           :project-id "demo"}
                                          {:root root
@@ -222,7 +235,7 @@
            (:actions done-summary)))))
 
 (deftest queue-list-and-claim-can-filter-by-kind
-  (let [root (temp-dir "ygg-queue-kind-filter")
+  (let [root (temp-queue-db "ygg-queue-kind-filter")
         infra-id (get-in (queue/enqueue! {:schema "ygg.infra.review-packet/v1"
                                           :reviewId "infra-review:test"
                                           :project-id "demo"}

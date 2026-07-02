@@ -101,6 +101,10 @@
               (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
+(defn- temp-queue-db
+  [prefix]
+  (.getPath (io/file (temp-dir prefix) "project.sqlite")))
+
 (deftest initialize-and-list-tools-use-mcp-envelope
   (let [ctx (mcp/server-context [])
         init (mcp/handle-message ctx
@@ -1265,7 +1269,7 @@
 
 (deftest sync-activity-tool-imports-queue-activity
   (let [calls (atom [])
-        queue-root ".dev/test-queue"]
+        queue-root ".dev/test-project.sqlite"]
     (with-redefs [project/read-project (constantly project-fixture)
                   store/project-sqlite-path (constantly queue-root)
                   store/with-node (fn [_ f] (f :xtdb))
@@ -1273,7 +1277,7 @@
                                          (swap! calls conj [:activity xtdb (:id project) opts])
                                          {:schema activity/sync-schema
                                           :project-id (:id project)
-                                          :queue-root (:queue-root opts)
+                                          :queue-db (:queue-db opts)
                                           :counts {:items 1
                                                    :events 2
                                                    :validation-events 1
@@ -1287,13 +1291,13 @@
             packet (get-in response [:result :structuredContent])]
         (is (= activity/sync-schema (:schema packet)))
         (is (= "fixture" (:project-id packet)))
-        (is (= queue-root (:queue-root packet)))
+        (is (= queue-root (:queue-db packet)))
         (is (= 1 (get-in packet [:counts :result-schema-mismatch-events])))
-        (is (= [[:activity :xtdb "fixture" {:queue-root queue-root}]]
+        (is (= [[:activity :xtdb "fixture" {:queue-db queue-root}]]
                @calls))))))
 
 (deftest work-complete-rejects-result-without-schema
-  (let [root (temp-dir "ygg-mcp-invalid-result-queue")]
+  (let [root (temp-queue-db "ygg-mcp-invalid-result-queue")]
     (with-redefs [store/project-sqlite-path (constantly root)]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--tools" "work"])
@@ -1318,7 +1322,7 @@
 
 (deftest work-list-resolves-central-project-queue-from-server-root
   (let [server-root (temp-dir "ygg-mcp-project-root")
-        queue-root (temp-dir "ygg-mcp-central-queue")
+        queue-root (temp-queue-db "ygg-mcp-central-queue")
         calls (atom [])
         payload {:schema context/schema
                  :project-id "fixture"}
@@ -1346,7 +1350,7 @@
                @calls))))))
 
 (deftest work-list-returns-actionable-queue-summaries
-  (let [root (temp-dir "ygg-mcp-queue-list")
+  (let [root (temp-queue-db "ygg-mcp-queue-list")
         payload {:schema context/schema
                  :project-id "fixture"}
         item (queue/enqueue! payload {:root root
@@ -1369,7 +1373,7 @@
                                [:item :status])))))))
 
 (deftest work-show-returns-summary-and-embedded-item
-  (let [root (temp-dir "ygg-mcp-queue-show")
+  (let [root (temp-queue-db "ygg-mcp-queue-show")
         payload {:schema context/schema
                  :project-id "fixture"
                  :query "where auth"
@@ -1392,7 +1396,7 @@
         (is (= payload (get-in shown [:item :payload])))))))
 
 (deftest work-show-returns-queue-error-for-missing-item
-  (let [root (temp-dir "ygg-mcp-queue-show-missing")]
+  (let [root (temp-queue-db "ygg-mcp-queue-show-missing")]
     (with-redefs [store/project-sqlite-path (constantly root)]
       (let [response (mcp/handle-message
                       (mcp/server-context ["--tools" "work"])
@@ -1406,7 +1410,7 @@
         (is (= "queue:missing" (:id shown)))))))
 
 (deftest work-pull-claims-ready-queue-item
-  (let [root (temp-dir "ygg-mcp-queue")
+  (let [root (temp-queue-db "ygg-mcp-queue")
         payload {:schema context/schema
                  :project-id "fixture"}
         item (queue/enqueue! payload {:root root
@@ -1425,7 +1429,7 @@
         (is (= "agent" (get-in pulled [:lease :agent-id])))))))
 
 (deftest work-heartbeat-extends-claimed-queue-item
-  (let [root (temp-dir "ygg-mcp-queue-heartbeat")
+  (let [root (temp-queue-db "ygg-mcp-queue-heartbeat")
         item-id (get-in (queue/enqueue! {:schema context/schema
                                          :project-id "fixture"}
                                         {:root root
@@ -1451,7 +1455,7 @@
         (is (integer? (get-in summary [:lease :heartbeat-at-ms])))))))
 
 (deftest work-release-returns-claimed-queue-item-to-ready
-  (let [root (temp-dir "ygg-mcp-queue-release")
+  (let [root (temp-queue-db "ygg-mcp-queue-release")
         item-id (get-in (queue/enqueue! {:schema context/schema
                                          :project-id "fixture"}
                                         {:root root
@@ -1477,7 +1481,7 @@
                (get-in found [:item :release-reason])))))))
 
 (deftest work-reject-records-reason
-  (let [root (temp-dir "ygg-mcp-queue-reject")
+  (let [root (temp-queue-db "ygg-mcp-queue-reject")
         item-id (get-in (queue/enqueue! {:schema context/schema
                                          :project-id "fixture"}
                                         {:root root

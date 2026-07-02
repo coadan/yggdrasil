@@ -34,6 +34,10 @@
               (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
+(defn- temp-queue-db
+  [prefix]
+  (.getPath (io/file (temp-dir prefix) "project.sqlite")))
+
 (defn- read-json-output
   [s]
   (json/read-json s :key-fn keyword))
@@ -1803,7 +1807,7 @@
                @calls))))))
 
 (deftest bench-agent-packet-can-enqueue-provider-neutral-work
-  (let [root (temp-dir "ygg-cli-agent-bench-queue")
+  (let [root (temp-queue-db "ygg-cli-agent-bench-queue")
         queue-projects (atom [])]
     (with-redefs [benchmark/read-suite (constantly {:id "suite"})
                   benchmark/agent-packets! (fn [suite opts]

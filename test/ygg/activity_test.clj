@@ -13,6 +13,10 @@
               (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
+(defn- temp-queue-db
+  [prefix]
+  (str (java.io.File. (temp-dir prefix) "project.sqlite")))
+
 (deftest result-schema-counts-summarize-mechanical-item-statuses
   (is (= {:result-schema-statuses {:matching 1
                                    :mismatch 1
@@ -75,7 +79,7 @@
            @calls))))
 
 (deftest sync-queue-imports-durable-activity-and-validation-events
-  (let [root (temp-dir "ygg-activity-queue")
+  (let [root (temp-queue-db "ygg-activity-queue")
         project {:id "demo" :name "Demo" :repos []}
         payload {:schema "ygg.test.work/v1"
                  :project-id "demo"
@@ -98,7 +102,7 @@
                       :scores {:tests 1.0}})
     (store/with-node xtdb-path
       (fn [xtdb]
-        (let [result (activity/sync-queue! xtdb project {:queue-root root :now 2000})
+        (let [result (activity/sync-queue! xtdb project {:queue-db root :now 2000})
               items (activity/all-items xtdb {:project-id "demo"})
               events (activity/all-events xtdb {:project-id "demo"})
               selected (activity/select-activity xtdb
@@ -128,7 +132,7 @@
                  (mapv :sourceId selected))))))))
 
 (deftest sync-queue-records-result-schema-mismatches
-  (let [root (temp-dir "ygg-activity-schema-mismatch")
+  (let [root (temp-queue-db "ygg-activity-schema-mismatch")
         project {:id "demo" :name "Demo" :repos []}
         payload {:schema "ygg.test.work/v1"
                  :project-id "demo"
@@ -148,12 +152,12 @@
                       :summary "Wrong schema was returned"})
     (store/with-node xtdb-path
       (fn [xtdb]
-        (activity/sync-queue! xtdb project {:queue-root root :now 2000})
+        (activity/sync-queue! xtdb project {:queue-db root :now 2000})
         (let [events (activity/all-events xtdb {:project-id "demo"})
               selected (activity/select-activity xtdb
                                                  "result schema mismatch"
                                                  {:project-id "demo"})
-              result (activity/sync-queue! xtdb project {:queue-root root :now 3000})
+              result (activity/sync-queue! xtdb project {:queue-db root :now 3000})
               mismatch (first (filter #(= :result-schema-mismatch (:event-kind %))
                                       events))
               sample (first (:result-schema-mismatches result))]
@@ -181,7 +185,7 @@
                  (set (mapcat #(map :event-kind (:events %)) selected)))))))))
 
 (deftest context-packet-can-answer-from-activity-when-graph-is-empty
-  (let [root (temp-dir "ygg-context-activity-queue")
+  (let [root (temp-queue-db "ygg-context-activity-queue")
         project {:id "demo" :name "Demo" :repos []}
         payload {:schema "ygg.test.work/v1"
                  :project-id "demo"
@@ -202,7 +206,7 @@
                       :commands ["bb test"]})
     (store/with-node xtdb-path
       (fn [xtdb]
-        (activity/sync-queue! xtdb project {:queue-root root :now 2000})
+        (activity/sync-queue! xtdb project {:queue-db root :now 2000})
         (let [packet (context/context-packet xtdb
                                              "what previous work touched knowledge base search"
                                              {:project-id "demo"

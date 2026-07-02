@@ -16,6 +16,10 @@
                                                 (make-array java.nio.file.attribute.FileAttribute
                                                             0))))
 
+(defn- temp-queue-db
+  [prefix]
+  (.getPath (io/file (temp-dir prefix) "project.sqlite")))
+
 (defn- write-file!
   [root path content]
   (let [file (io/file root path)]
@@ -34,7 +38,7 @@
      (cli/dispatch "sync" (vec args)))))
 
 (deftest dependency-review-packet-applies-package-import-correction
-  (let [root (temp-dir "ygg-dependency-review-queue")
+  (let [root (temp-queue-db "ygg-dependency-review-queue")
         xtdb-path (temp-dir "ygg-dependency-review-corrections")
         report {:packages [{:id "package:maven:org.slf4j:slf4j-api"
                             :label "maven:org.slf4j:slf4j-api"
