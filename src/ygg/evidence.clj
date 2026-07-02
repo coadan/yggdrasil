@@ -5,6 +5,7 @@
             [ygg.coverage :as coverage]
             [ygg.dependency :as dependency]
             [ygg.fs :as fs]
+            [ygg.index :as index]
             [ygg.memory :as memory]
             [ygg.xtdb :as store]
             [clojure.set :as set]
@@ -605,7 +606,8 @@
         project-id (:id project)
         stale-count (+ (get-in freshness [:counts :changed] 0)
                        (get-in freshness [:counts :missing] 0)
-                       (get-in freshness [:counts :unindexed] 0))]
+                       (get-in freshness [:counts :unindexed] 0)
+                       (get-in freshness [:counts :upstream-stale] 0))]
     (->> (cond-> []
            (zero? files)
            (conj {:kind :source-files
@@ -777,6 +779,28 @@
   [snapshot]
   (not-empty (select-keys snapshot git-state-fields)))
 
+(def ^:private upstream-stale-statuses
+  #{:behind :diverged})
+
+(defn- normalized-keyword
+  [value]
+  (when value
+    (keyword value)))
+
+(defn- upstream-stale?
+  [git-state]
+  (contains? upstream-stale-statuses
+             (normalized-keyword (:git-upstream-status git-state))))
+
+(defn- current-git-state
+  [root]
+  (try
+    (some-> (index/current-git-state root)
+            (select-keys git-state-fields)
+            not-empty)
+    (catch Exception _
+      nil)))
+
 (defn- latest-source-snapshots-by-repo
   [xtdb project-id read-context]
   (->> (active-rows xtdb
@@ -816,6 +840,9 @@
          scan (if (and (empty? indexed) (some? coverage-files))
                 (coverage-current-files id root coverage-files)
                 (current-files repo))
+         git-state (or (current-git-state root)
+                       (snapshot-git-state source-snapshot))
+         upstream-stale? (upstream-stale? git-state)
          indexed-by-path (into {} (map (juxt :path identity)) indexed)
          current-by-path (into {} (map (juxt :path identity)) (:files scan))
          indexed-paths (set (keys indexed-by-path))
@@ -834,6 +861,7 @@
                        (zero? (count (:files scan)))) :empty
                   (zero? (count indexed)) :unsynced
                   (seq (concat missing unindexed changed)) :stale
+                  upstream-stale? :stale
                   :else :current)]
      (cond-> {:repo-id id
               :root root
@@ -842,10 +870,10 @@
                        :current (count (:files scan))
                        :changed (count changed)
                        :missing (count missing)
-                       :unindexed (count unindexed)}}
+                       :unindexed (count unindexed)
+                       :upstream-stale (if upstream-stale? 1 0)}}
        (:error scan) (assoc :error (:error scan))
-       (snapshot-git-state source-snapshot) (assoc :git-state
-                                                   (snapshot-git-state source-snapshot))
+       git-state (assoc :git-state git-state)
        (seq changed) (assoc-in [:samples :changed]
                                (mapv #(path-sample id %) (take freshness-sample-limit changed)))
        (seq missing) (assoc-in [:samples :missing]

@@ -158,6 +158,12 @@
         state (merge state (git-ahead-behind root))]
     (assoc state :git-upstream-status (git-upstream-status state))))
 
+(defn current-git-state
+  "Return current mechanical git upstream state for root, or nil outside git."
+  [root]
+  (when-let [git-sha (git-sha root)]
+    (git-ref-state root git-sha)))
+
 (defn run-id
   ([root started-at-ms] (run-id root started-at-ms nil nil))
   ([root started-at-ms project-id repo-id]

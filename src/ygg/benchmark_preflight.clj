@@ -5,7 +5,7 @@
   "ygg.benchmark.maintenance-preflight/v1")
 
 (def blocking-sync-planes
-  #{"dependencies" "activity" "validation-history" "correction-overlay"})
+  #{"dependencies" "activity" "validation-history" "correction-overlay" "freshness"})
 
 (def blocking-sync-statuses
   #{"failed" "missing" "stale" "weak"})
@@ -98,6 +98,7 @@
     "activity" #{"activity"}
     "validation-history" #{"activity" "validation-history"}
     "correction-overlay" #{"correction-overlay"}
+    "freshness" #{"freshness" "source-files"}
     #{}))
 
 (defn- matching-family-actions
@@ -119,16 +120,29 @@
 
 (defn- sync-inspect-validation-gaps
   [sync-inspect]
-  (->> (:families sync-inspect)
-       (filter #(and (blocking-sync-plane? (:family %))
-                     (blocking-sync-status? (:status %))))
-       (mapv #(family-validation-gap sync-inspect %))))
+  (let [family-gaps (->> (:families sync-inspect)
+                         (filter #(and (blocking-sync-plane? (:family %))
+                                       (blocking-sync-status? (:status %))))
+                         (mapv #(family-validation-gap sync-inspect %)))
+        freshness (:freshness sync-inspect)
+        freshness-gap (when (and (blocking-sync-plane? :freshness)
+                                 (blocking-sync-status? (:status freshness)))
+                        (cond-> {:plane "freshness"
+                                 :status (normalized-name (:status freshness))}
+                          (:counts freshness) (assoc :counts (:counts freshness))
+                          (seq (:repos freshness)) (assoc :repos (:repos freshness))
+                          (seq (matching-family-actions sync-inspect :freshness))
+                          (assoc :nextActions
+                                 (matching-family-actions sync-inspect :freshness))))]
+    (cond-> family-gaps
+      freshness-gap (conj freshness-gap))))
 
 (defn- sync-check-from-inspect
   [sync-inspect]
   (let [blocking-gaps (sync-inspect-validation-gaps sync-inspect)]
     (check (if (seq blocking-gaps) "failed" "passed")
            {:source "sync-inspect"
+            :freshness (:freshness sync-inspect)
             :families (->> (:families sync-inspect)
                            (filter #(blocking-sync-plane? (:family %)))
                            (mapv #(select-keys % [:family
@@ -158,7 +172,8 @@
                              :blockingValidationGaps []}
                       (:error sync-inspect) (assoc :error (:error sync-inspect))))
 
-    (seq (:families sync-inspect))
+    (or (seq (:families sync-inspect))
+        (:freshness sync-inspect))
     (sync-check-from-inspect sync-inspect)
 
     :else

@@ -67,6 +67,54 @@
                             :command "ygg sync init project.edn"}]}]
            (:blockingValidationGaps sync-check)))))
 
+(deftest maintenance-preflight-blocks-stale-sync-inspect-freshness
+  (let [preflight (benchmark-preflight/maintenance-preflight
+                   {:index-summary {:status "completed"}
+                    :system-summary {:status "completed"}
+                    :graph-expectations {:status "passed"}
+                    :hints {:architecture {:validationGaps []}}
+                    :sync-inspect {:freshness {:status :stale
+                                               :counts {:indexed 1
+                                                        :current 1
+                                                        :changed 0
+                                                        :missing 0
+                                                        :unindexed 0
+                                                        :upstream-stale 1}
+                                               :repos [{:repo-id "app"
+                                                        :status :stale
+                                                        :git-state {:git-branch "main"
+                                                                    :git-upstream "origin/main"
+                                                                    :git-upstream-status :behind
+                                                                    :git-upstream-current? false
+                                                                    :git-ahead 0
+                                                                    :git-behind 2}}]}
+                                   :families []
+                                   :nextActions [{:kind :freshness
+                                                  :command "ygg sync project.edn --check"}]}})
+        sync-check (get-in preflight [:checks :syncCheck])]
+    (is (= "failed" (:status preflight)))
+    (is (= "failed" (:status sync-check)))
+    (is (= "sync-inspect" (:source sync-check)))
+    (is (= [{:plane "freshness"
+             :status "stale"
+             :counts {:indexed 1
+                      :current 1
+                      :changed 0
+                      :missing 0
+                      :unindexed 0
+                      :upstream-stale 1}
+             :repos [{:repo-id "app"
+                      :status :stale
+                      :git-state {:git-branch "main"
+                                  :git-upstream "origin/main"
+                                  :git-upstream-status :behind
+                                  :git-upstream-current? false
+                                  :git-ahead 0
+                                  :git-behind 2}}]
+             :nextActions [{:kind :freshness
+                            :command "ygg sync project.edn --check"}]}]
+           (:blockingValidationGaps sync-check)))))
+
 (deftest claim-readiness-requires-passed-maintenance-preflight
   (is (true? (benchmark-preflight/claim-ready? {:status "passed"})))
   (doseq [status ["failed" "not-run" "not-configured" nil]]

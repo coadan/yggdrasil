@@ -4,6 +4,7 @@
             [ygg.dependency :as dependency]
             [ygg.evidence :as evidence]
             [ygg.fs :as fs]
+            [ygg.index :as index]
             [ygg.memory :as memory]
             [ygg.query :as query]
             [ygg.xtdb :as store]
@@ -844,7 +845,8 @@
               :current 2
               :changed 1
               :missing 1
-              :unindexed 1}
+              :unindexed 1
+              :upstream-stale 1}
              (get-in summary [:freshness :counts])))
       (is (= [{:repo-id "app"
                :path "src/changed.clj"}]
@@ -865,7 +867,94 @@
              (get-in summary [:freshness :repos 0 :git-state])))
       (is (some #(= {:kind :freshness
                      :label "Refresh indexed graph basis"
-                     :count 3
+                     :count 4
+                     :command "ygg sync project.edn --check"}
+                    %)
+                (:nextActions summary))))))
+
+(deftest summarize-marks-current-files-stale-when-current-upstream-is-behind
+  (with-redefs [coverage/project-coverage (fn [& _]
+                                            {:totals {:skipped 0}
+                                             :files-by-kind []
+                                             :extractors []
+                                             :skipped-by-extension []
+                                             :skipped-by-reason []
+                                             :diagnostics {:total 0}})
+                dependency/package-report (fn [& _]
+                                            {:counts {:packages 0
+                                                      :versions 0
+                                                      :imports-package 0
+                                                      :version-conflicts 0
+                                                      :declared-without-import-evidence 0
+                                                      :unresolved-imports 0}
+                                             :ecosystems []})
+                fs/scan-files (fn [root]
+                                (is (= "/repo" root))
+                                [{:path "src/app.clj"
+                                  :content-sha "sha256:current"}])
+                index/current-git-state (fn [root]
+                                          (is (= "/repo" root))
+                                          {:git-branch "main"
+                                           :git-upstream "origin/main"
+                                           :git-upstream-sha "sha-upstream"
+                                           :git-upstream-current? false
+                                           :git-upstream-status :behind
+                                           :git-ahead 0
+                                           :git-behind 2})
+                store/all-rows (fn [_ table _]
+                                 (case table
+                                   :ygg/files [{:xt/id "file:app"
+                                                :project-id "fixture"
+                                                :repo-id "app"
+                                                :path "src/app.clj"
+                                                :content-sha "sha256:current"
+                                                :active? true}]
+                                   :ygg/source-snapshots [{:xt/id "snapshot:fixture:app:head"
+                                                           :project-id "fixture"
+                                                           :repo-id "app"
+                                                           :basis-instant #inst "2026-01-01T00:00:00.000Z"
+                                                           :git-branch "main"
+                                                           :git-upstream "origin/main"
+                                                           :git-upstream-sha "sha-indexed"
+                                                           :git-upstream-current? true
+                                                           :git-upstream-status :up-to-date
+                                                           :git-ahead 0
+                                                           :git-behind 0}]
+                                   []))
+                query/all-nodes (fn [& _] [])
+                query/all-edges (fn [& _] [])
+                query/all-chunks (fn [& _] [])
+                query/all-search-docs (fn [& _] [])
+                query/all-embeddings (fn [& _] [])
+                query/all-system-nodes (fn [& _] [])
+                query/all-system-edges (fn [& _] [])
+                query/all-system-evidence (fn [& _] [])
+                activity/all-items (fn [& _] [])
+                activity/all-events (fn [& _] [])]
+    (let [summary (evidence/summarize :xtdb
+                                      {:id "fixture"
+                                       :repos [{:id "app"
+                                                :root "/repo"}]}
+                                      {:config-path "project.edn"})]
+      (is (= :stale (get-in summary [:freshness :status])))
+      (is (= {:indexed 1
+              :current 1
+              :changed 0
+              :missing 0
+              :unindexed 0
+              :upstream-stale 1}
+             (get-in summary [:freshness :counts])))
+      (is (= {:git-branch "main"
+              :git-upstream "origin/main"
+              :git-upstream-sha "sha-upstream"
+              :git-upstream-current? false
+              :git-upstream-status :behind
+              :git-ahead 0
+              :git-behind 2}
+             (get-in summary [:freshness :repos 0 :git-state])))
+      (is (some #(= {:kind :freshness
+                     :label "Refresh indexed graph basis"
+                     :count 1
                      :command "ygg sync project.edn --check"}
                     %)
                 (:nextActions summary))))))
