@@ -143,7 +143,6 @@
                  :decision-quality
                  :synthetic
                  :problem-planning
-                 :ygg-should-win
                  :architecture-runtime-boundary
                  :audit-scope-runtime-config
                  :shell-sufficient-control

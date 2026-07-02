@@ -316,6 +316,27 @@
                 :repos
                 (mapv :repo-id))))))
 
+(deftest should-win-tags-do-not-include-shell-sufficient-controls
+  (let [suite-paths ["benchmarks/feature-planning.edn"
+                     "benchmarks/decision-quality-pilot.edn"
+                     "benchmarks/historical-replay.edn"
+                     "benchmarks/architecture-synthetic.edn"
+                     "benchmarks/architecture-coverage.edn"
+                     "benchmarks/multi-repo-quality.edn"
+                     "benchmarks/task-category-broad.edn"]
+        conflicts (->> suite-paths
+                       (mapcat (fn [suite-path]
+                                 (let [suite (benchmark/read-suite suite-path)]
+                                   (keep (fn [case]
+                                           (let [tags (set (:tags case))]
+                                             (when (and (contains? tags :ygg-should-win)
+                                                        (contains? tags :shell-sufficient-control))
+                                               {:suite suite-path
+                                                :case-id (:id case)})))
+                                         (:cases suite)))))
+                       vec)]
+    (is (= [] conflicts))))
+
 (deftest read-suite-rejects-unknown-included-case-selection
   (let [suite-dir (temp-dir "ygg-bench-suite-include-case-missing")
         child (.getPath (io/file suite-dir "child.edn"))
