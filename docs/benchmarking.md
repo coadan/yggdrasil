@@ -37,9 +37,10 @@ bb bench repos check --suite benchmarks/architecture-synthetic.edn
 bb bench:gate --setup-check
 ```
 
-`bb bench:gate` runs the same setup check before deterministic baseline work.
-Use `bb bench:gate --check-only` immediately before architecture or extractor
-claims when current score artifacts already exist. Check-only mode skips
+`bb bench:gate` runs the same setup check before deterministic baseline work
+and always writes `stage-time-gate.json` under the output root. Use
+`bb bench:gate --check-only` immediately before architecture or extractor claims
+when current score artifacts already exist. Check-only mode skips
 baseline regeneration but still rejects missing, stale, unverified, graph-failing,
 maintained-graph-blocked, or per-case estimated context-packet token-budget
 violating score artifacts. If artifacts predate deterministic baseline token
@@ -555,7 +556,9 @@ plugin-fit choice, not just a shorter suspected-file list.
   `stageClassTotals` / `slowestCaseStageClasses` to see whether a full lane is
   spending time in graph setup, case setup, agent preparation, embeddings,
   agent execution, or scoring. Add `--baseline-report` to include stage and
-  stage-class deltas against an earlier artifact.
+  stage-class deltas against an earlier artifact. `bb bench:gate` invokes this
+  gate automatically after `agent-check`, so every deterministic claim gate has a
+  timing profile even when it is not enforcing timing thresholds.
 - `bench claim-pack <suite.edn> --shell-report <path> --ygg-report <path>`
   writes a replayable proof bundle under the benchmark output root:
   `efficiency-summary.json`, `efficiency-summary.md`,

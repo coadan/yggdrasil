@@ -64,7 +64,9 @@ Options:
 The gate runs the deterministic Yggdrasil baseline and checks the generated
 score artifacts. Use --check-only before a claim when current artifacts already
 exist; stale or missing score artifacts still fail the strict check. Generated
-worktrees, XTDB stores, reports, and scores stay under the output root.
+worktrees, XTDB stores, reports, and scores stay under the output root. Every
+gate run also writes stage-time-gate.json so performance regressions and slow
+stage classes are visible without configuring timing thresholds.
 EOF
 }
 
@@ -383,49 +385,36 @@ fi
 
 run_bench agent-check "${agent_check_args[@]}"
 
-stage_time_configured=false
-if [[ "$stage_time_baseline_report_count" -gt 0 \
-  || -n "$max_case_stage_ms" \
-  || -n "$max_total_stage_ms" \
-  || -n "$max_case_stage_regression_ms" \
-  || -n "$max_total_stage_regression_ms" \
-  || -n "$max_case_stage_regression_ratio" \
-  || -n "$max_total_stage_regression_ratio" ]]; then
-  stage_time_configured=true
+stage_time_args=("$out/*/agent-report.json" --out "$out/stage-time-gate.json")
+if [[ "$stage_time_baseline_report_count" -gt 0 ]]; then
+  for report in "${stage_time_baseline_reports[@]}"; do
+    stage_time_args+=(--baseline-report "$report")
+  done
 fi
-
-if [[ "$stage_time_configured" == true ]]; then
-  stage_time_args=("$out/*/agent-report.json" --out "$out/stage-time-gate.json")
-  if [[ "$stage_time_baseline_report_count" -gt 0 ]]; then
-    for report in "${stage_time_baseline_reports[@]}"; do
-      stage_time_args+=(--baseline-report "$report")
-    done
-  fi
-  if [[ -n "$max_case_stage_ms" ]]; then
-    stage_time_args+=(--max-case-stage-ms "$max_case_stage_ms")
-  fi
-  if [[ -n "$max_total_stage_ms" ]]; then
-    stage_time_args+=(--max-total-stage-ms "$max_total_stage_ms")
-  fi
-  if [[ -n "$max_case_stage_regression_ms" ]]; then
-    stage_time_args+=(--max-case-stage-regression-ms "$max_case_stage_regression_ms")
-  fi
-  if [[ -n "$max_total_stage_regression_ms" ]]; then
-    stage_time_args+=(--max-total-stage-regression-ms "$max_total_stage_regression_ms")
-  fi
-  if [[ -n "$max_case_stage_regression_ratio" ]]; then
-    stage_time_args+=(--max-case-stage-regression-ratio "$max_case_stage_regression_ratio")
-  fi
-  if [[ -n "$max_total_stage_regression_ratio" ]]; then
-    stage_time_args+=(--max-total-stage-regression-ratio "$max_total_stage_regression_ratio")
-  fi
-  if [[ -n "$min_stage_regression_ms" ]]; then
-    stage_time_args+=(--min-stage-regression-ms "$min_stage_regression_ms")
-  fi
-  if [[ "$stage_filter_count" -gt 0 ]]; then
-    for stage in "${stage_filters[@]}"; do
-      stage_time_args+=(--stage "$stage")
-    done
-  fi
-  run python3 scripts/stage-time-gate.py "${stage_time_args[@]}"
+if [[ -n "$max_case_stage_ms" ]]; then
+  stage_time_args+=(--max-case-stage-ms "$max_case_stage_ms")
 fi
+if [[ -n "$max_total_stage_ms" ]]; then
+  stage_time_args+=(--max-total-stage-ms "$max_total_stage_ms")
+fi
+if [[ -n "$max_case_stage_regression_ms" ]]; then
+  stage_time_args+=(--max-case-stage-regression-ms "$max_case_stage_regression_ms")
+fi
+if [[ -n "$max_total_stage_regression_ms" ]]; then
+  stage_time_args+=(--max-total-stage-regression-ms "$max_total_stage_regression_ms")
+fi
+if [[ -n "$max_case_stage_regression_ratio" ]]; then
+  stage_time_args+=(--max-case-stage-regression-ratio "$max_case_stage_regression_ratio")
+fi
+if [[ -n "$max_total_stage_regression_ratio" ]]; then
+  stage_time_args+=(--max-total-stage-regression-ratio "$max_total_stage_regression_ratio")
+fi
+if [[ -n "$min_stage_regression_ms" ]]; then
+  stage_time_args+=(--min-stage-regression-ms "$min_stage_regression_ms")
+fi
+if [[ "$stage_filter_count" -gt 0 ]]; then
+  for stage in "${stage_filters[@]}"; do
+    stage_time_args+=(--stage "$stage")
+  done
+fi
+run python3 scripts/stage-time-gate.py "${stage_time_args[@]}"

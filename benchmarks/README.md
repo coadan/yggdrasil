@@ -107,6 +107,10 @@ The deterministic gate runs the same preflight before doing benchmark work:
 bb bench:gate
 ```
 
+Every deterministic gate also writes `stage-time-gate.json` under its output
+root so indexing, embedding, context-packet, execution, and scoring time remain
+visible even when no timing thresholds are configured.
+
 When current score artifacts already exist, use the cheaper claim check:
 
 ```sh

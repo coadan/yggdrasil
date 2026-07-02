@@ -104,7 +104,7 @@
                          "--out" ".dev/ygg/benchmark-gate/custom")
         lines (output-lines result)]
     (is (= 0 (:exit result)))
-    (is (= 3 (count lines)))
+    (is (= 4 (count lines)))
     (is (str/includes? (nth lines 0)
                        "bb bench repos check --manifest benchmarks/custom-repos.edn --suite benchmarks/custom.edn"))
     (is (str/includes? (nth lines 1)
@@ -118,7 +118,11 @@
     (is (str/includes? (nth lines 2)
                        "--max-maintenance-preflight-blockers 0"))
     (is (str/includes? (nth lines 2)
-                       "--max-case-total-tokens 24000"))))
+                       "--max-case-total-tokens 24000"))
+    (is (str/includes? (nth lines 3)
+                       "python3 scripts/stage-time-gate.py"))
+    (is (str/includes? (nth lines 3)
+                       "--out .dev/ygg/benchmark-gate/custom/stage-time-gate.json"))))
 
 (deftest check-only-dry-run-skips-baseline-and-keeps-strict-checks
   (let [result (run-gate "--dry-run"
@@ -129,7 +133,7 @@
                          "--out" ".dev/ygg/benchmark-gate/custom")
         lines (output-lines result)]
     (is (= 0 (:exit result)))
-    (is (= 2 (count lines)))
+    (is (= 3 (count lines)))
     (is (str/includes? (nth lines 0)
                        "bb bench repos check --manifest benchmarks/custom-repos.edn --suite benchmarks/custom.edn"))
     (is (not-any? #(str/includes? % "agent-baseline") lines))
@@ -143,7 +147,9 @@
     (is (str/includes? (nth lines 1)
                        "--max-maintenance-preflight-blockers 0"))
     (is (str/includes? (nth lines 1)
-                       "--max-case-total-tokens 24000"))))
+                       "--max-case-total-tokens 24000"))
+    (is (str/includes? (nth lines 2)
+                       "python3 scripts/stage-time-gate.py"))))
 
 (deftest skip-existing-dry-run-forwards-only-to-baseline-generation
   (let [result (run-gate "--dry-run"
@@ -153,7 +159,7 @@
                          "--out" ".dev/ygg/benchmark-gate/custom")
         lines (output-lines result)]
     (is (= 0 (:exit result)))
-    (is (= 3 (count lines)))
+    (is (= 4 (count lines)))
     (is (str/includes? (nth lines 1)
                        "bench agent-baseline benchmarks/custom.edn"))
     (is (str/includes? (nth lines 1)
@@ -176,7 +182,7 @@
   (let [result (run-claim-quick-gate "--dry-run")
         lines (output-lines result)]
     (is (= 0 (:exit result)))
-    (is (= 3 (count lines)))
+    (is (= 4 (count lines)))
     (is (str/includes? (nth lines 0)
                        "bb bench repos check --manifest benchmarks/repos.edn --suite benchmarks/historical-replay-claim-quick.edn"))
     (is (str/includes? (nth lines 1)
@@ -190,7 +196,9 @@
     (is (str/includes? (nth lines 2)
                        "--min-expected-evidence-citation-rate 0.80"))
     (is (str/includes? (nth lines 2)
-                       "--min-case-expected-evidence-citation-rate 0.50"))))
+                       "--min-case-expected-evidence-citation-rate 0.50"))
+    (is (str/includes? (nth lines 3)
+                       "python3 scripts/stage-time-gate.py"))))
 
 (deftest claim-quick-dry-run-allows-threshold-overrides
   (let [result (run-claim-quick-gate "--dry-run"
@@ -198,7 +206,8 @@
                                      "0.5"
                                      "--min-case-expected-evidence-citation-rate"
                                      "0.25")
-        check-line (last (output-lines result))]
+        check-line (first (filter #(str/includes? % "bench agent-check")
+                                  (output-lines result)))]
     (is (= 0 (:exit result)))
     (is (str/includes? check-line
                        "--min-expected-evidence-citation-rate 0.5"))
