@@ -100,6 +100,29 @@ class ServerClientRoutingTest(unittest.TestCase):
                                    {"stream": False, "render_progress": False})],
                                  requests)
 
+    def test_request_retries_starting_health_response(self):
+        client = load_client()
+        calls = []
+        responses = [
+            {"ok": True, "data": {"status": "starting"}},
+            {"ok": False, "data": {"reason": "server-starting"}},
+            {"ok": True, "data": {"status": "running"}},
+        ]
+
+        def fake_request_once(op, args, **kwargs):
+            calls.append((op, args, kwargs))
+            return responses.pop(0)
+
+        client.request_once = fake_request_once
+        client.STARTING_RETRY_INTERVAL_SECONDS = 0.0
+
+        response = client.request("status", ["--json"])
+
+        self.assertEqual({"ok": True, "data": {"status": "running"}}, response)
+        self.assertEqual(["status", "status", "status"],
+                         [call[0] for call in calls])
+        self.assertEqual(["--json"], calls[0][1])
+
     def test_sync_command_routes_to_sync_server_ops(self):
         client = load_client()
         cases = [

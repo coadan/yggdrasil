@@ -15,6 +15,8 @@ DEFAULT_SERVER_HOST = "127.0.0.1"
 DEFAULT_SERVER_PORT = 62121
 DEFAULT_CONNECT_TIMEOUT_MS = 30000
 CONNECT_RETRY_INTERVAL_SECONDS = 5.0
+DEFAULT_STARTING_RETRY_TIMEOUT_MS = 30000
+STARTING_RETRY_INTERVAL_SECONDS = 5.0
 DEFAULT_REQUEST_TIMEOUT_MS = 600000
 DEFAULT_BENCH_AGENT_BASELINE_REQUEST_TIMEOUT_MS = 3600000
 SERVER_FRAME_SCHEMA = "ygg.server.frame/v1"
@@ -116,6 +118,14 @@ def connect_timeout_ms():
     return max(env_int("YGG_SERVER_CONNECT_TIMEOUT_MS", DEFAULT_CONNECT_TIMEOUT_MS), 0)
 
 
+def starting_retry_timeout_ms():
+    return max(
+        env_int("YGG_SERVER_STARTING_RETRY_TIMEOUT_MS",
+                DEFAULT_STARTING_RETRY_TIMEOUT_MS),
+        0,
+    )
+
+
 def connect_socket(host, port, timeout_ms=None):
     timeout_ms = connect_timeout_ms() if timeout_ms is None else max(timeout_ms, 0)
     deadline = time.monotonic() + (timeout_ms / 1000.0)
@@ -205,7 +215,20 @@ def read_server_response(response_file, render_progress=False):
     return None
 
 
-def request(op, args, extra=None, stream=False, render_progress=False, connect_timeout_override_ms=None):
+def server_starting_response(response):
+    if not isinstance(response, dict):
+        return False
+    data = response.get("data")
+    values = [
+        response.get("status"),
+        response.get("reason"),
+    ]
+    if isinstance(data, dict):
+        values.extend([data.get("status"), data.get("reason")])
+    return any(value in {"starting", "server-starting"} for value in values)
+
+
+def request_once(op, args, extra=None, stream=False, render_progress=False, connect_timeout_override_ms=None):
     payload = {
         "op": op,
         "args": args,
@@ -259,6 +282,30 @@ def request(op, args, extra=None, stream=False, render_progress=False, connect_t
         }
     except OSError:
         return None
+
+
+def request(op, args, extra=None, stream=False, render_progress=False, connect_timeout_override_ms=None):
+    timeout_ms = starting_retry_timeout_ms()
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    while True:
+        response = request_once(
+            op,
+            args,
+            extra=extra,
+            stream=stream,
+            render_progress=render_progress,
+            connect_timeout_override_ms=connect_timeout_override_ms,
+        )
+        if not server_starting_response(response):
+            return response
+        if timeout_ms <= 0 or time.monotonic() >= deadline:
+            return response
+        sleep_seconds = min(
+            STARTING_RETRY_INTERVAL_SECONDS,
+            max(0.0, deadline - time.monotonic()),
+        )
+        if sleep_seconds > 0:
+            time.sleep(sleep_seconds)
 
 
 def jsonrpc_error(message, request_message=None, code=-32000, data=None):
