@@ -64,8 +64,8 @@ bb bench:claim-quick --skip-existing
 artifacts under `.dev/ygg/claim-quick-gate`, and gates expected-evidence
 citation coverage with an aggregate floor of `0.80` and per-case floor of
 `0.50`. It keeps the regular recall floors and uses a non-synthetic readiness
-MRR floor of `0.30`; the full historical replay remains the authoritative claim
-lane.
+MRR floor of `0.30` plus an aggregate `noise@20` ceiling of `0.80`; the full
+historical replay remains the authoritative claim lane.
 
 Use the task-category lane to test should-win planning, implementation, and
 review/decision tasks as separate measured problem classes. Should-win cases

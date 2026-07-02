@@ -51,9 +51,10 @@ It runs `benchmarks/historical-replay-claim-quick.edn`, stores artifacts under
 `.dev/ygg/claim-quick-gate`, and gates expected evidence with
 `--min-expected-evidence-citation-rate 0.80` and
 `--min-case-expected-evidence-citation-rate 0.50` by default. It keeps the
-standard recall floors and uses `--min-mrr 0.30` because the lane checks
-historical claim-readiness rather than synthetic exact-rank behavior. The full
-historical replay remains the authoritative claim lane.
+standard recall floors, uses `--min-mrr 0.30`, and enforces
+`--max-noise-at-20 0.80` because the lane checks historical claim-readiness
+rather than synthetic exact-rank behavior. The full historical replay remains
+the authoritative claim lane.
 
 If a checkout exists only under the legacy `.dev/oss-test-cases/repos/` cache,
 the preflight reports that path so it can be moved or symlinked into the common

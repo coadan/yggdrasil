@@ -194,6 +194,8 @@
     (is (str/includes? (nth lines 2)
                        "--min-mrr 0.30"))
     (is (str/includes? (nth lines 2)
+                       "--max-noise-at-20 0.80"))
+    (is (str/includes? (nth lines 2)
                        "--min-expected-evidence-citation-rate 0.80"))
     (is (str/includes? (nth lines 2)
                        "--min-case-expected-evidence-citation-rate 0.50"))
@@ -205,7 +207,9 @@
                                      "--min-expected-evidence-citation-rate"
                                      "0.5"
                                      "--min-case-expected-evidence-citation-rate"
-                                     "0.25")
+                                     "0.25"
+                                     "--max-noise-at-20"
+                                     "0.95")
         check-line (first (filter #(str/includes? % "bench agent-check")
                                   (output-lines result)))]
     (is (= 0 (:exit result)))
@@ -213,10 +217,14 @@
                        "--min-expected-evidence-citation-rate 0.5"))
     (is (str/includes? check-line
                        "--min-case-expected-evidence-citation-rate 0.25"))
+    (is (str/includes? check-line
+                       "--max-noise-at-20 0.95"))
     (is (not (str/includes? check-line
                             "--min-expected-evidence-citation-rate 1.0")))
     (is (not (str/includes? check-line
-                            "--min-case-expected-evidence-citation-rate 1.0")))))
+                            "--min-case-expected-evidence-citation-rate 1.0")))
+    (is (not (str/includes? check-line
+                            "--max-noise-at-20 0.80")))))
 
 (deftest claim-quick-help-documents-defaults
   (let [result (run-claim-quick-gate "--help")]
@@ -225,6 +233,8 @@
                        "benchmarks/historical-replay-claim-quick.edn"))
     (is (str/includes? (:out result)
                        "--min-mrr 0.30"))
+    (is (str/includes? (:out result)
+                       "--max-noise-at-20 0.80"))
     (is (str/includes? (:out result)
                        "--min-expected-evidence-citation-rate 0.80"))
     (is (str/includes? (:out result)
