@@ -313,7 +313,11 @@ plugin-fit choice, not just a shorter suspected-file list.
   candidate-file-only evidence so compact file/path matches are not completely
   crowded out by snippet-bearing retrieved docs. JSON output includes a
   `timings` aggregate with stage totals for indexing, embeddings, context
-  packet construction, scoring, and artifact writing. With `--skip-existing`,
+  packet construction, scoring, and artifact writing. Use `--reuse-context`
+  for repeat full-lane runs when the indexed context manifest still matches the
+  case, parser worker, and retrieval/index options; the run reuses the context
+  packet but still regenerates deterministic result and score artifacts. With
+  `--skip-existing`,
   current score artifacts are reused and returned as skipped baselines while
   retaining their previous stage profile, so repeat runs are fast but still show
   where the cached full run spent time.

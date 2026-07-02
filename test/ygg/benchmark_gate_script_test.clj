@@ -151,8 +151,9 @@
     (is (str/includes? (nth lines 2)
                        "python3 scripts/stage-time-gate.py"))))
 
-(deftest skip-existing-dry-run-forwards-only-to-baseline-generation
+(deftest reuse-context-and-skip-existing-dry-run-forward-only-to-baseline-generation
   (let [result (run-gate "--dry-run"
+                         "--reuse-context"
                          "--skip-existing"
                          "--suite" "benchmarks/custom.edn"
                          "--manifest" "benchmarks/custom-repos.edn"
@@ -163,9 +164,13 @@
     (is (str/includes? (nth lines 1)
                        "bench agent-baseline benchmarks/custom.edn"))
     (is (str/includes? (nth lines 1)
+                       "--reuse-context"))
+    (is (str/includes? (nth lines 1)
                        "--skip-existing"))
     (is (str/includes? (nth lines 2)
                        "bench agent-check benchmarks/custom.edn"))
+    (is (not (str/includes? (nth lines 2)
+                            "--reuse-context")))
     (is (not (str/includes? (nth lines 2)
                             "--skip-existing")))))
 
@@ -173,6 +178,7 @@
   (let [result (run-gate "--help")]
     (is (= 0 (:exit result)))
     (is (str/includes? (:out result) "--check-only"))
+    (is (str/includes? (:out result) "--reuse-context"))
     (is (str/includes? (:out result) "--skip-existing"))
     (is (str/includes? (:out result) "--stage-time-baseline-report"))
     (is (str/includes? (:out result) "--retriever MODE"))

@@ -338,6 +338,11 @@
            :context-path context-path
            :prepared-at (:preparedAt manifest)})))))
 
+(defn- reuse-baseline-context?
+  [opts]
+  (or (:skip-existing? opts)
+      (:reuse-context? opts)))
+
 (defn- write-baseline-context-manifest!
   [suite case prepared opts embedding-client artifacts summary graph-expectations
    benchmark-activity sync-inspect benchmark-preflight]
@@ -560,7 +565,7 @@
        #(benchmark-io/write-edn-file! project-path bench-project)
        (fn [path]
          {:path (fs/canonical-path path)}))
-      (if-let [reused (when (:skip-existing? opts)
+      (if-let [reused (when (reuse-baseline-context? opts)
                         (reusable-baseline-context suite
                                                    case
                                                    prepared

@@ -1956,6 +1956,7 @@
                                  "--graphify-include-non-code"
                                  "--parser-worker" "java"
                                  "--index-timeout-ms" "1234"
+                                 "--reuse-context"
                                  "--skip-existing"
                                  "--json"]))
             parsed (read-json-output out)]
@@ -1990,6 +1991,7 @@
                   :doc-limit 12
                   :retrieval-limit 80
                   :index-timeout-ms 1234
+                  :reuse-context? true
                   :skip-existing? true
                   :graphify-include-non-code? true}]]
                @calls))))))

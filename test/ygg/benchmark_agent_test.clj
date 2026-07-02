@@ -388,7 +388,7 @@
       (is (contains? stages "score-agent-result"))
       (is (contains? stages "write-agent-artifacts")))))
 
-(deftest agent-baseline-skip-existing-reuses-context-manifest-when-score-is-missing
+(deftest agent-baseline-reuses-context-manifest-when-score-is-missing-or-reuse-requested
   (let [out (temp-dir "ygg-bench-baseline-context-reuse")
         worktree (temp-dir "ygg-bench-baseline-context-reuse-worktree")
         suite {:id "suite"
@@ -476,19 +476,32 @@
                                                              :skip-existing? true
                                                              :now-ms 2000))
             second-baseline (first (:baselines second-result))
+            third-result (benchmark/agent-baselines! suite
+                                                     (assoc opts
+                                                            :reuse-context? true
+                                                            :now-ms 3000))
+            third-baseline (first (:baselines third-result))
             progress (json/read-json
                       (slurp (benchmark-paths/progress-path suite case opts))
                       :key-fn keyword)
             manifest (json/read-json (slurp manifest-path) :key-fn keyword)]
         (is (= benchmark/agent-baselines-schema (:schema first-result)))
         (is (= benchmark/agent-baselines-schema (:schema second-result)))
+        (is (= benchmark/agent-baselines-schema (:schema third-result)))
         (is (= 1 @store-count))
         (is (= 1 @index-count))
         (is (= 0 (:skipped second-result)))
+        (is (= 0 (:skipped third-result)))
         (is (= "reused" (get-in second-baseline
                                 [:ygg :contextReuse :status])))
+        (is (= "reused" (get-in third-baseline
+                                [:ygg :contextReuse :status])))
+        (is (not= "skipped" (:status third-baseline)))
         (is (= manifest-path
                (get-in second-baseline
+                       [:artifacts :reusedContextManifestPath])))
+        (is (= manifest-path
+               (get-in third-baseline
                        [:artifacts :reusedContextManifestPath])))
         (is (.isFile (io/file score-path)))
         (is (= benchmark-agent-baseline/agent-baseline-context-schema

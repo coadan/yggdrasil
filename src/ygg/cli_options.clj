@@ -128,6 +128,7 @@
     "--check" "--query-index" "--force" "--hooks" "--sync" "--allow-missing"
     "--allow-duplicate-runs" "--allow-unverified-scores"
     "--skip-existing" "--with-conflicts" "--without-import-evidence"
+    "--reuse-context"
     "--no-progress" "--extractor" "--report" "--tests" "--proof-commands"
     "--graphify-include-non-code" "--sqlite-fts"
     "--changed-only" "--reviewed" "--skill" "--mcp" "--force-agent" "--start-at-login"

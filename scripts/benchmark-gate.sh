@@ -35,6 +35,7 @@ Options:
   --batch-size N      Embedding batch size for semantic/hybrid retrievers.
   --setup-check       Only check required local benchmark repos.
   --check-only        Reuse existing score artifacts; skip baseline regeneration.
+  --reuse-context     Reuse compatible baseline context manifests while regenerating scores.
   --skip-existing     Skip regenerating current matching baseline case artifacts.
   --stage-time-baseline-report PATH
                       Baseline agent-report JSON/glob for stage timing regression checks.
@@ -91,6 +92,7 @@ model=""
 batch_size=""
 setup_check_only=false
 check_only=false
+reuse_context=false
 skip_existing=false
 stage_time_baseline_reports=()
 stage_time_baseline_report_count=0
@@ -192,6 +194,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --check-only)
       check_only=true
+      shift
+      ;;
+    --reuse-context)
+      reuse_context=true
       shift
       ;;
     --skip-existing)
@@ -335,6 +341,9 @@ if [[ "$check_only" != true ]]; then
   fi
   if [[ -n "$batch_size" ]]; then
     baseline_args+=(--batch-size "$batch_size")
+  fi
+  if [[ "$reuse_context" == true ]]; then
+    baseline_args+=(--reuse-context)
   fi
   if [[ "$skip_existing" == true ]]; then
     baseline_args+=(--skip-existing)

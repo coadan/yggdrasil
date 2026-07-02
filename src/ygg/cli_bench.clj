@@ -406,6 +406,7 @@
                                                            (parse-optional-double
                                                             args
                                                             "--regression-tolerance"))
+    (some #{"--reuse-context"} args) (assoc :reuse-context? true)
     (some #{"--skip-existing"} args) (assoc :skip-existing? true)
     (some #{"--allow-missing"} args) (assoc :allow-missing? true)
     (some #{"--allow-duplicate-runs"} args) (assoc :allow-duplicate-runs? true)
