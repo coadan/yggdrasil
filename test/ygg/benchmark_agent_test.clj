@@ -382,6 +382,8 @@
       (is (= 1 (get-in result [:timings :cases])))
       (is (pos? (get-in result [:timings :elapsedMs])))
       (is (pos? (:elapsedMs stage-profile)))
+      (is (pos? (:graphSetupElapsedMs stage-profile)))
+      (is (seq (:stageClassElapsedMs stage-profile)))
       (is (contains? stages "index-project"))
       (is (contains? stages "embed-search-docs"))
       (is (contains? stages "context-packet"))

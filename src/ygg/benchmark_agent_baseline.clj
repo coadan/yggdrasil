@@ -530,10 +530,12 @@
                          :warmElapsedMs
                          :agentReadyElapsedMs
                          :amortizedSetupElapsedMs
+                         :graphSetupElapsedMs
                          :caseSetupElapsedMs
                          :agentPreparationElapsedMs
                          :embeddingElapsedMs
                          :scoringElapsedMs
+                         :stageClassElapsedMs
                          :stageElapsedMs
                          :stageTiming]))))
 (defn agent-baseline!

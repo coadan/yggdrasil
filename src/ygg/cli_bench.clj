@@ -554,6 +554,18 @@
       (doseq [warning (:warnings claim-readiness)]
         (println "-" warning)))))
 
+(defn- timing-stage-class-rows
+  [timings]
+  (or (seq (:stageClassElapsedMs timings))
+      (some->> (get-in timings [:stageTiming :classes])
+               seq
+               (group-by :class)
+               (map (fn [[stage-class rows]]
+                      {:class stage-class
+                       :elapsedMs (reduce + 0 (map :elapsedMs rows))}))
+               (sort-by (juxt (comp - long :elapsedMs) :class))
+               vec)))
+
 (defn- print-timing-summary
   [timings]
   (when timings
@@ -569,6 +581,12 @@
                "agent-ready" (:agentReadyElapsedMs timings)
                "running" (:runningCases timings)
                "failed" (:failedCases timings))
+      (doseq [{:keys [class elapsedMs]} (timing-stage-class-rows timings)]
+        (println "- stage-class-timing"
+                 class
+                 "elapsed"
+                 elapsedMs
+                 "ms"))
       (doseq [{:keys [stage elapsedMs]} slowest-stages]
         (println "- stage-timing"
                  stage

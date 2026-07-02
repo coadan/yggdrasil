@@ -1344,6 +1344,12 @@
                                          :warmElapsedMs 3000
                                          :amortizedSetupElapsedMs 9000
                                          :agentReadyElapsedMs 250
+                                         :stageClassElapsedMs [{:class "graph-setup"
+                                                                :elapsedMs 8000}
+                                                               {:class "embedding"
+                                                                :elapsedMs 6000}
+                                                               {:class "agent-preparation"
+                                                                :elapsedMs 4000}]
                                          :runningCases 0
                                          :failedCases 0
                                          :stageTiming {:classes [{:stage "index-project"
@@ -1366,6 +1372,12 @@
                                 :warmElapsedMs 3000
                                 :amortizedSetupElapsedMs 9000
                                 :agentReadyElapsedMs 250
+                                :stageClassElapsedMs [{:class "graph-setup"
+                                                       :elapsedMs 8000}
+                                                      {:class "embedding"
+                                                       :elapsedMs 6000}
+                                                      {:class "agent-preparation"
+                                                       :elapsedMs 4000}]
                                 :runningCases 0
                                 :failedCases 0
                                 :stageTiming {:classes [{:stage "index-project"
@@ -1389,6 +1401,9 @@
       (is (str/includes? out "- commandless-runs 1 cases case-2"))
       (is (str/includes? out "- warning-runs 1 cases case-3")))
     (is (str/includes? check-out "- timing-ms 12000 warm 3000 amortized-setup 9000 agent-ready 250 running 0 failed 0"))
+    (is (str/includes? check-out "- stage-class-timing graph-setup elapsed 8000 ms"))
+    (is (str/includes? check-out "- stage-class-timing embedding elapsed 6000 ms"))
+    (is (str/includes? check-out "- stage-class-timing agent-preparation elapsed 4000 ms"))
     (is (str/includes? check-out "- stage-timing index-project class graph-setup elapsed 8000 ms"))
     (is (str/includes? check-out "- stage-timing embed-search-docs class embedding elapsed 6000 ms"))
     (is (str/includes? check-out "- stage-timing context-packet class agent-preparation elapsed 4000 ms"))

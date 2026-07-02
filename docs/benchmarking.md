@@ -564,6 +564,9 @@ plugin-fit choice, not just a shorter suspected-file list.
   stage-class deltas against an earlier artifact. `bb bench:gate` invokes this
   gate automatically after `agent-check`, so every deterministic claim gate has a
   timing profile even when it is not enforcing timing thresholds.
+  `bench agent-report`, `bench agent-check`, and deterministic baseline summaries
+  also print `stage-class-timing` lines, so slow full-lane runs can be triaged
+  without opening raw JSON first.
 - `bench claim-pack <suite.edn> --shell-report <path> --ygg-report <path>`
   writes a replayable proof bundle under the benchmark output root:
   `efficiency-summary.json`, `efficiency-summary.md`,

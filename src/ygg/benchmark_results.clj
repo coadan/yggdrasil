@@ -33,6 +33,15 @@
 (def ^:private scoring-stages
   #{"score-agent-result"})
 
+(def ^:private stage-class-order
+  ["graph-setup"
+   "case-setup"
+   "agent-preparation"
+   "embedding"
+   "agent-execution"
+   "scoring"
+   "other"])
+
 (defn- stage-class
   [stage]
   (cond
@@ -43,6 +52,27 @@
     (contains? agent-execution-stages stage) "agent-execution"
     (contains? scoring-stages stage) "scoring"
     :else "other"))
+
+(defn- stage-class-rank
+  [stage-class]
+  (let [idx (.indexOf stage-class-order stage-class)]
+    (if (neg? idx)
+      (count stage-class-order)
+      idx)))
+
+(defn- stage-class-elapsed
+  [stage-elapsed]
+  (->> stage-elapsed
+       (map (fn [{:keys [stage elapsedMs]}]
+              {:class (stage-class stage)
+               :elapsedMs elapsedMs}))
+       (group-by :class)
+       (map (fn [[stage-class rows]]
+              {:class stage-class
+               :elapsedMs (reduce + 0 (map :elapsedMs rows))}))
+       (filter (comp pos? :elapsedMs))
+       (sort-by (juxt (comp stage-class-rank :class) :class))
+       vec))
 
 (defn- stage-elapsed-total
   [rows pred]
@@ -74,10 +104,12 @@
      :warmElapsedMs (- elapsed-ms amortized-setup-ms)
      :agentReadyElapsedMs agent-ready-ms
      :amortizedSetupElapsedMs amortized-setup-ms
+     :graphSetupElapsedMs graph-setup-ms
      :caseSetupElapsedMs case-setup-ms
      :agentPreparationElapsedMs agent-preparation-ms
      :embeddingElapsedMs embedding-ms
      :scoringElapsedMs scoring-ms
+     :stageClassElapsedMs (stage-class-elapsed stage-elapsed)
      :stageTiming {:basis "warmElapsedMs assumes a prepared-agent run: the Yggdrasil XTDB graph DB and agent context are already prepared, so graph setup and agent preparation are reported as amortized setup instead of counted in the primary elapsed metric."
                    :primaryElapsedMetric "warmElapsedMs"
                    :agentReadyElapsedMetric "agentReadyElapsedMs"
