@@ -1652,7 +1652,8 @@
                   (fn [registry project-id]
                     (or (get-in registry [:projects project-id])
                         (throw (ex-info "Project is not registered."
-                                        {:project-id project-id}))))]
+                                        {:project-id project-id}))))
+                  embedding-client/provider-api-key (constantly nil)]
       (let [empty-response (server/handle-request ctx
                                                   {:op "status"
                                                    :token "token"
@@ -1662,6 +1663,8 @@
       (swap! registry assoc-in
              [:projects "new-project"]
              {:id "new-project"
+              :embeddings {:provider :openrouter
+                           :model "openai/text-embedding-3-small"}
               :maintenance {:enabled true
                             :schedules []}})
       (let [updated-response (server/handle-request ctx
@@ -1672,7 +1675,20 @@
         (is (= 1 (get-in updated-response [:data :maintenance :projectCount])))
         (is (= "new-project"
                (get-in updated-response
-                       [:data :maintenance :projects 0 :project-id])))))))
+                       [:data :maintenance :projects 0 :project-id])))
+        (is (= {:schema "ygg.semantic-availability/v1"
+                :requested :auto
+                :effective :lexical
+                :provider :openrouter
+                :model "openai/text-embedding-3-small"
+                :semanticAvailable false
+                :status :lexical-fallback
+                :reason :missing-provider-credentials
+                :message (str "Missing OpenRouter API key. "
+                              "Set YGG_OPENROUTER_API_KEY or OPENROUTER_API_KEY. "
+                              "Auto retrieval used lexical fallback.")}
+               (get-in updated-response
+                       [:data :maintenance :projects 0 :semantic])))))))
 
 (deftest server-status-output-includes-worker-operational-controls
   (let [out (with-out-str
@@ -1707,6 +1723,13 @@
                                                           :mainBehind 2}]}]}
                               :projects [{:project-id "demo"
                                           :enabled true
+                                          :semantic {:requested :auto
+                                                     :effective :lexical
+                                                     :provider :openrouter
+                                                     :model "openai/text-embedding-3-small"
+                                                     :semanticAvailable false
+                                                     :status :lexical-fallback
+                                                     :reason :missing-provider-credentials}
                                           :schedules []
                                           :worker {:configured true
                                                    :enabled true
@@ -1718,6 +1741,7 @@
                               :enabledProjectCount 1
                               :scheduleCount 0}}))]
     (is (str/includes? out "demo enabled schedules=0 worker=enabled executors=1/1 max-items=8 max-failures=3"))
+    (is (str/includes? out "semantic effective=lexical status=lexical-fallback available=false provider=openrouter model=openai/text-embedding-3-small reason=missing-provider-credentials"))
     (is (str/includes? out "repo-freshness demo latest-main app branch=feature upstream=origin/feature upstream-status=behind local-sha=local-sha dirty=false remote-main=origin/main remote-main-sha=main-sha main-status=behind stale-from-main=true main-ahead=0 main-behind=2"))))
 
 (deftest mcp-request-handles-tools-list-through-server

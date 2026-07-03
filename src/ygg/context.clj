@@ -3285,6 +3285,7 @@
       :basis (compact-basis packet)
       :paths paths
       :lanes (compact-lanes packet results)
+      :retrieval (get-in packet [:evidence :retrieval])
       :results results
       :evidence evidence
       :memories (:memories packet)

@@ -1435,6 +1435,33 @@
         (is (= (json-roundtrip semantic-status)
                (:semanticStatus parsed)))))))
 
+(deftest query-embedding-options-use-repo-project-config
+  (let [root (temp-dir "ygg-cli-query-embeddings")
+        checkout (io/file root "checkout")
+        registry-path (.getPath (io/file root ".config" "projects.edn"))
+        previous-dir (System/getProperty "user.dir")]
+    (.mkdirs checkout)
+    (with-redefs [registry/registry-path (constantly registry-path)]
+      (registry/upsert-project! {:id "fixture"
+                                 :name "Fixture"
+                                 :repos [{:id "app"
+                                          :root (.getPath checkout)
+                                          :role :application}]
+                                 :embeddings {:provider :openrouter
+                                              :model "openai/text-embedding-3-small"
+                                              :request-timeout-ms 30000
+                                              :max-retries 1}})
+      (registry/write-project-ref! (.getPath checkout) "fixture")
+      (try
+        (System/setProperty "user.dir" (.getPath checkout))
+        (is (= {:provider :openrouter
+                :model "openai/text-embedding-3-small"
+                :request-timeout-ms 30000
+                :max-retries 1}
+               (cli-query/embedding-options [])))
+        (finally
+          (System/setProperty "user.dir" previous-dir))))))
+
 (deftest query-json-passes-output-and-proof-command-options
   (with-redefs [store/with-node (fn [_ f] (f :xtdb))
                 context/context-packet (fn [_ _ opts]

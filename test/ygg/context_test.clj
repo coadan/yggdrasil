@@ -3236,6 +3236,29 @@
       (is (not (contains? packet :candidateFiles)))
       (is (not (contains? packet :docs))))))
 
+(deftest compact-packet-exposes-retrieval-summary
+  (let [retrieval {:requested :auto
+                   :effective :lexical
+                   :fallback? true
+                   :semanticAvailable false
+                   :semanticStatus :lexical-fallback
+                   :provider :openrouter
+                   :model "openai/text-embedding-3-small"
+                   :reasonCode :missing-provider-credentials}
+        packet (#'context/compact-packet
+                {:query "caller"
+                 :input {:task :locate}
+                 :evidence {:status :ready
+                            :retrieval retrieval}
+                 :search {:retriever-requested :auto
+                          :retriever-effective :lexical
+                          :instrumentation {}}
+                 :graph {:basis {:project-id "fixture"}}
+                 :candidateFiles []}
+                "caller"
+                false)]
+    (is (= retrieval (:retrieval packet)))))
+
 (deftest context-packet-compact-output-ranks-results-by-visible-score
   (with-redefs [query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema

@@ -918,7 +918,10 @@
 (defn- maintenance-project-status
   [{:keys [project project-id error error-data]}]
   (if project
-    (index-maintenance-worker/config-status project)
+    (assoc (index-maintenance-worker/config-status project)
+           :semantic (embedding-client/semantic-availability
+                      :auto
+                      (:embeddings project)))
     {:schema "ygg.maintenance.config-status/v1"
      :project-id project-id
      :configured false
@@ -1105,9 +1108,9 @@
                (get-in status [:maintenance :projectCount])
                "enabled")
       (println "- schedules" (get-in status [:maintenance :scheduleCount]))
-      (doseq [{:keys [project-id enabled schedules worker work error]} (get-in status
-                                                                               [:maintenance
-                                                                                :projects])]
+      (doseq [{:keys [project-id enabled schedules worker work error semantic]} (get-in status
+                                                                                        [:maintenance
+                                                                                         :projects])]
         (apply println
                (cond-> ["-"
                         project-id
@@ -1126,6 +1129,16 @@
                  (:configured worker)
                  (conj (str "max-items=" (:maxItemsPerRun worker))
                        (str "max-failures=" (:maxFailuresPerRun worker)))))
+        (when semantic
+          (apply println
+                 (cond-> ["  semantic"
+                          (str "effective=" (name (:effective semantic)))
+                          (str "status=" (name (:status semantic)))
+                          (str "available=" (boolean (:semanticAvailable semantic)))
+                          (str "provider=" (name (:provider semantic)))
+                          (str "model=" (:model semantic))]
+                   (:reason semantic)
+                   (conj (str "reason=" (name (:reason semantic)))))))
         (when work
           (println "  work"
                    (str "decisions=" (:max-decisions work))
