@@ -715,7 +715,8 @@
                   (is (map? deps))
                   [{:id "work-1"
                     :kind "maintenance-decision"
-                    :status "ready"}])
+                    :status "ready"
+                    :enqueue-status "enqueued"}])
                 cli/dispatch
                 (fn [& _]
                   (throw (ex-info "unexpected command handler dispatch" {})))]
@@ -731,6 +732,13 @@
       (is (= "ygg.sync/v1" (get-in response [:data :schema])))
       (is (= "demo" (get-in response [:data :project-id])))
       (is (= "work-1" (get-in response [:data :enqueued 0 :id])))
+      (is (= {:items 1
+              :enqueued 1
+              :existing 0
+              :over-emitted 0
+              :by-status {"enqueued" 1}
+              :by-kind {"maintenance-decision" 1}}
+             (get-in response [:data :enqueue-summary])))
       (is (re-find #"ygg\.sync" (:out response))))))
 
 (deftest sync-skips-system-inference-when-index-has-no-changes
@@ -783,6 +791,7 @@
   (let [root (temp-dir "ygg-server-index-maintenance")
         repo-root (io/file root "repo")
         project-edn (io/file root "project.edn")
+        project-path (.getCanonicalPath project-edn)
         queue-root (temp-queue-db "ygg-server-index-maintenance-queue")
         report-root (.getCanonicalPath (io/file root "reports"))]
     (.mkdirs repo-root)
@@ -811,13 +820,13 @@
                   (fn [xtdb project args deps opts]
                     (is (= :xtdb xtdb))
                     (is (= "demo" (:id project)))
-                    (is (= [(.getPath project-edn)
+                    (is (= [project-path
                             "--check"
                             "--enqueue"
                             "--json"]
                            args))
                     (is (map? deps))
-                    (is (= {:config-path (.getPath project-edn)
+                    (is (= {:config-path project-path
                             :check? true
                             :enqueue? true
                             :json? true}
@@ -838,7 +847,7 @@
                   (fn [xtdb project args deps]
                     (is (= :xtdb xtdb))
                     (is (= "demo" (:id project)))
-                    (is (= [(.getPath project-edn)
+                    (is (= [project-path
                             "--check"
                             "--enqueue"
                             "--json"]
@@ -855,7 +864,8 @@
                                                    {:root queue-root
                                                     :kind "maintenance-decision"
                                                     :project-id "demo"})]
-                      [(queue/item-summary enqueued)]))
+                      [(assoc (queue/item-summary enqueued)
+                              :enqueue-status "enqueued")]))
                   cli/dispatch
                   (fn [& _]
                     (throw (ex-info "unexpected command handler dispatch" {})))]

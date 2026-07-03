@@ -372,6 +372,14 @@
             parsed (read-json-output out)]
         (is (= ["existing" "existing"]
                (sort (mapv :enqueue-status (:enqueued parsed)))))
+        (is (= {:items 2
+                :enqueued 0
+                :existing 2
+                :over-emitted 2
+                :by-status {:existing 2}
+                :by-kind {:infra-review 1
+                          :dependency-review 1}}
+               (:enqueue-summary parsed)))
         (is (= 2 (count (queue/list-items root))))))))
 
 (deftest sync-check-supersedes-stale-maintenance-work

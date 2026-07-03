@@ -350,6 +350,13 @@
                 :executor-failures 0
                 :validated 3}
                (:counts result)))
+        (is (= [3] (get-in result [:throughput :batch-sizes])))
+        (is (= 1 (get-in result [:throughput :batch-count])))
+        (is (= 3 (count (get-in result [:throughput :per-item]))))
+        (is (every? integer? (map #(get-in % [:timing :elapsed-ms])
+                                  (:items result))))
+        (is (every? #(= 3 (get-in % [:timing :batch-size]))
+                    (:items result)))
         (is (= 1 (count artifact-paths)))
         (doseq [work-id work-ids]
           (is (= "done" (get-in (queue/find-item queue-db work-id)
@@ -705,6 +712,10 @@
         (is (= {:reason "executor-failures"
                 :max-failures-per-run 1}
                (:backoff result)))
+        (is (= true (get-in result [:throughput :backoff?])))
+        (is (= "backoff" (get-in result [:throughput :stop-reason])))
+        (is (= 1 (get-in result [:throughput :executor-failures])))
+        (is (= 1 (count (get-in result [:throughput :per-item]))))
         (is (= "failed" (get-in (queue/find-item queue-db first-id)
                                 [:item :status])))
         (is (= "ready" (get-in (queue/find-item queue-db second-id)

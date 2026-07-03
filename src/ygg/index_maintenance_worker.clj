@@ -508,13 +508,34 @@
      :validation validation
      :failure failure}))
 
+(defn- timing
+  [started-at-ms batch-size batch-id]
+  (let [finished-at-ms (now-ms)
+        elapsed-ms (max 0 (- finished-at-ms (long started-at-ms)))
+        batch-size (max 1 (long batch-size))]
+    (cond-> {:started-at-ms started-at-ms
+             :finished-at-ms finished-at-ms
+             :elapsed-ms elapsed-ms
+             :batch-size batch-size
+             :estimated-item-ms (long (Math/ceil (/ (double elapsed-ms)
+                                                    (double batch-size))))}
+      batch-id (assoc :batch-id batch-id))))
+
+(defn- with-timing
+  [result timing]
+  (assoc result :timing timing))
+
+(defn- with-shared-timing
+  [results timing]
+  (mapv #(with-timing % timing) results))
+
 (defn- process-claimed!
   [project config executor claimed]
   (let [queue-db (:queue-db config)
         item (:item claimed)
         work-id (:id item)
-        now (now-ms)
-        dir (run-dir config work-id now)
+        started-at-ms (now-ms)
+        dir (run-dir config work-id started-at-ms)
         input-path (.getPath (io/file dir "work.json"))
         result-path (.getPath (io/file dir "result.json"))
         messages (get-in item [:payload :messages])]
@@ -530,33 +551,37 @@
 
               :command-harness
               (complete-with-command! config executor input-path result-path))]
-        (if error
-          (failure! queue-db work-id error {:executor (:id executor)
-                                            :failure-kind "executor"
-                                            :artifacts {:work input-path
-                                                        :result result-path}
-                                            :process process})
-          (let [{:keys [status item validation failure]}
-                (complete-and-validate! config queue-db claimed result)]
-            (write-json-file! result-path result)
-            {:status status
-             :executor (:id executor)
-             :item item
-             :validation validation
-             :failure failure
-             :artifacts {:work input-path
-                         :result result-path}
-             :process process})))
+        (with-timing
+          (if error
+            (failure! queue-db work-id error {:executor (:id executor)
+                                              :failure-kind "executor"
+                                              :artifacts {:work input-path
+                                                          :result result-path}
+                                              :process process})
+            (let [{:keys [status item validation failure]}
+                  (complete-and-validate! config queue-db claimed result)]
+              (write-json-file! result-path result)
+              {:status status
+               :executor (:id executor)
+               :item item
+               :validation validation
+               :failure failure
+               :artifacts {:work input-path
+                           :result result-path}
+               :process process}))
+          (timing started-at-ms 1 nil)))
       (catch Exception e
-        (failure! queue-db
-                  work-id
-                  (str "Index maintenance executor failed: "
-                       (or (ex-message e) (.getMessage e)))
-                  {:executor (:id executor)
-                   :failure-kind "executor"
-                   :artifacts {:work input-path
-                               :result result-path}
-                   :error-data (ex-data e)})))))
+        (with-timing
+          (failure! queue-db
+                    work-id
+                    (str "Index maintenance executor failed: "
+                         (or (ex-message e) (.getMessage e)))
+                    {:executor (:id executor)
+                     :failure-kind "executor"
+                     :artifacts {:work input-path
+                                 :result result-path}
+                     :error-data (ex-data e)})
+          (timing started-at-ms 1 nil))))))
 
 (defn- batch-id
   [claimed-items now]
@@ -603,8 +628,9 @@
 (defn- process-command-batch!
   [project config executor claimed-items]
   (let [queue-db (:queue-db config)
-        now (now-ms)
-        dir (batch-run-dir config claimed-items now)
+        started-at-ms (now-ms)
+        batch-id (batch-id claimed-items started-at-ms)
+        dir (batch-run-dir config claimed-items started-at-ms)
         input-path (.getPath (io/file dir "work.json"))
         result-path (.getPath (io/file dir "result.json"))]
     (write-json-file! input-path
@@ -612,53 +638,57 @@
     (try
       (let [{:keys [result error process]}
             (complete-with-command! config executor input-path result-path)]
-        (if error
+        (with-shared-timing
+          (if error
+            (mapv (fn [claimed]
+                    (failure! queue-db
+                              (get-in claimed [:item :id])
+                              error
+                              {:executor (:id executor)
+                               :failure-kind "executor"
+                               :artifacts {:work input-path
+                                           :result result-path}
+                               :process process}))
+                  claimed-items)
+            (let [results-by-work-id (batch-results-by-work-id result)]
+              (write-json-file! result-path result)
+              (mapv (fn [claimed]
+                      (let [work-id (get-in claimed [:item :id])]
+                        (if-let [item-result (get results-by-work-id work-id)]
+                          (let [{:keys [status item validation failure]}
+                                (complete-and-validate! config queue-db claimed item-result)]
+                            {:status status
+                             :executor (:id executor)
+                             :item item
+                             :validation validation
+                             :failure failure
+                             :artifacts {:work input-path
+                                         :result result-path}
+                             :process process})
+                          (failure! queue-db
+                                    work-id
+                                    "Command index maintenance batch result omitted work item."
+                                    {:executor (:id executor)
+                                     :failure-kind "executor"
+                                     :artifacts {:work input-path
+                                                 :result result-path}
+                                     :process process}))))
+                    claimed-items)))
+          (timing started-at-ms (count claimed-items) batch-id)))
+      (catch Exception e
+        (with-shared-timing
           (mapv (fn [claimed]
                   (failure! queue-db
                             (get-in claimed [:item :id])
-                            error
+                            (str "Index maintenance executor failed: "
+                                 (or (ex-message e) (.getMessage e)))
                             {:executor (:id executor)
                              :failure-kind "executor"
                              :artifacts {:work input-path
                                          :result result-path}
-                             :process process}))
+                             :error-data (ex-data e)}))
                 claimed-items)
-          (let [results-by-work-id (batch-results-by-work-id result)]
-            (write-json-file! result-path result)
-            (mapv (fn [claimed]
-                    (let [work-id (get-in claimed [:item :id])]
-                      (if-let [item-result (get results-by-work-id work-id)]
-                        (let [{:keys [status item validation failure]}
-                              (complete-and-validate! config queue-db claimed item-result)]
-                          {:status status
-                           :executor (:id executor)
-                           :item item
-                           :validation validation
-                           :failure failure
-                           :artifacts {:work input-path
-                                       :result result-path}
-                           :process process})
-                        (failure! queue-db
-                                  work-id
-                                  "Command index maintenance batch result omitted work item."
-                                  {:executor (:id executor)
-                                   :failure-kind "executor"
-                                   :artifacts {:work input-path
-                                               :result result-path}
-                                   :process process}))))
-                  claimed-items))))
-      (catch Exception e
-        (mapv (fn [claimed]
-                (failure! queue-db
-                          (get-in claimed [:item :id])
-                          (str "Index maintenance executor failed: "
-                               (or (ex-message e) (.getMessage e)))
-                          {:executor (:id executor)
-                           :failure-kind "executor"
-                           :artifacts {:work input-path
-                                       :result result-path}
-                           :error-data (ex-data e)}))
-              claimed-items)))))
+          (timing started-at-ms (count claimed-items) batch-id))))))
 
 (defn- claim-next-for-kinds!
   [project config kinds]
@@ -735,6 +765,58 @@
   [result]
   (= "executor" (:failure-kind result)))
 
+(defn- result-batch-key
+  [result]
+  (or (get-in result [:timing :batch-id])
+      (get-in result [:item :id])
+      (str "item:" (hash/short-hash result))))
+
+(defn- result-kind
+  [result]
+  (get-in result [:item :kind]))
+
+(defn- per-item-timing
+  [result]
+  (let [timing (:timing result)]
+    (cond-> {:id (get-in result [:item :id])
+             :kind (result-kind result)
+             :status (:status result)
+             :executor (:executor result)}
+      (:elapsed-ms timing) (assoc :elapsed-ms (:elapsed-ms timing))
+      (:estimated-item-ms timing) (assoc :estimated-item-ms (:estimated-item-ms timing))
+      (:batch-id timing) (assoc :batch-id (:batch-id timing))
+      (:batch-size timing) (assoc :batch-size (:batch-size timing)))))
+
+(defn- throughput
+  [config results started-at-ms finished-at-ms stop-reason ready-work-remains?]
+  (let [elapsed-ms (max 0 (- (long finished-at-ms) (long started-at-ms)))
+        batches (vals (group-by result-batch-key results))
+        claimed (count results)
+        completed (count (filter #(= "completed" (:status %)) results))
+        failed (count (filter #(= "failed" (:status %)) results))
+        executor-failures (count (filter executor-failure? results))]
+    (cond-> {:started-at-ms started-at-ms
+             :finished-at-ms finished-at-ms
+             :elapsed-ms elapsed-ms
+             :max-items-per-run (long (or (:max-items-per-run config) 0))
+             :claimed claimed
+             :completed completed
+             :failed failed
+             :executor-failures executor-failures
+             :batch-count (count batches)
+             :batch-sizes (mapv count batches)
+             :per-item (mapv per-item-timing results)
+             :ready-work-remains? (boolean ready-work-remains?)}
+      (pos? claimed)
+      (assoc :items-per-second (/ (double claimed)
+                                  (max 0.001 (/ (double elapsed-ms) 1000.0))))
+      stop-reason
+      (assoc :stop-reason (name stop-reason))
+      (= :backoff stop-reason)
+      (assoc :backoff? true
+             :backoff-reason "executor-failures"
+             :max-failures-per-run (:max-failures-per-run config)))))
+
 (defn- ready-work-remains?
   [project config]
   (let [executors (available-executors config)]
@@ -748,7 +830,8 @@
   "Run the project-configured index maintenance worker for up to max-items-per-run items."
   ([project] (run! project {}))
   ([project opts]
-   (let [maintenance-enabled? (get-in project [:maintenance :enabled])
+   (let [started-at-ms (now-ms)
+         maintenance-enabled? (get-in project [:maintenance :enabled])
          config (worker-config project opts)
          max-items (long (or (:max-items-per-run config) 0))]
      (cond
@@ -756,13 +839,15 @@
        {:schema schema
         :project-id (:id project)
         :status "not-configured"
-        :counts (result-counts [])}
+        :counts (result-counts [])
+        :throughput (throughput {} [] started-at-ms (now-ms) nil false)}
 
        (not (and maintenance-enabled? (:enabled config)))
        {:schema schema
         :project-id (:id project)
         :status "disabled"
-        :counts (result-counts [])}
+        :counts (result-counts [])
+        :throughput (throughput config [] started-at-ms (now-ms) nil false)}
 
        :else
        (let [{:keys [results stop-reason]}
@@ -793,7 +878,8 @@
              exhausted? (and (pos? max-items)
                              (= max-items (count results))
                              (ready-work-remains? project config))
-             backoff? (= :backoff stop-reason)]
+             backoff? (= :backoff stop-reason)
+             finished-at-ms (now-ms)]
          (cond-> {:schema schema
                   :project-id (:id project)
                   :status (cond
@@ -804,8 +890,15 @@
                   :report-dir (:report-dir config)
                   :counts (result-counts results)
                   :items (mapv #(select-keys % [:status :executor :item :validation :failure
-                                                :failure-kind :artifacts :process])
-                               results)}
+                                                :failure-kind :artifacts :process
+                                                :timing])
+                               results)
+                  :throughput (throughput config
+                                          results
+                                          started-at-ms
+                                          finished-at-ms
+                                          stop-reason
+                                          exhausted?)}
            backoff?
            (assoc :backoff {:reason "executor-failures"
                             :max-failures-per-run (:max-failures-per-run config)})))))))

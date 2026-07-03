@@ -537,7 +537,8 @@
                  :index-summary index-summary
                  :system-summary system-summary}
           report (assoc :check-report report)
-          enqueued (assoc :enqueued enqueued)
+          enqueued (assoc :enqueued enqueued
+                          :enqueue-summary (cli-sync/enqueue-summary enqueued))
           worker-run (assoc :maintenance-worker worker-run))))))
 
 (defn- print-sync-result!

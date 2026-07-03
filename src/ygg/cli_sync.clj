@@ -387,6 +387,19 @@
    (binding [*deps* deps]
      (enqueue-sync-work! args report))))
 
+(defn enqueue-summary
+  [enqueued]
+  (let [items (vec (or enqueued []))
+        by-status (frequencies (map :enqueue-status items))
+        by-kind (frequencies (map :kind items))
+        existing (long (or (get by-status "existing") 0))]
+    {:items (count items)
+     :enqueued (long (or (get by-status "enqueued") 0))
+     :existing existing
+     :over-emitted existing
+     :by-status by-status
+     :by-kind by-kind}))
+
 (defn- config-path
   [args]
   (first (positional-args args)))
@@ -470,7 +483,8 @@
                                 :index-summary index-summary
                                 :system-summary system-summary}
                          report (assoc :check-report report)
-                         enqueued (assoc :enqueued enqueued))]
+                         enqueued (assoc :enqueued enqueued
+                                         :enqueue-summary (enqueue-summary enqueued)))]
             (if (json-output? args)
               (print-json result)
               (print-sync-summary result))))))))
