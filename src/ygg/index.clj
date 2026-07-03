@@ -127,8 +127,8 @@
   (Long/parseLong (str value)))
 
 (defn- git-ahead-behind
-  [root]
-  (when-let [out (git-output root "rev-list" "--left-right" "--count" "HEAD...@{u}")]
+  [root ref]
+  (when-let [out (git-output root "rev-list" "--left-right" "--count" (str "HEAD..." ref))]
     (let [[ahead behind] (str/split out #"\s+")]
       {:git-ahead (parse-long-value ahead)
        :git-behind (parse-long-value behind)})))
@@ -143,7 +143,7 @@
     (zero? git-ahead) :behind
     :else :diverged))
 
-(defn- git-ref-state
+(defn- git-upstream-state
   [root git-sha]
   (let [branch (git-output root "rev-parse" "--abbrev-ref" "HEAD")
         upstream (git-output root "rev-parse" "--abbrev-ref" "--symbolic-full-name" "@{u}")
@@ -155,14 +155,54 @@
                 upstream-sha (assoc :git-upstream-sha upstream-sha)
                 (and git-sha upstream-sha) (assoc :git-upstream-current?
                                                   (= git-sha upstream-sha)))
-        state (merge state (git-ahead-behind root))]
+        state (merge state (git-ahead-behind root "@{u}"))]
     (assoc state :git-upstream-status (git-upstream-status state))))
 
+(def ^:private origin-main-ref
+  "origin/main")
+
+(defn- git-main-status
+  [{:keys [git-main-sha git-main-ahead git-main-behind git-dirty?]}]
+  (cond
+    (nil? git-main-sha) :missing-remote-main
+    git-dirty? :dirty
+    (or (nil? git-main-ahead) (nil? git-main-behind)) :unknown
+    (and (zero? git-main-ahead) (zero? git-main-behind)) :up-to-date
+    (zero? git-main-behind) :ahead
+    (zero? git-main-ahead) :behind
+    :else :diverged))
+
+(defn- git-main-state
+  [root git-sha dirty?]
+  (let [main-sha (git-output root "rev-parse" "--verify" "refs/remotes/origin/main")
+        ahead-behind (when-let [{:keys [git-ahead git-behind]} (when main-sha
+                                                                 (git-ahead-behind
+                                                                  root
+                                                                  origin-main-ref))]
+                       {:git-main-ahead git-ahead
+                        :git-main-behind git-behind})
+        state (cond-> {:git-dirty? (boolean dirty?)
+                       :git-main-ref origin-main-ref
+                       :git-main-status :missing-remote-main}
+                main-sha (assoc :git-main-sha main-sha
+                                :git-main-current? (= git-sha main-sha)
+                                :git-stale-from-main? (or (boolean dirty?)
+                                                          (not= git-sha main-sha)))
+                ahead-behind (merge ahead-behind))]
+    (cond-> (assoc state :git-main-status (git-main-status state))
+      (nil? main-sha) (assoc :git-stale-from-main? nil))))
+
+(defn- git-ref-state
+  [root git-sha dirty?]
+  (merge {:git-sha git-sha}
+         (git-upstream-state root git-sha)
+         (git-main-state root git-sha dirty?)))
+
 (defn current-git-state
-  "Return current mechanical git upstream state for root, or nil outside git."
+  "Return current mechanical git freshness state for root, or nil outside git."
   [root]
   (when-let [git-sha (git-sha root)]
-    (git-ref-state root git-sha)))
+    (git-ref-state root git-sha (git-dirty? root))))
 
 (defn run-id
   ([root started-at-ms] (run-id root started-at-ms nil nil))
@@ -193,9 +233,9 @@
   [project-id repo-id root started-at-ms files]
   (let [git-sha (git-sha root)
         tree-sha (when git-sha (git-tree-sha root))
-        git-ref-state (when git-sha
-                        (git-ref-state root git-sha))
         dirty? (if git-sha (boolean (git-dirty? root)) true)
+        git-ref-state (when git-sha
+                        (git-ref-state root git-sha dirty?))
         basis-kind (cond
                      (and git-sha (not dirty?)) :git-commit
                      git-sha :git-dirty
@@ -534,13 +574,22 @@
         valid-from (:basis-instant snapshot)
         run-id (run-id root-path started project-id repo-id)
         git-state (select-keys snapshot
-                               [:git-branch
+                               [:git-sha
+                                :git-branch
                                 :git-upstream
                                 :git-upstream-sha
                                 :git-upstream-current?
                                 :git-upstream-status
                                 :git-ahead
-                                :git-behind])
+                                :git-behind
+                                :git-dirty?
+                                :git-main-ref
+                                :git-main-sha
+                                :git-main-current?
+                                :git-main-status
+                                :git-main-ahead
+                                :git-main-behind
+                                :git-stale-from-main?])
         initial {:run-id run-id
                  :snapshot-id (:xt/id snapshot)
                  :valid-from valid-from

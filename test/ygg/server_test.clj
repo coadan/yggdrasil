@@ -1401,6 +1401,78 @@
                :opts {}}]
              @worker-calls)))))
 
+(deftest scheduler-records-repo-freshness-from-index-summary
+  (let [state (atom {:last-run-ms {}
+                     :runs []})
+        schedule {:id "latest-main"
+                  :task :sync
+                  :enabled true
+                  :run-on-start true
+                  :query-index false}
+        project {:id "demo"
+                 :maintenance {:enabled true
+                               :schedules [schedule]}}
+        sync-result {:schema "ygg.sync/v1"
+                     :index-summary
+                     {:repos [{:repo-id "app"
+                               :status :completed
+                               :git-sha "local-sha"
+                               :git-state {:git-sha "local-sha"
+                                           :git-branch "feature"
+                                           :git-upstream "origin/feature"
+                                           :git-upstream-status :behind
+                                           :git-upstream-current? false
+                                           :git-ahead 0
+                                           :git-behind 1
+                                           :git-dirty? false
+                                           :git-main-ref "origin/main"
+                                           :git-main-sha "main-sha"
+                                           :git-main-status :behind
+                                           :git-main-current? false
+                                           :git-main-ahead 0
+                                           :git-main-behind 2
+                                           :git-stale-from-main? true}}]}}]
+    (with-redefs [registry/read-registry
+                  (fn []
+                    {:schema registry/schema
+                     :projects {"demo" project}})
+                  registry/read-project
+                  (fn [_registry project-id]
+                    (is (= "demo" project-id))
+                    project)
+                  server/run-sync!
+                  (fn [xtdb opts]
+                    (is (= :xtdb xtdb))
+                    (is (= "demo" (:project-id opts)))
+                    (is (= :graph (:index-profile opts)))
+                    (is (= false (:query-index? opts)))
+                    (is (= false (:run-worker? opts)))
+                    sync-result)]
+      (#'server/scheduler-tick! {:xtdb :xtdb
+                                 :scheduler-state state})
+      (let [run (first (:runs @state))]
+        (is (= "completed" (:status run)))
+        (is (= "demo" (:projectId run)))
+        (is (= "latest-main" (:scheduleId run)))
+        (is (= [{:repoId "app"
+                 :indexStatus "completed"
+                 :localSha "local-sha"
+                 :branch "feature"
+                 :upstream "origin/feature"
+                 :upstreamStatus "behind"
+                 :upstreamCurrent false
+                 :upstreamAhead 0
+                 :upstreamBehind 1
+                 :dirty false
+                 :remoteMainRef "origin/main"
+                 :remoteMainSha "main-sha"
+                 :mainStatus "behind"
+                 :mainCurrent false
+                 :mainAhead 0
+                 :mainBehind 2
+                 :staleFromMain true}]
+               (:repoFreshness run)))))))
+
 (deftest scheduler-releases-project-lock-before-running-worker
   (let [ctx {:xtdb :xtdb
              :token "token"
@@ -1518,7 +1590,22 @@
                 :semanticClientKeys []
                 :maintenance {:scheduler {:running true
                                           :pollMs 5000
-                                          :recentRuns []}
+                                          :recentRuns [{:status "completed"
+                                                        :projectId "demo"
+                                                        :scheduleId "latest-main"
+                                                        :repoFreshness
+                                                        [{:repoId "app"
+                                                          :branch "feature"
+                                                          :upstream "origin/feature"
+                                                          :upstreamStatus "behind"
+                                                          :localSha "local-sha"
+                                                          :dirty false
+                                                          :remoteMainRef "origin/main"
+                                                          :remoteMainSha "main-sha"
+                                                          :mainStatus "behind"
+                                                          :staleFromMain true
+                                                          :mainAhead 0
+                                                          :mainBehind 2}]}]}
                               :projects [{:project-id "demo"
                                           :enabled true
                                           :schedules []
@@ -1531,7 +1618,8 @@
                               :projectCount 1
                               :enabledProjectCount 1
                               :scheduleCount 0}}))]
-    (is (str/includes? out "demo enabled schedules=0 worker=enabled executors=1/1 max-items=8 max-failures=3"))))
+    (is (str/includes? out "demo enabled schedules=0 worker=enabled executors=1/1 max-items=8 max-failures=3"))
+    (is (str/includes? out "repo-freshness demo latest-main app branch=feature upstream=origin/feature upstream-status=behind local-sha=local-sha dirty=false remote-main=origin/main remote-main-sha=main-sha main-status=behind stale-from-main=true main-ahead=0 main-behind=2"))))
 
 (deftest mcp-request-handles-tools-list-through-server
   (with-redefs [store/storage-path (fn

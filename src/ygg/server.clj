@@ -832,6 +832,68 @@
                 (take-last 25)
                 vec))))
 
+(defn- value-name
+  [v]
+  (cond
+    (keyword? v) (name v)
+    (some? v) (str v)))
+
+(defn- repo-freshness-summary
+  [{:keys [repo-id status git-sha git-state]}]
+  (let [git-state (or git-state {})
+        local-sha (or git-sha (:git-sha git-state))]
+    (cond-> {:repoId repo-id}
+      status (assoc :indexStatus (value-name status))
+      local-sha (assoc :localSha local-sha)
+      (:git-branch git-state) (assoc :branch (:git-branch git-state))
+      (:git-upstream git-state) (assoc :upstream (:git-upstream git-state))
+      (:git-upstream-status git-state) (assoc :upstreamStatus
+                                              (value-name (:git-upstream-status
+                                                           git-state)))
+      (contains? git-state :git-upstream-current?) (assoc :upstreamCurrent
+                                                          (boolean
+                                                           (:git-upstream-current?
+                                                            git-state)))
+      (contains? git-state :git-ahead) (assoc :upstreamAhead (:git-ahead git-state))
+      (contains? git-state :git-behind) (assoc :upstreamBehind (:git-behind git-state))
+      (contains? git-state :git-dirty?) (assoc :dirty (boolean (:git-dirty?
+                                                                git-state)))
+      (:git-main-ref git-state) (assoc :remoteMainRef (:git-main-ref git-state))
+      (:git-main-sha git-state) (assoc :remoteMainSha (:git-main-sha git-state))
+      (:git-main-status git-state) (assoc :mainStatus
+                                          (value-name (:git-main-status git-state)))
+      (contains? git-state :git-main-current?) (assoc :mainCurrent
+                                                      (boolean (:git-main-current?
+                                                                git-state)))
+      (contains? git-state :git-main-ahead) (assoc :mainAhead (:git-main-ahead
+                                                               git-state))
+      (contains? git-state :git-main-behind) (assoc :mainBehind (:git-main-behind
+                                                                 git-state))
+      (some? (:git-stale-from-main? git-state)) (assoc :staleFromMain
+                                                       (:git-stale-from-main?
+                                                        git-state)))))
+
+(defn- repo-freshness-summaries
+  [result]
+  (mapv repo-freshness-summary (get-in result [:index-summary :repos])))
+
+(defn- repo-freshness-fragments
+  [{:keys [branch upstream upstreamStatus localSha dirty remoteMainRef remoteMainSha
+           mainStatus staleFromMain mainAhead mainBehind]}]
+  (remove nil?
+          [(when branch (str "branch=" branch))
+           (when upstream (str "upstream=" upstream))
+           (when upstreamStatus (str "upstream-status=" upstreamStatus))
+           (when localSha (str "local-sha=" localSha))
+           (when (some? dirty) (str "dirty=" (boolean dirty)))
+           (when remoteMainRef (str "remote-main=" remoteMainRef))
+           (when remoteMainSha (str "remote-main-sha=" remoteMainSha))
+           (when mainStatus (str "main-status=" mainStatus))
+           (when (some? staleFromMain) (str "stale-from-main="
+                                            (boolean staleFromMain)))
+           (when (some? mainAhead) (str "main-ahead=" mainAhead))
+           (when (some? mainBehind) (str "main-behind=" mainBehind))]))
+
 (defn- registered-projects
   []
   (let [registry (registry/read-registry)]
@@ -881,7 +943,8 @@
                   (do
                     (mark-schedule-seen! state now-ms (:id project) schedule)
                     (try
-                      (let [result (run-maintenance-schedule! ctx project schedule)]
+                      (let [result (run-maintenance-schedule! ctx project schedule)
+                            repo-freshness (repo-freshness-summaries result)]
                         (record-schedule-run!
                          state
                          (if (= scheduler-busy result)
@@ -897,6 +960,8 @@
                                     :scheduleId (:id schedule)
                                     :task (:task schedule)
                                     :resultSchema (:schema result)}
+                             (seq repo-freshness)
+                             (assoc :repoFreshness repo-freshness)
                              (:maintenance-worker result)
                              (assoc :workerStatus (get-in result [:maintenance-worker :status])
                                     :workerCounts (get-in result [:maintenance-worker :counts]))))))
@@ -1070,7 +1135,15 @@
                    (str "enqueue=" enqueue)
                    (str "query-index=" query-index))))
       (when-let [runs (seq (get-in status [:maintenance :scheduler :recentRuns]))]
-        (println "- recent-runs" (count runs))))))
+        (println "- recent-runs" (count runs))
+        (doseq [run (take-last 5 runs)
+                repo (:repoFreshness run)]
+          (apply println
+                 "  repo-freshness"
+                 (:projectId run)
+                 (:scheduleId run)
+                 (:repoId repo)
+                 (repo-freshness-fragments repo)))))))
 
 (defn- status-response
   [ctx request]

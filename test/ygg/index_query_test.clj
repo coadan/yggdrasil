@@ -2237,13 +2237,30 @@
           (is (= :up-to-date (:git-upstream-status snapshot)))
           (is (= 0 (:git-ahead snapshot)))
           (is (= 0 (:git-behind snapshot)))
-          (is (= {:git-branch "main"
+          (is (= false (:git-dirty? snapshot)))
+          (is (= "origin/main" (:git-main-ref snapshot)))
+          (is (= (:git-sha snapshot) (:git-main-sha snapshot)))
+          (is (= true (:git-main-current? snapshot)))
+          (is (= :up-to-date (:git-main-status snapshot)))
+          (is (= 0 (:git-main-ahead snapshot)))
+          (is (= 0 (:git-main-behind snapshot)))
+          (is (= false (:git-stale-from-main? snapshot)))
+          (is (= {:git-sha (:git-sha snapshot)
+                  :git-branch "main"
                   :git-upstream "origin/main"
                   :git-upstream-sha (:git-sha snapshot)
                   :git-upstream-current? true
                   :git-upstream-status :up-to-date
                   :git-ahead 0
-                  :git-behind 0}
+                  :git-behind 0
+                  :git-dirty? false
+                  :git-main-ref "origin/main"
+                  :git-main-sha (:git-sha snapshot)
+                  :git-main-current? true
+                  :git-main-status :up-to-date
+                  :git-main-ahead 0
+                  :git-main-behind 0
+                  :git-stale-from-main? false}
                  (:git-state summary))))))))
 
 (deftest index-skips-by-content-and-extractor-fingerprint
