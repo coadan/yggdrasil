@@ -564,6 +564,11 @@ plugin-fit choice, not just a shorter suspected-file list.
   stage-class deltas against an earlier artifact. `bb bench:gate` invokes this
   gate automatically after `agent-check`, so every deterministic claim gate has a
   timing profile even when it is not enforcing timing thresholds.
+  When `bb bench:gate` receives `--stage-time-baseline-report`, it treats the
+  comparison as a repeat-run regression check: both reports must prove strict
+  warm preparation, case-stage regressions default to `<=30000ms`, aggregate
+  stage regressions default to `<=120000ms`, current/baseline ratios default to
+  `<=1.50`, and deltas `<=5000ms` are ignored as noise unless overridden.
   `bench agent-report`, `bench agent-check`, and deterministic baseline summaries
   also print `stage-class-timing` lines, so slow full-lane runs can be triaged
   without opening raw JSON first.

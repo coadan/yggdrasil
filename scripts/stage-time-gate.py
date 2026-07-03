@@ -253,7 +253,22 @@ def stage_regression_failure_rows(
     return failures
 
 
-def load_reports(report_paths, allowed_stages):
+def strict_warm_failure(report_path, report):
+    agent_preparation = report.get("agentPreparation") or {}
+    if agent_preparation.get("allRunsReadyBeforeAgent") is True:
+        return None
+    return {
+        "metric": "strictWarmBenchmark",
+        "expected": True,
+        "actual": agent_preparation.get("allRunsReadyBeforeAgent"),
+        "message": "Benchmark report is not strict warm; context/graph preparation was not proven reused before the measured run.",
+        "report": str(report_path),
+        "statusCounts": agent_preparation.get("statusCounts"),
+        "caseIds": agent_preparation.get("caseIds"),
+    }
+
+
+def load_reports(report_paths, allowed_stages, require_strict_warm):
     failures = []
     missing = [str(path) for path in report_paths if not path.is_file()]
     for path in missing:
@@ -272,8 +287,17 @@ def load_reports(report_paths, allowed_stages):
                 "schema": report.get("schema"),
                 "suiteId": report.get("suite-id"),
                 "cases": (report.get("timings") or {}).get("cases"),
+                "strictWarmBenchmark": (
+                    (report.get("agentPreparation") or {}).get(
+                        "strictWarmBenchmark"
+                    )
+                ),
             }
         )
+        if require_strict_warm:
+            failure = strict_warm_failure(path, report)
+            if failure:
+                failures.append(failure)
         stage_totals.extend(report_stage_totals(path, report, allowed_stages))
         case_stage_rows.extend(report_case_stage_rows(path, report, allowed_stages))
     return {
@@ -294,11 +318,14 @@ def check(
     max_case_regression_ratio,
     max_total_regression_ratio,
     min_regression_ms,
+    require_strict_warm,
     allowed_stages,
 ):
     failures = []
-    current = load_reports(report_paths, allowed_stages)
-    baseline = load_reports(baseline_report_paths, allowed_stages)
+    current = load_reports(report_paths, allowed_stages, require_strict_warm)
+    baseline = load_reports(
+        baseline_report_paths, allowed_stages, require_strict_warm
+    )
     failures.extend(current["failures"])
     failures.extend(baseline["failures"])
 
@@ -374,6 +401,7 @@ def check(
             "maxCaseStageRegressionRatio": max_case_regression_ratio,
             "maxTotalStageRegressionRatio": max_total_regression_ratio,
             "minStageRegressionMs": min_regression_ms,
+            "requireStrictWarm": require_strict_warm,
         },
         "stageTotals": slowest(current["stageTotals"], 25),
         "stageClassTotals": slowest(stage_class_totals, 25),
@@ -440,6 +468,11 @@ def main(argv):
         default=[],
         help="Limit checks to this stage. May be repeated.",
     )
+    parser.add_argument(
+        "--require-strict-warm",
+        action="store_true",
+        help="Fail unless every compared report proves strict warm preparation: graph/context artifacts were reused before the measured run.",
+    )
     parser.add_argument("--out", help="Write the gate result JSON to this path.")
     args = parser.parse_args(argv)
 
@@ -459,6 +492,7 @@ def main(argv):
         args.max_case_stage_regression_ratio,
         args.max_total_stage_regression_ratio,
         args.min_stage_regression_ms,
+        args.require_strict_warm,
         set(args.stage),
     )
     text = json.dumps(result, indent=2, sort_keys=True)

@@ -77,25 +77,27 @@
     report-path))
 
 (defn- stage-report!
-  [root path {:keys [stage total-ms case-ms stage-class]
+  [root path {:keys [stage total-ms case-ms stage-class agent-preparation]
               :or {stage "index-project"}}]
   (spit-json! root
               path
-              {:schema "ygg.benchmark.agent-report/v2"
-               :suite-id "fixture"
-               :timings {:cases 1
-                         :stageElapsedMs [{:stage stage
-                                           :elapsedMs total-ms}]
-                         :stageTiming
-                         {:classes (cond-> []
-                                     stage-class
-                                     (conj {:stage stage
-                                            :class stage-class
-                                            :elapsedMs total-ms}))}}
-               :caseProgress [{:case-id "case-1"
-                               :repo-id "fixture-repo"
-                               :stageElapsedMs [{:stage stage
-                                                 :elapsedMs case-ms}]}]}))
+              (cond-> {:schema "ygg.benchmark.agent-report/v2"
+                       :suite-id "fixture"
+                       :timings {:cases 1
+                                 :stageElapsedMs [{:stage stage
+                                                   :elapsedMs total-ms}]
+                                 :stageTiming
+                                 {:classes (cond-> []
+                                             stage-class
+                                             (conj {:stage stage
+                                                    :class stage-class
+                                                    :elapsedMs total-ms}))}}
+                       :caseProgress [{:case-id "case-1"
+                                       :repo-id "fixture-repo"
+                                       :stageElapsedMs [{:stage stage
+                                                         :elapsedMs case-ms}]}]}
+                agent-preparation
+                (assoc :agentPreparation agent-preparation))))
 
 (deftest dry-run-prints-full-strict-gate
   (let [result (run-gate "--dry-run"
@@ -301,9 +303,27 @@
                        "bench agent-check benchmarks/custom.edn"))
     (is (str/includes? stage-line "python3 scripts/stage-time-gate.py"))
     (is (str/includes? stage-line "--baseline-report before.json"))
+    (is (str/includes? stage-line "--require-strict-warm"))
+    (is (str/includes? stage-line "--max-total-stage-regression-ms 120000"))
     (is (str/includes? stage-line "--max-total-stage-regression-ratio 1.2"))
     (is (str/includes? stage-line "--max-case-stage-regression-ms 100"))
+    (is (str/includes? stage-line "--max-case-stage-regression-ratio 1.50"))
     (is (str/includes? stage-line "--min-stage-regression-ms 50"))))
+
+(deftest dry-run-stage-time-baseline-uses-repeat-run-default-thresholds
+  (let [result (run-gate "--dry-run"
+                         "--stage-time-baseline-report" "before.json"
+                         "--suite" "benchmarks/custom.edn"
+                         "--manifest" "benchmarks/custom-repos.edn"
+                         "--out" ".dev/ygg/benchmark-gate/custom")
+        stage-line (last (output-lines result))]
+    (is (= 0 (:exit result)))
+    (is (str/includes? stage-line "--require-strict-warm"))
+    (is (str/includes? stage-line "--max-case-stage-regression-ms 30000"))
+    (is (str/includes? stage-line "--max-total-stage-regression-ms 120000"))
+    (is (str/includes? stage-line "--max-case-stage-regression-ratio 1.50"))
+    (is (str/includes? stage-line "--max-total-stage-regression-ratio 1.50"))
+    (is (str/includes? stage-line "--min-stage-regression-ms 5000"))))
 
 (deftest dry-run-passes-retriever-and-semantic-client-options
   (let [result (run-gate "--dry-run"
@@ -506,6 +526,40 @@
     (is (= "passed" (:status parsed)))
     (is (= 40 (:deltaMs (first (:stageDeltas parsed)))))
     (is (= [] (:failures parsed)))))
+
+(deftest stage-time-gate-requires-strict-warm-reports
+  (let [root (temp-dir "ygg-stage-time-gate-strict-warm")
+        cold-path (stage-report! root
+                                 "cold.json"
+                                 {:total-ms 1000
+                                  :case-ms 500
+                                  :agent-preparation
+                                  {:runs 1
+                                   :allRunsReadyBeforeAgent false
+                                   :strictWarmBenchmark false
+                                   :statusCounts {"prepared" 1}
+                                   :caseIds ["case-1"]}})
+        warm-path (stage-report! root
+                                 "warm.json"
+                                 {:total-ms 900
+                                  :case-ms 450
+                                  :agent-preparation
+                                  {:runs 1
+                                   :allRunsReadyBeforeAgent true
+                                   :strictWarmBenchmark true
+                                   :statusCounts {"reused" 1}
+                                   :caseIds ["case-1"]}})
+        cold-result (run-stage-gate cold-path "--require-strict-warm")
+        warm-result (run-stage-gate warm-path "--require-strict-warm")
+        cold (json/read-json (:out cold-result) :key-fn keyword)
+        warm (json/read-json (:out warm-result) :key-fn keyword)]
+    (is (= 1 (:exit cold-result)))
+    (is (= "failed" (:status cold)))
+    (is (= "strictWarmBenchmark" (get-in cold [:failures 0 :metric])))
+    (is (= false (get-in cold [:failures 0 :actual])))
+    (is (= 0 (:exit warm-result)) (:out warm-result))
+    (is (= "passed" (:status warm)))
+    (is (true? (get-in warm [:thresholds :requireStrictWarm])))))
 
 (deftest stage-time-gate-aggregates-stage-class-profile
   (let [root (temp-dir "ygg-stage-time-gate-stage-class-profile")

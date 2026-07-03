@@ -40,25 +40,31 @@ Options:
   --skip-existing     Skip regenerating current matching baseline case artifacts.
   --stage-time-baseline-report PATH
                       Baseline agent-report JSON/glob for stage timing regression checks.
-                      May be repeated.
+                      May be repeated. When present, the gate requires strict-warm
+                      reports and applies repeat-run regression thresholds by default.
   --max-case-stage-ms N
                       Fail if any case stage exceeds this elapsed ms.
   --max-total-stage-ms N
                       Fail if any aggregate stage exceeds this elapsed ms.
   --max-case-stage-regression-ms N
                       Fail if a case stage regresses by more than this ms.
+                      Default with --stage-time-baseline-report: 30000.
   --max-total-stage-regression-ms N
                       Fail if an aggregate stage regresses by more than this ms.
+                      Default with --stage-time-baseline-report: 120000.
   --max-case-stage-regression-ratio N
                       Fail if a case stage current/baseline ratio exceeds this value.
+                      Default with --stage-time-baseline-report: 1.50.
   --max-total-stage-regression-ratio N
                       Fail if an aggregate stage current/baseline ratio exceeds this value.
+                      Default with --stage-time-baseline-report: 1.50.
   --min-expected-evidence-citation-rate N
                       Fail if aggregate expected-evidence citation rate is below N.
   --min-case-expected-evidence-citation-rate N
                       Fail if any case expected-evidence citation rate is below N.
   --min-stage-regression-ms N
                       Ignore timing deltas at or below this ms floor.
+                      Default with --stage-time-baseline-report: 5000.
   --stage NAME        Limit stage timing checks to one stage. May be repeated.
   --skip-setup-check  Run without checking local benchmark repos first.
   --dry-run           Print commands without running them.
@@ -408,6 +414,22 @@ if [[ "$stage_time_baseline_report_count" -gt 0 ]]; then
   for report in "${stage_time_baseline_reports[@]}"; do
     stage_time_args+=(--baseline-report "$report")
   done
+  stage_time_args+=(--require-strict-warm)
+  if [[ -z "$max_case_stage_regression_ms" ]]; then
+    max_case_stage_regression_ms="30000"
+  fi
+  if [[ -z "$max_total_stage_regression_ms" ]]; then
+    max_total_stage_regression_ms="120000"
+  fi
+  if [[ -z "$max_case_stage_regression_ratio" ]]; then
+    max_case_stage_regression_ratio="1.50"
+  fi
+  if [[ -z "$max_total_stage_regression_ratio" ]]; then
+    max_total_stage_regression_ratio="1.50"
+  fi
+  if [[ -z "$min_stage_regression_ms" ]]; then
+    min_stage_regression_ms="5000"
+  fi
 fi
 if [[ -n "$max_case_stage_ms" ]]; then
   stage_time_args+=(--max-case-stage-ms "$max_case_stage_ms")
