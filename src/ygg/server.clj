@@ -437,6 +437,12 @@
      :no-progress? (boolean (some #{"--no-progress"} args))
      :min-confidence (option-value args "--min-confidence")}))
 
+(defn- normalize-sync-request-options
+  [request opts]
+  (cond-> opts
+    (:config-path opts)
+    (update :config-path #(absolute-path (:cwd request) %))))
+
 (defn- sync-project
   [{:keys [project config-path project-id cwd]}]
   (cond
@@ -1177,17 +1183,20 @@
   [ctx request]
   (let [args (vec (:args request))
         progress-fn (sync-server-progress-fn ctx args)
-        opts (merge (sync-args->options args)
-                    {:cwd (:cwd request)}
-                    (:options request)
-                    (when progress-fn
-                      {:progress-fn progress-fn}))]
+        opts (normalize-sync-request-options
+              request
+              (merge (sync-args->options args)
+                     {:cwd (:cwd request)}
+                     (:options request)
+                     (when progress-fn
+                       {:progress-fn progress-fn})))
+        resolved-project-id (project-id-from-cli request args opts)]
     (capture-response
      (fn []
        (with-operation-lock
          ctx
          (request-operation request (into ["sync"] args)
-                            (when-let [project-id (:project-id opts)]
+                            (when-let [project-id resolved-project-id]
                               {:projectId project-id}))
          (fn []
            (with-user-dir (:cwd request)

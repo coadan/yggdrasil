@@ -260,7 +260,7 @@
                       {:op "sync"
                        :token "token"
                        :cwd (.getPath checkout)
-                       :args [ref-path "--json"]})
+                       :args [".ygg/project.edn" "--json"]})
             body (json/read-json (:out response) :key-fn keyword)]
         (is (= true (:ok response)))
         (is (= 0 (:exit response)))
