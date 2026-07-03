@@ -387,7 +387,7 @@
       (assoc worker
              :enabled (boolean (:enabled worker))
              :agent-id (str (or (:agent-id worker) "ygg-auto"))
-             :queue-dir (:queue-dir maintenance)
+             :queue-db (:queue-db maintenance)
              :report-dir (:report-dir maintenance)
              :lease-minutes (long (or (:lease-minutes worker) 10))
              :max-items-per-run (long (or (:max-items-per-run worker) 1))
@@ -399,15 +399,16 @@
 (defn- normalize-maintenance
   [base project-id data]
   (when-let [maintenance (:maintenance data)]
-    (when (contains? maintenance :queue-dir)
+    (when-let [key (some #(when (contains? maintenance %) %)
+                         [:queue-dir :queue-db])]
       (throw (ex-info "Maintenance queue storage is central and cannot be configured."
                       {:project-id project-id
-                       :key :queue-dir})))
+                       :key key})))
     (let [maintenance (assoc maintenance
                              :enabled (boolean (:enabled maintenance))
                              :work (index-maintenance/normalize-work-controls
                                     (:work maintenance))
-                             :queue-dir (store/project-sqlite-path project-id)
+                             :queue-db (store/project-sqlite-path project-id)
                              :report-dir (if (:report-dir maintenance)
                                            (resolve-root base (:report-dir maintenance))
                                            (store/project-data-path project-id

@@ -103,7 +103,7 @@
   ([project] (worker-config project {}))
   ([project opts]
    (when-let [worker (get-in project [:maintenance :worker])]
-     (merge (select-keys (:maintenance project) [:queue-dir :report-dir])
+     (merge (select-keys (:maintenance project) [:queue-db :report-dir])
             worker
             opts))))
 
@@ -121,7 +121,7 @@
      :enabled (boolean (:enabled maintenance))
      :schedules (vec (:schedules maintenance))
      :work (:work maintenance)
-     :queueDb (:queue-dir maintenance)
+     :queueDb (:queue-db maintenance)
      :reportDir (:report-dir maintenance)
      :worker {:configured (boolean config)
               :enabled (boolean (:enabled config))
@@ -129,7 +129,7 @@
               :maxItemsPerRun (:max-items-per-run config)
               :maxFailuresPerRun (:max-failures-per-run config)
               :apply (:apply config)
-              :queueDb (:queue-dir config)
+              :queueDb (:queue-db config)
               :reportDir (:report-dir config)
               :executors executor-statuses
               :executorCount (count executor-statuses)
@@ -138,12 +138,12 @@
                                      (filterv executor-available? executors)))}}))
 
 (defn- next-ready-kind
-  [root project-id kinds]
+  [queue-db project-id kinds]
   (some (fn [{:keys [item]}]
           (when (contains? kinds (:kind item))
             (:kind item)))
-        (queue/list-items root {:status "ready"
-                                :project-id project-id})))
+        (queue/list-items queue-db {:status "ready"
+                                    :project-id project-id})))
 
 (defn- run-dir
   [config work-id now]
@@ -475,42 +475,42 @@
        :process (select-keys process [:exit :timeout?])})))
 
 (defn- failure!
-  [root id reason extra]
-  (let [failed (queue/fail! root id reason)]
+  [queue-db id reason extra]
+  (let [failed (queue/fail! queue-db id reason)]
     (merge {:status "failed"
             :reason reason
             :item (queue/item-summary failed)}
            extra)))
 
 (defn- complete-result!
-  [root id result]
-  (queue/complete! root id result))
+  [queue-db id result]
+  (queue/complete! queue-db id result))
 
 (defn- validate-completed!
-  [config root id]
-  (let [validation (work/validate-result root id)
+  [config queue-db id]
+  (let [validation (work/validate-result queue-db id)
         mode (get-in config [:apply :mode])]
     (if (and (= :validate-only mode)
              (not= "valid" (:status validation)))
       {:validation validation
-       :failure (work/fail-invalid-result! root id validation)}
+       :failure (work/fail-invalid-result! queue-db id validation)}
       {:validation validation})))
 
 (defn- complete-and-validate!
-  [config root claimed result]
+  [config queue-db claimed result]
   (let [work-id (get-in claimed [:item :id])
-        completed (complete-result! root work-id result)
-        {:keys [validation failure]} (validate-completed! config root work-id)]
+        completed (complete-result! queue-db work-id result)
+        {:keys [validation failure]} (validate-completed! config queue-db work-id)]
     {:status (if failure "failed" "completed")
      :item (queue/item-summary (if failure
-                                 (queue/find-item root work-id)
+                                 (queue/find-item queue-db work-id)
                                  completed))
      :validation validation
      :failure failure}))
 
 (defn- process-claimed!
   [project config executor claimed]
-  (let [root (:queue-dir config)
+  (let [queue-db (:queue-db config)
         item (:item claimed)
         work-id (:id item)
         now (now-ms)
@@ -531,13 +531,13 @@
               :command-harness
               (complete-with-command! config executor input-path result-path))]
         (if error
-          (failure! root work-id error {:executor (:id executor)
-                                        :failure-kind "executor"
-                                        :artifacts {:work input-path
-                                                    :result result-path}
-                                        :process process})
+          (failure! queue-db work-id error {:executor (:id executor)
+                                            :failure-kind "executor"
+                                            :artifacts {:work input-path
+                                                        :result result-path}
+                                            :process process})
           (let [{:keys [status item validation failure]}
-                (complete-and-validate! config root claimed result)]
+                (complete-and-validate! config queue-db claimed result)]
             (write-json-file! result-path result)
             {:status status
              :executor (:id executor)
@@ -548,7 +548,7 @@
                          :result result-path}
              :process process})))
       (catch Exception e
-        (failure! root
+        (failure! queue-db
                   work-id
                   (str "Index maintenance executor failed: "
                        (or (ex-message e) (.getMessage e)))
@@ -602,7 +602,7 @@
 
 (defn- process-command-batch!
   [project config executor claimed-items]
-  (let [root (:queue-dir config)
+  (let [queue-db (:queue-db config)
         now (now-ms)
         dir (batch-run-dir config claimed-items now)
         input-path (.getPath (io/file dir "work.json"))
@@ -614,7 +614,7 @@
             (complete-with-command! config executor input-path result-path)]
         (if error
           (mapv (fn [claimed]
-                  (failure! root
+                  (failure! queue-db
                             (get-in claimed [:item :id])
                             error
                             {:executor (:id executor)
@@ -629,7 +629,7 @@
                     (let [work-id (get-in claimed [:item :id])]
                       (if-let [item-result (get results-by-work-id work-id)]
                         (let [{:keys [status item validation failure]}
-                              (complete-and-validate! config root claimed item-result)]
+                              (complete-and-validate! config queue-db claimed item-result)]
                           {:status status
                            :executor (:id executor)
                            :item item
@@ -638,7 +638,7 @@
                            :artifacts {:work input-path
                                        :result result-path}
                            :process process})
-                        (failure! root
+                        (failure! queue-db
                                   work-id
                                   "Command index maintenance batch result omitted work item."
                                   {:executor (:id executor)
@@ -649,7 +649,7 @@
                   claimed-items))))
       (catch Exception e
         (mapv (fn [claimed]
-                (failure! root
+                (failure! queue-db
                           (get-in claimed [:item :id])
                           (str "Index maintenance executor failed: "
                                (or (ex-message e) (.getMessage e)))
@@ -662,8 +662,8 @@
 
 (defn- claim-next-for-kinds!
   [project config kinds]
-  (when-let [kind (next-ready-kind (:queue-dir config) (:id project) kinds)]
-    (queue/claim-next! (:queue-dir config)
+  (when-let [kind (next-ready-kind (:queue-db config) (:id project) kinds)]
+    (queue/claim-next! (:queue-db config)
                        {:agent-id (:agent-id config)
                         :lease-ms (* 60 1000 (:lease-minutes config))
                         :project-id (:id project)
@@ -684,12 +684,12 @@
 (defn process-next!
   "Claim and process ready queue items for project/config. Return nil when empty."
   [project config limit]
-  (let [root (:queue-dir config)
+  (let [queue-db (:queue-db config)
         executors (available-executors config)
         kinds (available-kinds executors)]
     (when (seq executors)
-      (when-let [kind (next-ready-kind root (:id project) kinds)]
-        (when-let [claimed (queue/claim-next! root
+      (when-let [kind (next-ready-kind queue-db (:id project) kinds)]
+        (when-let [claimed (queue/claim-next! queue-db
                                               {:agent-id (:agent-id config)
                                                :lease-ms (* 60 1000 (:lease-minutes config))
                                                :project-id (:id project)
@@ -740,7 +740,7 @@
   (let [executors (available-executors config)]
     (boolean
      (and (seq executors)
-          (next-ready-kind (:queue-dir config)
+          (next-ready-kind (:queue-db config)
                            (:id project)
                            (available-kinds executors))))))
 
@@ -800,7 +800,7 @@
                             backoff? "backoff"
                             exhausted? "limit-reached"
                             :else (run-status config results exhausted?))
-                  :queue-db (:queue-dir config)
+                  :queue-db (:queue-db config)
                   :report-dir (:report-dir config)
                   :counts (result-counts results)
                   :items (mapv #(select-keys % [:status :executor :item :validation :failure

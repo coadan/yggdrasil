@@ -21,7 +21,7 @@
   [path]
   (json/read-json (slurp (io/file path)) :key-fn keyword))
 
-(defn- project-queue-root
+(defn- project-queue-db
   [root]
   (.getPath (io/file root "project.sqlite")))
 
@@ -32,11 +32,11 @@
     (with-redefs [store/project-sqlite-path
                   (fn [project-id]
                     (is (= "demo" project-id))
-                    (project-queue-root root))]
+                    (project-queue-db root))]
       (project/normalize-project
        (io/file root)
        (let [maintenance (cond-> {:enabled true
-                                  :worker (dissoc worker :queue-dir :report-dir)}
+                                  :worker (dissoc worker :queue-db :report-dir)}
                            (:report-dir worker) (assoc :report-dir (:report-dir worker)))]
          {:id "demo"
           :repos [{:id "app"
@@ -58,10 +58,10 @@
      :recommended-actions [:none]})))
 
 (defn- enqueue-decision!
-  ([queue-root] (enqueue-decision! queue-root "test"))
-  ([queue-root suffix]
+  ([queue-db] (enqueue-decision! queue-db "test"))
+  ([queue-db suffix]
    (get-in (queue/enqueue! (decision-packet suffix)
-                           {:root queue-root
+                           {:root queue-db
                             :kind "maintenance-decision"
                             :project-id "demo"})
            [:item :id])))
@@ -174,13 +174,13 @@
     (is (= 2 (get-in status [:worker :maxFailuresPerRun])))
     (is (= {:mode :complete-only}
            (get-in status [:worker :apply])))
-    (is (= (project-queue-root root)
+    (is (= (project-queue-db root)
            (get-in status [:worker :queueDb])))
     (is (some? (get-in status [:worker :reportDir])))))
 
 (deftest disabled-worker-does-not-claim-ready-work
   (let [root (temp-dir "ygg-index-maintenance-worker-disabled")
-        queue-root (project-queue-root root)
+        queue-db (project-queue-db root)
         project (project-config
                  root
                  {:enabled false
@@ -189,15 +189,15 @@
                                :provider :deepseek
                                :model "deepseek-v4-flash"
                                :kinds #{:maintenance-decision}}]})
-        work-id (enqueue-decision! queue-root)
+        work-id (enqueue-decision! queue-db)
         result (index-maintenance-worker/run! project)]
     (is (= "disabled" (:status result)))
-    (is (= "ready" (get-in (queue/find-item queue-root work-id)
+    (is (= "ready" (get-in (queue/find-item queue-db work-id)
                            [:item :status])))))
 
 (deftest openai-compatible-worker-completes-and-validates-work
   (let [root (temp-dir "ygg-index-maintenance-worker-openai")
-        queue-root (project-queue-root root)
+        queue-db (project-queue-db root)
         project (project-config
                  root
                  {:enabled true
@@ -209,7 +209,7 @@
                                :model "deepseek-v4-flash"
                                :env "YGG_DEEPSEEK_API_KEY"
                                :kinds #{:maintenance-decision}}]})
-        work-id (enqueue-decision! queue-root)
+        work-id (enqueue-decision! queue-db)
         messages* (atom nil)]
     (binding [index-maintenance-worker/*deps*
               {:get-env (fn [k] (when (= "YGG_DEEPSEEK_API_KEY" k) "test-key"))
@@ -226,13 +226,13 @@
                 :validated 1}
                (:counts result)))
         (is (seq @messages*))
-        (is (= "done" (get-in (queue/find-item queue-root work-id)
+        (is (= "done" (get-in (queue/find-item queue-db work-id)
                               [:item :status])))
         (is (= "valid" (get-in result [:items 0 :validation :status])))))))
 
 (deftest anthropic-compatible-worker-completes-work
   (let [root (temp-dir "ygg-index-maintenance-worker-anthropic")
-        queue-root (project-queue-root root)
+        queue-db (project-queue-db root)
         project (project-config
                  root
                  {:enabled true
@@ -243,7 +243,7 @@
                                :model "deepseek-v4-flash"
                                :env "YGG_DEEPSEEK_API_KEY"
                                :kinds #{:maintenance-decision}}]})
-        work-id (enqueue-decision! queue-root)]
+        work-id (enqueue-decision! queue-db)]
     (binding [index-maintenance-worker/*deps*
               {:get-env (fn [_] "test-key")
                :anthropic-client (fn [_opts]
@@ -252,12 +252,12 @@
       (let [result (index-maintenance-worker/run! project)]
         (is (= "completed" (:status result)))
         (is (= "deepseek-anthropic" (get-in result [:items 0 :executor])))
-        (is (= "done" (get-in (queue/find-item queue-root work-id)
+        (is (= "done" (get-in (queue/find-item queue-db work-id)
                               [:item :status])))))))
 
 (deftest command-harness-worker-uses-work-and-result-files
   (let [root (temp-dir "ygg-index-maintenance-worker-command")
-        queue-root (project-queue-root root)
+        queue-db (project-queue-db root)
         project (project-config
                  root
                  {:enabled true
@@ -266,7 +266,7 @@
                                :type :command-harness
                                :command ["codex-maintenance"]
                                :kinds #{:maintenance-decision}}]})
-        work-id (enqueue-decision! queue-root)
+        work-id (enqueue-decision! queue-db)
         argv* (atom nil)
         env* (atom nil)]
     (binding [index-maintenance-worker/*deps*
@@ -294,12 +294,12 @@
                  :role "application"}]
                (get-in work-input [:project :repos])))
         (is (nil? (get-in work-input [:payload :messages])))
-        (is (= "done" (get-in (queue/find-item queue-root work-id)
+        (is (= "done" (get-in (queue/find-item queue-db work-id)
                               [:item :status])))))))
 
 (deftest command-harness-worker-batches-ready-work-items
   (let [root (temp-dir "ygg-index-maintenance-worker-command-batch")
-        queue-root (project-queue-root root)
+        queue-db (project-queue-db root)
         project (project-config
                  root
                  {:enabled true
@@ -309,9 +309,9 @@
                                :type :command-harness
                                :command ["codex-maintenance"]
                                :kinds #{:maintenance-decision}}]})
-        work-ids [(enqueue-decision! queue-root "first")
-                  (enqueue-decision! queue-root "second")
-                  (enqueue-decision! queue-root "third")]
+        work-ids [(enqueue-decision! queue-db "first")
+                  (enqueue-decision! queue-db "second")
+                  (enqueue-decision! queue-db "third")]
         invocations* (atom [])]
     (binding [index-maintenance-worker/*deps*
               {:command-runner (fn [{:keys [argv]}]
@@ -352,7 +352,7 @@
                (:counts result)))
         (is (= 1 (count artifact-paths)))
         (doseq [work-id work-ids]
-          (is (= "done" (get-in (queue/find-item queue-root work-id)
+          (is (= "done" (get-in (queue/find-item queue-db work-id)
                                 [:item :status]))))
         (is (= ["valid" "valid" "valid"]
                (mapv #(get-in % [:validation :status]) (:items result))))))))
@@ -390,7 +390,7 @@
 
 (deftest command-harness-work-input-compacts-large-frontier-decisions
   (let [root (temp-dir "ygg-index-maintenance-worker-command-compact")
-        queue-root (project-queue-root root)
+        queue-db (project-queue-db root)
         project (project-config
                  root
                  {:enabled true
@@ -441,7 +441,7 @@
                                                    :reason "candidate"})
                                                 (range 30))}})
         work-id (get-in (queue/enqueue! payload
-                                        {:root queue-root
+                                        {:root queue-db
                                          :kind "maintenance-decision"
                                          :project-id "demo"})
                         [:item :id])]
@@ -456,7 +456,7 @@
       (let [result (index-maintenance-worker/run! project)
             work-input (read-json (get-in result [:items 0 :artifacts :work]))
             decision (get-in work-input [:payload :decision])]
-        (is (= "done" (get-in (queue/find-item queue-root work-id)
+        (is (= "done" (get-in (queue/find-item queue-db work-id)
                               [:item :status])))
         (is (= {:edges 30
                 :evidence-ids 30}
@@ -472,7 +472,7 @@
 
 (deftest command-harness-work-input-compacts-review-packets
   (let [root (temp-dir "ygg-index-maintenance-worker-command-review-compact")
-        queue-root (project-queue-root root)
+        queue-db (project-queue-db root)
         project (project-config
                  root
                  {:enabled true
@@ -485,12 +485,12 @@
         infra (infra-packet)
         dependency (dependency-packet)
         infra-id (get-in (queue/enqueue! infra
-                                         {:root queue-root
+                                         {:root queue-db
                                           :kind infra-review/work-kind
                                           :project-id "demo"})
                          [:item :id])
         dependency-id (get-in (queue/enqueue! dependency
-                                              {:root queue-root
+                                              {:root queue-db
                                                :kind dependency-review/work-kind
                                                :project-id "demo"})
                               [:item :id])
@@ -517,9 +517,9 @@
         (is (= index-maintenance-worker/command-work-batch-schema
                (:schema work-input)))
         (is (= "completed" (:status result)))
-        (is (= "done" (get-in (queue/find-item queue-root infra-id)
+        (is (= "done" (get-in (queue/find-item queue-db infra-id)
                               [:item :status])))
-        (is (= "done" (get-in (queue/find-item queue-root dependency-id)
+        (is (= "done" (get-in (queue/find-item queue-db dependency-id)
                               [:item :status])))
         (doseq [kind [infra-review/work-kind dependency-review/work-kind]]
           (let [batch-item (get by-kind kind)]
@@ -533,7 +533,7 @@
 
 (deftest command-harness-work-input-compacts-review-batches
   (let [root (temp-dir "ygg-index-maintenance-worker-command-review-batch")
-        queue-root (project-queue-root root)
+        queue-db (project-queue-db root)
         project (project-config
                  root
                  {:enabled true
@@ -552,7 +552,7 @@
                         :expectedOutput {:schema infra-review/result-schema
                                          :reviewId "infra-review:second"})])
         work-id (get-in (queue/enqueue! packet
-                                        {:root queue-root
+                                        {:root queue-db
                                          :kind infra-review/work-kind
                                          :project-id "demo"})
                         [:item :id])]
@@ -567,7 +567,7 @@
                                  {:exit 0 :out "" :err ""})}]
       (let [result (index-maintenance-worker/run! project)
             work-input (read-json (get-in result [:items 0 :artifacts :work]))]
-        (is (= "done" (get-in (queue/find-item queue-root work-id)
+        (is (= "done" (get-in (queue/find-item queue-db work-id)
                               [:item :status])))
         (is (= infra-review/batch-packet-schema
                (get-in work-input [:payload :schema])))
@@ -579,7 +579,7 @@
 
 (deftest command-harness-work-input-compacts-decision-batches
   (let [root (temp-dir "ygg-index-maintenance-worker-command-batch-compact")
-        queue-root (project-queue-root root)
+        queue-db (project-queue-db root)
         project (project-config
                  root
                  {:enabled true
@@ -608,7 +608,7 @@
                   (-> (decision-packet "second")
                       :decision)])
         work-id (get-in (queue/enqueue! payload
-                                        {:root queue-root
+                                        {:root queue-db
                                          :kind "maintenance-decision"
                                          :project-id "demo"})
                         [:item :id])]
@@ -622,7 +622,7 @@
                                  {:exit 0 :out "" :err ""})}]
       (let [result (index-maintenance-worker/run! project)
             work-input (read-json (get-in result [:items 0 :artifacts :work]))]
-        (is (= "done" (get-in (queue/find-item queue-root work-id)
+        (is (= "done" (get-in (queue/find-item queue-db work-id)
                               [:item :status])))
         (is (= decision-classifier/batch-packet-schema
                (get-in work-input [:payload :schema])))
@@ -640,7 +640,7 @@
 
 (deftest validate-only-fails-invalid-completed-result
   (let [root (temp-dir "ygg-index-maintenance-worker-invalid")
-        queue-root (project-queue-root root)
+        queue-db (project-queue-db root)
         project (project-config
                  root
                  {:enabled true
@@ -652,7 +652,7 @@
                                :model "deepseek-v4-flash"
                                :env "YGG_DEEPSEEK_API_KEY"
                                :kinds #{:maintenance-decision}}]})
-        work-id (enqueue-decision! queue-root)]
+        work-id (enqueue-decision! queue-db)]
     (binding [index-maintenance-worker/*deps*
               {:get-env (constantly "test-key")
                :openai-client (fn [_opts]
@@ -670,13 +670,13 @@
                 :executor-failures 0
                 :validated 1}
                (:counts result)))
-        (is (= "failed" (get-in (queue/find-item queue-root work-id)
+        (is (= "failed" (get-in (queue/find-item queue-db work-id)
                                 [:item :status])))
         (is (= "invalid" (get-in result [:items 0 :validation :status])))))))
 
 (deftest worker-backs-off-after-repeated-executor-failures
   (let [root (temp-dir "ygg-index-maintenance-worker-backoff")
-        queue-root (project-queue-root root)
+        queue-db (project-queue-db root)
         project (project-config
                  root
                  {:enabled true
@@ -687,8 +687,8 @@
                                :type :command-harness
                                :command ["codex-maintenance"]
                                :kinds #{:maintenance-decision}}]})
-        first-id (enqueue-decision! queue-root "first")
-        second-id (enqueue-decision! queue-root "second")]
+        first-id (enqueue-decision! queue-db "first")
+        second-id (enqueue-decision! queue-db "second")]
     (binding [index-maintenance-worker/*deps*
               {:command-runner (fn [_]
                                  {:exit 1
@@ -705,14 +705,14 @@
         (is (= {:reason "executor-failures"
                 :max-failures-per-run 1}
                (:backoff result)))
-        (is (= "failed" (get-in (queue/find-item queue-root first-id)
+        (is (= "failed" (get-in (queue/find-item queue-db first-id)
                                 [:item :status])))
-        (is (= "ready" (get-in (queue/find-item queue-root second-id)
+        (is (= "ready" (get-in (queue/find-item queue-db second-id)
                                [:item :status])))))))
 
 (deftest worker-respects-per-run-item-cap
   (let [root (temp-dir "ygg-index-maintenance-worker-cap")
-        queue-root (project-queue-root root)
+        queue-db (project-queue-db root)
         project (project-config
                  root
                  {:enabled true
@@ -724,8 +724,8 @@
                                :model "deepseek-v4-flash"
                                :env "YGG_DEEPSEEK_API_KEY"
                                :kinds #{:maintenance-decision}}]})
-        first-id (enqueue-decision! queue-root)
-        second-id (enqueue-decision! queue-root "second")]
+        first-id (enqueue-decision! queue-db)
+        second-id (enqueue-decision! queue-db "second")]
     (binding [index-maintenance-worker/*deps*
               {:get-env (constantly "test-key")
                :openai-client (fn [_opts]
@@ -739,14 +739,14 @@
                 :executor-failures 0
                 :validated 1}
                (:counts result)))
-        (is (= "done" (get-in (queue/find-item queue-root first-id)
+        (is (= "done" (get-in (queue/find-item queue-db first-id)
                               [:item :status])))
-        (is (= "ready" (get-in (queue/find-item queue-root second-id)
+        (is (= "ready" (get-in (queue/find-item queue-db second-id)
                                [:item :status])))))))
 
 (deftest missing-api-key-leaves-ready-work-unclaimed
   (let [root (temp-dir "ygg-index-maintenance-worker-no-key")
-        queue-root (project-queue-root root)
+        queue-db (project-queue-db root)
         project (project-config
                  root
                  {:enabled true
@@ -757,9 +757,9 @@
                                :model "deepseek-v4-flash"
                                :env "YGG_DEEPSEEK_API_KEY"
                                :kinds #{:maintenance-decision}}]})
-        work-id (enqueue-decision! queue-root)]
+        work-id (enqueue-decision! queue-db)]
     (binding [index-maintenance-worker/*deps* {:get-env (constantly nil)}]
       (let [result (index-maintenance-worker/run! project)]
         (is (= "no-executor" (:status result)))
-        (is (= "ready" (get-in (queue/find-item queue-root work-id)
+        (is (= "ready" (get-in (queue/find-item queue-db work-id)
                                [:item :status])))))))

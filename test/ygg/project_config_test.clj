@@ -85,9 +85,9 @@
              (get-in (project/read-project (.getPath project-edn))
                      [:repos 0 :ignore-paths])))
       (is (= true (:enabled worker)))
-      (is (= (store/project-sqlite-path "demo") (:queue-dir maintenance)))
+      (is (= (store/project-sqlite-path "demo") (:queue-db maintenance)))
       (is (= (.getCanonicalPath (io/file root "reports")) (:report-dir maintenance)))
-      (is (= (:queue-dir maintenance) (:queue-dir worker)))
+      (is (= (:queue-db maintenance) (:queue-db worker)))
       (is (= [{:id "sync"
                :task :sync
                :enabled true
@@ -116,26 +116,27 @@
       (is (= "medium" (get-in worker [:executors 1 :reasoning])))
       (is (= ["codex-maintenance"] (get-in worker [:executors 1 :command]))))))
 
-(deftest project-config-rejects-configured-maintenance-queue-dir
-  (let [root (temp-dir "ygg-project-index-maintenance-queue-dir")
-        repo (io/file root "repo")
-        project-edn (io/file root "project.edn")]
-    (.mkdirs repo)
-    (spit project-edn
-          (pr-str {:id "demo"
-                   :repos [{:id "app" :root "repo"}]
-                   :maintenance
-                   {:enabled true
-                    :queue-dir "queue"}}))
-    (try
-      (project/read-project (.getPath project-edn))
-      (is false "Expected configured maintenance queue directory to be rejected.")
-      (catch clojure.lang.ExceptionInfo e
-        (is (= "Maintenance queue storage is central and cannot be configured."
-               (ex-message e)))
-        (is (= {:project-id "demo"
-                :key :queue-dir}
-               (ex-data e)))))))
+(deftest project-config-rejects-configured-maintenance-queue-storage
+  (doseq [queue-key [:queue-dir :queue-db]]
+    (let [root (temp-dir "ygg-project-index-maintenance-queue-storage")
+          repo (io/file root "repo")
+          project-edn (io/file root "project.edn")]
+      (.mkdirs repo)
+      (spit project-edn
+            (pr-str {:id "demo"
+                     :repos [{:id "app" :root "repo"}]
+                     :maintenance
+                     {:enabled true
+                      queue-key "queue"}}))
+      (try
+        (project/read-project (.getPath project-edn))
+        (is false "Expected configured maintenance queue storage to be rejected.")
+        (catch clojure.lang.ExceptionInfo e
+          (is (= "Maintenance queue storage is central and cannot be configured."
+                 (ex-message e)))
+          (is (= {:project-id "demo"
+                  :key queue-key}
+                 (ex-data e))))))))
 
 (deftest project-config-defaults-maintenance-to-central-project-state
   (let [root (temp-dir "ygg-project-index-maintenance-worker-defaults")
@@ -155,7 +156,7 @@
     (let [maintenance (:maintenance (project/read-project (.getPath project-edn)))
           worker (:worker maintenance)]
       (is (= (store/project-sqlite-path "demo")
-             (:queue-dir maintenance)))
+             (:queue-db maintenance)))
       (is (= (store/project-data-path "demo" "reports" "maintenance")
              (:report-dir maintenance)))
       (is (= {:max-decisions 8
@@ -165,7 +166,7 @@
               :decision-batch-size 8
               :review-batch-size 8}
              (:work maintenance)))
-      (is (= (:queue-dir maintenance) (:queue-dir worker))))))
+      (is (= (:queue-db maintenance) (:queue-db worker))))))
 
 (deftest project-config-rejects-legacy-sync-check-schedule-task
   (let [root (temp-dir "ygg-project-maintenance-schedule-task")
