@@ -4,6 +4,7 @@
             [ygg.context :as context]
             [ygg.corrections :as corrections]
             [ygg.daemon-contract :as daemon-contract]
+            [ygg.embedding-client :as embedding-client]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
             [ygg.plugin-package-view :as plugin-package-view]
@@ -379,11 +380,21 @@
     (with-xtdb
       (assoc ctx :project-id (:id project))
       (fn [xtdb]
-        (let [overlay (correction-overlay xtdb project args)]
+        (let [overlay (correction-overlay xtdb project args)
+              retriever (keyword (or (:retriever args) "auto"))
+              embedding-opts (:embeddings project)
+              semantic-status (embedding-client/semantic-availability
+                               retriever
+                               embedding-opts)
+              embedding-client (embedding-client/configured-query-client
+                                retriever
+                                embedding-opts)]
           (context/context-packet xtdb
                                   query
                                   {:project-id (project-id project args)
-                                   :retriever (keyword (or (:retriever args) "auto"))
+                                   :retriever retriever
+                                   :embedding-client embedding-client
+                                   :semantic-status semantic-status
                                    :correction-overlay overlay
                                    :budget (or (:budget args) context/default-budget)
                                    :plugins (:plugins project)

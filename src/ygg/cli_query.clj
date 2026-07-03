@@ -361,6 +361,9 @@
    (embedding-client/query-embedding-client retriever provider model))
   ([retriever opts]
    (embedding-client/configured-query-client retriever opts)))
+(defn semantic-availability
+  [retriever opts]
+  (embedding-client/semantic-availability retriever opts))
 (defn print-graph-output
   [path data]
   (println "# Graph")
@@ -478,19 +481,22 @@
   [args]
   (let [retriever (keyword (or (option-value args "--retriever") "auto"))
         {:keys [provider model] :as embedding-opts} (embedding-options args)
+        semantic-status (semantic-availability retriever embedding-opts)
         embedding-client (query-embedding-client retriever embedding-opts)]
-    (when (and (= :auto retriever) (nil? embedding-client))
+    (when (and (= :auto retriever)
+               (= :lexical-fallback (:status semantic-status)))
       (binding [*out* *err*]
-        (println (str (missing-key-message provider) " Using lexical retrieval."))))
+        (println (:message semantic-status))))
     {:retriever retriever
      :provider provider
      :model model
      :embedding-client embedding-client
+     :semantic-status semantic-status
      :fts-weight (parse-optional-double args "--fts-weight")}))
 (defn query-with-node!
   [xtdb args]
   (let [query-text (str/join " " (positional-args args))
-        {:keys [retriever embedding-client fts-weight]} (retrieval-options args)
+        {:keys [retriever embedding-client semantic-status fts-weight]} (retrieval-options args)
         {:keys [project-id repo-id]} (project-scope args)
         temporal (temporal-options args)]
     (when (str/blank? query-text)
@@ -505,6 +511,7 @@
                                                         :repo-id repo-id
                                                         :retriever retriever
                                                         :embedding-client embedding-client
+                                                        :semantic-status semantic-status
                                                         :fts-weight fts-weight
                                                         :read-context temporal})))
       (let [results (query/semantic-query xtdb
@@ -512,6 +519,7 @@
                                           {:limit (or (parse-limit args) 10)
                                            :retriever retriever
                                            :embedding-client embedding-client
+                                           :semantic-status semantic-status
                                            :fts-weight fts-weight
                                            :project-id project-id
                                            :repo-id repo-id
@@ -527,6 +535,7 @@
                                    :repo-id repo-id
                                    :retriever retriever
                                    :embedding-client embedding-client
+                                   :semantic-status semantic-status
                                    :fts-weight fts-weight
                                    :temporal temporal
                                    :args args}))))))

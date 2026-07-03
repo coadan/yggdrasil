@@ -732,6 +732,33 @@
           {:retriever :auto
            :retriever-effective :lexical}))))
 
+(deftest retrieval-summary-includes-semantic-availability-status
+  (is (= {:requested :auto
+          :effective :lexical
+          :fallback? true
+          :semanticAvailable false
+          :semanticStatus :lexical-fallback
+          :provider :openrouter
+          :model "deepseek/embedding"
+          :reasonCode :missing-provider-credentials
+          :message (str "Missing OpenRouter API key. "
+                        "Auto retrieval used lexical fallback.")
+          :reason (str "Missing OpenRouter API key. "
+                       "Auto retrieval used lexical fallback.")}
+         (#'context/retrieval-summary
+          {:retriever :auto
+           :retriever-effective :lexical
+           :semantic-status {:schema "ygg.semantic-availability/v1"
+                             :requested :auto
+                             :effective :lexical
+                             :provider :openrouter
+                             :model "deepseek/embedding"
+                             :semanticAvailable false
+                             :status :lexical-fallback
+                             :reason :missing-provider-credentials
+                             :message (str "Missing OpenRouter API key. "
+                                           "Auto retrieval used lexical fallback.")}}))))
+
 (deftest evidence-coverage-actions-include-status-mcp
   (let [actions (#'context/next-actions
                  {:files 1

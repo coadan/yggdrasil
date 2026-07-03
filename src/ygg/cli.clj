@@ -131,8 +131,8 @@
     (assoc :since (option-value args "--since"))))
 
 (defn- context-packet-options
-  [xtdb args {:keys [project-id repo-id retriever embedding-client read-context active-indexing
-                     fts-weight]}]
+  [xtdb args {:keys [project-id repo-id retriever embedding-client semantic-status
+                     read-context active-indexing fts-weight]}]
   (let [project-info (matching-context-project args project-id)
         freshness (context-packet-freshness xtdb project-info)
         plugins (not-empty (get-in project-info [:project :plugins]))]
@@ -140,6 +140,7 @@
              :repo-id repo-id
              :retriever retriever
              :embedding-client embedding-client
+             :semantic-status semantic-status
              :fts-weight (or fts-weight (parse-optional-double args "--fts-weight"))
              :read-context read-context
              :output (keyword (or (option-value args "--output") "compact"))
@@ -597,6 +598,9 @@
    (cli-query/query-embedding-client retriever provider model))
   ([retriever opts]
    (cli-query/query-embedding-client retriever opts)))
+(defn- semantic-availability
+  [retriever opts]
+  (cli-query/semantic-availability retriever opts))
 (defn- query! [args]
   (binding [cli-query/*deps* (query-deps)]
     (cli-query/query! args)))
@@ -1544,13 +1548,15 @@
     "context"
     (let [query-text (str/join " " (positional-args args))
           retriever (keyword (or (option-value args "--retriever") "auto"))
-          {:keys [provider] :as embedding-opts} (embedding-options args)
+          embedding-opts (embedding-options args)
+          semantic-status (semantic-availability retriever embedding-opts)
           embedding-client (query-embedding-client retriever embedding-opts)
           {:keys [project-id repo-id]} (project-scope args)
           temporal (temporal-options args)]
-      (when (and (= :auto retriever) (nil? embedding-client))
+      (when (and (= :auto retriever)
+                 (= :lexical-fallback (:status semantic-status)))
         (binding [*out* *err*]
-          (println (str (missing-key-message provider) " Using lexical retrieval."))))
+          (println (:message semantic-status))))
       (store/with-node (store/storage-path)
         (fn [xtdb]
           (emit-json-or-enqueue
@@ -1565,6 +1571,7 @@
                                                             :repo-id repo-id
                                                             :retriever retriever
                                                             :embedding-client embedding-client
+                                                            :semantic-status semantic-status
                                                             :read-context temporal}))))))
 
     "embed"

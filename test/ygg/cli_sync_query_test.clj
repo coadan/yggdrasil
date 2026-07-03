@@ -1316,6 +1316,37 @@
                   :summary? true}]]
                @summaries))))))
 
+(deftest query-json-surfaces-semantic-availability-fallback
+  (let [err (java.io.StringWriter.)
+        semantic-status {:schema "ygg.semantic-availability/v1"
+                         :requested :auto
+                         :effective :lexical
+                         :provider :openrouter
+                         :model "deepseek/embedding"
+                         :semanticAvailable false
+                         :status :lexical-fallback
+                         :reason :missing-provider-credentials
+                         :message "Missing OpenRouter API key. Auto retrieval used lexical fallback."}]
+    (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                  cli-query/embedding-options (constantly {:provider :openrouter
+                                                           :model "deepseek/embedding"})
+                  cli-query/semantic-availability (constantly semantic-status)
+                  cli-query/query-embedding-client (constantly nil)
+                  context/context-packet (fn [_ _ opts]
+                                           {:schema context/schema
+                                            :semanticStatus (:semantic-status opts)})]
+      (let [out (with-out-str
+                  (binding [*err* err]
+                    (cli/dispatch "query"
+                                  ["where" "auth"
+                                   "--project" "fixture"
+                                   "--json"])))
+            parsed (read-json-output out)]
+        (is (str/includes? (str err)
+                           "Missing OpenRouter API key. Auto retrieval used lexical fallback."))
+        (is (= (json-roundtrip semantic-status)
+               (:semanticStatus parsed)))))))
+
 (deftest query-json-passes-output-and-proof-command-options
   (with-redefs [store/with-node (fn [_ f] (f :xtdb))
                 context/context-packet (fn [_ _ opts]

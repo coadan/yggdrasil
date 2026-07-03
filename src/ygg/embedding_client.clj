@@ -111,6 +111,52 @@
     :openai "Missing OpenAI API key. Set YGG_OPENAI_API_KEY or OPENAI_API_KEY."
     "Missing embedding provider API key."))
 
+(def semantic-availability-schema
+  "ygg.semantic-availability/v1")
+
+(defn semantic-availability
+  "Return the configured semantic retrieval availability for a query retriever.
+
+  This is configuration availability only. Local worker runtime readiness and
+  vector freshness are still reported by the query execution path."
+  [retriever {:keys [provider model]}]
+  (let [retriever (keyword (or retriever :auto))
+        provider (keyword (or provider (default-provider)))
+        model (or (some-> model str/trim not-empty)
+                  (default-model provider))
+        semantic-requested? (not= :lexical retriever)
+        provider-configured? (boolean (provider-api-key provider))
+        semantic-available? (and semantic-requested? provider-configured?)
+        effective (cond
+                    (= :lexical retriever) :lexical
+                    (= :auto retriever) (if semantic-available? :hybrid :lexical)
+                    :else retriever)
+        status (cond
+                 (= :lexical retriever) :not-requested
+                 semantic-available? :available
+                 (= :auto retriever) :lexical-fallback
+                 :else :unavailable)
+        reason (when (and semantic-requested?
+                          (not provider-configured?))
+                 :missing-provider-credentials)
+        message (cond
+                  semantic-available? nil
+                  (= :lexical retriever) nil
+                  (= :auto retriever)
+                  (str (missing-key-message provider)
+                       " Auto retrieval used lexical fallback.")
+                  :else
+                  (missing-key-message provider))]
+    (cond-> {:schema semantic-availability-schema
+             :requested retriever
+             :effective effective
+             :provider provider
+             :model model
+             :semanticAvailable (boolean semantic-available?)
+             :status status}
+      reason (assoc :reason reason)
+      message (assoc :message message))))
+
 (defn- client-key
   [provider model opts]
   [(keyword provider)
@@ -156,28 +202,31 @@
   ([retriever provider model] (query-embedding-client retriever provider model {}))
   ([retriever provider model opts]
    (let [retriever (keyword retriever)
-         provider (keyword provider)
-         model (or model (default-model provider))]
+         status (semantic-availability retriever {:provider provider
+                                                  :model model})
+         provider (:provider status)
+         model (:model status)]
      (cond
        (= :lexical retriever)
        nil
 
-       (provider-api-key provider)
+       (:semanticAvailable status)
        (client provider model opts)
 
        (= :auto retriever)
        nil
 
        :else
-       (throw (ex-info (missing-key-message provider)
-                       {:retriever retriever
-                        :provider provider}))))))
+       (throw (ex-info (:message status)
+                       (assoc status
+                              :retriever retriever
+                              :provider provider)))))))
 
 (defn configured-query-client
   [retriever {:keys [provider model max-retries request-timeout-ms]}]
-  (let [provider (keyword (or provider (default-provider)))
-        model (or (some-> model str/trim not-empty)
-                  (default-model provider))]
+  (let [{:keys [provider model]} (semantic-availability retriever
+                                                        {:provider provider
+                                                         :model model})]
     (query-embedding-client retriever
                             provider
                             model

@@ -23,6 +23,54 @@
   (with-redefs [env/get-env (env-values {})]
     (is (= :local (embedding-client/default-provider)))))
 
+(deftest semantic-availability-reports-auto-remote-key-fallback
+  (with-redefs [env/get-env (env-values {})]
+    (is (= {:schema embedding-client/semantic-availability-schema
+            :requested :auto
+            :effective :lexical
+            :provider :openrouter
+            :model openrouter/default-model
+            :semanticAvailable false
+            :status :lexical-fallback
+            :reason :missing-provider-credentials
+            :message (str "Missing OpenRouter API key. "
+                          "Set YGG_OPENROUTER_API_KEY or OPENROUTER_API_KEY. "
+                          "Auto retrieval used lexical fallback.")}
+           (embedding-client/semantic-availability :auto
+                                                   {:provider :openrouter})))))
+
+(deftest semantic-availability-reports-auto-remote-key-available
+  (with-redefs [env/get-env (env-values {"YGG_OPENROUTER_API_KEY" "openrouter-key"})]
+    (is (= {:schema embedding-client/semantic-availability-schema
+            :requested :auto
+            :effective :hybrid
+            :provider :openrouter
+            :model openrouter/default-model
+            :semanticAvailable true
+            :status :available}
+           (embedding-client/semantic-availability :auto
+                                                   {:provider :openrouter})))))
+
+(deftest explicit-semantic-retrieval-rejects-missing-remote-key
+  (with-redefs [env/get-env (env-values {})]
+    (try
+      (embedding-client/configured-query-client :semantic {:provider :openrouter})
+      (is false "expected explicit semantic retrieval to require provider credentials")
+      (catch clojure.lang.ExceptionInfo e
+        (is (= "Missing OpenRouter API key. Set YGG_OPENROUTER_API_KEY or OPENROUTER_API_KEY."
+               (ex-message e)))
+        (is (= {:schema embedding-client/semantic-availability-schema
+                :requested :semantic
+                :effective :semantic
+                :provider :openrouter
+                :model openrouter/default-model
+                :semanticAvailable false
+                :status :unavailable
+                :reason :missing-provider-credentials
+                :message "Missing OpenRouter API key. Set YGG_OPENROUTER_API_KEY or OPENROUTER_API_KEY."
+                :retriever :semantic}
+               (ex-data e)))))))
+
 (deftest configured-query-client-uses-openrouter-default-when-key-exists
   (with-redefs [env/get-env (env-values {"YGG_OPENROUTER_API_KEY" "openrouter-key"})]
     (let [client (embedding-client/configured-query-client :auto {})]

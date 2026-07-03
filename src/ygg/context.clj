@@ -3525,13 +3525,19 @@
      (:result-schema-mismatch-events counts 0)))
 
 (defn- retrieval-summary
-  [{:keys [retriever retriever-effective embedding-client
+  [{:keys [retriever retriever-effective embedding-client semantic-status
            auto-lexical-short-circuit? auto-lexical-short-circuit-reason]}]
-  (let [requested (keyword (or retriever :auto))
+  (let [requested (keyword (or (:requested semantic-status) retriever :auto))
+        semantic-available? (if (and semantic-status
+                                     (contains? semantic-status :semanticAvailable))
+                              (boolean (:semanticAvailable semantic-status))
+                              (boolean embedding-client))
         predicted-effective (case requested
-                              :auto (if embedding-client :hybrid :lexical)
+                              :auto (if semantic-available? :hybrid :lexical)
                               requested)
-        effective (keyword (or retriever-effective predicted-effective))
+        configured-effective (keyword (or (:effective semantic-status)
+                                          predicted-effective))
+        effective (keyword (or retriever-effective configured-effective))
         auto-lexical? (and (= :auto requested)
                            (= :lexical effective)
                            (true? auto-lexical-short-circuit?))
@@ -3539,6 +3545,9 @@
                        (= :lexical effective)
                        (not auto-lexical?))
         fallback-reason (cond
+                          (and fallback? (:message semantic-status))
+                          (:message semantic-status)
+
                           (and fallback? (nil? embedding-client))
                           "No embedding client was available."
 
@@ -3547,6 +3556,13 @@
     (cond-> {:requested requested
              :effective effective
              :fallback? fallback?}
+      semantic-status (assoc :semanticAvailable semantic-available?
+                             :semanticStatus (:status semantic-status))
+      (:provider semantic-status) (assoc :provider (:provider semantic-status))
+      (:model semantic-status) (assoc :model (:model semantic-status))
+      (:reason semantic-status) (assoc :reasonCode (:reason semantic-status))
+      (and fallback? (:message semantic-status))
+      (assoc :message (:message semantic-status))
       fallback-reason (assoc :reason fallback-reason)
       auto-lexical? (assoc :autoLexicalShortCircuit true
                            :autoLexicalShortCircuitReason
@@ -3715,8 +3731,9 @@
      (conj (freshness-warning freshness))
 
      (and (= :auto (:requested retrieval)) (:fallback? retrieval))
-     (conj (str (:reason retrieval "Auto retrieval used lexical fallback.")
-                " Auto retrieval used lexical fallback."))
+     (conj (or (:message retrieval)
+               (str (:reason retrieval "Auto retrieval used lexical fallback.")
+                    " Auto retrieval used lexical fallback.")))
 
      (zero? (:files counts 0))
      (conj "No source files are indexed for this project.")
@@ -4069,7 +4086,7 @@
   "Return compact graph/doc context for an agent query."
   [xtdb query-text {:keys [budget entity-limit edge-limit doc-limit snippet-chars
                            retrieval-limit
-                           retriever embedding-client project-id repo-id
+                           retriever embedding-client semantic-status project-id repo-id
                            correction-overlay min-confidence read-context freshness plugins
                            output proof-commands? query-input memory-owner
                            fusion-strategy sqlite-fts? diversity-rerank-limit
@@ -4264,6 +4281,7 @@
                                               :retriever retriever
                                               :retriever-effective (:retriever-effective
                                                                     search-report)
+                                              :semantic-status semantic-status
                                               :auto-lexical-short-circuit?
                                               (get-in search-report
                                                       [:instrumentation

@@ -3,6 +3,7 @@
             [ygg.context :as context]
             [ygg.corrections :as corrections]
             [ygg.daemon-contract :as daemon-contract]
+            [ygg.embedding-client :as embedding-client]
             [ygg.evidence :as evidence]
             [ygg.graph :as graph]
             [ygg.mcp :as mcp]
@@ -287,6 +288,49 @@
                     (tool-call 77 "ygg_query" {:query "where auth"}))
           packet (get-in response [:result :structuredContent])]
       (is (= :auto (:retriever packet))))))
+
+(deftest query-tool-passes-semantic-availability-to-context
+  (let [project (assoc project-with-plugin-package
+                       :embeddings {:provider :openrouter
+                                    :model "deepseek/embedding"})
+        semantic-status {:schema "ygg.semantic-availability/v1"
+                         :requested :auto
+                         :effective :hybrid
+                         :provider :openrouter
+                         :model "deepseek/embedding"
+                         :semanticAvailable true
+                         :status :available}
+        client {:provider :openrouter
+                :model "deepseek/embedding"
+                :embed-batch (fn [_] [])}]
+    (with-redefs [project/read-project (constantly project)
+                  corrections/overlay (fn [_ _] nil)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  evidence/summarize (fn [_ _ _]
+                                       {:schema evidence/schema
+                                        :freshness {:status :current}})
+                  embedding-client/semantic-availability
+                  (fn [retriever opts]
+                    (is (= :auto retriever))
+                    (is (= (:embeddings project) opts))
+                    semantic-status)
+                  embedding-client/configured-query-client
+                  (fn [retriever opts]
+                    (is (= :auto retriever))
+                    (is (= (:embeddings project) opts))
+                    client)
+                  context/context-packet (fn [_ _ opts]
+                                           {:schema context/schema
+                                            :semanticStatus (:semantic-status opts)
+                                            :embeddingProvider
+                                            (get-in opts [:embedding-client
+                                                          :provider])})]
+      (let [response (mcp/handle-message
+                      (mcp/server-context ["--config" "project.edn"])
+                      (tool-call 78 "ygg_query" {:query "where auth"}))
+            packet (get-in response [:result :structuredContent])]
+        (is (= semantic-status (:semanticStatus packet)))
+        (is (= :openrouter (:embeddingProvider packet)))))))
 
 (deftest query-tool-returns-primary-context-packet
   (with-redefs [project/read-project (constantly project-with-plugin-package)
