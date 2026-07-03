@@ -23,7 +23,7 @@
 (defn- usage [] (call-dep :usage))
 (defn- print-json [data] (call-dep :print-json data))
 (defn- enqueue-output? [args] (call-dep :enqueue-output? args))
-(defn- queue-root [args] (call-dep :queue-root args))
+(defn- queue-db [args] (call-dep :queue-db args))
 (defn- queue-priority
   ([args] (call-dep :queue-priority args))
   ([args default] (call-dep :queue-priority args default)))
@@ -32,13 +32,15 @@
 (defn- print-project-add-repo-summary [result] (call-dep :print-project-add-repo-summary result))
 (defn- queue-agent [args] (call-dep :queue-agent args))
 (defn- queue-lease-ms [args] (call-dep :queue-lease-ms args))
-(defn- apply-work-result! [xtdb root id] (call-dep :apply-work-result! xtdb root id))
+(defn- apply-work-result! [xtdb queue-db id]
+  (call-dep :apply-work-result! xtdb queue-db id))
 
 (defn- correction-overlay
   [xtdb project-id]
   (when (store/xtdb-handle? xtdb)
     (corrections/overlay xtdb project-id)))
-(defn- validate-work-result [root id] (call-dep :validate-work-result root id))
+(defn- validate-work-result [queue-db id]
+  (call-dep :validate-work-result queue-db id))
 (defn- dispatch [command args] (call-dep :dispatch command args))
 (defn- print-project-status!
   ([config-path args] (call-dep :print-project-status! config-path args))
@@ -263,13 +265,13 @@
     payload
     {:root (if-not (str/blank? (str project-id))
              (store/project-sqlite-path project-id)
-             (queue-root args))
+             (queue-db args))
      :kind kind
      :project-id project-id
      :priority (queue-priority args priority)
      :source source})))
 
-(declare project-queue-root)
+(declare project-queue-db)
 
 (defn- work-identity
   [payload]
@@ -317,7 +319,7 @@
   (reduce (fn [out {:keys [payload project-id]}]
             (if-let [identity (work-identity payload)]
               (update out
-                      [(project-queue-root args project-id) project-id]
+                      [(project-queue-db args project-id) project-id]
                       (fnil conj #{})
                       identity)
               out))
@@ -343,22 +345,23 @@
   [args report work-items]
   (let [identities-by-scope (current-identities-by-scope args work-items)
         scopes (or (seq (keys identities-by-scope))
-                   [[(project-queue-root args (:project-id report))
+                   [[(project-queue-db args (:project-id report))
                      (:project-id report)]])
-        _ (doseq [[root _project-id] scopes]
-            (queue/release-expired! root))
-        _ (doseq [[root project-id :as scope] scopes]
-            (supersede-stale-work! root
+        _ (doseq [[queue-db-path _project-id] scopes]
+            (queue/release-expired! queue-db-path))
+        _ (doseq [[queue-db-path project-id :as scope] scopes]
+            (supersede-stale-work! queue-db-path
                                    project-id
                                    (get identities-by-scope scope #{})))
         existing* (atom
                    (into {}
-                         (map (fn [[root project-id :as scope]]
-                                [scope (existing-work-summaries root project-id)]))
+                         (map (fn [[queue-db-path project-id :as scope]]
+                                [scope (existing-work-summaries queue-db-path
+                                                                project-id)]))
                          scopes))]
     (mapv (fn [{:keys [payload project-id] :as item}]
-            (let [root (project-queue-root args project-id)
-                  scope [root project-id]
+            (let [queue-db-path (project-queue-db args project-id)
+                  scope [queue-db-path project-id]
                   identity (work-identity payload)
                   existing (when identity
                              (get-in @existing* [scope identity]))]
@@ -371,11 +374,11 @@
                   summary))))
           work-items)))
 
-(defn- project-queue-root
+(defn- project-queue-db
   [args project-id]
   (if-not (str/blank? (str project-id))
     (store/project-sqlite-path project-id)
-    (queue-root args)))
+    (queue-db args)))
 
 (defn enqueue-sync-work!
   ([args report]
@@ -436,8 +439,8 @@
       (fn [xtdb]
         (let [result (activity/sync-queue! xtdb
                                            project
-                                           {:queue-db (project-queue-root args
-                                                                          (:id project))})]
+                                           {:queue-db (project-queue-db args
+                                                                        (:id project))})]
           (if (json-output? args)
             (print-json result)
             (print-activity-sync result)))))))
@@ -512,13 +515,13 @@
   (let [action (keyword (first args))
         work-args (vec (rest args))
         positional (positional-args work-args)
-        root (delay (queue-root work-args))]
+        queue-db* (delay (queue-db work-args))]
     (case action
       :list
       (do
-        (queue/release-expired! @root)
+        (queue/release-expired! @queue-db*)
         (print-json
-         (queue/list-summary @root
+         (queue/list-summary @queue-db*
                              {:status (option-value work-args "--status")
                               :project-id (option-value work-args "--project")
                               :kind (option-value work-args "--kind")
@@ -527,7 +530,7 @@
       :pull
       (print-json
        (if-let [found (queue/claim-next!
-                       @root
+                       @queue-db*
                        {:agent-id (queue-agent work-args)
                         :lease-ms (queue-lease-ms work-args)
                         :project-id (option-value work-args "--project")
@@ -535,13 +538,13 @@
          (assoc (queue/item-summary found) :item (:item found))
          {:schema queue/summary-schema
           :status "empty"
-          :queue-db @root}))
+          :queue-db @queue-db*}))
 
       :show
       (let [id (first positional)]
         (when-not id
           (throw (ex-info "Missing sync work id." {:usage (usage)})))
-        (print-json (if-let [found (queue/find-item @root id)]
+        (print-json (if-let [found (queue/find-item @queue-db* id)]
                       (assoc (queue/item-summary found) :item (:item found))
                       {:schema "ygg.queue.error/v1"
                        :error "sync work item not found"
@@ -555,7 +558,7 @@
                           {:usage (usage)})))
         (print-json
          (queue/item-summary
-          (queue/complete! @root id (queue/read-json-file result-path)))))
+          (queue/complete! @queue-db* id (queue/read-json-file result-path)))))
 
       :validate
       (let [id (first positional)]
@@ -563,19 +566,19 @@
           (throw (ex-info "Missing sync work id."
                           {:usage (usage)})))
         (print-json
-         (validate-work-result @root id)))
+         (validate-work-result @queue-db* id)))
 
       :apply
       (let [id (first positional)]
         (when-not id
           (throw (ex-info "Missing sync work id."
                           {:usage (usage)})))
-        (let [root @root
-              project-id (require-work-project-id root work-args id)]
+        (let [queue-db-path @queue-db*
+              project-id (require-work-project-id queue-db-path work-args id)]
           (store/with-node (store/storage-path project-id)
             (fn [xtdb]
               (print-json
-               (apply-work-result! xtdb root id))))))
+               (apply-work-result! xtdb queue-db-path id))))))
 
       :reject
       (let [id (first positional)
@@ -583,7 +586,7 @@
         (when-not (and id reason)
           (throw (ex-info "Missing sync work id or --reason."
                           {:usage (usage)})))
-        (print-json (queue/item-summary (queue/reject! @root id reason))))
+        (print-json (queue/item-summary (queue/reject! @queue-db* id reason))))
 
       :release
       (let [id (first positional)]
@@ -591,13 +594,13 @@
           (throw (ex-info "Missing sync work id." {:usage (usage)})))
         (print-json
          (queue/item-summary
-          (queue/release! @root id (or (option-value work-args "--reason")
-                                       "manual release")))))
+          (queue/release! @queue-db* id (or (option-value work-args "--reason")
+                                            "manual release")))))
 
       :release-expired
       (print-json {:schema "ygg.queue.release-expired/v1"
-                   :queue-db @root
-                   :released (queue/release-expired! @root)})
+                   :queue-db @queue-db*
+                   :released (queue/release-expired! @queue-db*)})
 
       :heartbeat
       (let [id (first positional)]
@@ -605,7 +608,7 @@
           (throw (ex-info "Missing sync work id." {:usage (usage)})))
         (print-json
          (queue/item-summary
-          (queue/heartbeat! @root
+          (queue/heartbeat! @queue-db*
                             id
                             {:agent-id (queue-agent work-args)
                              :lease-ms (queue-lease-ms work-args)}))))

@@ -313,7 +313,7 @@
             nil)))
       (:project-id (resolve-project-ref ctx args))))
 
-(defn- queue-root
+(defn- queue-db
   [ctx args]
   (or (some-> (queue-project-id ctx args) store/project-sqlite-path)
       (throw (ex-info "Missing Yggdrasil project for queue."
@@ -1140,15 +1140,15 @@
       (assoc ctx :project-id (:id project))
       #(activity/sync-queue! %
                              project
-                             {:queue-db (queue-root
+                             {:queue-db (queue-db
                                          (assoc ctx :project-id (:id project))
                                          args)}))))
 
 (defn- work-list
   [ctx args]
-  (let [root (queue-root ctx args)]
-    (queue/release-expired! root)
-    (queue/list-summary root
+  (let [queue-db-path (queue-db ctx args)]
+    (queue/release-expired! queue-db-path)
+    (queue/list-summary queue-db-path
                         {:status (:status args)
                          :project-id (:projectId args)
                          :kind (:kind args)
@@ -1156,9 +1156,9 @@
 
 (defn- work-show
   [ctx args]
-  (let [root (queue-root ctx args)
+  (let [queue-db-path (queue-db ctx args)
         work-id (require-string! args :workId "ygg_work_show requires workId.")]
-    (if-let [found (queue/find-item root work-id)]
+    (if-let [found (queue/find-item queue-db-path work-id)]
       (assoc (queue/item-summary found) :item (:item found))
       {:schema "ygg.queue.error/v1"
        :error "sync work item not found"
@@ -1166,8 +1166,8 @@
 
 (defn- work-pull
   [ctx args]
-  (let [root (queue-root ctx args)
-        found (queue/claim-next! root
+  (let [queue-db-path (queue-db ctx args)
+        found (queue/claim-next! queue-db-path
                                  {:agent-id (or (:agentId args)
                                                 (System/getProperty "user.name")
                                                 "agent")
@@ -1179,21 +1179,21 @@
     (or (some-> found queue/item-summary)
         {:schema queue/summary-schema
          :status "empty"
-         :queue-db root})))
+         :queue-db queue-db-path})))
 
 (defn- work-complete
   [ctx args]
-  (let [root (queue-root ctx args)
+  (let [queue-db-path (queue-db ctx args)
         work-id (require-string! args :workId "ygg_work_complete requires workId.")
         result (require-result! args)]
-    (queue/item-summary (queue/complete! root work-id result))))
+    (queue/item-summary (queue/complete! queue-db-path work-id result))))
 
 (defn- work-heartbeat
   [ctx args]
-  (let [root (queue-root ctx args)
+  (let [queue-db-path (queue-db ctx args)
         work-id (require-string! args :workId "ygg_work_heartbeat requires workId.")]
     (queue/item-summary
-     (queue/heartbeat! root
+     (queue/heartbeat! queue-db-path
                        work-id
                        {:agent-id (:agentId args)
                         :lease-ms (* 60
@@ -1202,19 +1202,19 @@
 
 (defn- work-release
   [ctx args]
-  (let [root (queue-root ctx args)
+  (let [queue-db-path (queue-db ctx args)
         work-id (require-string! args :workId "ygg_work_release requires workId.")]
     (queue/item-summary
-     (queue/release! root
+     (queue/release! queue-db-path
                      work-id
                      (or (:reason args) "released by MCP agent")))))
 
 (defn- work-reject
   [ctx args]
-  (let [root (queue-root ctx args)
+  (let [queue-db-path (queue-db ctx args)
         work-id (require-string! args :workId "ygg_work_reject requires workId.")
         reason (require-string! args :reason "ygg_work_reject requires reason.")]
-    (queue/item-summary (queue/reject! root work-id reason))))
+    (queue/item-summary (queue/reject! queue-db-path work-id reason))))
 
 (defn call-tool
   "Call one MCP tool and return its raw Yggdrasil value."

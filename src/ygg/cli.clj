@@ -190,7 +190,7 @@
   (or (option-value args "--project")
       (:project-id (registry/resolve-project {:cwd (System/getProperty "user.dir")}))))
 
-(defn- project-queue-root
+(defn- project-queue-db
   [project-id]
   (when-not (str/blank? (str project-id))
     (store/project-sqlite-path project-id)))
@@ -202,21 +202,21 @@
                       {:option "--project"
                        :hint "Run inside a repo initialized with ygg init, or pass --project."}))))
 
-(defn- queue-root
+(defn- queue-db
   ([args]
-   (project-queue-root (require-queue-project-id args)))
+   (project-queue-db (require-queue-project-id args)))
   ([args project-id]
-   (project-queue-root (or (some-> project-id str str/trim not-empty)
-                           (require-queue-project-id args)))))
+   (project-queue-db (or (some-> project-id str str/trim not-empty)
+                         (require-queue-project-id args)))))
 
-(defn- benchmark-queue-root
+(defn- benchmark-queue-db
   [args project-id]
   (when (option-value args "--queue-dir")
     (throw (ex-info "Benchmark packet enqueue uses the central project queue."
                     {:command "bench agent-packet"
                      :option "--queue-dir"})))
   (if-let [project-id (some-> project-id str str/trim not-empty)]
-    (project-queue-root project-id)
+    (project-queue-db project-id)
     (throw (ex-info "Benchmark packet enqueue requires packet project id."
                     {:command "bench agent-packet"
                      :field :project-id}))))
@@ -433,7 +433,7 @@
     (print-json
      (queue-enqueued-result
       (queue/enqueue! payload
-                      {:root (queue-root args project-id)
+                      {:root (queue-db args project-id)
                        :kind kind
                        :project-id project-id
                        :priority (queue-priority args)})))
@@ -544,7 +544,7 @@
   {:usage usage
    :print-json print-json
    :enqueue-output? enqueue-output?
-   :queue-root queue-root
+   :queue-db queue-db
    :queue-priority queue-priority
    :severity-priority severity-priority
    :print-source-coverage print-source-coverage
@@ -617,7 +617,7 @@
                     {:usage usage
                      :print-json print-json
                      :enqueue-output? enqueue-output?
-                     :queue-root benchmark-queue-root
+                     :queue-db benchmark-queue-db
                      :queue-priority queue-priority}))
 
 (defn- plugin!
@@ -939,7 +939,7 @@
              (queue-enqueued-result
               (queue/enqueue!
                (decision-classifier/decision-packet decision)
-               {:root (queue-root args project-id)
+               {:root (queue-db args project-id)
                 :kind "maintenance-decision"
                 :project-id project-id
                 :source {:schema index-maintenance/source-schema

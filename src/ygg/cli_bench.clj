@@ -831,14 +831,14 @@
       (println "- mrr"
                (format "%.2f" (double (get-in result [:scores :meanReciprocalRankFile] 0.0)))))))
 (defn- enqueue-benchmark-agent-packets
-  [args result {:keys [queue-root queue-priority]}]
+  [args result {:keys [queue-db queue-priority]}]
   (assoc result
          :enqueued
          (mapv (fn [packet]
                  (let [project-id (:project-id packet)]
                    (queue/item-summary
                     (queue/enqueue! packet
-                                    {:root (queue-root args project-id)
+                                    {:root (queue-db args project-id)
                                      :kind "benchmark-agent"
                                      :project-id project-id
                                      :priority (queue-priority args 50)}))))
