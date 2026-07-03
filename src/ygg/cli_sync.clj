@@ -612,11 +612,12 @@
 
       :auto
       (let [config-path (first positional)]
-        (when-not config-path
-          (throw (ex-info "Missing project config path."
-                          {:usage (usage)})))
         (print-json
-         (index-maintenance-worker/run! (project/read-project config-path))))
+         (index-maintenance-worker/run!
+          (:project (registry/resolve-project
+                     {:project-id (option-value work-args "--project")
+                      :config-path config-path
+                      :cwd (System/getProperty "user.dir")})))))
 
       (throw (ex-info "Unknown sync work command." {:command action
                                                     :usage (usage)})))))

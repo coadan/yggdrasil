@@ -248,6 +248,15 @@
            :root (project-ref-root file)
            :path (.getPath file)})))))
 
+(defn- config-path-for-cwd
+  [cwd path]
+  (when path
+    (let [file (io/file path)]
+      (fs/canonical-path
+       (if (.isAbsolute file)
+         file
+         (io/file (or cwd (System/getProperty "user.dir")) path))))))
+
 (defn project-ref-for-cwd
   "Return the nearest repo-local project reference for cwd, if present."
   [cwd]
@@ -355,19 +364,20 @@
        :registry (registry-path)}
 
       config-path
-      (if-let [{:keys [project-id root path]} (read-project-ref-file config-path)]
-        {:project-id project-id
-         :root root
-         :project (read-project registry project-id)
-         :config-path path
-         :source :project-ref
-         :project-ref path
-         :registry (registry-path)}
-        (let [project (project/read-project config-path)]
-          {:project-id (:id project)
-           :project project
-           :config-path config-path
-           :source :config-path}))
+      (let [config-path (config-path-for-cwd cwd config-path)]
+        (if-let [{:keys [project-id root path]} (read-project-ref-file config-path)]
+          {:project-id project-id
+           :root root
+           :project (read-project registry project-id)
+           :config-path path
+           :source :project-ref
+           :project-ref path
+           :registry (registry-path)}
+          (let [project (project/read-project config-path)]
+            {:project-id (:id project)
+             :project project
+             :config-path config-path
+             :source :config-path})))
 
       :else
       (or (referenced-project registry cwd)

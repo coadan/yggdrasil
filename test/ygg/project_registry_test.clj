@@ -94,6 +94,25 @@
         (is (= ref-path (:config-path resolved)))
         (is (= (fs/canonical-path (.getPath checkout)) (:root resolved)))))))
 
+(deftest registry-resolves-relative-project-reference-file-from-cwd
+  (let [root (temp-dir "ygg-registry-relative-ref")
+        checkout (io/file root "checkout")
+        registry-path (.getPath (io/file root ".config" "projects.edn"))]
+    (.mkdirs checkout)
+    (with-redefs [registry/registry-path (constantly registry-path)]
+      (registry/upsert-project! {:id "demo"
+                                 :repos [{:id "app"
+                                          :root (temp-dir "ygg-registry-canonical")
+                                          :role :application}]})
+      (let [ref-path (registry/write-project-ref! (.getPath checkout) "demo")
+            resolved (registry/resolve-project {:cwd (.getPath checkout)
+                                                :config-path ".ygg/project.edn"})]
+        (is (= "demo" (:project-id resolved)))
+        (is (= :project-ref (:source resolved)))
+        (is (= ref-path (:project-ref resolved)))
+        (is (= ref-path (:config-path resolved)))
+        (is (= (fs/canonical-path (.getPath checkout)) (:root resolved)))))))
+
 (deftest registry-use-project-writes-repo-local-reference
   (let [root (temp-dir "ygg-registry-use-ref")
         checkout (io/file root "checkout")

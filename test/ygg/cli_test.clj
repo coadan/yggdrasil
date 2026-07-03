@@ -223,7 +223,9 @@
                (:config-path result)))))))
 
 (deftest sync-work-auto-dispatches-to-index-maintenance-worker
-  (let [calls (atom [])]
+  (let [root (temp-dir "ygg-cli-sync-work-auto")
+        config-path (.getPath (io/file root "project.edn"))
+        calls (atom [])]
     (with-redefs [project/read-project (fn [path]
                                          (swap! calls conj [:project path])
                                          project-fixture)
@@ -238,12 +240,42 @@
                                                             :validated 0}})]
       (let [result (read-json-output
                     (with-out-str
-                      (cli/dispatch "sync" ["work" "auto" "project.edn" "--json"])))]
-        (is (= [[:project "project.edn"]
+                      (cli/dispatch "sync" ["work" "auto" config-path "--json"])))]
+        (is (= [[:project (.getCanonicalPath (io/file config-path))]
                 [:run "fixture"]]
                @calls))
         (is (= "ygg.index-maintenance-worker.run/v1" (:schema result)))
         (is (= "disabled" (:status result)))))))
+
+(deftest sync-work-auto-resolves-explicit-project-ref
+  (let [root (temp-dir "ygg-cli-sync-work-ref")
+        checkout (io/file root "checkout")
+        registry-path (.getPath (io/file root ".config" "projects.edn"))
+        calls (atom [])]
+    (.mkdirs checkout)
+    (with-redefs [registry/registry-path (constantly registry-path)
+                  index-maintenance-worker/run! (fn [project]
+                                                  (swap! calls conj [:run (:id project)])
+                                                  {:schema index-maintenance-worker/schema
+                                                   :project-id (:id project)
+                                                   :status "empty"
+                                                   :counts {:claimed 0
+                                                            :completed 0
+                                                            :failed 0
+                                                            :validated 0}})]
+      (registry/upsert-project! {:id "fixture"
+                                 :name "Fixture"
+                                 :repos [{:id "app"
+                                          :root (.getPath checkout)
+                                          :role :application}]})
+      (let [ref-path (registry/write-project-ref! (.getPath checkout) "fixture")
+            result (read-json-output
+                    (with-out-str
+                      (cli/dispatch "sync" ["work" "auto" ref-path "--json"])))]
+        (is (= [[:run "fixture"]] @calls))
+        (is (= "ygg.index-maintenance-worker.run/v1" (:schema result)))
+        (is (= "fixture" (:project-id result)))
+        (is (= "empty" (:status result)))))))
 
 (deftest embed-setup-dispatches-to-local-embedding-setup
   (let [calls (atom [])]
