@@ -344,9 +344,13 @@
 (defn- project-id-from-config
   [cwd config-path]
   (try
-    (:id (if cwd
-           (with-user-dir cwd #(project/read-project config-path))
-           (project/read-project config-path)))
+    (:project-id
+     (if cwd
+       (with-user-dir cwd
+         #(registry/resolve-project {:config-path config-path
+                                     :cwd cwd}))
+       (registry/resolve-project {:config-path config-path
+                                  :cwd (System/getProperty "user.dir")})))
     (catch Exception _
       nil)))
 
@@ -439,11 +443,9 @@
     project
     project
 
-    config-path
-    (project/read-project config-path)
-
     :else
     (:project (registry/resolve-project {:project-id project-id
+                                         :config-path config-path
                                          :cwd cwd}))))
 
 (defn- run-index-maintenance-worker

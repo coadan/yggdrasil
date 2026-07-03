@@ -222,6 +222,95 @@
       (is (= "generated" (:project-id body)))
       (is (not (contains? body :sync-output))))))
 
+(deftest sync-request-resolves-explicit-project-ref-before-storage
+  (let [root (temp-dir "ygg-server-sync-ref")
+        checkout (io/file root "checkout")
+        registry-path (.getPath (io/file root ".config" "projects.edn"))
+        storage-projects (atom [])
+        expected-config-path (atom nil)]
+    (.mkdirs checkout)
+    (with-redefs [registry/registry-path (constantly registry-path)
+                  store/storage-path (fn
+                                       ([] "/store/default")
+                                       ([project-id]
+                                        (swap! storage-projects conj project-id)
+                                        (str "/store/" project-id)))
+                  server/run-sync! (fn [xtdb opts]
+                                     (is (= :xtdb xtdb))
+                                     (is (= {:config-path @expected-config-path
+                                             :project-id nil
+                                             :cwd (.getPath checkout)}
+                                            (select-keys opts [:config-path
+                                                               :project-id
+                                                               :cwd])))
+                                     {:schema "ygg.sync/v1"
+                                      :project-id "fixture"
+                                      :index-summary {:repos []}})]
+      (registry/upsert-project! {:id "fixture"
+                                 :name "Fixture"
+                                 :repos [{:id "app"
+                                          :root (.getPath checkout)
+                                          :role :application}]})
+      (let [ref-path (registry/write-project-ref! (.getPath checkout) "fixture")
+            _ (reset! expected-config-path ref-path)
+            response (server/handle-request
+                      {:xtdb :xtdb
+                       :token "token"
+                       :running (atom true)}
+                      {:op "sync"
+                       :token "token"
+                       :cwd (.getPath checkout)
+                       :args [ref-path "--json"]})
+            body (json/read-json (:out response) :key-fn keyword)]
+        (is (= true (:ok response)))
+        (is (= 0 (:exit response)))
+        (is (= "fixture" (:project-id body)))
+        (is (= ["fixture"] @storage-projects))))))
+
+(deftest run-sync-resolves-explicit-project-ref-config-path
+  (let [root (temp-dir "ygg-server-run-sync-ref")
+        checkout (io/file root "checkout")
+        registry-path (.getPath (io/file root ".config" "projects.edn"))
+        calls (atom [])]
+    (.mkdirs checkout)
+    (with-redefs [registry/registry-path (constantly registry-path)
+                  project/index-project! (fn [xtdb project opts]
+                                           (swap! calls conj [:index xtdb (:id project) opts])
+                                           {:project-id (:id project)
+                                            :status :completed
+                                            :repos []})
+                  project/infer-project! (fn [xtdb project]
+                                           (swap! calls conj [:infer xtdb (:id project)])
+                                           {:project-id (:id project)
+                                            :status :completed
+                                            :system-evidence 1
+                                            :system-nodes 2
+                                            :system-edges 3})
+                  project/maintain-project (fn [xtdb project opts]
+                                             (swap! calls conj [:check xtdb (:id project) opts])
+                                             {:project-id (:id project)
+                                              :counts {:maintenance-decisions 0}
+                                              :decision-queue []})]
+      (registry/upsert-project! {:id "fixture"
+                                 :name "Fixture"
+                                 :repos [{:id "app"
+                                          :root (.getPath checkout)
+                                          :role :application}]})
+      (let [ref-path (registry/write-project-ref! (.getPath checkout) "fixture")
+            result (server/run-sync! :xtdb {:config-path ref-path
+                                            :cwd (.getPath checkout)
+                                            :check? true
+                                            :json? true})]
+        (is (= "ygg.sync/v1" (:schema result)))
+        (is (= "fixture" (:project-id result)))
+        (is (= [[:index :xtdb "fixture" {:dry-run? false
+                                         :index-profile :graph
+                                         :correction-overlay nil}]
+                [:infer :xtdb "fixture"]
+                [:check :xtdb "fixture" {:low-confidence-threshold 0.6
+                                         :correction-overlay nil}]]
+               @calls))))))
+
 (deftest generic-command-op-routes-project-id-to-warm-node
   (with-redefs [store/storage-path
                 (fn
