@@ -752,6 +752,86 @@
         (is (= (:coverage parsed) (:coverage status-parsed)))
         (is (= (:freshness parsed) (:freshness status-parsed)))
         (is (= (:nextActions parsed) (:nextActions status-parsed)))))))
+(deftest sync-inspect-resolves-explicit-repo-project-ref
+  (let [root (temp-dir "ygg-cli-sync-ref")
+        checkout (io/file root "checkout")
+        registry-path (.getPath (io/file root ".config" "projects.edn"))]
+    (.mkdirs checkout)
+    (with-redefs [registry/registry-path (constantly registry-path)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  evidence/summarize (fn [xtdb project opts]
+                                       {:schema evidence/schema
+                                        :xtdb xtdb
+                                        :project-id (:id project)
+                                        :config-path (:config-path opts)
+                                        :available []
+                                        :families []
+                                        :counts {}
+                                        :freshness {:status :fresh
+                                                    :counts {}}
+                                        :nextActions []})]
+      (registry/upsert-project! {:id "fixture"
+                                 :name "Fixture"
+                                 :repos [{:id "app"
+                                          :root (.getPath checkout)
+                                          :role :application}]})
+      (let [ref-path (registry/write-project-ref! (.getPath checkout) "fixture")
+            out (with-out-str
+                  (cli/dispatch "sync" ["inspect" ref-path "--json"]))
+            parsed (read-json-output out)]
+        (is (= "ygg.project.inspect/v1" (:schema parsed)))
+        (is (= "fixture" (get-in parsed [:project :id])))
+        (is (= ref-path (get-in parsed [:project :config-path])))
+        (is (= ref-path (get-in parsed [:evidence :config-path])))))))
+(deftest sync-check-resolves-repo-local-project-ref-from-cwd
+  (let [root (temp-dir "ygg-cli-sync-cwd-ref")
+        checkout (io/file root "checkout")
+        nested (io/file checkout "src")
+        registry-path (.getPath (io/file root ".config" "projects.edn"))
+        previous-dir (System/getProperty "user.dir")
+        calls (atom [])]
+    (.mkdirs nested)
+    (with-redefs [registry/registry-path (constantly registry-path)
+                  store/with-node (fn [_ f] (f :xtdb))
+                  project/index-project! (fn [xtdb project opts]
+                                           (swap! calls conj [:index xtdb (:id project) opts])
+                                           {:project-id (:id project)
+                                            :status :completed
+                                            :repos []})
+                  project/infer-project! (fn [xtdb project]
+                                           (swap! calls conj [:infer xtdb (:id project)])
+                                           {:project-id (:id project)
+                                            :status :completed
+                                            :system-evidence 1
+                                            :system-nodes 2
+                                            :system-edges 3})
+                  project/maintain-project (fn [xtdb project opts]
+                                             (swap! calls conj [:check xtdb (:id project) opts])
+                                             {:project-id (:id project)
+                                              :counts {:maintenance-decisions 0}
+                                              :decision-queue []})]
+      (registry/upsert-project! {:id "fixture"
+                                 :name "Fixture"
+                                 :repos [{:id "app"
+                                          :root (.getPath checkout)
+                                          :role :application}]})
+      (registry/write-project-ref! (.getPath checkout) "fixture")
+      (try
+        (System/setProperty "user.dir" (.getPath nested))
+        (let [out (with-out-str
+                    (cli/dispatch "sync" ["--check" "--json"]))
+              parsed (read-json-output out)]
+          (is (= "ygg.sync/v1" (:schema parsed)))
+          (is (= "fixture" (:project-id parsed)))
+          (is (= [[:index :xtdb "fixture" {:dry-run? false
+                                           :index-profile :graph
+                                           :correction-overlay nil}]
+                  [:infer :xtdb "fixture"]
+                  [:check :xtdb "fixture" {:low-confidence-threshold 0.6
+                                           :correction-overlay nil}]]
+                 @calls)))
+        (finally
+          (System/setProperty "user.dir" previous-dir))))))
 (deftest sync-activity-routes-through-project-config
   (let [calls (atom [])]
     (with-redefs [project/read-project (fn [path]

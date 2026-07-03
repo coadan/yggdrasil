@@ -393,12 +393,9 @@
 
 (defn- resolve-project-ref
   [args]
-  (if-let [path (config-path args)]
-    {:project (project/read-project path)
-     :config-path path
-     :source :config-path}
-    (registry/resolve-project {:project-id (option-value args "--project")
-                               :cwd (System/getProperty "user.dir")})))
+  (registry/resolve-project {:project-id (option-value args "--project")
+                             :config-path (config-path args)
+                             :cwd (System/getProperty "user.dir")}))
 
 (defn- sync-coverage!
   [args]
