@@ -462,6 +462,81 @@
           (is (= 1 (:transient-file-candidates instrumentation)))
           (is (= 1 (:grep-candidates instrumentation))))))))
 
+(deftest auto-query-with-transient-file-candidates-still-runs-semantic-search
+  (let [repo-root (temp-dir "ygg-query-auto-grep-file-repo")]
+    (spit-file! repo-root "src/reset.clj" "(defn ResetTokenHandler [] :ok)\n")
+    (store/with-node (temp-dir "ygg-query-auto-grep-file-xtdb")
+      (fn [xtdb]
+        (store/execute-tx!
+         xtdb
+         [(store/put-op (store/table-ref :repos)
+                        {:xt/id "repo:fixture:app"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :root repo-root
+                         :active? true})
+          (store/put-op (store/table-ref :files)
+                        {:xt/id "file:fixture:app:src/reset.clj"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :repo-root repo-root
+                         :path "src/reset.clj"
+                         :ext "clj"
+                         :kind :clojure
+                         :content-sha "sha"
+                         :mtime-ms 1
+                         :size-bytes 32
+                         :active? true
+                         :run-id "run"})
+          (store/put-op (store/table-ref :search-docs)
+                        {:xt/id "search-doc:semantic"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :target-id "node:semantic"
+                         :target-kind :node
+                         :file-id "file:semantic"
+                         :path "src/semantic.clj"
+                         :kind :namespace
+                         :label "demo.semantic"
+                         :text "semantic anchor"
+                         :tokens ["semantic" "anchor"]
+                         :input-sha "semantic"
+                         :source-line 1
+                         :active? true
+                         :run-id "run"})
+          (store/put-op (store/table-ref :embeddings)
+                        {:xt/id "embedding:semantic"
+                         :project-id "fixture"
+                         :repo-id "app"
+                         :target-id "node:semantic"
+                         :provider :fake
+                         :model "fake"
+                         :dims 2
+                         :input-sha "semantic"
+                         :vector [1.0 0.0]
+                         :created-at-ms 1
+                         :active? true})])
+        (let [calls (atom 0)
+              report (query/search-report
+                      xtdb
+                      "reset token handler semantic anchor"
+                      {:retriever :auto
+                       :embedding-client {:provider :fake
+                                          :model "fake"
+                                          :embed-batch (fn [_inputs]
+                                                         (swap! calls inc)
+                                                         [[1.0 0.0]])}
+                       :project-id "fixture"
+                       :repo-id "app"
+                       :limit 5})
+              instrumentation (:instrumentation report)]
+          (is (= 1 @calls))
+          (is (= :hybrid (:retriever-effective report)))
+          (is (false? (:auto-lexical-short-circuit? instrumentation)))
+          (is (= :none (:auto-lexical-short-circuit-reason instrumentation)))
+          (is (= 1 (:transient-file-candidates instrumentation)))
+          (is (pos? (:semantic-positive instrumentation))))))))
+
 (deftest lexical-query-includes-internal-grep-candidates-from-repo-metadata
   (let [repo-root (temp-dir "ygg-query-grep-repo")]
     (spit-file! repo-root "src/reset.clj" "(defn ResetTokenHandler [] :ok)\n")

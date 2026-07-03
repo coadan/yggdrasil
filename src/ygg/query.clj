@@ -2347,13 +2347,9 @@
      :ranked ranked}))
 
 (defn- auto-lexical-short-circuit-reason
-  [ranked-data transient-file-data]
-  (cond
-    (pos? (count (:exact-path-candidates ranked-data)))
-    :exact-path-candidates
-
-    (pos? (get-in transient-file-data [:instrumentation :transient-file-candidates] 0))
-    :transient-file-candidates))
+  [ranked-data]
+  (when (pos? (count (:exact-path-candidates ranked-data)))
+    :exact-path-candidates))
 
 (defn- query-vector
   [embedding-client query-text]
@@ -2450,8 +2446,7 @@
                                          [{} (assoc timings :auto-cheap-rank-ms 0)])
         auto-short-circuit-reason (when auto-semantic-eligible?
                                     (auto-lexical-short-circuit-reason
-                                     auto-cheap-rank-data
-                                     transient-file-data))
+                                     auto-cheap-rank-data))
         auto-short-circuit? (boolean auto-short-circuit-reason)
         semantic-retriever? (and (#{:hybrid :semantic} initial-retriever)
                                  (not auto-short-circuit?))
