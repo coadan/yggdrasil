@@ -1295,8 +1295,21 @@
                                                     :prompt-profile "fast"
                                                     :command "exit 99"
                                                     :skip-existing? true})
+              rerun (benchmark/agent-runs! suite {:out out
+                                                  :case-id "case-1"
+                                                  :agent-id "script-agent"
+                                                  :mode "shell-only"
+                                                  :prompt-profile "fast"
+                                                  :command (str "sh " script-path)})
               run (first (:runs result))
               skipped (first (:runs resumed))
+              rerun-run (first (:runs rerun))
+              progress (json/read-json
+                        (slurp (benchmark-paths/progress-path
+                                suite
+                                (first (:cases suite))
+                                {:out out}))
+                        :key-fn keyword)
               report (benchmark/report-agent-suite suite {:out out
                                                           :agent-id "script-agent"})]
           (is (= benchmark/agent-runs-schema (:schema result)))
@@ -1442,6 +1455,12 @@
           (is (= "skipped" (:status skipped)))
           (is (= "current-score-artifact" (:skipReason skipped)))
           (is (= (:scores run) (:scores skipped)))
+          (is (= "passed" (:status rerun-run)))
+          (is (= ["agent-result"
+                  "agent-result"
+                  "score-agent-result"
+                  "score-agent-result"]
+                 (mapv :stage (:events progress))))
           (is (= 1 (:runs report)))
           (is (= "script-agent" (get-in report [:results 0 :agent :agentId]))))))))
 (deftest external-agent-result-preserves-identity-mismatches

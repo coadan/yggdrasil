@@ -100,6 +100,7 @@
         score-path (benchmark-paths/agent-score-path suite case opts result-path)
         progress-path (benchmark-paths/progress-path suite case opts)
         request (local-vector-request prepared opts agent-id)]
+    (benchmark-progress/reset-progress! suite case opts)
     (benchmark-progress/progress-stage!
      suite
      case

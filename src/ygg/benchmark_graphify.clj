@@ -131,6 +131,7 @@
         progress-path (benchmark-paths/progress-path suite case opts)
         output-dir (graphify-output-dir suite case opts)
         request (graphify-request suite case prepared opts agent-id)]
+    (benchmark-progress/reset-progress! suite case opts)
     (benchmark-progress/progress-stage!
      suite
      case

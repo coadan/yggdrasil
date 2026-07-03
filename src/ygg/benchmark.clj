@@ -1616,6 +1616,7 @@
   [suite case opts]
   (ensure-agent-run-id! opts)
   (let [prepared (prepare-case! suite case opts)
+        _ (benchmark-progress/reset-progress! suite case opts)
         ygg-prep (prepare-or-reuse-agent-graph-and-artifacts! suite
                                                               case
                                                               prepared

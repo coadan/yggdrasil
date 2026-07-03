@@ -117,6 +117,7 @@
         progress-path (benchmark-paths/progress-path suite case opts)
         cache-dir (codebase-memory-cache-dir suite case opts)
         request (codebase-memory-request suite case prepared opts agent-id)]
+    (benchmark-progress/reset-progress! suite case opts)
     (benchmark-progress/progress-stage!
      suite
      case
