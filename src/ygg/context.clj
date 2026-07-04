@@ -3231,6 +3231,22 @@
                                      :grep-indexed-paths
                                      :grep-candidates
                                      :grep-diagnostic-kinds
+                                     :auto-lexical-short-circuit?
+                                     :auto-lexical-short-circuit-reason
+                                     :semantic-positive
+                                     :vector-store
+                                     :vector-store-fallback-reason
+                                     :vector-candidates
+                                     :vector-requested-candidate-limit
+                                     :vector-overfetch-limit
+                                     :vector-raw-candidates
+                                     :vector-stale-candidates
+                                     :vector-filtered-candidates
+                                     :vector-post-filter-candidates
+                                     :load-embeddings-ms
+                                     :query-embedding-ms
+                                     :semantic-score-ms
+                                     :vector-search-ms
                                      :graph-adjacency-query-count
                                      :context-chunks])
       :contextTimingsMs (:context-timings-ms instrumentation)})))

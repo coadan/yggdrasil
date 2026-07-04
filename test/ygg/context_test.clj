@@ -3259,6 +3259,56 @@
                 false)]
     (is (= retrieval (:retrieval packet)))))
 
+(deftest compact-packet-exposes-semantic-search-counters
+  (let [packet (#'context/compact-packet
+                {:query "semantic query"
+                 :evidence {:status :ready}
+                 :search {:query-run-id "query:test"
+                          :retriever-requested :auto
+                          :retriever-effective :hybrid
+                          :instrumentation {:search-docs 12
+                                            :returned-count 5
+                                            :auto-lexical-short-circuit? false
+                                            :auto-lexical-short-circuit-reason :none
+                                            :semantic-positive 877
+                                            :vector-store :sqlite-vec
+                                            :vector-store-fallback-reason :none
+                                            :vector-candidates 877
+                                            :vector-requested-candidate-limit 128
+                                            :vector-overfetch-limit 512
+                                            :vector-raw-candidates 900
+                                            :vector-stale-candidates 2
+                                            :vector-filtered-candidates 21
+                                            :vector-post-filter-candidates 877
+                                            :load-embeddings-ms 0
+                                            :query-embedding-ms 685
+                                            :semantic-score-ms 123
+                                            :vector-search-ms 44
+                                            :private-debug-value "hidden"}}
+                 :graph {:basis {:project-id "fixture"}}
+                 :candidateFiles []}
+                "semantic query"
+                false)]
+    (is (= {:search-docs 12
+            :returned-count 5
+            :auto-lexical-short-circuit? false
+            :auto-lexical-short-circuit-reason :none
+            :semantic-positive 877
+            :vector-store :sqlite-vec
+            :vector-store-fallback-reason :none
+            :vector-candidates 877
+            :vector-requested-candidate-limit 128
+            :vector-overfetch-limit 512
+            :vector-raw-candidates 900
+            :vector-stale-candidates 2
+            :vector-filtered-candidates 21
+            :vector-post-filter-candidates 877
+            :load-embeddings-ms 0
+            :query-embedding-ms 685
+            :semantic-score-ms 123
+            :vector-search-ms 44}
+           (get-in packet [:search :instrumentation])))))
+
 (deftest context-packet-compact-output-ranks-results-by-visible-score
   (with-redefs [query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema
