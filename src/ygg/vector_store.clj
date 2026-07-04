@@ -566,8 +566,8 @@
                          conn
                          (str "select 1 from ygg_embedding_metadata "
                               "where provider = ? and model = ? and embedding_role = ? "
-                              "and (project_id is ? or project_id = ?) "
-                              "and (repo_id is ? or repo_id = ?) "
+                              "and (? is null or project_id = ?) "
+                              "and (? is null or repo_id = ?) "
                               "and active = 1 limit 1"))]
     (.setString statement 1 (name (:provider opts)))
     (.setString statement 2 (str (:model opts)))
@@ -581,10 +581,11 @@
 
 (defn- sqlite-current-vectors?
   [conn opts role-list]
-  (and (table-exists? conn "ygg_embedding_metadata")
-       (some true?
-             (map #(sqlite-role-has-current-vectors? conn opts %)
-                  role-list))))
+  (boolean
+   (and (table-exists? conn "ygg_embedding_metadata")
+        (some true?
+              (map #(sqlite-role-has-current-vectors? conn opts %)
+                   role-list)))))
 
 (defn- sqlite-query-window!
   [conn table-name query-vector opts role k]
@@ -598,8 +599,8 @@
                               "select m.target_id, m.input_sha, m.target_kind, m.file_kind, m.path, knn.distance "
                               "from knn join ygg_embedding_metadata m on m.id = knn.embedding_id "
                               "where m.provider = ? and m.model = ? and m.embedding_role = ? "
-                              "and (m.project_id is ? or m.project_id = ?) "
-                              "and (m.repo_id is ? or m.repo_id = ?) "
+                              "and (? is null or m.project_id = ?) "
+                              "and (? is null or m.repo_id = ?) "
                               "and m.active = 1 "
                               "order by knn.distance"))]
     (.setString statement 1 (vector-json query-vector))

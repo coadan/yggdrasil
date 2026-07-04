@@ -167,6 +167,41 @@
         (is (= (.getPath extension-path)
                (vector-store/configured-extension-path)))))))
 
+(deftest sqlite-current-vector-probe-treats-nil-repo-as-project-wide
+  (let [db-path (.getPath (io/file (temp-dir "ygg-sqlite-vector-scope")
+                                   "project.sqlite"))]
+    (with-open [conn (java.sql.DriverManager/getConnection
+                      (str "jdbc:sqlite:" db-path))]
+      (with-open [statement (.createStatement conn)]
+        (.execute statement
+                  (str "create table ygg_embedding_metadata "
+                       "(provider text, model text, embedding_role text, "
+                       "project_id text, repo_id text, active integer)"))
+        (.execute statement
+                  (str "insert into ygg_embedding_metadata "
+                       "(provider, model, embedding_role, project_id, repo_id, active) "
+                       "values ('fake', 'fake-model', 'content', 'fixture', 'app', 1)")))
+      (is (true? (#'vector-store/sqlite-current-vectors?
+                  conn
+                  {:provider :fake
+                   :model "fake-model"
+                   :project-id "fixture"}
+                  [:content])))
+      (is (true? (#'vector-store/sqlite-current-vectors?
+                  conn
+                  {:provider :fake
+                   :model "fake-model"
+                   :project-id "fixture"
+                   :repo-id "app"}
+                  [:content])))
+      (is (false? (#'vector-store/sqlite-current-vectors?
+                   conn
+                   {:provider :fake
+                    :model "fake-model"
+                    :project-id "fixture"
+                    :repo-id "other"}
+                   [:content]))))))
+
 (deftest sqlite-fts-scores-search-docs-without-sqlite-vec-extension
   (let [index-path (.getPath (io/file (temp-dir "ygg-fts-index") "project.sqlite"))
         docs [{:project-id "project-a"
