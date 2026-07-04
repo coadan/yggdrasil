@@ -4,6 +4,7 @@
             [ygg.benchmark-classes :as benchmark-classes]
             [ygg.benchmark-readiness :as benchmark-readiness]
             [ygg.benchmark-paths :as benchmark-paths]
+            [ygg.benchmark-prediction :as benchmark-prediction]
             [ygg.benchmark-prepare :as benchmark-prepare]
             [ygg.benchmark-progress :as benchmark-progress]
             [ygg.benchmark-report :as benchmark-report]
@@ -428,6 +429,7 @@
   (let [suite (benchmark/read-suite "benchmarks/architecture-synthetic.edn")
         cases (:cases suite)
         tags (set (mapcat :tags cases))
+        tag-counts (frequencies (mapcat :tags cases))
         source-kinds (set (mapcat #(get-in % [:coverage :source-kinds]) cases))
         evidence-kinds (set (mapcat #(map :kind (get-in % [:expectations :evidence])) cases))
         node-kinds (set (mapcat #(map :kind (get-in % [:expectations :nodes])) cases))
@@ -448,7 +450,7 @@
                 cases))
     (is (every? #(seq (:root %)) (:repos suite)))
     (is (every? source-kinds
-                [:web-framework :manifest :env :sql :javascript :dotnet :compose]))
+                [:web-framework :manifest :env :sql :javascript :dotnet :compose :doc]))
     (is (every? evidence-kinds
                 [:web-framework-route
                  :web-framework-import
@@ -456,11 +458,17 @@
                  :manifest-package
                  :env-var
                  :sql-security
-                 :container-image-consumer]))
+                 :container-image-consumer
+                 :doc-heading]))
     (is (every? node-kinds
-                [:web-framework-route :web-framework-import :web-framework-plugin :external-package]))
+                [:web-framework-route
+                 :web-framework-import
+                 :web-framework-plugin
+                 :external-package
+                 :doc-file]))
     (is (every? #(contains? (set (keys cases-by-id)) %)
                 ["bootstrap-synthetic-docs-route-impact"
+                 "bootstrap-synthetic-toasts-doc-contract"
                  "bootstrap-synthetic-astro-plugin-config"
                  "supabase-postgres-synthetic-trigger-ownership-flow"
                  "axios-synthetic-native-proxy-boundary"]))
@@ -476,7 +484,10 @@
                  "architecture-dependency-flow"
                  "architecture-data-ownership"
                  "architecture-runtime-boundary"
-                 "audit-scope-dependencies"]))))
+                 "audit-scope-dependencies"
+                 "audit-scope-docs"
+                 "docs-contracts"]))
+    (is (<= 2 (get tag-counts "audit-scope-docs")))))
 
 (defn- benchmark-suite-file?
   [file]
@@ -2842,6 +2853,78 @@
                                     prepared
                                     opts))))))))
 
+(deftest benchmark-agent-corrections-include-case-overlay-systems-and-docs
+  (let [root (temp-dir "ygg-bench-case-system-doc-overlay")
+        suite {:id "suite"}
+        case {:id "case-1"
+              :correction-overlay {:systems [{:id "system:docs:toasts"
+                                              :label "Toast docs contract"
+                                              :kind "docs-contract"
+                                              :includes [{:repo "repo"
+                                                          :path "docs/toasts.mdx"}]
+                                              :reason "Reviewed docs contract."}
+                                             {:id "system:docs:toasts"
+                                              :label "Duplicate should be ignored."}]
+                                   :docs [{:target "system:docs:toasts"
+                                           :role "contract"
+                                           :source {:repo "repo"
+                                                    :path "docs/toasts.mdx"
+                                                    :heading "Toasts"}
+                                           :reason "Reviewed attached docs."}
+                                          {:target "system:docs:toasts"
+                                           :role "contract"
+                                           :source {:repo "repo"
+                                                    :path "docs/toasts.mdx"
+                                                    :heading "Toasts"}
+                                           :reason "Duplicate should be ignored."}]}}
+        opts {:out root}
+        prepared {:project-id "suite-case-1"}]
+    (store/with-node (benchmark-paths/xtdb-dir suite case opts)
+      (fn [xtdb]
+        (let [_ (benchmark-readiness/prepare-agent-corrections! xtdb case prepared opts)
+              _ (benchmark-readiness/prepare-agent-corrections! xtdb case prepared opts)
+              overlay (benchmark-readiness/prepare-agent-overlay! xtdb case prepared opts)]
+          (is (= [{:id "system:docs:toasts"
+                   :label "Toast docs contract"
+                   :kind "docs-contract"
+                   :includes [{:repo "repo"
+                               :path "docs/toasts.mdx"}]
+                   :status "accepted"
+                   :reason "Reviewed docs contract."}]
+                 (:systems overlay)))
+          (is (= [{:target "system:docs:toasts"
+                   :role "contract"
+                   :source {:repo "repo"
+                            :path "docs/toasts.mdx"
+                            :heading "Toasts"}
+                   :status "accepted"
+                   :reason "Reviewed attached docs."}]
+                 (:docs overlay))))))))
+
+(deftest benchmark-agent-corrections-reject-incomplete-case-overlay-docs
+  (let [root (temp-dir "ygg-bench-case-doc-overlay-invalid")
+        suite {:id "suite"}
+        case {:id "case-1"
+              :correction-overlay {:docs [{:target "system:docs:toasts"
+                                           :source {:repo "repo"}
+                                           :reason "Missing source path should fail."}]}}
+        opts {:out root}
+        prepared {:project-id "suite-case-1"}]
+    (store/with-node (benchmark-paths/xtdb-dir suite case opts)
+      (fn [xtdb]
+        (try
+          (benchmark-readiness/prepare-agent-corrections! xtdb case prepared opts)
+          (is false "expected incomplete doc attachment to fail")
+          (catch clojure.lang.ExceptionInfo e
+            (is (= {:missing-fields [[:source :path]]
+                    :required-fields [:target [:source :path]]}
+                   (select-keys (ex-data e) [:missing-fields :required-fields])))))
+        (is (= [] (:docs (benchmark-readiness/prepare-agent-overlay!
+                          xtdb
+                          {:id "empty"}
+                          prepared
+                          opts))))))))
+
 (deftest context-ground-truth-ranks-show-context-misses-separately
   (let [root (temp-dir "ygg-bench-context-ground-truth")
         _ (spit-file! root "src/visible.clj" "(ns visible)\n")
@@ -2871,3 +2954,53 @@
             :limit nil
             :coverageSourceKinds []}
            (:selection ranks)))))
+
+(deftest compact-agent-result-preserves-attached-doc-path
+  (let [root (temp-dir "ygg-bench-attached-doc-path")
+        toasts-path "site/src/content/docs/components/toasts.mdx"
+        intro-path "site/src/content/docs/getting-started/introduction.mdx"
+        migration-path "site/src/content/docs/migration.mdx"
+        _ (spit-file! root "README.md" "# Documentation\n")
+        _ (spit-file! root intro-path "# Introduction\n")
+        _ (spit-file! root migration-path "# Migration\n")
+        _ (spit-file! root toasts-path "# Toasts\n")
+        packet {:query "reviewed Toasts docs source file"
+                :docs [{:source {:repo "repo"
+                                 :path "README.md"
+                                 :heading "Documentation"}
+                        :score 1.3
+                        :snippet "Documentation source"
+                        :provenance "retrieved-doc"}
+                       {:source {:repo "repo"
+                                 :path intro-path
+                                 :heading "Introduction"}
+                        :score 1.2
+                        :snippet "Docs source introduction"
+                        :provenance "retrieved-doc"}
+                       {:source {:repo "repo"
+                                 :path migration-path
+                                 :heading "Migration"}
+                        :score 1.1
+                        :snippet "Docs source migration"
+                        :provenance "retrieved-doc"}
+                       {:source {:repo "repo"
+                                 :path toasts-path
+                                 :heading "Toasts"}
+                        :score 2.35
+                        :snippet "Accepted Toasts docs contract."
+                        :provenance "map-attachment"}]
+                :candidateFiles [{:repo "repo" :path "README.md" :score 1.0}
+                                 {:repo "repo" :path intro-path :score 1.0}
+                                 {:repo "repo" :path migration-path :score 1.0}
+                                 {:repo "repo" :path toasts-path :score 1.0}]}
+        result (benchmark-prediction/context-packet->agent-result
+                packet
+                {:root root
+                 :coverage {:source-kinds [:doc]}
+                 :compact-result? true
+                 :compact-result-limit 5
+                 :limit 20})
+        paths (mapv :path (:suspectedFiles result))]
+    (is (= toasts-path (first paths)))
+    (is (contains? (set paths) toasts-path))
+    (is (= 3 (get-in result [:selection :compactResultFiles])))))

@@ -67,10 +67,99 @@
              [overlay existing-keys]
              package-imports))))
 
+(def ^:private system-required-fields
+  [:id])
+
+(defn- system-field
+  [system field]
+  (when-let [value (get system field)]
+    (let [value (str value)]
+      (when-not (benchmark-util/blankish? value)
+        value))))
+
+(defn- validate-system!
+  [system]
+  (let [missing-fields (filterv #(nil? (system-field system %))
+                                system-required-fields)]
+    (when (seq missing-fields)
+      (throw (ex-info "Benchmark correction-overlay system is missing required fields."
+                      {:system system
+                       :missing-fields missing-fields
+                       :required-fields system-required-fields})))
+    system))
+
+(defn- system-key
+  [system]
+  (system-field system :id))
+
+(defn- seed-systems
+  [overlay systems]
+  (let [existing-keys (set (map system-key (:systems overlay)))]
+    (first
+     (reduce (fn [[out seen-keys] system]
+               (let [system (validate-system! system)
+                     k (system-key system)]
+                 (if (contains? seen-keys k)
+                   [out seen-keys]
+                   [(update out :systems conj system)
+                    (conj seen-keys k)])))
+             [overlay existing-keys]
+             systems))))
+
+(def ^:private doc-required-fields
+  [:target [:source :path]])
+
+(defn- doc-field
+  [doc field]
+  (let [value (if (vector? field)
+                (get-in doc field)
+                (get doc field))]
+    (when value
+      (let [value (str value)]
+        (when-not (benchmark-util/blankish? value)
+          value)))))
+
+(defn- validate-doc!
+  [doc]
+  (let [missing-fields (filterv #(nil? (doc-field doc %))
+                                doc-required-fields)]
+    (when (seq missing-fields)
+      (throw (ex-info "Benchmark correction-overlay doc attachment is missing required fields."
+                      {:doc doc
+                       :missing-fields missing-fields
+                       :required-fields doc-required-fields})))
+    doc))
+
+(defn- doc-key
+  [doc]
+  [(doc-field doc :target)
+   (doc-field doc [:source :repo])
+   (doc-field doc [:source :path])
+   (doc-field doc [:source :heading])
+   (doc-field doc :role)])
+
+(defn- seed-docs
+  [overlay docs]
+  (let [existing-keys (set (map doc-key (:docs overlay)))]
+    (first
+     (reduce (fn [[out seen-keys] doc]
+               (let [doc (validate-doc! doc)
+                     k (doc-key doc)]
+                 (if (contains? seen-keys k)
+                   [out seen-keys]
+                   [(update out :docs conj doc)
+                    (conj seen-keys k)])))
+             [overlay existing-keys]
+             docs))))
+
 (defn- seed-case-correction-overlay
   [overlay case]
-  (let [package-imports (get-in case [:correction-overlay :packageImports])]
+  (let [case-overlay (:correction-overlay case)
+        package-imports (concat (:packageImports case-overlay)
+                                (:package-imports case-overlay))]
     (cond-> overlay
+      (seq (:systems case-overlay)) (seed-systems (:systems case-overlay))
+      (seq (:docs case-overlay)) (seed-docs (:docs case-overlay))
       (seq package-imports) (seed-package-imports package-imports))))
 
 (defn prepare-agent-corrections!

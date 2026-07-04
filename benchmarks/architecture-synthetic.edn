@@ -61,6 +61,49 @@
                   :title "Identify docs route impact before removing theme components"
                   :body "The docs team wants to remove the theme UI from Bootstrap's Astro docs. Identify the route files and component imports that a change would affect before editing code. Return only the files that are likely to need edits; cite imported components or comparable files as evidence instead of ranking them as suspected edit files."}}
 
+         {:id "bootstrap-synthetic-toasts-doc-contract"
+          :repo-id "bootstrap"
+          :coverage {:source-kinds [:doc]}
+          :tags [:synthetic
+                 :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
+                 :problem-architecture
+                 :audit-scope-docs
+                 :docs-contracts
+                 :docs
+                 :bootstrap]
+          :base-sha "59a79e1dfb20fd0d1d3fc7e74f01f96e81d5b777"
+          :fix-sha "59a79e1dfb20fd0d1d3fc7e74f01f96e81d5b777"
+          :correction-overlay {:systems [{:id "system:bootstrap-toasts-docs"
+                                           :label "Bootstrap Toasts docs contract"
+                                           :kind "docs-contract"
+                                           :includes [{:repo "bootstrap"
+                                                       :path "site/src/content/docs/components/toasts.mdx"}]
+                                           :reason "Benchmark fixture for the reviewed Toasts docs contract."}]
+                               :docs [{:target "system:bootstrap-toasts-docs"
+                                       :role "contract"
+                                       :source {:repo "bootstrap"
+                                                :path "site/src/content/docs/components/toasts.mdx"
+                                                :heading "Overview"}
+                                       :reason "Benchmark fixture for the reviewed Toasts docs contract."}]}
+          :ground-truth {:localization-files ["site/src/content/docs/components/toasts.mdx"]}
+          :expectations {:evidence [{:kind :doc-heading
+                                     :path "site/src/content/docs/components/toasts.mdx"
+                                     :label "Overview"}]
+                         :nodes [{:kind :doc-file
+                                  :path "site/src/content/docs/components/toasts.mdx"}]
+                         :chunks [{:kind :mdx
+                                   :path "site/src/content/docs/components/toasts.mdx"
+                                   :label "Overview"}]
+                         :graph-evidence []}
+          :issue {:id "synthetic-bootstrap-toasts-doc-contract"
+                  :url "local:synthetic/bootstrap/toasts-doc-contract"
+                  :title "Identify the reviewed Toasts docs contract before a wording change"
+                  :body "The Bootstrap docs team needs a small wording change in the reviewed Toasts documentation contract. Identify the accepted Toasts docs source file before editing, and cite the attached docs/source evidence rather than expanding the edit set."}}
+
          {:id "bootstrap-synthetic-astro-plugin-config"
           :repo-id "bootstrap"
           :coverage {:source-kinds [:manifest :web-framework]}

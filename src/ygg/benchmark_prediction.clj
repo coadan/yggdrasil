@@ -425,6 +425,8 @@
   1.48)
 (def ^:private compact-output-query-evidence-doc-sort-rank
   2.5)
+(def ^:private compact-output-attached-doc-sort-rank
+  0.05)
 (def ^:private compact-output-retrieved-path-self-identity-sort-rank
   0.326)
 (def ^:private compact-output-retrieved-path-self-identity-sort-step
@@ -1342,6 +1344,7 @@
                  :confidence (bounded-confidence (:score doc))
                  :evidence-score (double (or (parse-double-safe (:score doc)) 0.0))
                  :evidence-kind :doc
+                 :attached-doc? (= "map-attachment" (str (:provenance doc)))
                  :retrieved-source? (boolean (:retrievedSource doc))
                  :exact-path-source? (boolean (:exactPathSource doc))
                  :definition-kind (some-> (:definitionKind source) name)
@@ -2472,6 +2475,8 @@
                                            vec)
                              doc-count (count (filter #(= :doc (:evidence-kind %))
                                                       ordered))
+                             attached-doc-count (count (filter :attached-doc?
+                                                               ordered))
                              entity-count (count (filter #(= :entity (:evidence-kind %))
                                                          ordered))
                              candidate-count (count (filter #(= :candidate-file (:evidence-kind %))
@@ -2849,6 +2854,7 @@
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
                                               :supportCount support-count
                                               :docCount doc-count
+                                              :attachedDocCount attached-doc-count
                                               :entityCount entity-count
                                               :candidateFileCount candidate-count
                                               :retrievedSourceCount retrieved-source-count
@@ -3047,6 +3053,7 @@
                                     :evidence-score
                                     :architecture-support-score
                                     :evidence-kind
+                                    :attached-doc?
                                     :graph-neighbor-score
                                     :retrieved-source?
                                     :exact-path-source?
@@ -4253,6 +4260,24 @@
                          :else
                          compact-output-doc-supported-sort-rank)))))))
 
+(defn- compact-output-attached-doc-key
+  [row]
+  [(- (positive-metric row :attachedDocCount))
+   (- (row-rank-score row))
+   (:rank row)
+   (:path row)])
+
+(defn- compact-output-attached-doc-row
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (pos? (positive-metric % :attachedDocCount))))
+       (sort-by compact-output-attached-doc-key)
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  compact-output-attached-doc-sort-rank)))))
+
 (defn- compact-output-retrieved-supported-row
   [files selected-keys]
   (->> files
@@ -5304,6 +5329,24 @@
             (renumber-file-ranks compacted))
           selected))))
 
+(defn- compact-output-thin-selected-files
+  [files limit]
+  (let [limit (long limit)
+        head-rows (map-indexed (fn [idx row]
+                                 (assoc row
+                                        ::compact-output-sort-rank
+                                        (/ (inc idx) 10.0)))
+                               (take limit files))
+        selected (reduce add-compact-output-row
+                         {:rows []
+                          :keys #{}}
+                         head-rows)
+        selected (add-compact-output-row
+                  selected
+                  (compact-output-attached-doc-row files (:keys selected)))]
+    (vec (take limit
+               (compact-output-sort-and-renumber (:rows selected))))))
+
 (defn- compact-output-selected-files
   ([files limit result-scope]
    (compact-output-selected-files files limit result-scope [] {}))
@@ -5313,9 +5356,11 @@
        (nil? limit)
        files
 
-       (or (inspection-files-scope? result-scope)
-           (< limit 5))
+       (inspection-files-scope? result-scope)
        (vec (take limit files))
+
+       (< limit 5)
+       (compact-output-thin-selected-files files limit)
 
        :else
        (let [files (compact-output-selectable-files files
@@ -5335,8 +5380,12 @@
                                     head-rows)
              selected (add-compact-output-row
                        head-selection
+                       (compact-output-attached-doc-row files
+                                                        (:keys head-selection)))
+             selected (add-compact-output-row
+                       selected
                        (compact-output-doc-supported-row files
-                                                         (:keys head-selection)))
+                                                         (:keys selected)))
              selected (add-compact-output-row
                        selected
                        (compact-output-identity-supported-row files
