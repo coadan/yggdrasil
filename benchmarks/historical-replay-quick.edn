@@ -6,6 +6,9 @@
                               "historical-flask-autoescape-case-insensitive"
                               "historical-junit-system-properties-extension-backup"
                               "historical-bootstrap-toasts-doc-wording"
+                              "historical-bootstrap-remove-ios-navbar-dropdowns-doc"
+                              "historical-flask-request-json-status-doc"
+                              "historical-axios-proxy-node-only-doc"
                               "historical-bootstrap-node-version-workflows"
                               "historical-dapper-reference-trimmer-dependencies"
                               "historical-axios-formdata-epipe-test-lifecycle"]}]}

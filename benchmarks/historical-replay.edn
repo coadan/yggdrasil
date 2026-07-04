@@ -64,10 +64,10 @@
                  :audit-scope-dependencies
                  :dotnet]
           :correction-overlay {:packageImports [{:repo "dapper"
-                                          :import "LinqToDB"
-                                          :ecosystem "nuget"
-                                          :package "linq2db.SqlServer"
-                                          :reason "Dapper performance benchmarks import LinqToDB namespaces from the declared linq2db.SqlServer NuGet package."}]}
+                                                 :import "LinqToDB"
+                                                 :ecosystem "nuget"
+                                                 :package "linq2db.SqlServer"
+                                                 :reason "Dapper performance benchmarks import LinqToDB namespaces from the declared linq2db.SqlServer NuGet package."}]}
           :base-sha "512f024667b79b4a17a38f33da59b072a43579f1"
           :fix-sha "2a8faab235c21892fb4c9a4529510d030516d691"
           :ground-truth {:localization-files ["Dapper/SqlMapper.Settings.cs"
@@ -181,110 +181,110 @@
           :base-sha "c8168b7c79a0591f421ef37dbbd20eb1f34cafef"
           :fix-sha "5bc7cb12f5bc4492011bdcf278fde44ac45166d5"
           :correction-overlay {:packageImports [{:repo "junit-framework"
-                                                  :import "org.mockito.junit.jupiter"
-                                                  :ecosystem "maven"
-                                                  :package "org.mockito:mockito-junit-jupiter"
-                                                  :reason "JUnit Jupiter Mockito extension imports resolve through the declared mockito-junit-jupiter package."}
-                                                 {:repo "junit-framework"
-                                                  :import "org.mockito"
-                                                  :ecosystem "maven"
-                                                  :package "org.mockito:mockito-core"
-                                                  :reason "Core Mockito imports and static helpers resolve through the declared mockito-core package."}
-                                                 {:repo "junit-framework"
-                                                  :import "org.openjdk.jmh"
-                                                  :ecosystem "maven"
-                                                  :package "org.openjdk.jmh:jmh-core"
-                                                  :reason "JMH annotations and runtime helper imports resolve through the declared jmh-core package."}
-                                                 {:repo "junit-framework"
-                                                  :import "org.opentest4j.reporting.tooling.spi"
-                                                  :ecosystem "maven"
-                                                  :package "org.opentest4j.reporting:open-test-reporting-tooling-spi"
-                                                  :reason "Open Test Reporting SPI imports resolve through the declared tooling-spi package."}
-                                                 {:repo "junit-framework"
-                                                  :import "org.opentest4j.reporting.tooling.core"
-                                                  :ecosystem "maven"
-                                                  :package "org.opentest4j.reporting:open-test-reporting-tooling-core"
-                                                  :reason "Open Test Reporting tooling core imports resolve through the declared tooling-core package."}
-                                                 {:repo "junit-framework"
-                                                  :import "org.opentest4j.reporting.events"
-                                                  :ecosystem "maven"
-                                                  :package "org.opentest4j.reporting:open-test-reporting-events"
-                                                  :reason "Open Test Reporting event API imports resolve through the declared events package."}
-                                                 {:repo "junit-framework"
-                                                  :import "org.opentest4j.reporting.schema"
-                                                  :ecosystem "maven"
-                                                  :package "org.opentest4j.reporting:open-test-reporting-events"
-                                                  :reason "Open Test Reporting schema imports resolve through the declared events package."}
-                                                 {:repo "junit-framework"
-                                                  :import "picocli"
-                                                  :ecosystem "maven"
-                                                  :package "info.picocli:picocli"
-                                                  :reason "picocli CommandLine imports resolve through the declared picocli package."}
-                                                 {:repo "junit-framework"
-                                                  :import "com.google.common.jimfs"
-                                                  :ecosystem "maven"
-                                                  :package "com.google.jimfs:jimfs"
-                                                  :reason "Jimfs imports use the com.google.common.jimfs Java package from the declared jimfs artifact."}
-                                                 {:repo "junit-framework"
-                                                  :import "org.xmlunit.assertj3"
-                                                  :ecosystem "maven"
-                                                  :package "org.xmlunit:xmlunit-assertj3"
-                                                  :reason "XMLUnit AssertJ imports resolve through the declared xmlunit-assertj3 package."}
-                                                 {:repo "junit-framework"
-                                                  :import "org.xmlunit.placeholder"
-                                                  :ecosystem "maven"
-                                                  :package "org.xmlunit:xmlunit-placeholders"
-                                                  :reason "XMLUnit placeholder imports resolve through the declared xmlunit-placeholders package."}
-                                                 {:repo "junit-framework"
-                                                  :import "org.joox"
-                                                  :ecosystem "maven"
-                                                  :package "org.jooq:joox"
-                                                  :reason "JOOX imports use the org.joox Java package from the declared joox artifact."}
-                                                 {:repo "junit-framework"
-                                                  :import "org.apache.tools.ant"
-                                                  :ecosystem "maven"
-                                                  :package "org.apache.ant:ant"
-                                                  :reason "Ant launcher imports resolve through the declared ant package."}
-                                                 {:repo "junit-framework"
-                                                  :import "org.apache.commons.io"
-                                                  :ecosystem "maven"
-                                                  :package "commons-io:commons-io"
-                                                  :reason "Apache Commons IO imports resolve through the declared commons-io package."}
-                                                 {:repo "junit-framework"
-                                                  :import "aQute.bnd"
-                                                  :ecosystem "maven"
-                                                  :package "biz.aQute.bnd:biz.aQute.bndlib"
-                                                  :reason "bnd helper imports resolve through the declared bndlib package."}
-                                                 {:repo "junit-framework"
-                                                  :import "de.skuzzle.test.snapshots.data.xml"
-                                                  :ecosystem "maven"
-                                                  :package "de.skuzzle.test:snapshot-tests-xml"
-                                                  :reason "XML snapshot imports resolve through the declared snapshot-tests-xml package."}
-                                                 {:repo "junit-framework"
-                                                  :import "de.skuzzle.test.snapshots"
-                                                  :ecosystem "maven"
-                                                  :package "de.skuzzle.test:snapshot-tests-junit5"
-                                                  :reason "Snapshot testing imports resolve through the declared snapshot-tests-junit5 package."}
-                                                 {:repo "junit-framework"
-                                                  :import "kotlin.reflect"
-                                                  :ecosystem "maven"
-                                                  :package "org.jetbrains.kotlin:kotlin-reflect"
-                                                  :reason "Kotlin reflection imports resolve through Gradle's kotlin(\"reflect\") dependency."}
-                                                 {:repo "junit-framework"
-                                                  :import "kotlin"
-                                                  :ecosystem "maven"
-                                                  :package "org.jetbrains.kotlin:kotlin-stdlib"
-                                                  :reason "Kotlin runtime imports resolve through Gradle's kotlin(\"stdlib\") dependency."}
-                                                 {:repo "junit-framework"
-                                                  :import "kotlinx.coroutines"
-                                                  :ecosystem "maven"
-                                                  :package "org.jetbrains.kotlinx:kotlinx-coroutines-core"
-                                                  :reason "Kotlin coroutine imports resolve through the declared kotlinx-coroutines-core package."}
-                                                 {:repo "junit-framework"
-                                                  :import "org.osgi.framework"
-                                                  :ecosystem "maven"
-                                                  :package "biz.aQute.bnd:biz.aQute.bndlib"
-                                                  :reason "OSGi Version imports in tooling support tests compile through the declared bndlib dependency."}]}
+                                                 :import "org.mockito.junit.jupiter"
+                                                 :ecosystem "maven"
+                                                 :package "org.mockito:mockito-junit-jupiter"
+                                                 :reason "JUnit Jupiter Mockito extension imports resolve through the declared mockito-junit-jupiter package."}
+                                                {:repo "junit-framework"
+                                                 :import "org.mockito"
+                                                 :ecosystem "maven"
+                                                 :package "org.mockito:mockito-core"
+                                                 :reason "Core Mockito imports and static helpers resolve through the declared mockito-core package."}
+                                                {:repo "junit-framework"
+                                                 :import "org.openjdk.jmh"
+                                                 :ecosystem "maven"
+                                                 :package "org.openjdk.jmh:jmh-core"
+                                                 :reason "JMH annotations and runtime helper imports resolve through the declared jmh-core package."}
+                                                {:repo "junit-framework"
+                                                 :import "org.opentest4j.reporting.tooling.spi"
+                                                 :ecosystem "maven"
+                                                 :package "org.opentest4j.reporting:open-test-reporting-tooling-spi"
+                                                 :reason "Open Test Reporting SPI imports resolve through the declared tooling-spi package."}
+                                                {:repo "junit-framework"
+                                                 :import "org.opentest4j.reporting.tooling.core"
+                                                 :ecosystem "maven"
+                                                 :package "org.opentest4j.reporting:open-test-reporting-tooling-core"
+                                                 :reason "Open Test Reporting tooling core imports resolve through the declared tooling-core package."}
+                                                {:repo "junit-framework"
+                                                 :import "org.opentest4j.reporting.events"
+                                                 :ecosystem "maven"
+                                                 :package "org.opentest4j.reporting:open-test-reporting-events"
+                                                 :reason "Open Test Reporting event API imports resolve through the declared events package."}
+                                                {:repo "junit-framework"
+                                                 :import "org.opentest4j.reporting.schema"
+                                                 :ecosystem "maven"
+                                                 :package "org.opentest4j.reporting:open-test-reporting-events"
+                                                 :reason "Open Test Reporting schema imports resolve through the declared events package."}
+                                                {:repo "junit-framework"
+                                                 :import "picocli"
+                                                 :ecosystem "maven"
+                                                 :package "info.picocli:picocli"
+                                                 :reason "picocli CommandLine imports resolve through the declared picocli package."}
+                                                {:repo "junit-framework"
+                                                 :import "com.google.common.jimfs"
+                                                 :ecosystem "maven"
+                                                 :package "com.google.jimfs:jimfs"
+                                                 :reason "Jimfs imports use the com.google.common.jimfs Java package from the declared jimfs artifact."}
+                                                {:repo "junit-framework"
+                                                 :import "org.xmlunit.assertj3"
+                                                 :ecosystem "maven"
+                                                 :package "org.xmlunit:xmlunit-assertj3"
+                                                 :reason "XMLUnit AssertJ imports resolve through the declared xmlunit-assertj3 package."}
+                                                {:repo "junit-framework"
+                                                 :import "org.xmlunit.placeholder"
+                                                 :ecosystem "maven"
+                                                 :package "org.xmlunit:xmlunit-placeholders"
+                                                 :reason "XMLUnit placeholder imports resolve through the declared xmlunit-placeholders package."}
+                                                {:repo "junit-framework"
+                                                 :import "org.joox"
+                                                 :ecosystem "maven"
+                                                 :package "org.jooq:joox"
+                                                 :reason "JOOX imports use the org.joox Java package from the declared joox artifact."}
+                                                {:repo "junit-framework"
+                                                 :import "org.apache.tools.ant"
+                                                 :ecosystem "maven"
+                                                 :package "org.apache.ant:ant"
+                                                 :reason "Ant launcher imports resolve through the declared ant package."}
+                                                {:repo "junit-framework"
+                                                 :import "org.apache.commons.io"
+                                                 :ecosystem "maven"
+                                                 :package "commons-io:commons-io"
+                                                 :reason "Apache Commons IO imports resolve through the declared commons-io package."}
+                                                {:repo "junit-framework"
+                                                 :import "aQute.bnd"
+                                                 :ecosystem "maven"
+                                                 :package "biz.aQute.bnd:biz.aQute.bndlib"
+                                                 :reason "bnd helper imports resolve through the declared bndlib package."}
+                                                {:repo "junit-framework"
+                                                 :import "de.skuzzle.test.snapshots.data.xml"
+                                                 :ecosystem "maven"
+                                                 :package "de.skuzzle.test:snapshot-tests-xml"
+                                                 :reason "XML snapshot imports resolve through the declared snapshot-tests-xml package."}
+                                                {:repo "junit-framework"
+                                                 :import "de.skuzzle.test.snapshots"
+                                                 :ecosystem "maven"
+                                                 :package "de.skuzzle.test:snapshot-tests-junit5"
+                                                 :reason "Snapshot testing imports resolve through the declared snapshot-tests-junit5 package."}
+                                                {:repo "junit-framework"
+                                                 :import "kotlin.reflect"
+                                                 :ecosystem "maven"
+                                                 :package "org.jetbrains.kotlin:kotlin-reflect"
+                                                 :reason "Kotlin reflection imports resolve through Gradle's kotlin(\"reflect\") dependency."}
+                                                {:repo "junit-framework"
+                                                 :import "kotlin"
+                                                 :ecosystem "maven"
+                                                 :package "org.jetbrains.kotlin:kotlin-stdlib"
+                                                 :reason "Kotlin runtime imports resolve through Gradle's kotlin(\"stdlib\") dependency."}
+                                                {:repo "junit-framework"
+                                                 :import "kotlinx.coroutines"
+                                                 :ecosystem "maven"
+                                                 :package "org.jetbrains.kotlinx:kotlinx-coroutines-core"
+                                                 :reason "Kotlin coroutine imports resolve through the declared kotlinx-coroutines-core package."}
+                                                {:repo "junit-framework"
+                                                 :import "org.osgi.framework"
+                                                 :ecosystem "maven"
+                                                 :package "biz.aQute.bnd:biz.aQute.bndlib"
+                                                 :reason "OSGi Version imports in tooling support tests compile through the declared bndlib dependency."}]}
           :ground-truth {:localization-files ["junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesExtension.java"
                                               "junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesModification.java"
                                               "jupiter-tests/src/test/java/org/junit/jupiter/api/util/SystemPropertiesExtensionTests.java"]}
@@ -310,6 +310,67 @@
                   :url "https://github.com/twbs/bootstrap/pull/42428"
                   :title "Fix wording in toasts show doc"
                   :body "Historical replay of Bootstrap commit 5693ab7e1b578b44e878d24ab479a650cb545caf. The fix corrected wording in the Toasts documentation. This is intentionally shell-sufficient: identify the single docs file likely to need the wording edit before looking at the fixing diff."}}
+
+         {:id "historical-bootstrap-remove-ios-navbar-dropdowns-doc"
+          :repo-id "bootstrap"
+          :coverage {:source-kinds [:doc]}
+          :tags [:historical
+                 :problem-docs-config-coupling
+                 :docs-config-coupling
+                 :audit-scope-docs
+                 :shell-sufficient-control
+                 :docs
+                 :bootstrap]
+          :base-sha "d50c38fa2cf65d05b3dd65853adf2aa056d93031"
+          :fix-sha "59a79e1dfb20fd0d1d3fc7e74f01f96e81d5b777"
+          :ground-truth {:localization-files ["site/src/content/docs/getting-started/browsers-devices.mdx"]}
+          :expectations {:citation-evidence [{:kind :doc-file
+                                              :path "site/src/content/docs/getting-started/browsers-devices.mdx"}]}
+          :issue {:id "bootstrap-42424"
+                  :url "https://github.com/twbs/bootstrap/pull/42424"
+                  :title "Remove iOS Navbar Dropdowns documentation section"
+                  :body "Historical replay of Bootstrap commit 59a79e1dfb20fd0d1d3fc7e74f01f96e81d5b777. The fix removed the obsolete iOS Navbar Dropdowns section about `.dropdown-backdrop` from the browser/device documentation. Identify the docs file likely to need the edit before looking at the fixing diff."}}
+
+         {:id "historical-flask-request-json-status-doc"
+          :repo-id "flask"
+          :coverage {:source-kinds [:doc]}
+          :tags [:historical
+                 :problem-docs-config-coupling
+                 :docs-config-coupling
+                 :audit-scope-docs
+                 :shell-sufficient-control
+                 :docs
+                 :flask]
+          :base-sha "25642fd1fd65985fc98f95e64bc2c7ff353d6c2b"
+          :fix-sha "30da640ffe23b6e461fa91d387ffea6b9d9fa847"
+          :ground-truth {:localization-files ["docs/patterns/javascript.rst"]}
+          :expectations {:citation-evidence [{:kind :doc-file
+                                              :path "docs/patterns/javascript.rst"}]}
+          :issue {:id "flask-5827"
+                  :url "https://github.com/pallets/flask/pull/5827"
+                  :title "Clarify 415 vs 400 errors for request.json"
+                  :body "Historical replay of Flask commit 30da640ffe23b6e461fa91d387ffea6b9d9fa847. The fix clarified JavaScript pattern docs so invalid JSON still maps to 400 Bad Request while a missing `application/json` Content-Type maps to 415 Unsupported Media Type. Identify the docs file likely to need the edit before looking at the fixing diff."}}
+
+         {:id "historical-axios-proxy-node-only-doc"
+          :repo-id "axios"
+          :coverage {:source-kinds [:doc]}
+          :tags [:historical
+                 :problem-docs-config-coupling
+                 :docs-config-coupling
+                 :audit-scope-docs
+                 :problem-runtime-config
+                 :shell-sufficient-control
+                 :docs
+                 :axios]
+          :base-sha "5f229d2d1f018d1db3dab6bbe034dbf3f9041b99"
+          :fix-sha "fe964f960ecb52c3e1155b0daf7be77541956b01"
+          :ground-truth {:localization-files ["docs/pages/advanced/request-config.md"]}
+          :expectations {:citation-evidence [{:kind :doc-file
+                                              :path "docs/pages/advanced/request-config.md"}]}
+          :issue {:id "axios-10995"
+                  :url "https://github.com/axios/axios/pull/10995"
+                  :title "Mark proxy request config as Node.js only"
+                  :body "Historical replay of Axios commit fe964f960ecb52c3e1155b0daf7be77541956b01. The fix marked the request config `proxy` option as Node.js only in the advanced request config docs. Identify the docs file likely to need the edit before looking at the fixing diff."}}
 
          {:id "historical-bootstrap-node-version-workflows"
           :repo-id "bootstrap"

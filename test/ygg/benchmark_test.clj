@@ -663,7 +663,7 @@
             "feature-planning"
             "historical-replay-quick"]
            (mapv :id (:included-suites suite))))
-    (is (= 25 (count cases)))
+    (is (= 28 (count cases)))
     (is (= 8 (count (:repos suite))))
     (is (every? suite-repo-ids
                 ["bootstrap"
@@ -710,17 +710,21 @@
         full-case-ids (mapv :id (:cases full))
         quick-repo-ids (set (map :id (:repos quick)))
         claim-quick-repo-ids (set (map :id (:repos claim-quick)))
-        full-repo-ids (set (map :id (:repos full)))]
+        full-repo-ids (set (map :id (:repos full)))
+        quick-doc-cases (filter #(contains? (set (get-in % [:coverage :source-kinds]))
+                                            :doc)
+                                (:cases quick))
+        quick-doc-repos (set (map :repo-id quick-doc-cases))]
     (is (= "historical-replay-quick" (:id quick)))
     (is (= "historical-replay-claim-quick" (:id claim-quick)))
     (is (= "historical-replay-full" (:id full)))
-    (is (= 7 (count quick-case-ids)))
+    (is (= 10 (count quick-case-ids)))
     (is (= ["historical-axios-defer-env-proxy-to-node"
             "historical-dapper-prefer-enum-type-handlers"
             "historical-terraform-vpc-endpoint-dns-record-ip-type"
             "historical-flask-autoescape-case-insensitive"]
            claim-quick-case-ids))
-    (is (= 11 (count full-case-ids)))
+    (is (= 14 (count full-case-ids)))
     (is (every? #(seq (get-in % [:expectations :citation-evidence]))
                 (:cases claim-quick)))
     (is (= (set claim-quick-case-ids)
@@ -736,6 +740,8 @@
                    "historical-otel-routing-default-error-mode"))
     (is (not (contains? quick-repo-ids "opentelemetry-collector-contrib")))
     (is (contains? full-repo-ids "opentelemetry-collector-contrib"))
+    (is (<= 4 (count quick-doc-cases)))
+    (is (every? quick-doc-repos ["axios" "bootstrap" "flask"]))
     (is (every? (set full-case-ids) quick-case-ids))
     (is (every? #(seq (get-in % [:coverage :source-kinds])) (:cases quick)))
     (is (contains? (set (mapcat :tags (:cases quick)))
