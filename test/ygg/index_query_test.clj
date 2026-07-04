@@ -81,7 +81,20 @@
                       [{:xt/id "search-doc:app"
                         :project-id "project-a"
                         :repo-id "repo-a"
-                        :active? true}]
+                        :target-id "node:app"
+                        :target-kind :node
+                        :file-id "file:app"
+                        :path "src/app.clj"
+                        :kind :clojure
+                        :label "app"
+                        :text "app text"
+                        :tokens ["app"]
+                        :input-sha "sha:app"
+                        :source-line 1
+                        :active? true
+                        :heading-path ["unused"]
+                        :content-sha "unused"
+                        :end-line 2}]
 
                       :ygg/chunks
                       (throw (ex-info "chunks should use a batched path read"
@@ -102,11 +115,13 @@
                    (query/all-nodes :xtdb
                                     {:project-id "project-a"
                                      :repo-id "repo-a"}))))
-      (is (= ["search-doc:app"]
-             (mapv :xt/id
-                   (query/all-search-docs :xtdb
-                                          {:project-id "project-a"
-                                           :repo-id "repo-a"}))))
+      (let [search-docs (query/all-search-docs :xtdb
+                                               {:project-id "project-a"
+                                                :repo-id "repo-a"})]
+        (is (= ["search-doc:app"] (mapv :xt/id search-docs)))
+        (is (not (contains? (first search-docs) :heading-path)))
+        (is (not (contains? (first search-docs) :content-sha)))
+        (is (not (contains? (first search-docs) :end-line))))
       (is (= ["chunk:src/app.clj" "chunk:src/db.clj"]
              (mapv :xt/id
                    (query/chunks-by-paths :xtdb

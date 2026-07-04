@@ -83,6 +83,26 @@
       0.0
       (/ (+ 1.0 (double (/ dot-product denom))) 2.0))))
 
+(defn- normalize-query-vector
+  [value]
+  (let [query-vector (cond
+                       (vector? value) value
+                       (sequential? value) (vec value)
+                       :else nil)]
+    (cond
+      (not (seq query-vector))
+      (throw (ex-info "Embedding provider returned an empty query vector."
+                      {:reason :empty-query-vector
+                       :value-class (some-> value class .getName)}))
+
+      (not-every? number? query-vector)
+      (throw (ex-info "Embedding provider returned a non-numeric query vector."
+                      {:reason :non-numeric-query-vector
+                       :dims (count query-vector)}))
+
+      :else
+      (mapv double query-vector))))
+
 (defn configured-mode
   []
   (keyword (or (env/get-env "YGG_VECTOR_STORE") "auto")))
@@ -215,6 +235,19 @@
     (.setString statement 1 table-name)
     (with-open [rs (.executeQuery statement)]
       (.next rs))))
+
+(defn- table-row-count
+  [conn table-name]
+  (with-open [statement (.createStatement conn)
+              rs (.executeQuery statement (str "select count(*) from " table-name))]
+    (if (.next rs)
+      (.getLong rs 1)
+      0)))
+
+(defn- populated-table?
+  [conn table-name]
+  (and (table-exists? conn table-name)
+       (pos? (table-row-count conn table-name))))
 
 (defn- table-columns
   [conn table-name]
@@ -490,9 +523,7 @@
                                           [query-vector
                                            {:query-embedding-ms (long (or query-embedding-ms 0))}]
                                           (timed :query-embedding-ms embed-query))
-            query-vector (if (vector? query-vector)
-                           query-vector
-                           (vec query-vector))
+            query-vector (normalize-query-vector query-vector)
             query-magnitude (magnitude query-vector)
             current (current-inputs docs)
             role-list (requested-embedding-roles opts)
@@ -714,24 +745,23 @@
                            :vector-post-filter-candidates 0
                            :vector-candidates 0}}
         (let [[query-vector query-timing] (timed :query-embedding-ms embed-query)
-              query-vector (if (vector? query-vector)
-                             query-vector
-                             (vec query-vector))
+              query-vector (normalize-query-vector query-vector)
               dims (count query-vector)
               [query-result vector-timing]
               (timed :vector-search-ms
                      #(reduce
                        (fn [state role]
                          (let [table-name (vector-table provider model dims role)]
-                           (ensure-schema! conn table-name dims)
-                           (merge-role-query-result
-                            state
-                            (sqlite-query-role! conn
-                                                table-name
-                                                query-vector
-                                                opts
-                                                current
-                                                role))))
+                           (if (populated-table? conn table-name)
+                             (merge-role-query-result
+                              state
+                              (sqlite-query-role! conn
+                                                  table-name
+                                                  query-vector
+                                                  opts
+                                                  current
+                                                  role))
+                             state)))
                        {:score-state {}
                         :raw-count 0
                         :stale-count 0

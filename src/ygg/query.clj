@@ -274,6 +274,23 @@
    :active?
    :run-id])
 
+(def ^:private search-doc-row-query-fields
+  [:xt/id
+   :project-id
+   :repo-id
+   :target-id
+   :target-kind
+   :file-id
+   :path
+   :kind
+   :label
+   :text
+   :tokens
+   :input-sha
+   :source-line
+   :active?
+   :run-id])
+
 (defn- scoped-rows-by-id
   [rows opts]
   (let [scope (effective-scope opts)]
@@ -536,7 +553,13 @@
 (defn all-search-docs
   ([xtdb] (all-search-docs xtdb {}))
   ([xtdb opts]
-   (scoped-rows xtdb (:search-docs store/tables) opts {:active? true})))
+   (let [constraints (merge (scope-constraints opts) {:active? true})
+         rows (store/ordered-rows xtdb
+                                  {:table (:search-docs store/tables)
+                                   :constraints constraints
+                                   :return-fields search-doc-row-query-fields
+                                   :read-context (read-context opts)})]
+     (filter-scope rows opts))))
 
 (defn all-embeddings
   ([xtdb] (all-embeddings xtdb {}))

@@ -143,6 +143,30 @@
                 :symbol 1.0}
                (get-in result [:role-scores "target:one"])))))))
 
+(deftest vector-store-rejects-empty-query-vector
+  (with-redefs [store/rows-with-field-tuples
+                (fn [_ _]
+                  [{:target-id "target:one"
+                    :project-id "project-a"
+                    :repo-id "app"
+                    :provider :fake
+                    :model "fake-model"
+                    :input-sha "sha:one"
+                    :vector [1.0 0.0]}])]
+    (try
+      (vector-store/semantic-score-data
+       :xtdb
+       [{:target-id "target:one" :input-sha "sha:one"}]
+       {:mode :xtdb-scan
+        :provider :fake
+        :model "fake-model"
+        :project-id "project-a"
+        :repo-id "app"
+        :embed-query (fn [] [])})
+      (is false "Expected empty query vector to throw")
+      (catch clojure.lang.ExceptionInfo ex
+        (is (= :empty-query-vector (:reason (ex-data ex))))))))
+
 (deftest vector-store-upsert-is-noop-in-auto-without-sqlite-vec
   (with-redefs [env/get-env (fn [& _] nil)]
     (is (= {:vector-store :xtdb-scan
@@ -201,6 +225,19 @@
                     :project-id "fixture"
                     :repo-id "other"}
                    [:content]))))))
+
+(deftest sqlite-queryable-table-requires-existing-rows
+  (let [db-path (.getPath (io/file (temp-dir "ygg-sqlite-vector-table")
+                                   "project.sqlite"))]
+    (with-open [conn (java.sql.DriverManager/getConnection
+                      (str "jdbc:sqlite:" db-path))]
+      (is (false? (#'vector-store/populated-table? conn "ygg_vec_fixture")))
+      (with-open [statement (.createStatement conn)]
+        (.execute statement "create table ygg_vec_fixture (embedding_id integer primary key)"))
+      (is (false? (#'vector-store/populated-table? conn "ygg_vec_fixture")))
+      (with-open [statement (.createStatement conn)]
+        (.execute statement "insert into ygg_vec_fixture (embedding_id) values (1)"))
+      (is (true? (#'vector-store/populated-table? conn "ygg_vec_fixture"))))))
 
 (deftest sqlite-fts-scores-search-docs-without-sqlite-vec-extension
   (let [index-path (.getPath (io/file (temp-dir "ygg-fts-index") "project.sqlite"))
