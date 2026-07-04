@@ -15,6 +15,7 @@
 (def default-embedding-role :content)
 (def default-vector-overfetch-factors [4 8 16])
 (def default-fts-candidate-limit 100)
+(def sqlite-vec-version "v0.1.9")
 
 (def embedding-row-query-fields
   [:xt/id
@@ -99,9 +100,45 @@
    (or (env/get-env "YGG_VECTOR_INDEX_PATH")
        (default-index-path project-id))))
 
+(defn- host-platform
+  []
+  (let [os-name (str/lower-case (System/getProperty "os.name" ""))
+        os-arch (str/lower-case (System/getProperty "os.arch" ""))]
+    (cond
+      (str/includes? os-name "mac") (str "macos-" (if (contains? #{"aarch64" "arm64"} os-arch)
+                                                    "aarch64"
+                                                    "x86_64"))
+      (str/includes? os-name "linux") (str "linux-" (if (contains? #{"aarch64" "arm64"} os-arch)
+                                                      "aarch64"
+                                                      "x86_64"))
+      (str/includes? os-name "windows") "windows-x86_64"
+      :else nil)))
+
+(defn- sqlite-vec-library-name
+  []
+  (let [os-name (str/lower-case (System/getProperty "os.name" ""))]
+    (cond
+      (str/includes? os-name "windows") "vec0.dll"
+      (str/includes? os-name "mac") "vec0.dylib"
+      :else "vec0.so")))
+
+(defn default-extension-path
+  "Return the central managed sqlite-vec loadable extension path."
+  []
+  (when-let [platform (host-platform)]
+    (str (io/file (store/storage-root)
+                  "extensions"
+                  "sqlite-vec"
+                  sqlite-vec-version
+                  platform
+                  (sqlite-vec-library-name)))))
+
 (defn configured-extension-path
   []
-  (env/get-env "YGG_SQLITE_VEC_EXTENSION"))
+  (or (some-> (env/get-env "YGG_SQLITE_VEC_EXTENSION") str/trim not-empty)
+      (when-let [path (default-extension-path)]
+        (when (.isFile (io/file path))
+          path))))
 
 (defn- truthy?
   [value]
@@ -523,6 +560,32 @@
        (allowed-value? (requested-values opts :file-kind :file-kinds)
                        (:file-kind row))))
 
+(defn- sqlite-role-has-current-vectors?
+  [conn opts role]
+  (with-open [statement (.prepareStatement
+                         conn
+                         (str "select 1 from ygg_embedding_metadata "
+                              "where provider = ? and model = ? and embedding_role = ? "
+                              "and (project_id is ? or project_id = ?) "
+                              "and (repo_id is ? or repo_id = ?) "
+                              "and active = 1 limit 1"))]
+    (.setString statement 1 (name (:provider opts)))
+    (.setString statement 2 (str (:model opts)))
+    (.setString statement 3 (name role))
+    (set-nullable-string! statement 4 (:project-id opts))
+    (set-nullable-string! statement 5 (:project-id opts))
+    (set-nullable-string! statement 6 (:repo-id opts))
+    (set-nullable-string! statement 7 (:repo-id opts))
+    (with-open [rs (.executeQuery statement)]
+      (.next rs))))
+
+(defn- sqlite-current-vectors?
+  [conn opts role-list]
+  (and (table-exists? conn "ygg_embedding_metadata")
+       (some true?
+             (map #(sqlite-role-has-current-vectors? conn opts %)
+                  role-list))))
+
 (defn- sqlite-query-window!
   [conn table-name query-vector opts role k]
   (with-open [statement (.prepareStatement
@@ -625,57 +688,74 @@
 
 (defn- sqlite-score-data
   [docs {:keys [provider model embed-query] :as opts}]
-  (let [[query-vector query-timing] (timed :query-embedding-ms embed-query)
-        query-vector (if (vector? query-vector)
-                       query-vector
-                       (vec query-vector))
-        dims (count query-vector)
-        role-list (requested-embedding-roles opts)
+  (let [role-list (requested-embedding-roles opts)
         current (current-inputs docs)
         sqlite-opts {:index-path (or (:vector-index-path opts)
                                      (configured-index-path (:project-id opts)))
                      :extension-path (or (:sqlite-vec-extension opts)
                                          (configured-extension-path))}]
     (with-open [conn (sqlite-connection sqlite-opts)]
-      (let [[query-result vector-timing]
-            (timed :vector-search-ms
-                   #(reduce
-                     (fn [state role]
-                       (let [table-name (vector-table provider model dims role)]
-                         (ensure-schema! conn table-name dims)
-                         (merge-role-query-result
-                          state
-                          (sqlite-query-role! conn
-                                              table-name
-                                              query-vector
-                                              opts
-                                              current
-                                              role))))
-                     {:score-state {}
-                      :raw-count 0
-                      :stale-count 0
-                      :filtered-count 0
-                      :overfetch-limit 0}
-                     role-list))
-            scores (role-score-data (:score-state query-result))]
-        {:scores (:scores scores)
-         :role-scores (:role-scores scores)
-         :empty? (empty? (:scores scores))
-         :timings (merge {:load-embeddings-ms 0
-                          :semantic-score-ms 0}
-                         query-timing
-                         vector-timing)
+      (if-not (sqlite-current-vectors? conn opts role-list)
+        {:scores {}
+         :empty? true
+         :timings {:load-embeddings-ms 0
+                   :query-embedding-ms 0
+                   :semantic-score-ms 0
+                   :vector-search-ms 0}
          :instrumentation {:vector-store :sqlite-vec
-                           :vector-store-fallback-reason :none
+                           :vector-store-fallback-reason :sqlite-vec-empty
                            :vector-roles role-list
                            :vector-requested-candidate-limit (long (:candidate-limit opts default-candidate-limit))
-                           :vector-overfetch-limit (:overfetch-limit query-result)
-                           :vector-raw-candidates (:raw-count query-result)
-                           :vector-stale-candidates (:stale-count query-result)
-                           :vector-filtered-candidates (:filtered-count query-result)
-                           :vector-post-filter-candidates (count (:scores scores))
-                           :vector-candidates (count (:scores scores))}
-         :query-vector query-vector}))))
+                           :vector-overfetch-limit 0
+                           :vector-raw-candidates 0
+                           :vector-stale-candidates 0
+                           :vector-filtered-candidates 0
+                           :vector-post-filter-candidates 0
+                           :vector-candidates 0}}
+        (let [[query-vector query-timing] (timed :query-embedding-ms embed-query)
+              query-vector (if (vector? query-vector)
+                             query-vector
+                             (vec query-vector))
+              dims (count query-vector)
+              [query-result vector-timing]
+              (timed :vector-search-ms
+                     #(reduce
+                       (fn [state role]
+                         (let [table-name (vector-table provider model dims role)]
+                           (ensure-schema! conn table-name dims)
+                           (merge-role-query-result
+                            state
+                            (sqlite-query-role! conn
+                                                table-name
+                                                query-vector
+                                                opts
+                                                current
+                                                role))))
+                       {:score-state {}
+                        :raw-count 0
+                        :stale-count 0
+                        :filtered-count 0
+                        :overfetch-limit 0}
+                       role-list))
+              scores (role-score-data (:score-state query-result))]
+          {:scores (:scores scores)
+           :role-scores (:role-scores scores)
+           :empty? (empty? (:scores scores))
+           :timings (merge {:load-embeddings-ms 0
+                            :semantic-score-ms 0}
+                           query-timing
+                           vector-timing)
+           :instrumentation {:vector-store :sqlite-vec
+                             :vector-store-fallback-reason :none
+                             :vector-roles role-list
+                             :vector-requested-candidate-limit (long (:candidate-limit opts default-candidate-limit))
+                             :vector-overfetch-limit (:overfetch-limit query-result)
+                             :vector-raw-candidates (:raw-count query-result)
+                             :vector-stale-candidates (:stale-count query-result)
+                             :vector-filtered-candidates (:filtered-count query-result)
+                             :vector-post-filter-candidates (count (:scores scores))
+                             :vector-candidates (count (:scores scores))}
+           :query-vector query-vector})))))
 
 (defn- ensure-fts-schema!
   [conn]
@@ -993,10 +1073,12 @@
             (-> (xtdb-scan-score-data
                  xtdb
                  docs
-                 (assoc opts
-                        :query-vector (:query-vector data)
-                        :query-embedding-ms (get-in data
-                                                    [:timings :query-embedding-ms])))
+                 (cond-> opts
+                   (:query-vector data)
+                   (assoc :query-vector (:query-vector data)
+                          :query-embedding-ms (get-in data
+                                                      [:timings
+                                                       :query-embedding-ms]))))
                 (assoc-in [:instrumentation :vector-store-fallback-reason]
                           :sqlite-vec-empty))
             (dissoc data :query-vector)))

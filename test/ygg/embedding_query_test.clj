@@ -18,6 +18,10 @@
                                                       (make-array java.nio.file.attribute.FileAttribute 0))]
     (.getPath (.toFile file))))
 
+(defn- missing-extension-path
+  []
+  (.getPath (io/file (temp-dir "ygg-missing-sqlite-vec") "missing-vec0")))
+
 (def fake-client
   (embedding/fake-client
    {:dimensions 3
@@ -91,6 +95,7 @@
                     {:mode :auto
                      :provider :fake
                      :model "fake-model"
+                     :sqlite-vec-extension (missing-extension-path)
                      :embed-query (fn []
                                     (reset! embed-called? true)
                                     [1.0 0.0])})]
@@ -149,7 +154,18 @@
               :model "fake-model"
               :target-id "target:one"
               :input-sha "sha:one"
-              :vector [1.0 0.0]}])))))
+              :vector [1.0 0.0]}]
+            {:extension-path (missing-extension-path)})))))
+
+(deftest configured-extension-path-discovers-central-sqlite-vec
+  (let [storage-root (temp-dir "ygg-sqlite-vec-storage")]
+    (with-redefs [env/get-env (fn [& _] nil)
+                  store/storage-root (constantly storage-root)]
+      (let [extension-path (io/file (vector-store/default-extension-path))]
+        (.mkdirs (.getParentFile extension-path))
+        (spit extension-path "")
+        (is (= (.getPath extension-path)
+               (vector-store/configured-extension-path)))))))
 
 (deftest sqlite-fts-scores-search-docs-without-sqlite-vec-extension
   (let [index-path (.getPath (io/file (temp-dir "ygg-fts-index") "project.sqlite"))
