@@ -232,9 +232,13 @@ diagnostic runs that are not making token-use claims. Use the lower-level
 comparison without the bundled proof artifacts.
 
 Read `claim-pack.json` `summary.verdict` first, then inspect
-`efficiency.compactSummary.why` for the minimum explanation that should appear
-in status updates or release notes. If the verdict is `inconclusive`, do not
-promote the bounded claim even when some individual metrics improved.
+`summary.claimReadinessDetails` for machine-readable broad-readiness
+requirements, failed keys, warnings, and notes. Use
+`summary.measuredSliceClaim` only for bounded shared-case claims where broad
+class coverage is incomplete. `efficiency.compactSummary.why` gives the minimum
+explanation that should appear in status updates or release notes. If the
+verdict is `inconclusive`, do not promote the bounded claim even when some
+individual metrics improved.
 
 ## Metrics
 

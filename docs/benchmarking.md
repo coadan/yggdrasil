@@ -608,7 +608,10 @@ plugin-fit choice, not just a shorter suspected-file list.
   `system-improvement-report.json`, `claim-pack.json`, and `CLAIM-PACK.md`.
   Use it after both lane reports exist when you need one artifact set for
   decision quality, token/cost tradeoffs, claim readiness, and system
-  improvement lanes. It consumes reports; it does not run agents or hide the
+  improvement lanes. `claim-pack.json` preserves
+  `summary.claimReadinessDetails` and `summary.measuredSliceClaim`, including
+  failed requirement keys and warnings, so a passing bundle cannot hide missing
+  broad-claim evidence. It consumes reports; it does not run agents or hide the
   cost of generating those reports.
 - `bench agent-compare <suite.edn>` compares two `agent-report.json` files and
   exits non-zero when aggregate or per-case recall/MRR/noise regress beyond

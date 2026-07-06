@@ -140,6 +140,20 @@
     (is (= benchmark/claim-pack-schema (:schema pack)))
     (is (= "inconclusive" (get-in pack [:summary :verdict])))
     (is (= "mixed" (get-in pack [:summary :status])))
+    (is (= "not-supported"
+           (get-in pack [:summary :claimReadinessDetails :status])))
+    (is (= false
+           (get-in pack
+                   [:summary
+                    :claimReadinessDetails
+                    :broadEfficiencyClaimSupported])))
+    (is (= [:yggImprovedWithoutRegressions
+            :problemClassCoverage
+            :architectureClassCoverage]
+           (get-in pack [:summary :failedRequirements])))
+    (is (= [:yggImprovedWithoutRegressions]
+           (get-in pack
+                   [:summary :measuredSliceClaim :failedRequirements])))
     (is (= "better-quality-lower-token-cost"
            (get-in pack [:summary :qualityCostTradeoff :status])))
     (is (= true
@@ -165,5 +179,9 @@
       (is (.isFile (io/file path))))
     (is (str/includes? markdown "# Yggdrasil Benchmark Claim Pack"))
     (is (str/includes? markdown "- Verdict: inconclusive"))
+    (is (str/includes? markdown "## Claim Readiness Warnings"))
+    (is (str/includes?
+         markdown
+         "Aggregate metrics do not show an unregressed Yggdrasil improvement"))
     (is (str/includes? markdown "- Yggdrasil context artifact telemetry: present"))
     (is (str/includes? markdown "decision-quality-gap"))))

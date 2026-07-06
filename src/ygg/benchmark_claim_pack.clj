@@ -80,23 +80,41 @@
 
 (defn- claim-pack-summary
   [comparison system-improvement]
-  {:verdict (get-in comparison [:compactSummary :verdict])
-   :status (:status comparison)
-   :claimReadiness (get-in comparison [:claimReadiness :status])
-   :broadEfficiencyClaimSupported (get-in comparison
-                                          [:claimReadiness
-                                           :broadEfficiencyClaimSupported])
-   :qualityCostTradeoff (:qualityCostTradeoff comparison)
-   :contextArtifacts (:contextArtifacts comparison)
-   :failedRequirements (get-in comparison
-                               [:headlineSummary :failedRequirements])
-   :systemImprovementLanes (mapv #(select-keys % [:lane
-                                                  :suggestedOwnerArea
-                                                  :affectedCases
-                                                  :runs
-                                                  :confidence
-                                                  :signalKinds])
-                                 (:lanes system-improvement))})
+  (let [claim-readiness (:claimReadiness comparison)
+        measured-slice-claim (:measuredSliceClaim comparison)]
+    {:verdict (get-in comparison [:compactSummary :verdict])
+     :status (:status comparison)
+     :claimReadiness (:status claim-readiness)
+     :broadEfficiencyClaimSupported
+     (:broadEfficiencyClaimSupported claim-readiness)
+     :claimReadinessDetails (select-keys
+                             claim-readiness
+                             [:status
+                              :broadEfficiencyClaimSupported
+                              :sharedCases
+                              :minSharedCases
+                              :requirements
+                              :warnings
+                              :notes])
+     :measuredSliceClaim (select-keys
+                          measured-slice-claim
+                          [:status
+                           :measuredSliceClaimSupported
+                           :scope
+                           :requirements
+                           :failedRequirements
+                           :notes])
+     :qualityCostTradeoff (:qualityCostTradeoff comparison)
+     :contextArtifacts (:contextArtifacts comparison)
+     :failedRequirements (get-in comparison
+                                 [:headlineSummary :failedRequirements])
+     :systemImprovementLanes (mapv #(select-keys % [:lane
+                                                    :suggestedOwnerArea
+                                                    :affectedCases
+                                                    :runs
+                                                    :confidence
+                                                    :signalKinds])
+                                   (:lanes system-improvement))}))
 
 (defn- format-token-status
   [status]
@@ -156,6 +174,19 @@
          "## Failed Requirements"
          ""
          (str "- " (str/join ", " (map name failed)))])
+      (when-let [warnings (seq (get-in summary
+                                       [:claimReadinessDetails :warnings]))]
+        (concat
+         [""
+          "## Claim Readiness Warnings"
+          ""]
+         (map #(str "- " %) warnings)))
+      (when-let [notes (seq (get-in summary [:measuredSliceClaim :notes]))]
+        (concat
+         [""
+          "## Measured Slice Notes"
+          ""]
+         (map #(str "- " %) notes)))
       (when (seq (:systemImprovementLanes summary))
         (concat
          [""
