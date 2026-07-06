@@ -1731,7 +1731,8 @@
                                  "go"
                                  "connector/routingconnector/config.schema.yaml"
                                  "yaml"}
-                      "core" {"connector/connector.go" "go"}}
+                      "core" {"component/component.go" "go"
+                              "connector/connector.go" "go"}}
         paths (mapv :path (compact-output files
                                           20
                                           nil
@@ -1797,9 +1798,20 @@
                      :rankScore 36.8
                      :retrievedSourceCount 3
                      :sourceGraphCandidateEvidenceScore 0.58})
-               (row "connector/connector.go"
+               (row "component/component.go"
                     "core"
                     5
+                    {:docCount 1
+                     :candidateFileCount 2
+                     :candidateGrepScore 0.31
+                     :matchedCompoundTokenPairCount 1
+                     :matchedTokenCount 4
+                     :rankScore 13.8
+                     :retrievedSourceCount 1
+                     :sourceGraphCandidateEvidenceScore 0.36})
+               (row "connector/connector.go"
+                    "core"
+                    6
                     {:docCount 1
                      :candidateFileCount 1
                      :candidateGrepScore 0.33
@@ -1815,13 +1827,12 @@
                     {:docCount 1
                      :candidateFileCount 1
                      :candidateGrepScore 0.10
-                     :candidateLexicalComponentBoost 0.08
                      :directoryEvidenceBoost 8.0
                      :matchedPathQueryTokenCount 2
                      :matchedTokenCount 5
                      :rankScore 20.2
                      :retrievedSourceCount 1
-                     :sourceGraphCandidateEvidenceScore 0.47})]
+                     :sourceGraphCandidateEvidenceScore 0.36})]
         kind-by-path {"contrib" {"connector/routingconnector/factory_test.go"
                                  "go"
                                  "connector/routingconnector/metadata.yaml"
@@ -1846,6 +1857,10 @@
                  ["contrib" "connector/routingconnector/factory.go"]
                  ["contrib" "connector/routingconnector/config.go"]
                  ["contrib" "connector/routingconnector/config.schema.yaml"]]))
+    (is (< (index-of file-ids
+                     ["contrib"
+                      "connector/routingconnector/config.schema.yaml"])
+           (index-of file-ids ["core" "component/component.go"])))
     (is (< (index-of file-ids
                      ["contrib"
                       "connector/routingconnector/config.schema.yaml"])

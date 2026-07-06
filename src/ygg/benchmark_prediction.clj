@@ -483,6 +483,8 @@
   0.55)
 (def ^:private compact-output-query-matched-exported-support-limit
   2)
+(def ^:private compact-output-source-kind-sibling-sort-step
+  0.0001)
 (def ^:private compact-output-direct-identity-sort-rank
   0.2)
 (def ^:private compact-output-doc-supported-source-graph-query-sort-rank
@@ -4909,16 +4911,25 @@
   [row]
   (and (pos? (positive-metric row :candidateFileCount))
        (pos? (positive-metric row :matchedTokenCount))
-       (<= candidate-file-only-query-evidence-score-min
-           (row-metric-double row :sourceGraphCandidateEvidenceScore))
-       (or (pos? (row-metric-double row :candidateGrepScore))
-           (pos? (row-metric-double row :candidateLexicalComponentBoost))
-           (pos? (positive-metric row :matchedIdentityCompoundTokenPairCount)))))
+       (or (compact-output-retrieved-path-query-token-row? row)
+           (and (<= candidate-file-only-query-evidence-score-min
+                    (row-metric-double row :sourceGraphCandidateEvidenceScore))
+                (or (pos? (row-metric-double row :candidateGrepScore))
+                    (pos? (row-metric-double row :candidateLexicalComponentBoost))
+                    (pos? (positive-metric
+                           row
+                           :matchedIdentityCompoundTokenPairCount)))))))
 
 (defn- compact-output-source-kind-sibling-cluster-anchor-row?
   [row]
   (or (pos? (positive-metric row :docCount))
       (pos? (positive-metric row :retrievedSourceCount))))
+
+(defn- compact-output-preserved-head-sort-rank?
+  [sort-rank]
+  (<= (double sort-rank)
+      (/ (double compact-output-preserved-doc-head-count)
+         compact-output-preserved-doc-head-sort-scale)))
 
 (defn- compact-output-source-kind-sibling-sort-rank
   [selected-rows row]
@@ -4932,14 +4943,23 @@
         same-dir-sort-ranks (->> same-dir-rows
                                  (keep ::compact-output-sort-rank)
                                  seq)
+        same-dir-preserved-head-sort-ranks (->> same-dir-sort-ranks
+                                                (filter compact-output-preserved-head-sort-rank?)
+                                                seq)
         same-dir-ranks (->> same-dir-rows
                             (keep :rank)
                             seq)]
     (cond
       (and (compact-output-source-kind-sibling-cluster-anchor-row? row)
+           same-dir-preserved-head-sort-ranks)
+      (+ (double (apply max same-dir-preserved-head-sort-ranks))
+         compact-output-source-kind-sibling-sort-step)
+
+      (and (compact-output-source-kind-sibling-cluster-anchor-row? row)
            same-dir-sort-ranks)
       (+ (double (apply min same-dir-sort-ranks))
-         (* 0.01 (count same-dir-sort-ranks)))
+         (* compact-output-source-kind-sibling-sort-step
+            (count same-dir-sort-ranks)))
 
       (and (compact-output-source-kind-sibling-cluster-anchor-row? row)
            same-dir-ranks)
@@ -5425,6 +5445,9 @@
                               (when (compact-output-retrieved-path-self-identity-row?
                                      row)
                                 compact-output-retrieved-path-self-identity-sort-rank)
+                              (when (compact-output-retrieved-path-query-token-row?
+                                     row)
+                                compact-output-retrieved-path-query-token-sort-rank)
                               (when (compact-output-doc-supported-source-graph-query-row?
                                      row)
                                 compact-output-doc-supported-source-graph-query-sort-rank)
