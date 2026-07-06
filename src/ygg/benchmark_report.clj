@@ -1282,6 +1282,12 @@
         benchmark-preflight (:benchmarkPreflightDiagnostics report)
         benchmark-preflight? (or (not (:requiredForClaim benchmark-preflight))
                                  (= "passed" (:status benchmark-preflight)))
+        coverage-diagnostics (:coverageDiagnostics report)
+        declared-source-kind-coverage? (zero?
+                                        (long
+                                         (or (:missingDeclaredSourceKindRuns
+                                              coverage-diagnostics)
+                                             0)))
         non-synthetic-cases? (pos? (long (or (:nonSyntheticCases
                                               dataset-diagnostics)
                                              0)))
@@ -1295,6 +1301,7 @@
                       :nonSyntheticCases non-synthetic-cases?
                       :repoBreadth repo-breadth?
                       :sourceKindBreadth source-kind-breadth?
+                      :declaredSourceKindCoverage declared-source-kind-coverage?
                       :measuredProblemClasses (boolean (seq measured-problem-tags))
                       :measuredNonSyntheticProblemClasses
                       (boolean (seq measured-non-synthetic-problem-tags))
@@ -1338,6 +1345,9 @@
                             " declared source-kind group(s); broad real-world claims require at least "
                             claim-readiness-min-source-kinds
                             "."))
+
+                 (not declared-source-kind-coverage?)
+                 (conj "Declared source-kind coverage is incomplete; every declared source-kind group needs scoreable indexed files before broad real-world claims.")
 
                  (empty? measured-problem-tags)
                  (conj "No measured problem-class groups; include enough cases per class before claiming representative gains.")

@@ -365,6 +365,7 @@
    :nonSyntheticCases
    :repoBreadth
    :sourceKindBreadth
+   :declaredSourceKindCoverage
    :evidenceCitationMetrics
    :expectedEvidenceCitationMetrics
    :decisionQualityMetrics
