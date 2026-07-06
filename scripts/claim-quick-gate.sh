@@ -24,6 +24,7 @@ Runs the small non-synthetic claim-readiness lane:
   --min-source-kind-cases sql=1
   --min-measured-problem-classes 3
   --min-measured-architecture-classes 3
+  --require-broad-claim-readiness
 
 Pass ordinary benchmark-gate options such as --check-only, --skip-existing,
 --setup-check, --case, --cases, --provider, --model, or --dry-run. Later
@@ -56,4 +57,5 @@ exec bash scripts/benchmark-gate.sh \
   --min-source-kind-cases sql=1 \
   --min-measured-problem-classes 3 \
   --min-measured-architecture-classes 3 \
+  --require-broad-claim-readiness \
   "$@"

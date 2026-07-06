@@ -44,6 +44,9 @@ Options:
                       Minimum measured problem-class groups.
   --min-measured-architecture-classes N
                       Minimum measured architecture-class groups.
+  --require-broad-claim-readiness
+                      Fail agent-check unless report claimReadiness supports
+                      broad benchmark claims.
   --provider PROVIDER Embedding provider for semantic/hybrid retrievers.
   --model MODEL       Embedding model for semantic/hybrid retrievers.
   --batch-size N      Embedding batch size for semantic/hybrid retrievers.
@@ -130,6 +133,7 @@ min_source_kind_cases=()
 min_source_kind_case_count=0
 min_measured_problem_classes=""
 min_measured_architecture_classes=""
+require_broad_claim_readiness=false
 min_stage_regression_ms=""
 stage_filters=()
 stage_filter_count=0
@@ -287,6 +291,10 @@ while [[ $# -gt 0 ]]; do
     --min-measured-architecture-classes)
       min_measured_architecture_classes="$2"
       shift 2
+      ;;
+    --require-broad-claim-readiness)
+      require_broad_claim_readiness=true
+      shift
       ;;
     --min-stage-regression-ms)
       min_stage_regression_ms="$2"
@@ -451,6 +459,9 @@ if [[ -n "$min_measured_problem_classes" ]]; then
 fi
 if [[ -n "$min_measured_architecture_classes" ]]; then
   agent_check_args+=(--min-measured-architecture-classes "$min_measured_architecture_classes")
+fi
+if [[ "$require_broad_claim_readiness" == true ]]; then
+  agent_check_args+=(--require-broad-claim-readiness)
 fi
 
 run_bench agent-check "${agent_check_args[@]}"

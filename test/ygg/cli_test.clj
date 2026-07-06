@@ -2281,6 +2281,7 @@
                                  "--max-parser-worker-profiles" "1"
                                  "--min-measured-problem-classes" "1"
                                  "--min-measured-architecture-classes" "1"
+                                 "--require-broad-claim-readiness"
                                  "--require-parser-worker" "all"
                                  "--allow-missing"
                                  "--allow-duplicate-runs"
@@ -2347,6 +2348,7 @@
                   :max-parser-worker-profiles 1
                   :min-measured-problem-classes 1
                   :min-measured-architecture-classes 1
+                  :require-broad-claim-readiness? true
                   :require-parser-worker "all"
                   :allow-missing? true
                   :allow-duplicate-runs? true}]]

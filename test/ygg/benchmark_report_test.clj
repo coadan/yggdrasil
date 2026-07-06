@@ -2612,6 +2612,7 @@
            (set (map :metric (get-in failed [:caseDiagnostics 1 :failures])))))
     (is (= {:requireComplete true
             :allowDuplicateRuns false
+            :requireBroadClaimReadiness false
             :minCases 3.0
             :minRuns 2.0
             :minFileRecallAt10 0.9
@@ -2749,6 +2750,50 @@
                    [:thresholdGate :broadClaimReadiness :status])))
     (is (empty? (:failures passed)))))
 
+(deftest agent-check-can-require-broad-claim-readiness
+  (let [report {:schema benchmark/agent-report-schema
+                :suite-id "suite"
+                :cases 1
+                :completed 1
+                :runs 1
+                :missing []
+                :scores {}
+                :claimReadiness {:status "not-supported"
+                                 :broadArchitectureClaimSupported false
+                                 :requirements {:sourceKindBreadth false}
+                                 :warnings ["Only one source-kind group."]}
+                :results [{:case-id "case-1"
+                           :repo-id "repo-a"}]}
+        failed (benchmark/check-agent-report
+                report
+                {:require-broad-claim-readiness? true})
+        passed (benchmark/check-agent-report
+                (assoc report
+                       :claimReadiness {:status "supported"
+                                        :broadArchitectureClaimSupported true
+                                        :requirements {:sourceKindBreadth true}
+                                        :warnings []})
+                {:require-broad-claim-readiness? true})
+        missing (benchmark/check-agent-report
+                 (dissoc report :claimReadiness)
+                 {:require-broad-claim-readiness? true})]
+    (is (= "failed" (:status failed)))
+    (is (= ["broadClaimReadiness"]
+           (mapv :metric (:failures failed))))
+    (is (= {:status "not-supported"
+            :supported false
+            :failedRequirements [:sourceKindBreadth]
+            :warnings ["Only one source-kind group."]
+            :broadArchitectureClaimSupported false}
+           (get-in failed [:failures 0 :broadClaimReadiness])))
+    (is (= true (get-in failed [:thresholds :requireBroadClaimReadiness])))
+    (is (= "passed" (:status passed)))
+    (is (= [] (:failures passed)))
+    (is (= "failed" (:status missing)))
+    (is (= "unknown"
+           (get-in missing
+                   [:failures 0 :broadClaimReadiness :status])))))
+
 (deftest checks-agent-report-decision-thresholds
   (let [report {:schema benchmark/agent-report-schema
                 :suite-id "suite"
@@ -2872,6 +2917,7 @@
     (is (= [] (get-in failed [:caseDiagnostics 1 :failures])))
     (is (= {:requireComplete true
             :allowDuplicateRuns false
+            :requireBroadClaimReadiness false
             :maxTotalTokens 2000.0
             :maxInputTokens 1500.0
             :maxOutputTokens 600.0

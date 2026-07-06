@@ -426,6 +426,9 @@
     (some #{"--skip-existing"} args) (assoc :skip-existing? true)
     (some #{"--allow-missing"} args) (assoc :allow-missing? true)
     (some #{"--allow-duplicate-runs"} args) (assoc :allow-duplicate-runs? true)
+    (some #{"--require-broad-claim-readiness"} args) (assoc
+                                                      :require-broad-claim-readiness?
+                                                      true)
     (some #{"--graphify-include-non-code"} args) (assoc
                                                   :graphify-include-non-code?
                                                   true)

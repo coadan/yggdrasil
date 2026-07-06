@@ -72,11 +72,12 @@ MRR floor of `0.30` plus an aggregate `noise@20` ceiling of `0.80`. Broad
 claim readiness must include all six curated repos, scoreable cases across the
 tracked JavaScript, Python, docs, .NET, Terraform, and SQL source-kind mix, at
 least three measured problem-class groups, and at least three measured
-architecture-class groups. The full historical replay remains the authoritative
-claim lane. Regenerating the gate reuses compatible baseline context manifests
-by default, keyed by benchmark options and a Yggdrasil implementation
-fingerprint. Use `--fresh-context` when profiling full rebuild cost or
-intentionally replacing context artifacts.
+architecture-class groups. The wrapper also requires the generated report's
+own `claimReadiness` field to be supported. The full historical replay remains
+the authoritative claim lane. Regenerating the gate reuses compatible baseline
+context manifests by default, keyed by benchmark options and a Yggdrasil
+implementation fingerprint. Use `--fresh-context` when profiling full rebuild
+cost or intentionally replacing context artifacts.
 
 Agent reports also carry generic claim-readiness requirements. A report must
 include at least two benchmark repos, two declared source-kind groups, and no

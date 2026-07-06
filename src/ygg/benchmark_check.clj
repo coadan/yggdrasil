@@ -15,7 +15,9 @@
 (defn- agent-check-thresholds
   [opts]
   (cond-> (into {:requireComplete (not (:allow-missing? opts))
-                 :allowDuplicateRuns (boolean (:allow-duplicate-runs? opts))}
+                 :allowDuplicateRuns (boolean (:allow-duplicate-runs? opts))
+                 :requireBroadClaimReadiness
+                 (boolean (:require-broad-claim-readiness? opts))}
                 (keep (fn [[opt-key artifact-key]]
                         (threshold opts opt-key artifact-key)))
                 [[:min-cases :minCases]
@@ -861,6 +863,18 @@
        :failedRequirements []
        :warnings ["Agent report has no claimReadiness field."]})))
 
+(defn- broad-claim-readiness-failures
+  [check]
+  (when (get-in check [:thresholds :requireBroadClaimReadiness])
+    (let [readiness (broad-claim-readiness-summary (:report check))]
+      (when-not (:supported readiness)
+        [(merge (metric-failure "broadClaimReadiness"
+                                "="
+                                "supported"
+                                (:status readiness))
+                {:broadClaimReadiness readiness
+                 :message "The agent report does not support broad benchmark claims; inspect claimReadiness requirements and warnings before using this gate as broad real-world evidence."})]))))
+
 (defn- threshold-gate-summary
   [check failures status]
   {:status status
@@ -944,6 +958,7 @@
                    (coverage-diagnostic-failures check-base)
                    (improvement-target-failures check-base)
                    (problem-class-claim-failures check-base)
+                   (broad-claim-readiness-failures check-base)
                    (parser-worker-profile-failures check-base)
                    (localization-diagnostic-failures check-base)
                    (active-stage-failures check-base)))

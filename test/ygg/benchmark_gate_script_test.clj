@@ -268,6 +268,8 @@
                        "--min-measured-problem-classes 3"))
     (is (str/includes? (nth lines 2)
                        "--min-measured-architecture-classes 3"))
+    (is (str/includes? (nth lines 2)
+                       "--require-broad-claim-readiness"))
     (is (str/includes? (nth lines 3)
                        "python3 scripts/stage-time-gate.py"))))
 
@@ -304,6 +306,8 @@
                        "--min-measured-problem-classes 2"))
     (is (str/includes? check-line
                        "--min-measured-architecture-classes 2"))
+    (is (str/includes? check-line
+                       "--require-broad-claim-readiness"))
     (is (not (str/includes? check-line
                             "--min-expected-evidence-citation-rate 1.0")))
     (is (not (str/includes? check-line
@@ -336,7 +340,9 @@
     (is (str/includes? (:out result)
                        "--min-measured-problem-classes 3"))
     (is (str/includes? (:out result)
-                       "--min-measured-architecture-classes 3"))))
+                       "--min-measured-architecture-classes 3"))
+    (is (str/includes? (:out result)
+                       "--require-broad-claim-readiness"))))
 (deftest docs-claim-dry-run-uses-docs-suite-and-expected-evidence-gates
   (let [result (run-docs-claim-gate "--dry-run")
         lines (output-lines result)]
@@ -368,6 +374,8 @@
                        "--min-measured-problem-classes 1"))
     (is (str/includes? (nth lines 2)
                        "--min-measured-architecture-classes 1"))
+    (is (not (str/includes? (nth lines 2)
+                            "--require-broad-claim-readiness")))
     (is (str/includes? (nth lines 3)
                        "python3 scripts/stage-time-gate.py"))))
 
@@ -391,7 +399,9 @@
     (is (str/includes? (:out result)
                        "--min-measured-problem-classes 1"))
     (is (str/includes? (:out result)
-                       "--min-measured-architecture-classes 1"))))
+                       "--min-measured-architecture-classes 1"))
+    (is (not (str/includes? (:out result)
+                            "--require-broad-claim-readiness")))))
 
 (deftest dry-run-runs-stage-time-gate-when-threshold-is-set
   (let [result (run-gate "--dry-run"

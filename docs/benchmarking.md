@@ -60,8 +60,10 @@ rather than synthetic exact-rank behavior. It also enforces at least three
 measured problem-class groups, three measured architecture-class groups, six
 completed repos, and scoreable cases across the tracked JavaScript, Python,
 docs, .NET, Terraform, and SQL source-kind mix so broad claims are not backed
-by a single real-world slice. The full historical replay remains the
-authoritative claim lane.
+by a single real-world slice. The wrapper also passes
+`--require-broad-claim-readiness`, so `agent-check` fails if the generated
+report's own `claimReadiness` field is not supported. The full historical
+replay remains the authoritative claim lane.
 
 Use `bb bench:docs-claim` for documentation-handling claims. It runs the
 non-synthetic selector `benchmarks/historical-docs-claim-quick.edn`, stores
@@ -561,6 +563,8 @@ plugin-fit choice, not just a shorter suspected-file list.
   do not match the indexed facts,
   `--max-benchmark-preflight-blockers` to fail when benchmark preflight
   checks block Yggdrasil-mode claims,
+  `--require-broad-claim-readiness` to fail when the generated report's
+  `claimReadiness` field is missing or not supported,
   `--max-missing-declared-source-kind-runs` to fail when selected cases declare
   source kinds that produce no scoreable coverage, `--min-repos` to require
   repo breadth in completed artifacts, `--min-source-kind-cases KIND=N` to
