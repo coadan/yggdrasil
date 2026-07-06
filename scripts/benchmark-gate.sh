@@ -38,6 +38,8 @@ Options:
                       Default: 0.50.
   --max-blocking-hint-diagnostic-runs N
                       Maximum runs with blocking hint diagnostics. Default: 0.
+  --min-cases N       Minimum completed cases and runs. Default: 4, or the
+                      selected case count when --case/--cases is used.
   --min-repos N       Minimum distinct completed benchmark repos.
   --min-source-kind-cases KIND=N
                       Minimum completed cases with scoreable source-kind
@@ -134,6 +136,7 @@ max_total_stage_regression_ratio=""
 min_expected_evidence_citation_rate="0.80"
 min_case_expected_evidence_citation_rate="0.50"
 max_blocking_hint_diagnostic_runs="0"
+min_cases_override=""
 min_repos=""
 min_source_kind_cases=()
 min_source_kind_case_count=0
@@ -286,6 +289,10 @@ while [[ $# -gt 0 ]]; do
       max_blocking_hint_diagnostic_runs="$2"
       shift 2
       ;;
+    --min-cases)
+      min_cases_override="$2"
+      shift 2
+      ;;
     --min-repos)
       min_repos="$2"
       shift 2
@@ -359,6 +366,9 @@ elif [[ -n "$case_id" ]]; then
 elif [[ -n "$case_ids" ]]; then
   IFS=',' read -r -a selected_cases <<< "$case_ids"
   min_count="${#selected_cases[@]}"
+fi
+if [[ -n "$min_cases_override" ]]; then
+  min_count="$min_cases_override"
 fi
 
 run_bench() {

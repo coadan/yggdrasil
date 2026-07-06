@@ -14,6 +14,9 @@
 (defn- run-claim-quick-gate
   [& args]
   (apply shell/sh "bash" "scripts/claim-quick-gate.sh" args))
+(defn- run-full-claim-gate
+  [& args]
+  (apply shell/sh "bash" "scripts/full-claim-gate.sh" args))
 (defn- run-docs-claim-gate
   [& args]
   (apply shell/sh "bash" "scripts/docs-claim-gate.sh" args))
@@ -228,6 +231,8 @@
     (is (str/includes? (:out result)
                        "--max-blocking-hint-diagnostic-runs N"))
     (is (str/includes? (:out result)
+                       "--min-cases N"))
+    (is (str/includes? (:out result)
                        "Maximum runs with blocking hint diagnostics"))
     (is (str/includes? (:out result)
                        "--min-repos N"))
@@ -241,6 +246,20 @@
                        "--require-docs-claim-readiness"))
     (is (str/includes? (:out result) "--retriever MODE"))
     (is (str/includes? (:out result) "current artifacts already"))))
+
+(deftest min-cases-dry-run-overrides-default-check-minimum
+  (let [result (run-gate "--dry-run"
+                         "--check-only"
+                         "--suite" "benchmarks/custom.edn"
+                         "--manifest" "benchmarks/custom-repos.edn"
+                         "--out" ".dev/ygg/benchmark-gate/custom"
+                         "--min-cases" "16")
+        lines (output-lines result)
+        check-line (first (filter #(str/includes? % "bench agent-check")
+                                  lines))]
+    (is (= 0 (:exit result)))
+    (is (str/includes? check-line "--min-cases 16"))
+    (is (str/includes? check-line "--min-runs 16"))))
 
 (deftest claim-quick-dry-run-uses-claim-suite-and-expected-evidence-gates
   (let [result (run-claim-quick-gate "--dry-run")
@@ -361,6 +380,73 @@
                        "--min-measured-problem-classes 3"))
     (is (str/includes? (:out result)
                        "--min-measured-architecture-classes 3"))
+    (is (str/includes? (:out result)
+                       "--require-broad-claim-readiness"))))
+
+(deftest claim-full-dry-run-uses-full-suite-and-strict-coverage-gates
+  (let [result (run-full-claim-gate "--dry-run")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 4 (count lines)))
+    (is (str/includes? (nth lines 0)
+                       "bb bench repos check --manifest benchmarks/repos.edn --suite benchmarks/historical-replay-full.edn"))
+    (is (str/includes? (nth lines 1)
+                       "bench agent-baseline benchmarks/historical-replay-full.edn"))
+    (is (str/includes? (nth lines 1)
+                       "--out .dev/ygg/full-claim-gate"))
+    (is (str/includes? (nth lines 2)
+                       "bench agent-check benchmarks/historical-replay-full.edn"))
+    (is (str/includes? (nth lines 2)
+                       "--min-cases 16"))
+    (is (str/includes? (nth lines 2)
+                       "--min-runs 16"))
+    (is (str/includes? (nth lines 2)
+                       "--min-mrr 0.30"))
+    (is (str/includes? (nth lines 2)
+                       "--max-noise-at-20 0.80"))
+    (is (str/includes? (nth lines 2)
+                       "--min-expected-evidence-citation-rate 0.80"))
+    (is (str/includes? (nth lines 2)
+                       "--min-case-expected-evidence-citation-rate 0.50"))
+    (is (str/includes? (nth lines 2)
+                       "--max-blocking-hint-diagnostic-runs 0"))
+    (is (str/includes? (nth lines 2)
+                       "--min-repos 10"))
+    (doseq [source-kind-minimum ["--min-source-kind-cases javascript=3"
+                                 "--min-source-kind-cases python=2"
+                                 "--min-source-kind-cases doc=4"
+                                 "--min-source-kind-cases dotnet=1"
+                                 "--min-source-kind-cases go=1"
+                                 "--min-source-kind-cases terraform=1"
+                                 "--min-source-kind-cases yaml=1"
+                                 "--min-source-kind-cases sql=1"
+                                 "--min-source-kind-cases text=1"
+                                 "--min-source-kind-cases ci=1"
+                                 "--min-source-kind-cases manifest=1"
+                                 "--min-source-kind-cases java=1"]]
+      (is (str/includes? (nth lines 2) source-kind-minimum)))
+    (is (str/includes? (nth lines 2)
+                       "--min-measured-problem-classes 3"))
+    (is (str/includes? (nth lines 2)
+                       "--min-measured-architecture-classes 3"))
+    (is (str/includes? (nth lines 2)
+                       "--require-broad-claim-readiness"))
+    (is (str/includes? (nth lines 3)
+                       "python3 scripts/stage-time-gate.py"))))
+
+(deftest claim-full-help-documents-defaults
+  (let [result (run-full-claim-gate "--help")]
+    (is (= 0 (:exit result)))
+    (is (str/includes? (:out result)
+                       "benchmarks/historical-replay-full.edn"))
+    (is (str/includes? (:out result)
+                       "--min-cases 16"))
+    (is (str/includes? (:out result)
+                       "--min-repos 10"))
+    (is (str/includes? (:out result)
+                       "--min-source-kind-cases manifest=1"))
+    (is (str/includes? (:out result)
+                       "--min-source-kind-cases java=1"))
     (is (str/includes? (:out result)
                        "--require-broad-claim-readiness"))))
 (deftest docs-claim-dry-run-uses-docs-suite-and-expected-evidence-gates

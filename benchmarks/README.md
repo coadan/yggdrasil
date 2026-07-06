@@ -133,10 +133,18 @@ Use the full lane as the authoritative non-synthetic claim lane, including the
 heavy multi-repo replay case:
 
 ```sh
+bb bench:claim-full --check-only
+
 bb agent-efficiency all \
   --suite benchmarks/historical-replay-full.edn \
   --out .dev/ygg/agent-efficiency/historical-replay-full
 ```
+
+`bb bench:claim-full` is the strict deterministic full-lane gate. It requires
+all 16 historical replay cases, ten repos, the full tracked source-kind mix,
+expected-evidence citation quality, three measured problem-class groups, three
+measured architecture-class groups, and supported broad claim readiness. Use it
+before treating full-lane artifacts as broad real-world evidence.
 
 The deterministic gate runs the same preflight before doing benchmark work. Its
 default suite is synthetic architecture coverage, so it is useful as a
@@ -178,7 +186,8 @@ packet token budgets, but skips baseline regeneration. If current artifacts were
 created before deterministic baseline token estimates were recorded, run the full
 gate once to refresh them before using check-only mode for token claims. For
 broad real-world claims, prefer `bb bench:claim-quick --check-only` against the
-non-synthetic claim lane. For documentation-handling claims, prefer
+non-synthetic claim lane, or `bb bench:claim-full --check-only` when using the
+authoritative full historical replay lane. For documentation-handling claims, prefer
 `bb bench:docs-claim --check-only`.
 
 If a checkout still exists under the legacy `.dev/oss-test-cases/repos/` cache,

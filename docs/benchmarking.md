@@ -68,6 +68,17 @@ by a single real-world slice. The wrapper also passes
 report's own `claimReadiness` field is not supported. The full historical
 replay remains the authoritative claim lane.
 
+Use `bb bench:claim-full` for the strict deterministic full historical replay
+claim lane. It runs `benchmarks/historical-replay-full.edn`, stores artifacts
+under `.dev/ygg/full-claim-gate`, and keeps the same expected-evidence,
+blocking-hint, MRR, noise, problem-class, architecture-class, and broad claim
+readiness gates as the quick lane. It also requires all 16 historical replay
+cases, ten completed repos, and the full tracked source-kind mix, including the
+extra CI, manifest, and Java cases that are outside the quick lane. Use
+`--check-only` only when current full-lane score artifacts already exist; a
+partial full-lane artifact should fail this wrapper instead of supporting a broad
+claim.
+
 Use `bb bench:docs-claim` for documentation-handling claims. It runs the
 non-synthetic selector `benchmarks/historical-docs-claim-quick.edn`, stores
 artifacts under `.dev/ygg/docs-claim-gate`, gates expected evidence with the
@@ -577,6 +588,7 @@ plugin-fit choice, not just a shorter suspected-file list.
   do not match the indexed facts,
   `--max-benchmark-preflight-blockers` to fail when benchmark preflight
   checks block Yggdrasil-mode claims,
+  `--min-cases` to require a minimum number of completed cases and runs,
   `--require-broad-claim-readiness` to fail when the generated report's
   `claimReadiness` field is missing or not supported,
   `--require-docs-claim-readiness` to fail when the generated report's
