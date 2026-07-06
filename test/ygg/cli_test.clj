@@ -360,63 +360,65 @@
                @calls))))))
 
 (deftest sync-inspect-json-exposes-stable-freshness-summary
-  (with-redefs [project/read-project (fn [path]
-                                       (assoc project-fixture :path path))
-                store/with-node (fn [_ f]
-                                  (f :xtdb))
-                evidence/summarize (fn [xtdb project opts]
-                                     (is (= :xtdb xtdb))
-                                     (is (= "fixture" (:id project)))
-                                     (is (= "project.edn" (:config-path opts)))
-                                     {:freshness {:status :stale
-                                                  :counts {:indexed 2
-                                                           :current 1
-                                                           :changed 1
-                                                           :missing 0
-                                                           :unindexed 0}
-                                                  :repos [{:repo-id "app"
-                                                           :status :stale
-                                                           :counts {:indexed 2
-                                                                    :current 1
-                                                                    :changed 1
-                                                                    :missing 0
-                                                                    :unindexed 0}
-                                                           :git-state {:git-branch "main"
-                                                                       :git-upstream "origin/main"
-                                                                       :git-upstream-status :behind
-                                                                       :git-upstream-current? false
-                                                                       :git-ahead 0
-                                                                       :git-behind 2}
-                                                           :samples {:changed [{:repo-id "app"
-                                                                                :path "AGENTS.md"}]}}]}
-                                      :families []
-                                      :counts {}
-                                      :nextActions []})]
-    (let [parsed (read-json-output
-                  (with-out-str
-                    (cli/dispatch "sync" ["inspect" "project.edn" "--json"])))]
-      (is (= {:indexed 2
-              :current 1
-              :changed 1
-              :missing 0
-              :unindexed 0}
-             (:freshnessCounts parsed)))
-      (is (= [{:id "app"
-               :status "stale"
-               :counts {:indexed 2
-                        :current 1
-                        :changed 1
-                        :missing 0
-                        :unindexed 0}
-               :gitState {:git-branch "main"
-                          :git-upstream "origin/main"
-                          :git-upstream-status "behind"
-                          :git-upstream-current? false
-                          :git-ahead 0
-                          :git-behind 2}
-               :samples {:changed [{:repo-id "app"
-                                    :path "AGENTS.md"}]}}]
-             (:repoFreshness parsed))))))
+  (let [expected-config-path (.getCanonicalPath (io/file "project.edn"))]
+    (with-redefs [project/read-project (fn [path]
+                                         (assoc project-fixture :path path))
+                  store/with-node (fn [_ f]
+                                    (f :xtdb))
+                  evidence/summarize (fn [xtdb project opts]
+                                       (is (= :xtdb xtdb))
+                                       (is (= "fixture" (:id project)))
+                                       (is (= expected-config-path
+                                              (:config-path opts)))
+                                       {:freshness {:status :stale
+                                                    :counts {:indexed 2
+                                                             :current 1
+                                                             :changed 1
+                                                             :missing 0
+                                                             :unindexed 0}
+                                                    :repos [{:repo-id "app"
+                                                             :status :stale
+                                                             :counts {:indexed 2
+                                                                      :current 1
+                                                                      :changed 1
+                                                                      :missing 0
+                                                                      :unindexed 0}
+                                                             :git-state {:git-branch "main"
+                                                                         :git-upstream "origin/main"
+                                                                         :git-upstream-status :behind
+                                                                         :git-upstream-current? false
+                                                                         :git-ahead 0
+                                                                         :git-behind 2}
+                                                             :samples {:changed [{:repo-id "app"
+                                                                                  :path "AGENTS.md"}]}}]}
+                                        :families []
+                                        :counts {}
+                                        :nextActions []})]
+      (let [parsed (read-json-output
+                    (with-out-str
+                      (cli/dispatch "sync" ["inspect" "project.edn" "--json"])))]
+        (is (= {:indexed 2
+                :current 1
+                :changed 1
+                :missing 0
+                :unindexed 0}
+               (:freshnessCounts parsed)))
+        (is (= [{:id "app"
+                 :status "stale"
+                 :counts {:indexed 2
+                          :current 1
+                          :changed 1
+                          :missing 0
+                          :unindexed 0}
+                 :gitState {:git-branch "main"
+                            :git-upstream "origin/main"
+                            :git-upstream-status "behind"
+                            :git-upstream-current? false
+                            :git-ahead 0
+                            :git-behind 2}
+                 :samples {:changed [{:repo-id "app"
+                                      :path "AGENTS.md"}]}}]
+               (:repoFreshness parsed)))))))
 
 (deftest plugin-install-dispatches-to-package-installer
   (let [calls (atom [])
