@@ -92,10 +92,12 @@ Use the docs claim lane when the claim is specifically about documentation
 handling. It is a non-synthetic selector over historical doc edit cases, stores
 artifacts under `.dev/ygg/docs-claim-gate`, gates expected evidence with the
 same floors as `bb bench:claim-quick`, uses the same `0.30` MRR floor, and keeps
-the default deterministic gate `noise@20` ceiling of `0.90` for single-file docs
-edit cases. It additionally rejects blocking hint diagnostics, requires at least
+the deterministic gate `noise@20` ceiling of `0.90`. It additionally rejects
+blocking hint diagnostics, requires at least
 three completed repos, four completed cases with scoreable `doc` source-kind
-coverage, and at least one measured docs problem/architecture class:
+coverage, one completed docs-adjacent `ci` source-kind case, two scoreable
+source-kind groups in report readiness, and at least one measured docs
+problem/architecture class:
 
 ```sh
 bb bench:docs-claim --setup-check

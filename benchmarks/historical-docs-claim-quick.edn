@@ -4,5 +4,6 @@
  :include-suites [{:path "historical-replay.edn"
                    :case-ids ["historical-bootstrap-toasts-doc-wording"
                               "historical-bootstrap-remove-ios-navbar-dropdowns-doc"
+                              "historical-bootstrap-node-version-workflows"
                               "historical-flask-request-json-status-doc"
                               "historical-axios-proxy-node-only-doc"]}]}

@@ -766,7 +766,8 @@
     (is (= ["historical-bootstrap-toasts-doc-wording"
             "historical-bootstrap-remove-ios-navbar-dropdowns-doc"
             "historical-flask-request-json-status-doc"
-            "historical-axios-proxy-node-only-doc"]
+            "historical-axios-proxy-node-only-doc"
+            "historical-bootstrap-node-version-workflows"]
            docs-claim-case-ids))
     (is (= 16 (count full-case-ids)))
     (is (every? #(seq (get-in % [:expectations :citation-evidence]))
@@ -815,14 +816,14 @@
             :sql 1
             :text 1}
            claim-quick-source-kind-counts))
-    (is (= #{:doc} docs-claim-source-kinds))
+    (is (= #{:ci :doc} docs-claim-source-kinds))
     (is (<= 2 (get claim-quick-tags "problem-docs-config-coupling" 0)))
     (is (<= 2 (get claim-quick-tags "problem-implementation" 0)))
     (is (<= 2 (get claim-quick-tags "problem-test-only" 0)))
     (is (<= 2 (get claim-quick-tags "audit-scope-docs" 0)))
-    (is (<= 4 (get docs-claim-tags "historical" 0)))
+    (is (<= 5 (get docs-claim-tags "historical" 0)))
     (is (<= 4 (get docs-claim-tags "docs" 0)))
-    (is (<= 4 (get docs-claim-tags "problem-docs-config-coupling" 0)))
+    (is (<= 5 (get docs-claim-tags "problem-docs-config-coupling" 0)))
     (is (<= 3 (get docs-claim-tags "audit-scope-docs" 0)))
     (is (= ["problem-docs-config-coupling"]
            docs-claim-measured-problem-tags))

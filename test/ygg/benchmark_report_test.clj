@@ -1667,7 +1667,7 @@
       (is (= []
              (get-in report [:claimReadiness :warnings]))))))
 
-(deftest agent-report-docs-claim-readiness-supports-docs-only-lane
+(deftest agent-report-docs-claim-readiness-supports-docs-lane
   (let [out (temp-dir "ygg-agent-report-docs-claim-readiness")
         suite {:id "suite"
                :cases [{:id "docs-a"
@@ -1688,9 +1688,21 @@
                        {:id "docs-d"
                         :repo-id "repo-c"
                         :coverage {:source-kinds [:doc]}
+                        :tags [:problem-docs-config-coupling]}
+                       {:id "docs-config-ci"
+                        :repo-id "repo-c"
+                        :coverage {:source-kinds [:ci]}
                         :tags [:problem-docs-config-coupling]}]}
         write-score! (fn [case]
-                       (let [case-id (:id case)]
+                       (let [case-id (:id case)
+                             source-kinds (mapv name
+                                                (get-in case
+                                                        [:coverage
+                                                         :source-kinds]))
+                             path (str case-id
+                                       (if (= ["ci"] source-kinds)
+                                         ".yml"
+                                         ".md"))]
                          (spit-json!
                           out
                           (str "suite/cases/" case-id "/agent-scores/run.score.json")
@@ -1700,23 +1712,23 @@
                            :repo-id (:repo-id case)
                            :tags (mapv name (:tags case))
                            :benchmarkPreflight passing-benchmark-preflight
-                           :coverage {:declaredSourceKinds ["doc"]
-                                      :scoreableSourceKinds ["doc"]
-                                      :scoreableFilesByKind [{:kind "doc"
+                           :coverage {:declaredSourceKinds source-kinds
+                                      :scoreableSourceKinds source-kinds
+                                      :scoreableFilesByKind [{:kind (first source-kinds)
                                                               :files 1}]
                                       :missingDeclaredSourceKinds []}
                            :expectations {:evidence [{:kind "doc-heading"
-                                                      :path (str case-id ".md")}]}
+                                                      :path path}]}
                            :agent {:agentId "codex"
                                    :mode "ygg"
-                                   :topFiles [{:path (str case-id ".md")
+                                   :topFiles [{:path path
                                                :rank 1
                                                :evidence ["context-doc"]}]
                                    :commands ["ygg query docs --project fixture"]}
-                           :groundTruth {:changedFiles [(str case-id ".md")]
-                                         :scoreableFiles [(str case-id ".md")]
+                           :groundTruth {:changedFiles [path]
+                                         :scoreableFiles [path]
                                          :unsupportedGroundTruthFiles []}
-                           :groundTruthRanks {:files [{:path (str case-id ".md")
+                           :groundTruthRanks {:files [{:path path
                                                        :rank 1
                                                        :found? true}]}
                            :scores {:fileRecallAt5 1.0
@@ -1752,14 +1764,19 @@
                      [:docsClaimReadiness :measuredDocsArchitectureClassTags])))
       (is (= ["repo-a" "repo-b" "repo-c"]
              (get-in report [:docsClaimReadiness :repoIds])))
-      (is (= ["doc"]
+      (is (= ["ci" "doc"]
              (get-in report [:docsClaimReadiness :sourceKindKeys])))
       (is (= 4 (get-in report [:docsClaimReadiness :docSourceKindCases])))
+      (is (= 2
+             (get-in report
+                     [:docsClaimReadiness
+                      :minimumSourceKindGroupsForDocsClaim])))
       (is (= {:completedCases true
               :hasRuns true
               :nonSyntheticCases true
               :repoBreadth true
               :docSourceKindCoverage true
+              :docsClaimSourceKindBreadth true
               :declaredSourceKindCoverage true
               :measuredDocsProblemClasses true
               :measuredNonSyntheticDocsProblemClasses true

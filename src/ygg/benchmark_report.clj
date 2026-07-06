@@ -56,6 +56,9 @@
 (def ^:private docs-claim-readiness-min-doc-cases
   4)
 
+(def ^:private docs-claim-readiness-min-source-kind-groups
+  2)
+
 (def ^:private rank-blocker-limit
   5)
 
@@ -1586,11 +1589,14 @@
         repo-breadth? (<= docs-claim-readiness-min-repos (count repo-ids))
         doc-source-kind-coverage? (<= docs-claim-readiness-min-doc-cases
                                       doc-source-kind-cases)
+        source-kind-breadth? (<= docs-claim-readiness-min-source-kind-groups
+                                 (count source-kind-keys))
         requirements {:completedCases completed?
                       :hasRuns has-runs?
                       :nonSyntheticCases non-synthetic-cases?
                       :repoBreadth repo-breadth?
                       :docSourceKindCoverage doc-source-kind-coverage?
+                      :docsClaimSourceKindBreadth source-kind-breadth?
                       :declaredSourceKindCoverage declared-source-kind-coverage?
                       :measuredDocsProblemClasses
                       (boolean (seq measured-problem-tags))
@@ -1621,6 +1627,8 @@
      :docSourceKindCases doc-source-kind-cases
      :minimumReposForDocsClaim docs-claim-readiness-min-repos
      :minimumDocSourceKindCases docs-claim-readiness-min-doc-cases
+     :minimumSourceKindGroupsForDocsClaim
+     docs-claim-readiness-min-source-kind-groups
      :minimumExpectedEvidenceCitationRateForClaim
      claim-readiness-min-expected-evidence-citation-rate
      :minimumCaseExpectedEvidenceCitationRateForClaim
@@ -1647,6 +1655,12 @@
                             " completed scoreable doc case(s); docs-handling claims require at least "
                             docs-claim-readiness-min-doc-cases
                             "."))
+
+                 (not source-kind-breadth?)
+                 (conj (str "Only " (count source-kind-keys)
+                            " scoreable source-kind group(s); docs-handling claims require at least "
+                            docs-claim-readiness-min-source-kind-groups
+                            " so the lane covers docs and docs-adjacent project configuration."))
 
                  (not declared-source-kind-coverage?)
                  (conj "Declared source-kind coverage is incomplete; every declared source-kind group needs scoreable indexed files before docs-handling claims.")
