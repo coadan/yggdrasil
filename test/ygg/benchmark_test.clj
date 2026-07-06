@@ -712,6 +712,9 @@
         quick-repo-ids (set (map :id (:repos quick)))
         claim-quick-repo-ids (set (map :id (:repos claim-quick)))
         full-repo-ids (set (map :id (:repos full)))
+        claim-quick-source-kinds (set (mapcat #(get-in % [:coverage :source-kinds])
+                                              (:cases claim-quick)))
+        claim-quick-tags (frequencies (mapcat :tags (:cases claim-quick)))
         quick-source-kinds (set (mapcat #(get-in % [:coverage :source-kinds])
                                         (:cases quick)))
         quick-doc-cases (filter #(contains? (set (get-in % [:coverage :source-kinds]))
@@ -725,7 +728,9 @@
     (is (= ["historical-axios-defer-env-proxy-to-node"
             "historical-dapper-prefer-enum-type-handlers"
             "historical-terraform-vpc-endpoint-dns-record-ip-type"
-            "historical-flask-autoescape-case-insensitive"]
+            "historical-flask-autoescape-case-insensitive"
+            "historical-flask-request-json-status-doc"
+            "historical-axios-proxy-node-only-doc"]
            claim-quick-case-ids))
     (is (= 16 (count full-case-ids)))
     (is (every? #(seq (get-in % [:expectations :citation-evidence]))
@@ -737,6 +742,9 @@
                 set)))
     (is (= #{"axios" "dapper" "terraform-aws-vpc" "flask"}
            claim-quick-repo-ids))
+    (is (contains? claim-quick-source-kinds :doc))
+    (is (<= 2 (get claim-quick-tags "problem-docs-config-coupling" 0)))
+    (is (<= 2 (get claim-quick-tags "audit-scope-docs" 0)))
     (is (not (contains? (set quick-case-ids)
                         "historical-otel-routing-default-error-mode")))
     (is (contains? (set full-case-ids)
