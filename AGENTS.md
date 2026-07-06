@@ -51,11 +51,12 @@ only simple file-localization issues, and claims should name the class where
 Yggdrasil helped or regressed. Include architecture-class cases in the tracked
 benchmark suites, with curated ground truth when necessary. Treat anecdotes as
 hypotheses until measured.
-Before making architecture or extractor improvement claims, run the cheap current
-artifact proof with `bb bench:gate --check-only`; if current score artifacts do
-not exist or are stale, regenerate them with `bb bench:gate`. The gate must pass
-with claim readiness supported, graph expectations passing, and zero benchmark
-preflight blockers.
+Before making architecture or extractor improvement claims, run a non-synthetic
+claim lane: `bb bench:claim-quick --check-only` when current score artifacts
+exist; run `bb bench:claim-quick` when they are missing or stale. The lane must
+pass with claim readiness supported, graph expectations passing, and zero
+benchmark preflight blockers. Use `bb bench:gate` for the default synthetic
+architecture diagnostic gate, not as standalone broad real-world proof.
 
 Use `.ygg/` for repo-local Yggdrasil references, hooks, plugins, and other
 repo-local Yggdrasil files. Shared project state is central by project id:

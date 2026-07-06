@@ -1256,8 +1256,12 @@
         benchmark-preflight (:benchmarkPreflightDiagnostics report)
         benchmark-preflight? (or (not (:requiredForClaim benchmark-preflight))
                                  (= "passed" (:status benchmark-preflight)))
+        non-synthetic-cases? (pos? (long (or (:nonSyntheticCases
+                                              dataset-diagnostics)
+                                             0)))
         requirements {:completedCases completed?
                       :hasRuns has-runs?
+                      :nonSyntheticCases non-synthetic-cases?
                       :measuredProblemClasses (boolean (seq measured-problem-tags))
                       :measuredArchitectureClasses (boolean
                                                     (seq measured-architecture-tags))
@@ -1278,6 +1282,9 @@
 
                  (not has-runs?)
                  (conj "No agent score runs are included in this report.")
+
+                 (not non-synthetic-cases?)
+                 (conj "No non-synthetic replay cases are included; broad real-world claims are unproven.")
 
                  (empty? measured-problem-tags)
                  (conj "No measured problem-class groups; include enough cases per class before claiming representative gains.")

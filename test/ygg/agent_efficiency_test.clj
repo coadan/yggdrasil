@@ -176,6 +176,7 @@
                                            [])
           :requirements {:completedCases true
                          :hasRuns true
+                         :nonSyntheticCases true
                          :evidenceCitationMetrics true
                          :expectedEvidenceCitationMetrics true
                          :decisionQualityMetrics true

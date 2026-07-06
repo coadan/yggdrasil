@@ -354,6 +354,7 @@
 (def ^:private lane-readiness-requirement-keys
   [:completedCases
    :hasRuns
+   :nonSyntheticCases
    :evidenceCitationMetrics
    :expectedEvidenceCitationMetrics
    :decisionQualityMetrics

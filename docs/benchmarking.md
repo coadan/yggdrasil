@@ -38,15 +38,17 @@ bb bench:gate --setup-check
 ```
 
 `bb bench:gate` runs the same setup check before deterministic baseline work
-and always writes `stage-time-gate.json` under the output root. Use
-`bb bench:gate --check-only` immediately before architecture or extractor claims
-when current score artifacts already exist. Check-only mode skips
-baseline regeneration but still rejects missing, stale, unverified, graph-failing,
+and always writes `stage-time-gate.json` under the output root. Its default
+suite is synthetic architecture coverage, so use it as a diagnostic gate, not
+as standalone broad real-world proof. Check-only mode skips baseline
+regeneration but still rejects missing, stale, unverified, graph-failing,
 benchmark-preflight-blocked, or per-case estimated context-packet token-budget
 violating score artifacts. If artifacts predate deterministic baseline token
 estimates, run the full gate once before using check-only mode for token claims.
 
-Use `bb bench:claim-quick` for the small non-synthetic claim-readiness lane.
+Use `bb bench:claim-quick` for the small non-synthetic claim-readiness lane,
+including immediately before architecture or extractor claims when current score
+artifacts already exist.
 It runs `benchmarks/historical-replay-claim-quick.edn`, stores artifacts under
 `.dev/ygg/claim-quick-gate`, and gates expected evidence with
 `--min-expected-evidence-citation-rate 0.80` and
@@ -721,7 +723,9 @@ bounded facts and let the benchmark decide whether those facts helped.
 
 Synthetic architecture cases still need a checkout boundary. When there is no
 historical fix commit, set `:fix-sha` to the same commit as `:base-sha` and use
-`:ground-truth {:localization-files [...]}` for the scored files:
+`:ground-truth {:localization-files [...]}` for the scored files. Synthetic-only
+suites do not satisfy broad claim readiness; pair them with non-synthetic replay
+lanes before making broad real-world claims:
 
 ```clojure
 {:id "bootstrap-synthetic-docs-route-impact"

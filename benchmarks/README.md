@@ -104,7 +104,9 @@ bb agent-efficiency all \
   --out .dev/ygg/agent-efficiency/historical-replay-full
 ```
 
-The deterministic gate runs the same preflight before doing benchmark work:
+The deterministic gate runs the same preflight before doing benchmark work. Its
+default suite is synthetic architecture coverage, so it is useful as a
+diagnostic gate but is not standalone broad real-world proof:
 
 ```sh
 bb bench:gate
@@ -116,7 +118,9 @@ visible even when no timing thresholds are configured. The default gate also
 requires expected-evidence citation quality: aggregate
 `expectedEvidenceCitationRate >= 0.80` and every selected case
 `case.expectedEvidenceCitationRate >= 0.50`. Pass explicit lower thresholds only
-for focused debugging or ablation work.
+for focused debugging or ablation work. Because synthetic-only suites now fail
+claim readiness, broad real-world claims should use a non-synthetic lane such as
+`bb bench:claim-quick` or the full historical replay lane.
 
 Baseline regeneration uses `--reuse-context` by default so repeated gates can
 refresh scores and preflight without rebuilding unchanged context packets. The
@@ -135,7 +139,9 @@ This still runs checkout preflight and strict `agent-check` thresholds, includin
 stale-artifact, benchmark claim-readiness, and per-case estimated context
 packet token budgets, but skips baseline regeneration. If current artifacts were
 created before deterministic baseline token estimates were recorded, run the full
-gate once to refresh them before using check-only mode for token claims.
+gate once to refresh them before using check-only mode for token claims. For
+broad real-world claims, prefer `bb bench:claim-quick --check-only` against the
+non-synthetic claim lane.
 
 If a checkout still exists under the legacy `.dev/oss-test-cases/repos/` cache,
 the preflight reports that path. Move or symlink it into

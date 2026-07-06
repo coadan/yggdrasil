@@ -194,11 +194,13 @@
        "classes, not only simple file-localization issues. Include architecture-"
        "class cases, using tracked benchmark suites with curated ground truth "
        "when necessary, and name the class where Yggdrasil helped or regressed. "
-       "Before making architecture or extractor improvement claims, run "
-       "`bb bench:gate --check-only` when current score artifacts exist; run "
-       "`bb bench:gate` when they are missing or stale. The gate must pass with "
-       "claim readiness supported, graph expectations passing, and zero "
-       "benchmark preflight blockers.\n"
+       "Before making architecture or extractor improvement claims, run a "
+       "non-synthetic claim lane: `bb bench:claim-quick --check-only` when "
+       "current score artifacts exist; run `bb bench:claim-quick` when they "
+       "are missing or stale. The lane must pass with claim readiness "
+       "supported, graph expectations passing, and zero benchmark preflight "
+       "blockers. Use `bb bench:gate` for the default synthetic architecture "
+       "diagnostic gate, not as standalone broad real-world proof.\n"
        end-marker "\n"))
 
 (defn- broad-search-hook
