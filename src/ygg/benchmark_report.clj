@@ -2220,6 +2220,14 @@
                         :path))
          (take aggregate-ranked-file-diagnostic-limit)
          vec)))
+
+(defn- avoidable-ranked-outside?
+  [diagnostic outside-key blocker-key n]
+  (and (seq (get diagnostic outside-key))
+       (or (<= (count (:scoreableFiles diagnostic)) (long n))
+           (some #(pos? (long (or (:blockingFileCount %) 0)))
+                 (get diagnostic blocker-key)))))
+
 (defn- aggregate-localization-diagnostics
   [results]
   (let [diagnostics (map localization-diagnostic results)
@@ -2245,6 +2253,27 @@
         outside-top20 (filter (fn [[_ diagnostic]]
                                 (seq (:rankedOutsideTop20 diagnostic)))
                               result-pairs)
+        avoidable-outside-top5 (filter (fn [[_ diagnostic]]
+                                         (avoidable-ranked-outside?
+                                          diagnostic
+                                          :rankedOutsideTop5
+                                          :rankedOutsideTop5Blockers
+                                          5))
+                                       outside-top5)
+        avoidable-outside-top10 (filter (fn [[_ diagnostic]]
+                                          (avoidable-ranked-outside?
+                                           diagnostic
+                                           :rankedOutsideTop10
+                                           :rankedOutsideTop10Blockers
+                                           10))
+                                        outside-top10)
+        avoidable-outside-top20 (filter (fn [[_ diagnostic]]
+                                          (avoidable-ranked-outside?
+                                           diagnostic
+                                           :rankedOutsideTop20
+                                           :rankedOutsideTop20Blockers
+                                           20))
+                                        outside-top20)
         path-uncited (filter (fn [[_ diagnostic]]
                                (seq (:pathUncitedRankedFiles diagnostic)))
                              result-pairs)
@@ -2270,12 +2299,12 @@
      :missedButPresentInContextCaseIds (case-ids missed-present-in-context)
      :missedAndAbsentFromContextRuns (count missed-absent-from-context)
      :missedAndAbsentFromContextCaseIds (case-ids missed-absent-from-context)
-     :rankedOutsideTop5Runs (count outside-top5)
-     :rankedOutsideTop5CaseIds (case-ids outside-top5)
-     :rankedOutsideTop10Runs (count outside-top10)
-     :rankedOutsideTop10CaseIds (case-ids outside-top10)
-     :rankedOutsideTop20Runs (count outside-top20)
-     :rankedOutsideTop20CaseIds (case-ids outside-top20)
+     :rankedOutsideTop5Runs (count avoidable-outside-top5)
+     :rankedOutsideTop5CaseIds (case-ids avoidable-outside-top5)
+     :rankedOutsideTop10Runs (count avoidable-outside-top10)
+     :rankedOutsideTop10CaseIds (case-ids avoidable-outside-top10)
+     :rankedOutsideTop20Runs (count avoidable-outside-top20)
+     :rankedOutsideTop20CaseIds (case-ids avoidable-outside-top20)
      :pathUncitedRuns (count path-uncited)
      :pathUncitedCaseIds (case-ids path-uncited)
      :pathUncitedRankedFiles (aggregate-ranked-file-diagnostics

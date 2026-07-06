@@ -205,6 +205,59 @@
     (is (not (:packetEvidenceOnly shell-diagnostic)))
     (is (:commandless shell-diagnostic))))
 
+(deftest localization-diagnostics-ignore-unavoidable-top5-overflow
+  (let [aggregate @#'benchmark-report/aggregate-localization-diagnostics
+        scoreable-files (mapv #(str "src/file" % ".clj") (range 1 8))
+        result (fn [case-id top-files ranks]
+                 {:case-id case-id
+                  :agent {:mode "ygg"
+                          :topFiles top-files}
+                  :groundTruth {:scoreableFiles scoreable-files
+                                :changedFiles scoreable-files
+                                :unsupportedGroundTruthFiles []}
+                  :groundTruthRanks {:files ranks}})
+        rank-row (fn [path rank]
+                   {:path path
+                    :rank rank
+                    :found? true})
+        saturated-ranks (mapv rank-row scoreable-files (range 1 8))
+        saturated-result (result
+                          "saturated"
+                          (mapv (fn [path rank]
+                                  {:path path
+                                   :rank rank})
+                                scoreable-files
+                                (range 1 8))
+                          saturated-ranks)
+        blocked-ranks [(rank-row "src/file1.clj" 1)
+                       (rank-row "src/file2.clj" 2)
+                       (rank-row "src/file3.clj" 4)
+                       (rank-row "src/file4.clj" 5)
+                       (rank-row "src/file5.clj" 6)
+                       (rank-row "src/file6.clj" 7)
+                       (rank-row "src/file7.clj" 8)]
+        blocked-result (result
+                        "blocked"
+                        [{:path "src/file1.clj" :rank 1}
+                         {:path "src/file2.clj" :rank 2}
+                         {:path "src/blocker.clj" :rank 3}
+                         {:path "src/file3.clj" :rank 4}
+                         {:path "src/file4.clj" :rank 5}
+                         {:path "src/file5.clj" :rank 6}
+                         {:path "src/file6.clj" :rank 7}
+                         {:path "src/file7.clj" :rank 8}]
+                        blocked-ranks)]
+    (is (= {:rankedOutsideTop5Runs 0
+            :rankedOutsideTop5CaseIds []}
+           (select-keys (aggregate [saturated-result])
+                        [:rankedOutsideTop5Runs
+                         :rankedOutsideTop5CaseIds])))
+    (is (= {:rankedOutsideTop5Runs 1
+            :rankedOutsideTop5CaseIds ["blocked"]}
+           (select-keys (aggregate [blocked-result])
+                        [:rankedOutsideTop5Runs
+                         :rankedOutsideTop5CaseIds])))))
+
 (deftest reports-agent-score-artifacts
   (let [out (temp-dir "ygg-agent-report")
         suite {:id "suite"

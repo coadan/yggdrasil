@@ -5147,6 +5147,66 @@
            (.indexOf paths "tests/unit/adapters/adapters.test.js")))
     (is (> 5 (.indexOf paths "lib/adapters/http.js")))))
 
+(deftest compact-output-extends-retrieved-source-evidence-head
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        retrieved-row (fn [path rank rank-score source-rank grep source-score
+                           tokens & [extra]]
+                        (row path
+                             rank
+                             (merge {:docCount 1
+                                     :candidateFileCount 1
+                                     :entityCount 0
+                                     :retrievedSourceCount 1
+                                     :matchedTokenCount tokens
+                                     :matchedPathQueryTokenCount 2
+                                     :matchedTokenPairCount 1
+                                     :candidateSourceRank source-rank
+                                     :candidateGrepScore grep
+                                     :sourceGraphCandidateEvidenceScore
+                                     source-score
+                                     :rankScore rank-score}
+                                    extra)))
+        files [(retrieved-row "workflows/node-sass.yml" 1 19.5 9 0.75 0.52 7)
+               (retrieved-row "workflows/docs.yml" 2 15.9 8 0.66 0.54 7)
+               (retrieved-row "workflows/browserstack.yml" 3 14.6 7 0.66 0.57 8)
+               (retrieved-row "workflows/bundlewatch.yml" 4 14.4 11 0.66 0.51 7)
+               (retrieved-row "workflows/lint.yml" 5 14.2 10 0.66 0.51 7)
+               (retrieved-row "workflows/js.yml" 6 14.0 12 0.66 0.51 7)
+               (retrieved-row "workflows/css.yml" 7 13.9 14 0.66 0.50 7)
+               (retrieved-row "workflows/release-notes.yml"
+                              10
+                              13.4
+                              15
+                              0.12
+                              0.43
+                              6
+                              {:matchedCompoundTokenPairCount 2})
+               (retrieved-row "workflows/cspell.yml" 11 13.2 16 0.12 0.43 9)
+               (row "workflows/issue-labeled.yml"
+                    12
+                    {:candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 6
+                     :rankScore 3.7})]
+        paths (mapv :path (compact-output files 10 nil))]
+    (is (= ["workflows/node-sass.yml"
+            "workflows/docs.yml"
+            "workflows/browserstack.yml"
+            "workflows/bundlewatch.yml"
+            "workflows/lint.yml"
+            "workflows/js.yml"
+            "workflows/css.yml"]
+           (subvec paths 0 7)))
+    (is (< (.indexOf paths "workflows/js.yml")
+           (.indexOf paths "workflows/release-notes.yml")))
+    (is (< (.indexOf paths "workflows/css.yml")
+           (.indexOf paths "workflows/cspell.yml")))))
+
 (deftest compact-output-spreads-candidate-support-signatures
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank signature]

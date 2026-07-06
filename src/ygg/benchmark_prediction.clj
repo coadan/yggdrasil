@@ -357,6 +357,14 @@
   2)
 (def ^:private compact-output-query-evidence-head-boost-min
   2.0)
+(def ^:private compact-output-retrieved-source-evidence-head-rank-window
+  8)
+(def ^:private compact-output-retrieved-source-evidence-head-sort-rank
+  0.009)
+(def ^:private compact-output-retrieved-source-evidence-head-sort-step
+  0.001)
+(def ^:private compact-output-retrieved-source-evidence-head-limit
+  2)
 (def ^:private compact-output-direct-doc-architecture-rank-window
   10)
 (def ^:private compact-output-direct-doc-architecture-sort-rank
@@ -5192,6 +5200,43 @@
                                 (* compact-output-query-evidence-head-sort-step
                                    idx)))))))
 
+(defn- compact-output-retrieved-source-evidence-head-row?
+  [row]
+  (and (<= (long (or (:rank row) Long/MAX_VALUE))
+           compact-output-retrieved-source-evidence-head-rank-window)
+       (pos? (positive-metric row :docCount))
+       (pos? (positive-metric row :candidateFileCount))
+       (pos? (positive-metric row :retrievedSourceCount))
+       (<= compact-output-doc-source-graph-grep-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= compact-output-doc-source-graph-grep-source-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (<= compact-output-doc-source-graph-grep-grep-score-min
+           (row-metric-double row :candidateGrepScore))))
+
+(defn- compact-output-retrieved-source-evidence-head-key
+  [row]
+  [(:rank row)
+   (- (row-rank-score row))
+   (- (row-metric-double row :candidateGrepScore))
+   (- (row-metric-double row :sourceGraphCandidateEvidenceScore))
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-retrieved-source-evidence-head-rows
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (compact-output-retrieved-source-evidence-head-row? %)))
+       (sort-by compact-output-retrieved-source-evidence-head-key)
+       (take compact-output-retrieved-source-evidence-head-limit)
+       (map-indexed (fn [idx row]
+                      (assoc row
+                             ::compact-output-sort-rank
+                             (+ compact-output-retrieved-source-evidence-head-sort-rank
+                                (* compact-output-retrieved-source-evidence-head-sort-step
+                                   idx)))))))
+
 (defn- compact-output-direct-doc-architecture-row?
   [row]
   (and (<= (long (or (:rank row) Long/MAX_VALUE))
@@ -5237,6 +5282,7 @@
       (compact-output-query-evidence-doc-row? row)
       (compact-output-ranked-doc-head-row? row)
       (compact-output-query-evidence-head-row? row)
+      (compact-output-retrieved-source-evidence-head-row? row)
       (compact-output-direct-doc-architecture-row? row)
       (compact-output-retrieved-path-self-identity-row? row)
       (compact-output-retrieved-path-query-token-row? row)
@@ -5538,6 +5584,11 @@
                                     head-selection
                                     (compact-output-query-evidence-head-rows
                                      files))
+             head-selection (reduce add-compact-output-row
+                                    head-selection
+                                    (compact-output-retrieved-source-evidence-head-rows
+                                     files
+                                     (:keys head-selection)))
              head-selection (add-compact-output-row
                              head-selection
                              (compact-output-direct-doc-architecture-row
