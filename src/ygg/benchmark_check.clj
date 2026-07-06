@@ -802,6 +802,81 @@
                                      %
                                      (get progress-by-case %))
            (get-in check [:report :missing]))))))
+
+(defn- source-kind-case-counts
+  [check]
+  (->> (get-in check [:report :coverage :scoreableFilesByKind])
+       (reduce (fn [counts {:keys [kind cases]}]
+                 (if (seq kind)
+                   (update counts kind (fnil + 0) (long (or cases 0)))
+                   counts))
+               (sorted-map))))
+
+(defn- failed-claim-requirements
+  [claim-readiness]
+  (->> (:requirements claim-readiness)
+       (keep (fn [[requirement passed?]]
+               (when-not (true? passed?)
+                 requirement)))
+       (sort-by name)
+       vec))
+
+(defn- broad-claim-readiness-summary
+  [report]
+  (let [claim-readiness (:claimReadiness report)]
+    (if (map? claim-readiness)
+      (cond-> {:status (:status claim-readiness)
+               :supported (boolean
+                           (or (:broadArchitectureClaimSupported
+                                claim-readiness)
+                               (:broadEfficiencyClaimSupported
+                                claim-readiness)))
+               :failedRequirements (failed-claim-requirements
+                                    claim-readiness)
+               :warnings (vec (:warnings claim-readiness))}
+        (contains? claim-readiness :broadArchitectureClaimSupported)
+        (assoc :broadArchitectureClaimSupported
+               (:broadArchitectureClaimSupported claim-readiness))
+
+        (contains? claim-readiness :broadEfficiencyClaimSupported)
+        (assoc :broadEfficiencyClaimSupported
+               (:broadEfficiencyClaimSupported claim-readiness))
+
+        (seq (:repoIds claim-readiness))
+        (assoc :repoIds (:repoIds claim-readiness))
+
+        (seq (:sourceKindKeys claim-readiness))
+        (assoc :sourceKindKeys (:sourceKindKeys claim-readiness))
+
+        (seq (:measuredProblemClassTags claim-readiness))
+        (assoc :measuredProblemClassTags
+               (:measuredProblemClassTags claim-readiness))
+
+        (seq (:measuredArchitectureClassTags claim-readiness))
+        (assoc :measuredArchitectureClassTags
+               (:measuredArchitectureClassTags claim-readiness)))
+      {:status "unknown"
+       :supported false
+       :missing true
+       :failedRequirements []
+       :warnings ["Agent report has no claimReadiness field."]})))
+
+(defn- threshold-gate-summary
+  [check failures status]
+  {:status status
+   :failedMetrics (mapv :metric failures)
+   :evidence {:repoIds (result-repo-ids check)
+              :sourceKindCases (source-kind-case-counts check)
+              :measuredProblemClassTags
+              (get-in check
+                      [:report :claimReadiness :measuredProblemClassTags]
+                      [])
+              :measuredArchitectureClassTags
+              (get-in check
+                      [:report :claimReadiness :measuredArchitectureClassTags]
+                      [])}
+   :broadClaimReadiness (broad-claim-readiness-summary (:report check))})
+
 (defn check-agent-report
   "Return a pass/fail check over an agent benchmark report."
   [report opts]
@@ -871,9 +946,11 @@
                    (problem-class-claim-failures check-base)
                    (parser-worker-profile-failures check-base)
                    (localization-diagnostic-failures check-base)
-                   (active-stage-failures check-base)))]
+                   (active-stage-failures check-base)))
+        status (if (seq failures) "failed" "passed")]
     (assoc check-base
-           :status (if (seq failures) "failed" "passed")
+           :status status
+           :thresholdGate (threshold-gate-summary check-base failures status)
            :caseDiagnostics (case-diagnostics check-base failures)
            :failures failures)))
 (defn check-agent-suite

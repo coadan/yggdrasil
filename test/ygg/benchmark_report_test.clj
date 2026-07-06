@@ -2673,6 +2673,15 @@
                                                   {:kind "doc"
                                                    :cases 2
                                                    :scoreableFiles 5}]}
+                :claimReadiness {:status "not-supported"
+                                 :broadArchitectureClaimSupported false
+                                 :repoIds ["repo-a" "repo-b"]
+                                 :sourceKindKeys ["doc"]
+                                 :measuredProblemClassTags ["problem-docs"]
+                                 :measuredArchitectureClassTags ["audit-docs"]
+                                 :requirements {:repoBreadth true
+                                                :sourceKindBreadth false}
+                                 :warnings ["Only one broad source-kind group is measured."]}
                 :results [{:case-id "case-1"
                            :repo-id "repo-a"}
                           {:case-id "case-2"
@@ -2716,7 +2725,28 @@
            (select-keys (first (filter #(= "sourceKindCases.sql" (:metric %))
                                        (:failures failed)))
                         [:metric :operator :expected :actual :kind])))
+    (is (= "failed" (get-in failed [:thresholdGate :status])))
+    (is (= ["repos" "sourceKindCases.doc" "sourceKindCases.sql"]
+           (get-in failed [:thresholdGate :failedMetrics])))
+    (is (= {"code" 1
+            "doc" 2}
+           (get-in failed [:thresholdGate :evidence :sourceKindCases])))
+    (is (= {:status "not-supported"
+            :supported false
+            :failedRequirements [:sourceKindBreadth]
+            :warnings ["Only one broad source-kind group is measured."]
+            :broadArchitectureClaimSupported false
+            :repoIds ["repo-a" "repo-b"]
+            :sourceKindKeys ["doc"]
+            :measuredProblemClassTags ["problem-docs"]
+            :measuredArchitectureClassTags ["audit-docs"]}
+           (get-in failed [:thresholdGate :broadClaimReadiness])))
     (is (= "passed" (:status passed)))
+    (is (= "passed" (get-in passed [:thresholdGate :status])))
+    (is (= [] (get-in passed [:thresholdGate :failedMetrics])))
+    (is (= "not-supported"
+           (get-in passed
+                   [:thresholdGate :broadClaimReadiness :status])))
     (is (empty? (:failures passed)))))
 
 (deftest checks-agent-report-decision-thresholds

@@ -613,6 +613,12 @@ plugin-fit choice, not just a shorter suspected-file list.
   failed requirement keys and warnings, so a passing bundle cannot hide missing
   broad-claim evidence. It consumes reports; it does not run agents or hide the
   cost of generating those reports.
+- `bench agent-check <suite.edn>` writes `agent-check.json` with
+  `thresholdGate`, a compact summary of the mechanical gate status, failed
+  metrics, covered repos/source-kind cases, measured class tags, and the
+  embedded broad-claim readiness status. Use this field when a narrow lane such
+  as docs handling passes its thresholds but should still report that broad
+  real-world claim readiness is incomplete.
 - `bench agent-compare <suite.edn>` compares two `agent-report.json` files and
   exits non-zero when aggregate or per-case recall/MRR/noise regress beyond
   `--regression-tolerance` (default `0`). Use this after a candidate change to
