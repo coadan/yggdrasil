@@ -5,6 +5,7 @@
                    :case-ids ["historical-axios-defer-env-proxy-to-node"
                               "historical-axios-proxy-node-only-doc"
                               "historical-dapper-prefer-enum-type-handlers"
+                              "historical-otel-routing-default-error-mode"
                               "historical-terraform-vpc-endpoint-dns-record-ip-type"
                               "historical-flask-autoescape-case-insensitive"
                               "historical-graphify-read-glob-hook-extension-boundary"

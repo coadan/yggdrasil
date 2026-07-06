@@ -755,6 +755,7 @@
     (is (= 12 (count quick-case-ids)))
     (is (= ["historical-axios-defer-env-proxy-to-node"
             "historical-dapper-prefer-enum-type-handlers"
+            "historical-otel-routing-default-error-mode"
             "historical-terraform-vpc-endpoint-dns-record-ip-type"
             "historical-flask-autoescape-case-insensitive"
             "historical-graphify-read-glob-hook-extension-boundary"
@@ -790,9 +791,10 @@
                 (map :id)
                 set)))
     (is (= #{"axios" "dapper" "terraform-aws-vpc" "flask"
-             "graphify" "supabase-postgres"}
+             "graphify" "opentelemetry-collector"
+             "opentelemetry-collector-contrib" "supabase-postgres"}
            claim-quick-repo-ids))
-    (is (= 6 (count claim-quick-repo-ids)))
+    (is (= 8 (count claim-quick-repo-ids)))
     (is (= #{"axios" "bootstrap" "flask"}
            docs-claim-repo-ids))
     (is (= ["Dapper/SqlMapper.Settings.cs"
@@ -806,10 +808,12 @@
                         ["historical-supabase-event-trigger-schema-regression"
                          :coverage
                          :source-kinds]))))
-    (is (= #{:javascript :dotnet :terraform :python :doc :sql :text}
+    (is (= #{:javascript :dotnet :go :yaml :terraform :python :doc :sql :text}
            claim-quick-source-kinds))
     (is (= {:javascript 2
             :dotnet 1
+            :go 1
+            :yaml 1
             :terraform 1
             :python 2
             :doc 2
@@ -1777,7 +1781,6 @@
              :metrics {:firstSourceRank 1
                        :supportCount 1
                        :docCount 1
-                       :attachedDocCount 0
                        :entityCount 0
                        :candidateFileCount 0
                        :retrievedSourceCount 0
