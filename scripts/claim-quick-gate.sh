@@ -22,6 +22,7 @@ Runs the small non-synthetic claim-readiness lane:
   --min-source-kind-cases dotnet=1
   --min-source-kind-cases terraform=1
   --min-source-kind-cases sql=1
+  --min-source-kind-cases text=1
   --min-measured-problem-classes 3
   --min-measured-architecture-classes 3
   --require-broad-claim-readiness
@@ -55,6 +56,7 @@ exec bash scripts/benchmark-gate.sh \
   --min-source-kind-cases dotnet=1 \
   --min-source-kind-cases terraform=1 \
   --min-source-kind-cases sql=1 \
+  --min-source-kind-cases text=1 \
   --min-measured-problem-classes 3 \
   --min-measured-architecture-classes 3 \
   --require-broad-claim-readiness \

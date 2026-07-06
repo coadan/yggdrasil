@@ -59,7 +59,7 @@ standard recall floors, uses `--min-mrr 0.30`, and enforces
 rather than synthetic exact-rank behavior. It also enforces at least three
 measured problem-class groups, three measured architecture-class groups, six
 completed repos, and scoreable cases across the tracked JavaScript, Python,
-docs, .NET, Terraform, and SQL source-kind mix so broad claims are not backed
+docs, .NET, Terraform, SQL, and text source-kind mix so broad claims are not backed
 by a single real-world slice. The wrapper also passes
 `--require-broad-claim-readiness`, so `agent-check` fails if the generated
 report's own `claimReadiness` field is not supported. The full historical

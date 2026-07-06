@@ -264,7 +264,8 @@
                                  "--min-source-kind-cases doc=2"
                                  "--min-source-kind-cases dotnet=1"
                                  "--min-source-kind-cases terraform=1"
-                                 "--min-source-kind-cases sql=1"]]
+                                 "--min-source-kind-cases sql=1"
+                                 "--min-source-kind-cases text=1"]]
       (is (str/includes? (nth lines 2) source-kind-minimum)))
     (is (str/includes? (nth lines 2)
                        "--min-measured-problem-classes 3"))
@@ -337,7 +338,8 @@
                                  "--min-source-kind-cases doc=2"
                                  "--min-source-kind-cases dotnet=1"
                                  "--min-source-kind-cases terraform=1"
-                                 "--min-source-kind-cases sql=1"]]
+                                 "--min-source-kind-cases sql=1"
+                                 "--min-source-kind-cases text=1"]]
       (is (str/includes? (:out result) source-kind-minimum)))
     (is (str/includes? (:out result)
                        "--min-measured-problem-classes 3"))

@@ -70,7 +70,7 @@ citation coverage with an aggregate floor of `0.80` and per-case floor of
 `0.50`. It keeps the regular recall floors and uses a non-synthetic readiness
 MRR floor of `0.30` plus an aggregate `noise@20` ceiling of `0.80`. Broad
 claim readiness must include all six curated repos, scoreable cases across the
-tracked JavaScript, Python, docs, .NET, Terraform, and SQL source-kind mix, at
+tracked JavaScript, Python, docs, .NET, Terraform, SQL, and text source-kind mix, at
 least three measured problem-class groups, and at least three measured
 architecture-class groups. The wrapper also requires the generated report's
 own `claimReadiness` field to be supported. The full historical replay remains
