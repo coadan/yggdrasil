@@ -4911,6 +4911,110 @@
     (is (< (.indexOf paths "surface/query-supported.page")
            (.indexOf paths "surface/e.page")))))
 
+(deftest compact-output-preserves-ranked-doc-head-over-late-query-source
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        doc-row (fn [path rank tokens pairs source-rank rank-score]
+                  (row path
+                       rank
+                       {:docCount 1
+                        :candidateFileCount 1
+                        :entityCount 0
+                        :retrievedSourceCount 1
+                        :matchedTokenCount tokens
+                        :matchedTokenPairCount pairs
+                        :matchedPathQueryTokenCount 3
+                        :retrievedPathQueryTokenBoost 7.25
+                        :sourceGraphCandidateEvidenceScore 0.5
+                        :candidateSourceRank source-rank
+                        :rankScore rank-score}))
+        files [(doc-row "tests/unit/adapters/http.test.js" 1 10 2 5 32.3)
+               (doc-row "tests/unit/toFormData.test.js" 2 6 2 8 23.5)
+               (doc-row "tests/unit/adapters/fetch.test.js" 3 9 1 7 21.1)
+               (doc-row "lib/helpers/toFormData.js" 4 5 2 12 16.9)
+               (doc-row "tests/setup/server.js" 5 5 1 6 15.1)
+               (row "tests/unit/query.test.js"
+                    17
+                    {:candidateFileCount 2
+                     :docCount 0
+                     :entityCount 0
+                     :candidateSourceRank 6
+                     :matchedTokenCount 4
+                     :matchedPathQueryTokenCount 1
+                     :sourceGraphCandidateEvidenceScore 0.46
+                     :candidateGrepScore 0.48
+                     :rankScore 5.3})]
+        selected (compact-output files 5 nil)]
+    (is (= ["tests/unit/adapters/http.test.js"
+            "tests/unit/toFormData.test.js"
+            "tests/unit/adapters/fetch.test.js"
+            "lib/helpers/toFormData.js"
+            "tests/setup/server.js"]
+           (mapv :path selected)))
+    (is (not-any? #{"tests/unit/query.test.js"} (map :path selected)))))
+
+(deftest compact-output-prune-preserves-ranked-doc-head-row
+  (let [prune @#'benchmark-prediction/compact-output-prune-score-tail
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        direct-row (fn [path rank score]
+                     (row path
+                          rank
+                          {:candidateFileCount 2
+                           :docCount 0
+                           :entityCount 0
+                           :directFileCandidateCount 1
+                           :fileIdentitySupportLabelCount 4
+                           :architectureSupportBoost 5.0
+                           :matchedTokenCount 8
+                           :rankScore score}))
+        selected [(direct-row "tests/unit/adapters/fetch.test.js" 1 23.0)
+                  (row "tests/unit/adapters/http.test.js"
+                       2
+                       {:candidateFileCount 1
+                        :docCount 1
+                        :entityCount 0
+                        :fileIdentitySupportLabelCount 4
+                        :retrievedSourceCount 1
+                        :matchedTokenCount 8
+                        :matchedTokenPairCount 2
+                        :matchedPathQueryTokenCount 3
+                        :retrievedPathQueryTokenBoost 7.25
+                        :sourceGraphCandidateEvidenceScore 0.36
+                        :rankScore 22.0})
+                  (direct-row "tests/unit/adapters/adapters.test.js" 3 21.0)
+                  (row "lib/adapters/http.js"
+                       4
+                       {:candidateFileCount 8
+                        :docCount 1
+                        :entityCount 0
+                        :directFileCandidateCount 1
+                        :retrievedSourceCount 1
+                        :matchedTokenCount 11
+                        :matchedTokenPairCount 3
+                        :matchedPathQueryTokenCount 2
+                        :retrievedPathQueryTokenBoost 6.0
+                        :sourceGraphCandidateEvidenceScore 0.33
+                        :rankScore 16.6})
+                  (row "lib/core/AxiosError.js"
+                       5
+                       {:candidateFileCount 2
+                        :docCount 0
+                        :entityCount 0
+                        :matchedTokenCount 8
+                        :rankScore 5.0})]
+        result (prune selected 5 nil [] {})]
+    (is (some #{"lib/adapters/http.js"} (map :path result)))
+    (is (not= ["tests/unit/adapters/fetch.test.js"
+               "tests/unit/adapters/http.test.js"
+               "tests/unit/adapters/adapters.test.js"]
+              (mapv :path result)))))
+
 (deftest compact-output-spreads-candidate-support-signatures
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank signature]

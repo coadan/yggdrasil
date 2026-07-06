@@ -337,6 +337,16 @@
   2)
 (def ^:private compact-output-preserved-head-count
   4)
+(def ^:private compact-output-preserved-doc-head-count
+  5)
+(def ^:private compact-output-preserved-doc-head-sort-scale
+  1000.0)
+(def ^:private compact-output-preserved-doc-head-token-min
+  2)
+(def ^:private compact-output-preserved-doc-head-path-token-min
+  2)
+(def ^:private compact-output-preserved-doc-head-source-score-min
+  0.3)
 (def ^:private compact-output-score-tail-min-files
   4)
 (def ^:private compact-output-score-tail-prefix-min-files
@@ -2854,7 +2864,6 @@
                              metrics (cond-> {:firstSourceRank (:source-rank best-row)
                                               :supportCount support-count
                                               :docCount doc-count
-                                              :attachedDocCount attached-doc-count
                                               :entityCount entity-count
                                               :candidateFileCount candidate-count
                                               :retrievedSourceCount retrieved-source-count
@@ -2863,6 +2872,8 @@
                                               :rankScore rank-score
                                               :matchedTokenCount (count matched-tokens)
                                               :definitionKinds definition-kinds}
+                                       (pos? attached-doc-count)
+                                       (assoc :attachedDocCount attached-doc-count)
                                        (seq matched-token-pairs)
                                        (assoc :matchedTokenPairCount
                                               (count matched-token-pairs))
@@ -5088,10 +5099,45 @@
            (compact-output-early-source-graph-row? row)
            (compact-output-retrieved-label-source-row? row))))
 
+(defn- compact-output-ranked-doc-head-row?
+  [row]
+  (and (<= (long (or (:rank row) Long/MAX_VALUE))
+           compact-output-preserved-doc-head-count)
+       (pos? (positive-metric row :docCount))
+       (<= compact-output-preserved-doc-head-token-min
+           (positive-metric row :matchedTokenCount))
+       (or (pos? (positive-metric row :retrievedSourceCount))
+           (pos? (positive-metric row :exactPathSourceCount)))
+       (or (<= compact-output-preserved-doc-head-path-token-min
+               (positive-metric row :matchedPathQueryTokenCount))
+           (pos? (row-metric-double row :retrievedPathQueryTokenBoost))
+           (<= compact-output-preserved-doc-head-source-score-min
+               (row-metric-double row :sourceGraphCandidateEvidenceScore))
+           (pos? (positive-metric row :matchedTokenPairCount))
+           (pos? (positive-metric row :matchedCompoundTokenPairCount))
+           (pos? (positive-metric row
+                                  :matchedIdentityCompoundTokenPairCount)))))
+
+(defn- compact-output-ranked-doc-head-sort-rank
+  [row]
+  (/ (double (long (or (:rank row)
+                       compact-output-preserved-doc-head-count)))
+     compact-output-preserved-doc-head-sort-scale))
+
+(defn- compact-output-ranked-doc-head-rows
+  [files]
+  (->> files
+       (take compact-output-preserved-doc-head-count)
+       (filter compact-output-ranked-doc-head-row?)
+       (map #(assoc %
+                    ::compact-output-sort-rank
+                    (compact-output-ranked-doc-head-sort-rank %)))))
+
 (defn- compact-output-prune-protected-row?
   [row]
   (or (compact-output-retrieved-label-doc-row? row)
       (compact-output-query-evidence-doc-row? row)
+      (compact-output-ranked-doc-head-row? row)
       (compact-output-retrieved-path-self-identity-row? row)
       (compact-output-retrieved-path-query-token-row? row)
       (compact-output-candidate-path-self-identity-row? row)
@@ -5281,10 +5327,16 @@
               (filter compact-output-supported-source-graph-query-evidence-row?
                       selected)
               (filter query-evidence-source-candidate-row? selected)
-              (filter compact-output-retrieved-label-source-row? selected))]
+              (filter compact-output-retrieved-label-source-row? selected))
+        ranked-doc-head-keys (->> selected
+                                  (filter compact-output-ranked-doc-head-row?)
+                                  (map file-row-key)
+                                  set)
+        core-keys (set (map file-row-key core))]
     (when (and (< 1 (count base-core))
                (< 1 (count core))
                (< (count core) (count selected))
+               (set/subset? ranked-doc-head-keys core-keys)
                (covers-source-kinds? source-kinds kind-by-path core))
       (compact-output-sort-and-renumber core))))
 
@@ -5378,6 +5430,10 @@
              head-selection (reduce add-compact-output-row
                                     empty-selection
                                     head-rows)
+             head-selection (reduce add-compact-output-row
+                                    head-selection
+                                    (compact-output-ranked-doc-head-rows
+                                     files))
              selected (add-compact-output-row
                        head-selection
                        (compact-output-attached-doc-row files
