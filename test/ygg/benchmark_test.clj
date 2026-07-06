@@ -743,6 +743,11 @@
                 (filter #(seq (get-in % [:expectations :citation-evidence])))
                 (map :id)
                 set)))
+    (is (= (set full-case-ids)
+           (->> (:cases full)
+                (filter #(seq (get-in % [:expectations :citation-evidence])))
+                (map :id)
+                set)))
     (is (= #{"axios" "dapper" "terraform-aws-vpc" "flask"
              "graphify" "supabase-postgres"}
            claim-quick-repo-ids))

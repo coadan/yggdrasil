@@ -124,6 +124,16 @@
                  :multi-repo
                  :go
                  :otel]
+          :expectations {:citation-evidence [{:kind :routing-config
+                                              :path "connector/routingconnector/config.go"}
+                                             {:kind :routing-config-schema
+                                              :path "connector/routingconnector/config.schema.yaml"}
+                                             {:kind :routing-factory
+                                              :path "connector/routingconnector/factory.go"}
+                                             {:kind :routing-factory-test
+                                              :path "connector/routingconnector/factory_test.go"}
+                                             {:kind :routing-metadata
+                                              :path "connector/routingconnector/metadata.yaml"}]}
           :issue {:id "otel-contrib-48433"
                   :url "https://github.com/open-telemetry/opentelemetry-collector-contrib/pull/48433"
                   :title "[connector/routing] Add feature gate to change default error_mode to ignore"
@@ -322,6 +332,12 @@
           :ground-truth {:localization-files ["junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesExtension.java"
                                               "junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesModification.java"
                                               "jupiter-tests/src/test/java/org/junit/jupiter/api/util/SystemPropertiesExtensionTests.java"]}
+          :expectations {:citation-evidence [{:kind :system-properties-extension
+                                              :path "junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesExtension.java"}
+                                             {:kind :system-properties-modification
+                                              :path "junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesModification.java"}
+                                             {:kind :system-properties-extension-test
+                                              :path "jupiter-tests/src/test/java/org/junit/jupiter/api/util/SystemPropertiesExtensionTests.java"}]}
           :issue {:id "junit-framework-5764"
                   :url "https://github.com/junit-team/junit-framework/pull/5764"
                   :title "Store one partial backup for each SystemPropertiesExtension context"
@@ -340,6 +356,8 @@
           :base-sha "59a79e1dfb20fd0d1d3fc7e74f01f96e81d5b777"
           :fix-sha "5693ab7e1b578b44e878d24ab479a650cb545caf"
           :ground-truth {:localization-files ["site/src/content/docs/components/toasts.mdx"]}
+          :expectations {:citation-evidence [{:kind :toast-doc-file
+                                              :path "site/src/content/docs/components/toasts.mdx"}]}
           :issue {:id "bootstrap-42428"
                   :url "https://github.com/twbs/bootstrap/pull/42428"
                   :title "Fix wording in toasts show doc"
@@ -425,6 +443,20 @@
                                               ".github/workflows/js.yml"
                                               ".github/workflows/lint.yml"
                                               ".github/workflows/node-sass.yml"]}
+          :expectations {:citation-evidence [{:kind :workflow-node-version
+                                              :path ".github/workflows/browserstack.yml"}
+                                             {:kind :workflow-node-version
+                                              :path ".github/workflows/bundlewatch.yml"}
+                                             {:kind :workflow-node-version
+                                              :path ".github/workflows/css.yml"}
+                                             {:kind :workflow-node-version
+                                              :path ".github/workflows/docs.yml"}
+                                             {:kind :workflow-node-version
+                                              :path ".github/workflows/js.yml"}
+                                             {:kind :workflow-node-version
+                                              :path ".github/workflows/lint.yml"}
+                                             {:kind :workflow-node-version
+                                              :path ".github/workflows/node-sass.yml"}]}
           :issue {:id "bootstrap-42416"
                   :url "https://github.com/twbs/bootstrap/pull/42416"
                   :title "Use node-version-file in GitHub workflows"
@@ -448,6 +480,8 @@
           :base-sha "30499d6af0961ec38619792013a534d1933b08a9"
           :fix-sha "1792eda11aff8fe0f8c8a6e5ae6ff305740a6460"
           :ground-truth {:localization-files ["lib/adapters/http.js"]}
+          :expectations {:citation-evidence [{:kind :http-adapter-follow-redirects-boundary
+                                              :path "lib/adapters/http.js"}]}
           :issue {:id "axios-10993"
                   :url "https://github.com/axios/axios/pull/10993"
                   :title "fix: ensure maxBodyLength is explicitly passed to follow-redirects"
@@ -467,6 +501,12 @@
           :ground-truth {:localization-files ["Dapper.SqlBuilder/Dapper.SqlBuilder.csproj"
                                               "Directory.Packages.props"
                                               "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"]}
+          :expectations {:citation-evidence [{:kind :dotnet-project-reference-trimmer
+                                              :path "Dapper.SqlBuilder/Dapper.SqlBuilder.csproj"}
+                                             {:kind :dotnet-central-package-management
+                                              :path "Directory.Packages.props"}
+                                             {:kind :dotnet-benchmark-project-reference
+                                              :path "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"}]}
           :issue {:id "dapper-2191"
                   :url "https://github.com/DapperLib/Dapper/pull/2191"
                   :title "Add ReferenceTrimmer and remove unused references"
