@@ -163,6 +163,8 @@
     (is (str/includes? usage "--max-missed-but-present-in-context-runs N"))
     (is (str/includes? usage "--max-missed-and-absent-from-context-runs N"))
     (is (str/includes? usage "--min-source-kind-cases KIND=N"))
+    (is (str/includes? usage "--require-broad-claim-readiness"))
+    (is (str/includes? usage "--require-docs-claim-readiness"))
     (is (str/includes? usage "--require-parser-worker none|java|dotnet|javascript|typescript|all"))
     (is (not (str/includes? usage "overlay")))))
 
@@ -2282,6 +2284,7 @@
                                  "--min-measured-problem-classes" "1"
                                  "--min-measured-architecture-classes" "1"
                                  "--require-broad-claim-readiness"
+                                 "--require-docs-claim-readiness"
                                  "--require-parser-worker" "all"
                                  "--allow-missing"
                                  "--allow-duplicate-runs"
@@ -2349,6 +2352,7 @@
                   :min-measured-problem-classes 1
                   :min-measured-architecture-classes 1
                   :require-broad-claim-readiness? true
+                  :require-docs-claim-readiness? true
                   :require-parser-worker "all"
                   :allow-missing? true
                   :allow-duplicate-runs? true}]]

@@ -229,6 +229,8 @@
                        "--min-measured-problem-classes N"))
     (is (str/includes? (:out result)
                        "--min-measured-architecture-classes N"))
+    (is (str/includes? (:out result)
+                       "--require-docs-claim-readiness"))
     (is (str/includes? (:out result) "--retriever MODE"))
     (is (str/includes? (:out result) "current artifacts already"))))
 
@@ -374,6 +376,8 @@
                        "--min-measured-problem-classes 1"))
     (is (str/includes? (nth lines 2)
                        "--min-measured-architecture-classes 1"))
+    (is (str/includes? (nth lines 2)
+                       "--require-docs-claim-readiness"))
     (is (not (str/includes? (nth lines 2)
                             "--require-broad-claim-readiness")))
     (is (str/includes? (nth lines 3)
@@ -400,6 +404,8 @@
                        "--min-measured-problem-classes 1"))
     (is (str/includes? (:out result)
                        "--min-measured-architecture-classes 1"))
+    (is (str/includes? (:out result)
+                       "--require-docs-claim-readiness"))
     (is (not (str/includes? (:out result)
                             "--require-broad-claim-readiness")))))
 

@@ -429,6 +429,9 @@
     (some #{"--require-broad-claim-readiness"} args) (assoc
                                                       :require-broad-claim-readiness?
                                                       true)
+    (some #{"--require-docs-claim-readiness"} args) (assoc
+                                                     :require-docs-claim-readiness?
+                                                     true)
     (some #{"--graphify-include-non-code"} args) (assoc
                                                   :graphify-include-non-code?
                                                   true)
@@ -592,6 +595,31 @@
       (doseq [warning (:warnings claim-readiness)]
         (println "-" warning)))))
 
+(defn- print-docs-claim-readiness
+  ([readiness]
+   (print-docs-claim-readiness readiness false))
+  ([readiness force?]
+   (when (and readiness
+              (or force?
+                  (:docsHandlingClaimSupported readiness)))
+     (println "- docs-claim-readiness" (:status readiness))
+     (when (contains? readiness :docsHandlingClaimSupported)
+       (println "- docs-handling-claim-supported"
+                (:docsHandlingClaimSupported readiness)))
+     (when (seq (:measuredDocsProblemClassTags readiness))
+       (println "- measured-docs-problem-classes"
+                (str/join "," (:measuredDocsProblemClassTags readiness))))
+     (when (seq (:measuredDocsArchitectureClassTags readiness))
+       (println "- measured-docs-architecture-classes"
+                (str/join "," (:measuredDocsArchitectureClassTags readiness))))
+     (when-let [failed (seq (failed-readiness-requirements readiness))]
+       (println "- docs-claim-failed-requirements"
+                (str/join "," (map name failed))))
+     (when (seq (:warnings readiness))
+       (println "## Docs Claim Readiness Warnings")
+       (doseq [warning (:warnings readiness)]
+         (println "-" warning))))))
+
 (defn- timing-stage-class-rows
   [timings]
   (or (seq (:stageClassElapsedMs timings))
@@ -709,6 +737,7 @@
       (print-artifact-diagnostics-summary (:artifactDiagnostics result))
       (print-benchmark-preflight-summary (:benchmarkPreflightDiagnostics result))
       (print-claim-readiness (:claimReadiness result))
+      (print-docs-claim-readiness (:docsClaimReadiness result))
       (when-let [blocker (first (get-in result
                                         [:localizationDiagnostics
                                          :rankedOutsideTop5BlockingFiles]))]
@@ -803,6 +832,11 @@
                                                  [:report
                                                   :benchmarkPreflightDiagnostics]))
       (print-claim-readiness (get-in result [:report :claimReadiness]))
+      (print-docs-claim-readiness (get-in result
+                                          [:report :docsClaimReadiness])
+                                  (get-in result
+                                          [:thresholds
+                                           :requireDocsClaimReadiness]))
       (println "- noise@20"
                (format "%.2f" (double (get-in result
                                               [:report :scores :noiseRatioAt20]

@@ -47,6 +47,9 @@ Options:
   --require-broad-claim-readiness
                       Fail agent-check unless report claimReadiness supports
                       broad benchmark claims.
+  --require-docs-claim-readiness
+                      Fail agent-check unless report docsClaimReadiness supports
+                      documentation-handling claims.
   --provider PROVIDER Embedding provider for semantic/hybrid retrievers.
   --model MODEL       Embedding model for semantic/hybrid retrievers.
   --batch-size N      Embedding batch size for semantic/hybrid retrievers.
@@ -134,6 +137,7 @@ min_source_kind_case_count=0
 min_measured_problem_classes=""
 min_measured_architecture_classes=""
 require_broad_claim_readiness=false
+require_docs_claim_readiness=false
 min_stage_regression_ms=""
 stage_filters=()
 stage_filter_count=0
@@ -294,6 +298,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --require-broad-claim-readiness)
       require_broad_claim_readiness=true
+      shift
+      ;;
+    --require-docs-claim-readiness)
+      require_docs_claim_readiness=true
       shift
       ;;
     --min-stage-regression-ms)
@@ -462,6 +470,9 @@ if [[ -n "$min_measured_architecture_classes" ]]; then
 fi
 if [[ "$require_broad_claim_readiness" == true ]]; then
   agent_check_args+=(--require-broad-claim-readiness)
+fi
+if [[ "$require_docs_claim_readiness" == true ]]; then
+  agent_check_args+=(--require-docs-claim-readiness)
 fi
 
 run_bench agent-check "${agent_check_args[@]}"

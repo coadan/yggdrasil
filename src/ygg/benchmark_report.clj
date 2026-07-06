@@ -38,6 +38,12 @@
 (def ^:private claim-readiness-min-source-kinds
   2)
 
+(def ^:private docs-claim-readiness-min-repos
+  3)
+
+(def ^:private docs-claim-readiness-min-doc-cases
+  4)
+
 (def ^:private rank-blocker-limit
   5)
 
@@ -1223,6 +1229,85 @@
        sort
        vec))
 
+(defn- report-completed?
+  [report]
+  (and (pos? (long (:cases report)))
+       (= (long (:cases report))
+          (long (:completed report)))))
+
+(defn- report-has-runs?
+  [report]
+  (pos? (long (:runs report))))
+
+(defn- report-evidence-metrics?
+  [report]
+  (and (report-has-runs? report)
+       (number? (get-in report [:scores :evidenceCitationRate]))
+       (number? (get-in report [:scores :pathEvidenceCitationRate]))))
+
+(defn- report-expected-evidence-metrics?
+  [report]
+  (and (report-has-runs? report)
+       (pos?
+        (long
+         (get-in report
+                 [:expectationDiagnostics
+                  :expectedEvidenceCitationMetricRuns]
+                 0)))
+       (zero?
+        (long
+         (get-in report
+                 [:expectationDiagnostics
+                  :missingExpectedEvidenceCitationMetricRuns]
+                 0)))))
+
+(defn- report-command-telemetry?
+  [report]
+  (and (report-has-runs? report)
+       (map? (get-in report [:agentDiagnostics :commandTelemetry]))))
+
+(defn- report-decision-metrics?
+  [report]
+  (let [decision-configured? (pos?
+                              (long
+                               (get-in report
+                                       [:decisionDiagnostics :configuredRuns]
+                                       0)))]
+    (or (not decision-configured?)
+        (and (number? (get-in report [:scores :decisionF1]))
+             (zero?
+              (long
+               (get-in report
+                       [:decisionDiagnostics :missingDecisionRuns]
+                       0)))))))
+
+(defn- report-benchmark-preflight?
+  [report]
+  (let [benchmark-preflight (:benchmarkPreflightDiagnostics report)]
+    (or (not (:requiredForClaim benchmark-preflight))
+        (= "passed" (:status benchmark-preflight)))))
+
+(defn- report-declared-source-kind-coverage?
+  [report]
+  (zero?
+   (long
+    (or (get-in report
+                [:coverageDiagnostics :missingDeclaredSourceKindRuns])
+        0))))
+
+(defn- report-non-synthetic-cases?
+  [report]
+  (pos? (long (or (get-in report
+                          [:datasetDiagnostics :nonSyntheticCases])
+                  0))))
+
+(defn- scoreable-source-kind-cases
+  [report source-kind]
+  (->> (get-in report [:coverage :scoreableFilesByKind])
+       (filter #(= source-kind (:kind %)))
+       (map #(long (or (:cases %) 0)))
+       (reduce + 0)))
+
 (defn- report-claim-readiness
   [report]
   (let [problem-classes (:problemClasses report)
@@ -1236,61 +1321,15 @@
         measured-non-synthetic-architecture-tags (measured-diagnostic-class-tags
                                                   dataset-diagnostics
                                                   :nonSyntheticArchitectureClasses)
-        completed? (and (pos? (long (:cases report)))
-                        (= (long (:cases report))
-                           (long (:completed report))))
-        has-runs? (pos? (long (:runs report)))
-        evidence-metrics? (and has-runs?
-                               (number? (get-in report
-                                                [:scores
-                                                 :evidenceCitationRate]))
-                               (number? (get-in report
-                                                [:scores
-                                                 :pathEvidenceCitationRate])))
-        expected-evidence-metrics? (and has-runs?
-                                        (pos?
-                                         (long
-                                          (get-in
-                                           report
-                                           [:expectationDiagnostics
-                                            :expectedEvidenceCitationMetricRuns]
-                                           0)))
-                                        (zero?
-                                         (long
-                                          (get-in
-                                           report
-                                           [:expectationDiagnostics
-                                            :missingExpectedEvidenceCitationMetricRuns]
-                                           0))))
-        command-telemetry? (and has-runs?
-                                (map? (get-in report
-                                              [:agentDiagnostics
-                                               :commandTelemetry])))
-        decision-configured? (pos?
-                              (long
-                               (get-in report
-                                       [:decisionDiagnostics :configuredRuns]
-                                       0)))
-        decision-metrics? (or (not decision-configured?)
-                              (and (number? (get-in report [:scores :decisionF1]))
-                                   (zero?
-                                    (long
-                                     (get-in report
-                                             [:decisionDiagnostics
-                                              :missingDecisionRuns]
-                                             0)))))
-        benchmark-preflight (:benchmarkPreflightDiagnostics report)
-        benchmark-preflight? (or (not (:requiredForClaim benchmark-preflight))
-                                 (= "passed" (:status benchmark-preflight)))
-        coverage-diagnostics (:coverageDiagnostics report)
-        declared-source-kind-coverage? (zero?
-                                        (long
-                                         (or (:missingDeclaredSourceKindRuns
-                                              coverage-diagnostics)
-                                             0)))
-        non-synthetic-cases? (pos? (long (or (:nonSyntheticCases
-                                              dataset-diagnostics)
-                                             0)))
+        completed? (report-completed? report)
+        has-runs? (report-has-runs? report)
+        evidence-metrics? (report-evidence-metrics? report)
+        expected-evidence-metrics? (report-expected-evidence-metrics? report)
+        command-telemetry? (report-command-telemetry? report)
+        decision-metrics? (report-decision-metrics? report)
+        benchmark-preflight? (report-benchmark-preflight? report)
+        declared-source-kind-coverage? (report-declared-source-kind-coverage? report)
+        non-synthetic-cases? (report-non-synthetic-cases? report)
         repo-ids (diagnostic-values dataset-diagnostics :repos :repoId)
         source-kind-keys (diagnostic-values dataset-diagnostics :sourceKinds :kind)
         repo-breadth? (<= claim-readiness-min-repos (count repo-ids))
@@ -1380,6 +1419,129 @@
 
                  (:syntheticOnly dataset-diagnostics)
                  (conj "Selected benchmark cases are all synthetic; restrict broad efficiency claims or add non-synthetic replay cases."))}))
+
+(defn- report-docs-claim-readiness
+  [report]
+  (let [problem-classes (:problemClasses report)
+        dataset-diagnostics (:datasetDiagnostics report)
+        measured-problem-tags (->> (measured-class-tags problem-classes :classes)
+                                   (filter benchmark-classes/docs-problem-class-tag?)
+                                   vec)
+        measured-architecture-tags (->> (measured-class-tags problem-classes
+                                                             :architectureClasses)
+                                        (filter benchmark-classes/docs-architecture-class-tag?)
+                                        vec)
+        measured-non-synthetic-problem-tags
+        (->> (measured-diagnostic-class-tags dataset-diagnostics
+                                             :nonSyntheticProblemClasses)
+             (filter benchmark-classes/docs-problem-class-tag?)
+             vec)
+        measured-non-synthetic-architecture-tags
+        (->> (measured-diagnostic-class-tags dataset-diagnostics
+                                             :nonSyntheticArchitectureClasses)
+             (filter benchmark-classes/docs-architecture-class-tag?)
+             vec)
+        completed? (report-completed? report)
+        has-runs? (report-has-runs? report)
+        evidence-metrics? (report-evidence-metrics? report)
+        expected-evidence-metrics? (report-expected-evidence-metrics? report)
+        command-telemetry? (report-command-telemetry? report)
+        decision-metrics? (report-decision-metrics? report)
+        benchmark-preflight? (report-benchmark-preflight? report)
+        declared-source-kind-coverage? (report-declared-source-kind-coverage? report)
+        non-synthetic-cases? (report-non-synthetic-cases? report)
+        repo-ids (diagnostic-values dataset-diagnostics :repos :repoId)
+        source-kind-keys (diagnostic-values dataset-diagnostics :sourceKinds :kind)
+        doc-source-kind-cases (scoreable-source-kind-cases report "doc")
+        repo-breadth? (<= docs-claim-readiness-min-repos (count repo-ids))
+        doc-source-kind-coverage? (<= docs-claim-readiness-min-doc-cases
+                                      doc-source-kind-cases)
+        requirements {:completedCases completed?
+                      :hasRuns has-runs?
+                      :nonSyntheticCases non-synthetic-cases?
+                      :repoBreadth repo-breadth?
+                      :docSourceKindCoverage doc-source-kind-coverage?
+                      :declaredSourceKindCoverage declared-source-kind-coverage?
+                      :measuredDocsProblemClasses
+                      (boolean (seq measured-problem-tags))
+                      :measuredNonSyntheticDocsProblemClasses
+                      (boolean (seq measured-non-synthetic-problem-tags))
+                      :measuredDocsArchitectureClasses
+                      (boolean (seq measured-architecture-tags))
+                      :measuredNonSyntheticDocsArchitectureClasses
+                      (boolean (seq measured-non-synthetic-architecture-tags))
+                      :evidenceCitationMetrics evidence-metrics?
+                      :expectedEvidenceCitationMetrics expected-evidence-metrics?
+                      :decisionQualityMetrics decision-metrics?
+                      :commandTelemetry command-telemetry?
+                      :benchmarkPreflight benchmark-preflight?}
+        supported? (every? true? (vals requirements))]
+    {:status (if supported? "supported" "not-supported")
+     :docsHandlingClaimSupported supported?
+     :measuredDocsProblemClassTags measured-problem-tags
+     :measuredDocsArchitectureClassTags measured-architecture-tags
+     :repoIds repo-ids
+     :sourceKindKeys source-kind-keys
+     :docSourceKindCases doc-source-kind-cases
+     :minimumReposForDocsClaim docs-claim-readiness-min-repos
+     :minimumDocSourceKindCases docs-claim-readiness-min-doc-cases
+     :requirements requirements
+     :warnings (cond-> []
+                 (not completed?)
+                 (conj "Not all selected cases completed; do not use this report for docs-handling claims.")
+
+                 (not has-runs?)
+                 (conj "No agent score runs are included in this report.")
+
+                 (not non-synthetic-cases?)
+                 (conj "No non-synthetic replay cases are included; docs-handling claims are unproven.")
+
+                 (not repo-breadth?)
+                 (conj (str "Only " (count repo-ids)
+                            " benchmark repo(s); docs-handling claims require at least "
+                            docs-claim-readiness-min-repos
+                            "."))
+
+                 (not doc-source-kind-coverage?)
+                 (conj (str "Only " doc-source-kind-cases
+                            " completed scoreable doc case(s); docs-handling claims require at least "
+                            docs-claim-readiness-min-doc-cases
+                            "."))
+
+                 (not declared-source-kind-coverage?)
+                 (conj "Declared source-kind coverage is incomplete; every declared source-kind group needs scoreable indexed files before docs-handling claims.")
+
+                 (empty? measured-problem-tags)
+                 (conj "No measured docs problem-class groups; include enough docs cases per class before claiming docs-handling support.")
+
+                 (and non-synthetic-cases?
+                      (empty? measured-non-synthetic-problem-tags))
+                 (conj "No measured non-synthetic docs problem-class groups; docs-handling claims need replay-backed docs problem coverage.")
+
+                 (empty? measured-architecture-tags)
+                 (conj "No measured docs architecture-class groups; docs architecture/audit tags are present only below the class-claim threshold or absent.")
+
+                 (and non-synthetic-cases?
+                      (empty? measured-non-synthetic-architecture-tags))
+                 (conj "No measured non-synthetic docs architecture-class groups; docs-handling claims need replay-backed docs architecture coverage.")
+
+                 (not evidence-metrics?)
+                 (conj "Evidence citation metrics are unavailable; docs citation quality is unproven.")
+
+                 (not expected-evidence-metrics?)
+                 (conj "Expected-evidence citation metrics are unavailable or incomplete; docs evidence quality is unproven.")
+
+                 (not decision-metrics?)
+                 (conj "Decision-quality metrics are configured but incomplete; docs decision claims are unproven.")
+
+                 (not command-telemetry?)
+                 (conj "Command telemetry is unavailable; shell/search/read-loop costs are unproven.")
+
+                 (not benchmark-preflight?)
+                 (conj "Yggdrasil benchmark preflight did not pass; index, inference, graph expectations, hint diagnostics, and sync/check-equivalent status must pass before making docs-handling claims.")
+
+                 (:syntheticOnly dataset-diagnostics)
+                 (conj "Selected benchmark cases are all synthetic; restrict docs-handling claims or add non-synthetic replay cases."))}))
 (defn- improvement-row
   [{:keys [kind area runs case-ids message details]}]
   (when (pos? (long (or runs 0)))
@@ -2069,6 +2231,8 @@
                            (benchmark-system-improvement/report->system-improvement-signals
                             report-base))
         report (assoc report-base
-                      :claimReadiness (report-claim-readiness report-base))]
+                      :claimReadiness (report-claim-readiness report-base)
+                      :docsClaimReadiness
+                      (report-docs-claim-readiness report-base))]
     (benchmark-io/write-json-file! (benchmark-paths/agent-report-path suite opts) report)
     report))

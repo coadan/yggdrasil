@@ -1696,6 +1696,112 @@
       (is (= []
              (get-in report [:claimReadiness :warnings]))))))
 
+(deftest agent-report-docs-claim-readiness-supports-docs-only-lane
+  (let [out (temp-dir "ygg-agent-report-docs-claim-readiness")
+        suite {:id "suite"
+               :cases [{:id "docs-a"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:doc]}
+                        :tags [:problem-docs-config-coupling
+                               :audit-scope-docs]}
+                       {:id "docs-b"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
+                        :tags [:problem-docs-config-coupling
+                               :audit-scope-docs]}
+                       {:id "docs-c"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
+                        :tags [:problem-docs-config-coupling
+                               :audit-scope-docs]}
+                       {:id "docs-d"
+                        :repo-id "repo-c"
+                        :coverage {:source-kinds [:doc]}
+                        :tags [:problem-docs-config-coupling]}]}
+        write-score! (fn [case]
+                       (let [case-id (:id case)]
+                         (spit-json!
+                          out
+                          (str "suite/cases/" case-id "/agent-scores/run.score.json")
+                          {:schema benchmark/agent-score-schema
+                           :suite-id "suite"
+                           :case-id case-id
+                           :repo-id (:repo-id case)
+                           :tags (mapv name (:tags case))
+                           :benchmarkPreflight passing-benchmark-preflight
+                           :coverage {:declaredSourceKinds ["doc"]
+                                      :scoreableSourceKinds ["doc"]
+                                      :scoreableFilesByKind [{:kind "doc"
+                                                              :files 1}]
+                                      :missingDeclaredSourceKinds []}
+                           :expectations {:evidence [{:kind "doc-heading"
+                                                      :path (str case-id ".md")}]}
+                           :agent {:agentId "codex"
+                                   :mode "ygg"
+                                   :topFiles [{:path (str case-id ".md")
+                                               :rank 1
+                                               :evidence ["context-doc"]}]
+                                   :commands ["ygg query docs --project fixture"]}
+                           :groundTruth {:changedFiles [(str case-id ".md")]
+                                         :scoreableFiles [(str case-id ".md")]
+                                         :unsupportedGroundTruthFiles []}
+                           :groundTruthRanks {:files [{:path (str case-id ".md")
+                                                       :rank 1
+                                                       :found? true}]}
+                           :scores {:fileRecallAt5 1.0
+                                    :fileRecallAt10 1.0
+                                    :fileRecallAt20 1.0
+                                    :meanReciprocalRankFile 1.0
+                                    :noiseRatioAt20 0.0
+                                    :evidenceCitationRate 1.0
+                                    :pathEvidenceCitationRate 1.0
+                                    :expectedEvidenceCitationRate 1.0
+                                    :expectedEvidenceCitations 1
+                                    :expectedEvidenceCitationTargets 1
+                                    :changedFiles 1
+                                    :scoreableChangedFiles 1
+                                    :unsupportedGroundTruthFiles 0}})))]
+    (doseq [case (:cases suite)]
+      (write-score! case))
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})]
+      (is (= "not-supported" (get-in report [:claimReadiness :status])))
+      (is (= false
+             (get-in report
+                     [:claimReadiness :requirements :sourceKindBreadth])))
+      (is (= "supported" (get-in report [:docsClaimReadiness :status])))
+      (is (= true
+             (get-in report
+                     [:docsClaimReadiness :docsHandlingClaimSupported])))
+      (is (= ["problem-docs-config-coupling"]
+             (get-in report
+                     [:docsClaimReadiness :measuredDocsProblemClassTags])))
+      (is (= ["audit-scope-docs"]
+             (get-in report
+                     [:docsClaimReadiness :measuredDocsArchitectureClassTags])))
+      (is (= ["repo-a" "repo-b" "repo-c"]
+             (get-in report [:docsClaimReadiness :repoIds])))
+      (is (= ["doc"]
+             (get-in report [:docsClaimReadiness :sourceKindKeys])))
+      (is (= 4 (get-in report [:docsClaimReadiness :docSourceKindCases])))
+      (is (= {:completedCases true
+              :hasRuns true
+              :nonSyntheticCases true
+              :repoBreadth true
+              :docSourceKindCoverage true
+              :declaredSourceKindCoverage true
+              :measuredDocsProblemClasses true
+              :measuredNonSyntheticDocsProblemClasses true
+              :measuredDocsArchitectureClasses true
+              :measuredNonSyntheticDocsArchitectureClasses true
+              :evidenceCitationMetrics true
+              :expectedEvidenceCitationMetrics true
+              :decisionQualityMetrics true
+              :commandTelemetry true
+              :benchmarkPreflight true}
+             (get-in report [:docsClaimReadiness :requirements])))
+      (is (= [] (get-in report [:docsClaimReadiness :warnings]))))))
+
 (deftest agent-report-claim-readiness-requires-repo-and-source-kind-breadth
   (let [out (temp-dir "ygg-agent-report-claim-readiness-breadth")
         suite {:id "suite"
@@ -2613,6 +2719,7 @@
     (is (= {:requireComplete true
             :allowDuplicateRuns false
             :requireBroadClaimReadiness false
+            :requireDocsClaimReadiness false
             :minCases 3.0
             :minRuns 2.0
             :minFileRecallAt10 0.9
@@ -2794,6 +2901,55 @@
            (get-in missing
                    [:failures 0 :broadClaimReadiness :status])))))
 
+(deftest agent-check-can-require-docs-claim-readiness
+  (let [report {:schema benchmark/agent-report-schema
+                :suite-id "suite"
+                :cases 1
+                :completed 1
+                :runs 1
+                :missing []
+                :scores {}
+                :docsClaimReadiness {:status "not-supported"
+                                     :docsHandlingClaimSupported false
+                                     :requirements {:docSourceKindCoverage false}
+                                     :warnings ["Only one docs case."]}
+                :results [{:case-id "case-1"
+                           :repo-id "repo-a"}]}
+        failed (benchmark/check-agent-report
+                report
+                {:require-docs-claim-readiness? true})
+        passed (benchmark/check-agent-report
+                (assoc report
+                       :docsClaimReadiness
+                       {:status "supported"
+                        :docsHandlingClaimSupported true
+                        :requirements {:docSourceKindCoverage true}
+                        :warnings []})
+                {:require-docs-claim-readiness? true})
+        missing (benchmark/check-agent-report
+                 (dissoc report :docsClaimReadiness)
+                 {:require-docs-claim-readiness? true})]
+    (is (= "failed" (:status failed)))
+    (is (= ["docsClaimReadiness"]
+           (mapv :metric (:failures failed))))
+    (is (= {:status "not-supported"
+            :supported false
+            :failedRequirements [:docSourceKindCoverage]
+            :warnings ["Only one docs case."]
+            :docsHandlingClaimSupported false}
+           (get-in failed [:failures 0 :docsClaimReadiness])))
+    (is (= true (get-in failed [:thresholds :requireDocsClaimReadiness])))
+    (is (= "failed" (get-in failed [:thresholdGate :status])))
+    (is (= "not-supported"
+           (get-in failed
+                   [:thresholdGate :docsClaimReadiness :status])))
+    (is (= "passed" (:status passed)))
+    (is (= [] (:failures passed)))
+    (is (= "failed" (:status missing)))
+    (is (= "unknown"
+           (get-in missing
+                   [:failures 0 :docsClaimReadiness :status])))))
+
 (deftest checks-agent-report-decision-thresholds
   (let [report {:schema benchmark/agent-report-schema
                 :suite-id "suite"
@@ -2918,6 +3074,7 @@
     (is (= {:requireComplete true
             :allowDuplicateRuns false
             :requireBroadClaimReadiness false
+            :requireDocsClaimReadiness false
             :maxTotalTokens 2000.0
             :maxInputTokens 1500.0
             :maxOutputTokens 600.0

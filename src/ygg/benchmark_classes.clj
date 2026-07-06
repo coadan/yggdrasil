@@ -28,6 +28,15 @@
   [tag]
   (contains? architecture-class-tags tag))
 
+(defn docs-problem-class-tag?
+  [tag]
+  (and (problem-class-tag? tag)
+       (str/starts-with? tag "problem-docs")))
+
+(defn docs-architecture-class-tag?
+  [tag]
+  (= "audit-scope-docs" tag))
+
 (defn recall-class-tag?
   [tag]
   (contains? recall-class-tags tag))

@@ -209,7 +209,8 @@
        "against current artifacts or `bb bench:docs-claim` when artifacts are "
        "missing or stale; that lane must include at least three completed repos, "
        "four completed cases with scoreable `doc` source-kind coverage, and "
-       "measured docs problem/architecture-class coverage.\n"
+       "measured docs problem/architecture-class coverage, and the generated "
+       "`docsClaimReadiness` field must support docs-handling claims.\n"
        end-marker "\n"))
 
 (defn- broad-search-hook

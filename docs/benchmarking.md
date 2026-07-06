@@ -72,8 +72,10 @@ same floors as `bb bench:claim-quick`, uses the same `0.30` MRR floor, and keeps
 the default deterministic gate `noise@20` ceiling of `0.90` for single-file docs
 edit cases. It also requires at least three completed benchmark repos and four
 completed cases with scoreable `doc` source-kind coverage, plus at least one
-measured docs problem/architecture class. Use `--check-only` only when current
-score artifacts already exist.
+measured docs problem/architecture class. The wrapper also passes
+`--require-docs-claim-readiness`, so `agent-check` fails unless the generated
+report's `docsClaimReadiness` field supports docs-handling claims. Use
+`--check-only` only when current score artifacts already exist.
 
 If a checkout exists only under the legacy `.dev/oss-test-cases/repos/` cache,
 the preflight reports that path so it can be moved or symlinked into the common
@@ -565,6 +567,8 @@ plugin-fit choice, not just a shorter suspected-file list.
   checks block Yggdrasil-mode claims,
   `--require-broad-claim-readiness` to fail when the generated report's
   `claimReadiness` field is missing or not supported,
+  `--require-docs-claim-readiness` to fail when the generated report's
+  `docsClaimReadiness` field is missing or not supported,
   `--max-missing-declared-source-kind-runs` to fail when selected cases declare
   source kinds that produce no scoreable coverage, `--min-repos` to require
   repo breadth in completed artifacts, `--min-source-kind-cases KIND=N` to
@@ -620,9 +624,10 @@ plugin-fit choice, not just a shorter suspected-file list.
 - `bench agent-check <suite.edn>` writes `agent-check.json` with
   `thresholdGate`, a compact summary of the mechanical gate status, failed
   metrics, covered repos/source-kind cases, measured class tags, and the
-  embedded broad-claim readiness status. Use this field when a narrow lane such
-  as docs handling passes its thresholds but should still report that broad
-  real-world claim readiness is incomplete.
+  embedded broad/docs claim readiness statuses. Use this field when a narrow
+  lane such as docs handling passes its thresholds but should still report that
+  broad real-world claim readiness is incomplete while docs-handling readiness
+  is supported or failed explicitly.
 - `bench agent-compare <suite.edn>` compares two `agent-report.json` files and
   exits non-zero when aggregate or per-case recall/MRR/noise regress beyond
   `--regression-tolerance` (default `0`). Use this after a candidate change to

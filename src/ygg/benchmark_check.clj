@@ -17,7 +17,9 @@
   (cond-> (into {:requireComplete (not (:allow-missing? opts))
                  :allowDuplicateRuns (boolean (:allow-duplicate-runs? opts))
                  :requireBroadClaimReadiness
-                 (boolean (:require-broad-claim-readiness? opts))}
+                 (boolean (:require-broad-claim-readiness? opts))
+                 :requireDocsClaimReadiness
+                 (boolean (:require-docs-claim-readiness? opts))}
                 (keep (fn [[opt-key artifact-key]]
                         (threshold opts opt-key artifact-key)))
                 [[:min-cases :minCases]
@@ -875,6 +877,50 @@
                 {:broadClaimReadiness readiness
                  :message "The agent report does not support broad benchmark claims; inspect claimReadiness requirements and warnings before using this gate as broad real-world evidence."})]))))
 
+(defn- docs-claim-readiness-summary
+  [report]
+  (let [readiness (:docsClaimReadiness report)]
+    (if (map? readiness)
+      (cond-> {:status (:status readiness)
+               :supported (boolean (:docsHandlingClaimSupported readiness))
+               :failedRequirements (failed-claim-requirements readiness)
+               :warnings (vec (:warnings readiness))
+               :docsHandlingClaimSupported
+               (boolean (:docsHandlingClaimSupported readiness))}
+        (seq (:repoIds readiness))
+        (assoc :repoIds (:repoIds readiness))
+
+        (seq (:sourceKindKeys readiness))
+        (assoc :sourceKindKeys (:sourceKindKeys readiness))
+
+        (contains? readiness :docSourceKindCases)
+        (assoc :docSourceKindCases (:docSourceKindCases readiness))
+
+        (seq (:measuredDocsProblemClassTags readiness))
+        (assoc :measuredDocsProblemClassTags
+               (:measuredDocsProblemClassTags readiness))
+
+        (seq (:measuredDocsArchitectureClassTags readiness))
+        (assoc :measuredDocsArchitectureClassTags
+               (:measuredDocsArchitectureClassTags readiness)))
+      {:status "unknown"
+       :supported false
+       :missing true
+       :failedRequirements []
+       :warnings ["Agent report has no docsClaimReadiness field."]})))
+
+(defn- docs-claim-readiness-failures
+  [check]
+  (when (get-in check [:thresholds :requireDocsClaimReadiness])
+    (let [readiness (docs-claim-readiness-summary (:report check))]
+      (when-not (:supported readiness)
+        [(merge (metric-failure "docsClaimReadiness"
+                                "="
+                                "supported"
+                                (:status readiness))
+                {:docsClaimReadiness readiness
+                 :message "The agent report does not support docs-handling benchmark claims; inspect docsClaimReadiness requirements and warnings before using this gate as docs-handling evidence."})]))))
+
 (defn- threshold-gate-summary
   [check failures status]
   {:status status
@@ -889,7 +935,8 @@
               (get-in check
                       [:report :claimReadiness :measuredArchitectureClassTags]
                       [])}
-   :broadClaimReadiness (broad-claim-readiness-summary (:report check))})
+   :broadClaimReadiness (broad-claim-readiness-summary (:report check))
+   :docsClaimReadiness (docs-claim-readiness-summary (:report check))})
 
 (defn check-agent-report
   "Return a pass/fail check over an agent benchmark report."
@@ -959,6 +1006,7 @@
                    (improvement-target-failures check-base)
                    (problem-class-claim-failures check-base)
                    (broad-claim-readiness-failures check-base)
+                   (docs-claim-readiness-failures check-base)
                    (parser-worker-profile-failures check-base)
                    (localization-diagnostic-failures check-base)
                    (active-stage-failures check-base)))
