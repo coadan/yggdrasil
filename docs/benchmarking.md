@@ -59,6 +59,13 @@ standard recall floors, uses `--min-mrr 0.30`, and enforces
 rather than synthetic exact-rank behavior. The full historical replay remains
 the authoritative claim lane.
 
+Use `bb bench:docs-claim` for documentation-handling claims. It runs the
+non-synthetic selector `benchmarks/historical-docs-claim-quick.edn`, stores
+artifacts under `.dev/ygg/docs-claim-gate`, gates expected evidence with the
+same floors as `bb bench:claim-quick`, uses the same `0.30` MRR floor, and keeps
+the default deterministic gate `noise@20` ceiling of `0.90` for single-file docs
+edit cases. Use `--check-only` only when current score artifacts already exist.
+
 If a checkout exists only under the legacy `.dev/oss-test-cases/repos/` cache,
 the preflight reports that path so it can be moved or symlinked into the common
 cache without committing generated files.

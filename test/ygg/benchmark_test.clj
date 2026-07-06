@@ -705,16 +705,22 @@
 (deftest historical-replay-lanes-split-quick-and-full-coverage
   (let [quick (benchmark/read-suite "benchmarks/historical-replay-quick.edn")
         claim-quick (benchmark/read-suite "benchmarks/historical-replay-claim-quick.edn")
+        docs-claim (benchmark/read-suite "benchmarks/historical-docs-claim-quick.edn")
         full (benchmark/read-suite "benchmarks/historical-replay-full.edn")
         quick-case-ids (mapv :id (:cases quick))
         claim-quick-case-ids (mapv :id (:cases claim-quick))
+        docs-claim-case-ids (mapv :id (:cases docs-claim))
         full-case-ids (mapv :id (:cases full))
         quick-repo-ids (set (map :id (:repos quick)))
         claim-quick-repo-ids (set (map :id (:repos claim-quick)))
+        docs-claim-repo-ids (set (map :id (:repos docs-claim)))
         full-repo-ids (set (map :id (:repos full)))
         claim-quick-source-kinds (set (mapcat #(get-in % [:coverage :source-kinds])
                                               (:cases claim-quick)))
+        docs-claim-source-kinds (set (mapcat #(get-in % [:coverage :source-kinds])
+                                             (:cases docs-claim)))
         claim-quick-tags (frequencies (mapcat :tags (:cases claim-quick)))
+        docs-claim-tags (frequencies (mapcat :tags (:cases docs-claim)))
         quick-source-kinds (set (mapcat #(get-in % [:coverage :source-kinds])
                                         (:cases quick)))
         quick-doc-cases (filter #(contains? (set (get-in % [:coverage :source-kinds]))
@@ -723,6 +729,7 @@
         quick-doc-repos (set (map :repo-id quick-doc-cases))]
     (is (= "historical-replay-quick" (:id quick)))
     (is (= "historical-replay-claim-quick" (:id claim-quick)))
+    (is (= "historical-docs-claim-quick" (:id docs-claim)))
     (is (= "historical-replay-full" (:id full)))
     (is (= 12 (count quick-case-ids)))
     (is (= ["historical-axios-defer-env-proxy-to-node"
@@ -735,11 +742,23 @@
             "historical-axios-formdata-epipe-test-lifecycle"
             "historical-supabase-event-trigger-schema-regression"]
            claim-quick-case-ids))
+    (is (= ["historical-bootstrap-toasts-doc-wording"
+            "historical-bootstrap-remove-ios-navbar-dropdowns-doc"
+            "historical-flask-request-json-status-doc"
+            "historical-axios-proxy-node-only-doc"]
+           docs-claim-case-ids))
     (is (= 16 (count full-case-ids)))
     (is (every? #(seq (get-in % [:expectations :citation-evidence]))
                 (:cases claim-quick)))
+    (is (every? #(seq (get-in % [:expectations :citation-evidence]))
+                (:cases docs-claim)))
     (is (= (set claim-quick-case-ids)
            (->> (:cases claim-quick)
+                (filter #(seq (get-in % [:expectations :citation-evidence])))
+                (map :id)
+                set)))
+    (is (= (set docs-claim-case-ids)
+           (->> (:cases docs-claim)
                 (filter #(seq (get-in % [:expectations :citation-evidence])))
                 (map :id)
                 set)))
@@ -751,12 +770,20 @@
     (is (= #{"axios" "dapper" "terraform-aws-vpc" "flask"
              "graphify" "supabase-postgres"}
            claim-quick-repo-ids))
+    (is (= #{"axios" "bootstrap" "flask"}
+           docs-claim-repo-ids))
     (is (contains? claim-quick-source-kinds :doc))
     (is (contains? claim-quick-source-kinds :sql))
+    (is (= #{:doc} docs-claim-source-kinds))
     (is (<= 2 (get claim-quick-tags "problem-docs-config-coupling" 0)))
     (is (<= 2 (get claim-quick-tags "problem-implementation" 0)))
     (is (<= 2 (get claim-quick-tags "problem-test-only" 0)))
     (is (<= 2 (get claim-quick-tags "audit-scope-docs" 0)))
+    (is (<= 4 (get docs-claim-tags "historical" 0)))
+    (is (<= 4 (get docs-claim-tags "docs" 0)))
+    (is (<= 4 (get docs-claim-tags "problem-docs-config-coupling" 0)))
+    (is (<= 3 (get docs-claim-tags "audit-scope-docs" 0)))
+    (is (not (contains? docs-claim-tags "synthetic")))
     (is (not (contains? (set quick-case-ids)
                         "historical-otel-routing-default-error-mode")))
     (is (contains? (set full-case-ids)

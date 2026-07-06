@@ -70,6 +70,18 @@ reuses compatible baseline context manifests by default, keyed by benchmark
 options and a Yggdrasil implementation fingerprint. Use `--fresh-context` when
 profiling full rebuild cost or intentionally replacing context artifacts.
 
+Use the docs claim lane when the claim is specifically about documentation
+handling. It is a non-synthetic selector over historical doc edit cases, stores
+artifacts under `.dev/ygg/docs-claim-gate`, gates expected evidence with the
+same floors as `bb bench:claim-quick`, uses the same `0.30` MRR floor, and keeps
+the default deterministic gate `noise@20` ceiling of `0.90` for single-file docs
+edit cases:
+
+```sh
+bb bench:docs-claim --setup-check
+bb bench:docs-claim --skip-existing
+```
+
 Use the task-category lane to test should-win planning, implementation, and
 review/decision tasks as separate measured problem classes. Should-win cases
 should exercise composed Yggdrasil recall: graph topology, parser facts,
@@ -143,7 +155,8 @@ packet token budgets, but skips baseline regeneration. If current artifacts were
 created before deterministic baseline token estimates were recorded, run the full
 gate once to refresh them before using check-only mode for token claims. For
 broad real-world claims, prefer `bb bench:claim-quick --check-only` against the
-non-synthetic claim lane.
+non-synthetic claim lane. For documentation-handling claims, prefer
+`bb bench:docs-claim --check-only`.
 
 If a checkout still exists under the legacy `.dev/oss-test-cases/repos/` cache,
 the preflight reports that path. Move or symlink it into

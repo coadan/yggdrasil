@@ -14,6 +14,9 @@
 (defn- run-claim-quick-gate
   [& args]
   (apply shell/sh "bash" "scripts/claim-quick-gate.sh" args))
+(defn- run-docs-claim-gate
+  [& args]
+  (apply shell/sh "bash" "scripts/docs-claim-gate.sh" args))
 
 (defn- output-lines
   [result]
@@ -278,6 +281,45 @@
                        "--min-mrr 0.30"))
     (is (str/includes? (:out result)
                        "--max-noise-at-20 0.80"))
+    (is (str/includes? (:out result)
+                       "--min-expected-evidence-citation-rate 0.80"))
+    (is (str/includes? (:out result)
+                       "--min-case-expected-evidence-citation-rate 0.50"))))
+(deftest docs-claim-dry-run-uses-docs-suite-and-expected-evidence-gates
+  (let [result (run-docs-claim-gate "--dry-run")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 4 (count lines)))
+    (is (str/includes? (nth lines 0)
+                       "bb bench repos check --manifest benchmarks/repos.edn --suite benchmarks/historical-docs-claim-quick.edn"))
+    (is (str/includes? (nth lines 1)
+                       "bench agent-baseline benchmarks/historical-docs-claim-quick.edn"))
+    (is (str/includes? (nth lines 1)
+                       "--out .dev/ygg/docs-claim-gate"))
+    (is (str/includes? (nth lines 1)
+                       "--reuse-context"))
+    (is (str/includes? (nth lines 2)
+                       "bench agent-check benchmarks/historical-docs-claim-quick.edn"))
+    (is (str/includes? (nth lines 2)
+                       "--min-mrr 0.30"))
+    (is (str/includes? (nth lines 2)
+                       "--max-noise-at-20 0.90"))
+    (is (str/includes? (nth lines 2)
+                       "--min-expected-evidence-citation-rate 0.80"))
+    (is (str/includes? (nth lines 2)
+                       "--min-case-expected-evidence-citation-rate 0.50"))
+    (is (str/includes? (nth lines 3)
+                       "python3 scripts/stage-time-gate.py"))))
+
+(deftest docs-claim-help-documents-defaults
+  (let [result (run-docs-claim-gate "--help")]
+    (is (= 0 (:exit result)))
+    (is (str/includes? (:out result)
+                       "benchmarks/historical-docs-claim-quick.edn"))
+    (is (str/includes? (:out result)
+                       "--min-mrr 0.30"))
+    (is (str/includes? (:out result)
+                       "--max-noise-at-20 0.90"))
     (is (str/includes? (:out result)
                        "--min-expected-evidence-citation-rate 0.80"))
     (is (str/includes? (:out result)

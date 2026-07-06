@@ -1,0 +1,8 @@
+{:id "historical-docs-claim-quick"
+ :project-id "historical-docs-claim-quick"
+ :description "Small non-synthetic docs-handling claim lane with expected-evidence citation targets. Keep historical-replay-full.edn as the authoritative lane."
+ :include-suites [{:path "historical-replay.edn"
+                   :case-ids ["historical-bootstrap-toasts-doc-wording"
+                              "historical-bootstrap-remove-ios-navbar-dropdowns-doc"
+                              "historical-flask-request-json-status-doc"
+                              "historical-axios-proxy-node-only-doc"]}]}

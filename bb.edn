@@ -60,6 +60,14 @@
                                                        *command-line-args*)]
                              (System/exit exit))}
 
+  bench:docs-claim {:doc "Run the small non-synthetic docs-handling claim gate. Usage: bb bench:docs-claim [--check-only] [--fresh-context] [--skip-existing] [--setup-check] [--case ID|--cases IDS] [--dry-run]"
+                    :task (let [{:keys [exit]} (apply shell
+                                                      {:continue true}
+                                                      "bash"
+                                                      "scripts/docs-claim-gate.sh"
+                                                      *command-line-args*)]
+                            (System/exit exit))}
+
   prompt-token-gate {:doc "Validate prompt-token reduction from a prompt-token measure report. Usage: bb prompt-token-gate REPORT [--min-shared-cases N] [--out PATH]"
                      :task (let [{:keys [exit]} (apply shell
                                                        {:continue true}
