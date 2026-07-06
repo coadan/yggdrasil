@@ -101,10 +101,20 @@
                                       #(class-tags
                                         benchmark-classes/problem-class-tag?
                                         %))
+     :nonSyntheticProblemClasses (group-case-tags
+                                  non-synthetic
+                                  #(class-tags
+                                    benchmark-classes/problem-class-tag?
+                                    %))
      :architectureClasses (group-case-tags cases
                                            #(class-tags
                                              benchmark-classes/architecture-class-tag?
                                              %))
+     :nonSyntheticArchitectureClasses (group-case-tags
+                                       non-synthetic
+                                       #(class-tags
+                                         benchmark-classes/architecture-class-tag?
+                                         %))
      :auditScopes (group-case-tags cases #(prefixed-tags "audit-scope-" %))
      :warnings (cond-> []
                  synthetic-only?

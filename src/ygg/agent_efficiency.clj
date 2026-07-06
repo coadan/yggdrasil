@@ -349,6 +349,8 @@
 
 (def ^:private lane-coverage-requirement-keys
   #{:measuredProblemClasses
+    :measuredNonSyntheticProblemClasses
+    :measuredNonSyntheticArchitectureClasses
     :measuredArchitectureClasses})
 
 (def ^:private lane-readiness-requirement-keys
@@ -361,6 +363,8 @@
    :commandTelemetry
    :benchmarkPreflight
    :measuredProblemClasses
+   :measuredNonSyntheticProblemClasses
+   :measuredNonSyntheticArchitectureClasses
    :measuredArchitectureClasses])
 
 (def ^:private quality-tradeoff-metric-keys

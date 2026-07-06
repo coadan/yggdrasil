@@ -45,13 +45,19 @@
              :cases 1
              :caseIds ["case-2"]}]
            (:problemClasses diagnostics)))
+    (is (= [{:tag "problem-maintenance"
+             :cases 1
+             :caseIds ["case-2"]}]
+           (:nonSyntheticProblemClasses diagnostics)))
     (is (= [{:tag "architecture-dependency-flow"
              :cases 1
              :caseIds ["case-1"]}
             {:tag "audit-scope-dependencies"
              :cases 1
              :caseIds ["case-1"]}]
-           (:architectureClasses diagnostics)))))
+           (:architectureClasses diagnostics)))
+    (is (= []
+           (:nonSyntheticArchitectureClasses diagnostics)))))
 
 (deftest dataset-diagnostics-warns-on-synthetic-only-suite
   (let [diagnostics (dataset-diagnostics/dataset-diagnostics
@@ -63,6 +69,8 @@
                        :tags [:synthetic :problem-planning]}])]
     (is (= true (:syntheticOnly diagnostics)))
     (is (= 0 (:nonSyntheticCases diagnostics)))
+    (is (= [] (:nonSyntheticProblemClasses diagnostics)))
+    (is (= [] (:nonSyntheticArchitectureClasses diagnostics)))
     (is (= [{:kind "synthetic-only-dataset"
              :severity "warning"
              :message (str "Selected benchmark cases are all synthetic; broad "

@@ -120,7 +120,9 @@ requires expected-evidence citation quality: aggregate
 `case.expectedEvidenceCitationRate >= 0.50`. Pass explicit lower thresholds only
 for focused debugging or ablation work. Because synthetic-only suites now fail
 claim readiness, broad real-world claims should use a non-synthetic lane such as
-`bb bench:claim-quick` or the full historical replay lane.
+`bb bench:claim-quick` or the full historical replay lane. Claim readiness also
+requires measured problem and architecture-class coverage in non-synthetic
+replay cases.
 
 Baseline regeneration uses `--reuse-context` by default so repeated gates can
 refresh scores and preflight without rebuilding unchanged context packets. The

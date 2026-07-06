@@ -55,8 +55,10 @@ Before making architecture or extractor improvement claims, run a non-synthetic
 claim lane: `bb bench:claim-quick --check-only` when current score artifacts
 exist; run `bb bench:claim-quick` when they are missing or stale. The lane must
 pass with claim readiness supported, graph expectations passing, and zero
-benchmark preflight blockers. Use `bb bench:gate` for the default synthetic
-architecture diagnostic gate, not as standalone broad real-world proof.
+benchmark preflight blockers, including measured problem and architecture-class
+coverage in non-synthetic replay cases. Use `bb bench:gate` for the default
+synthetic architecture diagnostic gate, not as standalone broad real-world
+proof.
 
 Use `.ygg/` for repo-local Yggdrasil references, hooks, plugins, and other
 repo-local Yggdrasil files. Shared project state is central by project id:

@@ -199,8 +199,10 @@
        "current score artifacts exist; run `bb bench:claim-quick` when they "
        "are missing or stale. The lane must pass with claim readiness "
        "supported, graph expectations passing, and zero benchmark preflight "
-       "blockers. Use `bb bench:gate` for the default synthetic architecture "
-       "diagnostic gate, not as standalone broad real-world proof.\n"
+       "blockers, including measured problem and architecture-class coverage "
+       "in non-synthetic replay cases. Use `bb bench:gate` for the default "
+       "synthetic architecture diagnostic gate, not as standalone broad "
+       "real-world proof.\n"
        end-marker "\n"))
 
 (defn- broad-search-hook

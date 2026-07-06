@@ -48,7 +48,8 @@ estimates, run the full gate once before using check-only mode for token claims.
 
 Use `bb bench:claim-quick` for the small non-synthetic claim-readiness lane,
 including immediately before architecture or extractor claims when current score
-artifacts already exist.
+artifacts already exist. Broad claim readiness requires measured problem and
+architecture-class coverage in non-synthetic replay cases.
 It runs `benchmarks/historical-replay-claim-quick.edn`, stores artifacts under
 `.dev/ygg/claim-quick-gate`, and gates expected evidence with
 `--min-expected-evidence-citation-rate 0.80` and

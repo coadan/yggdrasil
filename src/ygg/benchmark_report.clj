@@ -1203,6 +1203,13 @@
        (keep #(some-> (:key %) str))
        sort
        vec))
+(defn- measured-diagnostic-class-tags
+  [dataset-diagnostics class-key]
+  (->> (get dataset-diagnostics class-key)
+       (filter #(<= problem-class-minimum-cases (long (:cases %))))
+       (keep #(some-> (:tag %) str))
+       sort
+       vec))
 (defn- report-claim-readiness
   [report]
   (let [problem-classes (:problemClasses report)
@@ -1210,6 +1217,12 @@
         measured-problem-tags (measured-class-tags problem-classes :classes)
         measured-architecture-tags (measured-class-tags problem-classes
                                                         :architectureClasses)
+        measured-non-synthetic-problem-tags (measured-diagnostic-class-tags
+                                             dataset-diagnostics
+                                             :nonSyntheticProblemClasses)
+        measured-non-synthetic-architecture-tags (measured-diagnostic-class-tags
+                                                  dataset-diagnostics
+                                                  :nonSyntheticArchitectureClasses)
         completed? (and (pos? (long (:cases report)))
                         (= (long (:cases report))
                            (long (:completed report))))
@@ -1263,8 +1276,12 @@
                       :hasRuns has-runs?
                       :nonSyntheticCases non-synthetic-cases?
                       :measuredProblemClasses (boolean (seq measured-problem-tags))
+                      :measuredNonSyntheticProblemClasses
+                      (boolean (seq measured-non-synthetic-problem-tags))
                       :measuredArchitectureClasses (boolean
                                                     (seq measured-architecture-tags))
+                      :measuredNonSyntheticArchitectureClasses
+                      (boolean (seq measured-non-synthetic-architecture-tags))
                       :evidenceCitationMetrics evidence-metrics?
                       :expectedEvidenceCitationMetrics expected-evidence-metrics?
                       :decisionQualityMetrics decision-metrics?
@@ -1289,8 +1306,16 @@
                  (empty? measured-problem-tags)
                  (conj "No measured problem-class groups; include enough cases per class before claiming representative gains.")
 
+                 (and non-synthetic-cases?
+                      (empty? measured-non-synthetic-problem-tags))
+                 (conj "No measured non-synthetic problem-class groups; broad real-world claims need replay-backed problem coverage.")
+
                  (empty? measured-architecture-tags)
                  (conj "No measured architecture-class groups; architecture tags are present only below the class-claim threshold or absent.")
+
+                 (and non-synthetic-cases?
+                      (empty? measured-non-synthetic-architecture-tags))
+                 (conj "No measured non-synthetic architecture-class groups; broad real-world claims need replay-backed architecture coverage.")
 
                  (not evidence-metrics?)
                  (conj "Evidence citation metrics are unavailable; citation quality is unproven.")

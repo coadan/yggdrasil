@@ -1404,14 +1404,107 @@
                              :hasRuns true
                              :nonSyntheticCases true
                              :measuredProblemClasses true
+                             :measuredNonSyntheticProblemClasses true
                              :measuredArchitectureClasses false
+                             :measuredNonSyntheticArchitectureClasses false
                              :evidenceCitationMetrics true
                              :expectedEvidenceCitationMetrics true
                              :decisionQualityMetrics true
                              :commandTelemetry true
                              :benchmarkPreflight true}
-              :warnings ["No measured architecture-class groups; architecture tags are present only below the class-claim threshold or absent."]}
+              :warnings ["No measured architecture-class groups; architecture tags are present only below the class-claim threshold or absent."
+                         "No measured non-synthetic architecture-class groups; broad real-world claims need replay-backed architecture coverage."]}
              (:claimReadiness report))))))
+(deftest agent-report-claim-readiness-requires-measured-non-synthetic-classes
+  (let [out (temp-dir "ygg-agent-report-mixed-synthetic-readiness")
+        suite {:id "suite"
+               :cases [{:id "synthetic-arch-deps-1"
+                        :tags [:synthetic
+                               :problem-architecture
+                               :architecture-dependency-flow]}
+                       {:id "synthetic-arch-deps-2"
+                        :tags [:synthetic
+                               :problem-architecture
+                               :architecture-dependency-flow]}
+                       {:id "synthetic-audit-docs-1"
+                        :tags [:synthetic
+                               :problem-architecture
+                               :audit-scope-docs]}
+                       {:id "synthetic-audit-docs-2"
+                        :tags [:synthetic
+                               :problem-architecture
+                               :audit-scope-docs]}
+                       {:id "replay-runtime-1"
+                        :tags [:problem-runtime-config
+                               :architecture-runtime-boundary]}]}
+        write-score! (fn [case-id tags]
+                       (spit-json!
+                        out
+                        (str "suite/cases/" case-id "/agent-scores/run.score.json")
+                        {:schema benchmark/agent-score-schema
+                         :suite-id "suite"
+                         :case-id case-id
+                         :repo-id "repo"
+                         :tags tags
+                         :benchmarkPreflight passing-benchmark-preflight
+                         :expectations {:evidence [{:kind "architecture-reference"
+                                                    :path (str case-id ".clj")}]}
+                         :agent {:agentId "codex"
+                                 :mode "ygg"
+                                 :topFiles [{:path (str case-id ".clj")
+                                             :rank 1
+                                             :evidence [(str case-id ".clj")]}]
+                                 :commands ["bb query architecture --project fixture"]}
+                         :groundTruth {:changedFiles [(str case-id ".clj")]
+                                       :scoreableFiles [(str case-id ".clj")]
+                                       :unsupportedGroundTruthFiles []}
+                         :groundTruthRanks {:files [{:path (str case-id ".clj")
+                                                     :rank 1
+                                                     :found? true}]}
+                         :scores {:fileRecallAt5 1.0
+                                  :fileRecallAt10 1.0
+                                  :fileRecallAt20 1.0
+                                  :meanReciprocalRankFile 1.0
+                                  :noiseRatioAt20 0.0
+                                  :evidenceCitationRate 1.0
+                                  :pathEvidenceCitationRate 1.0
+                                  :expectedEvidenceCitationRate 1.0
+                                  :expectedEvidenceCitations 1
+                                  :expectedEvidenceCitationTargets 1
+                                  :changedFiles 1
+                                  :scoreableChangedFiles 1
+                                  :unsupportedGroundTruthFiles 0}}))]
+    (doseq [case (:cases suite)]
+      (write-score! (:id case) (mapv name (:tags case))))
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})]
+      (is (= "not-supported" (get-in report [:claimReadiness :status])))
+      (is (= true
+             (get-in report
+                     [:claimReadiness :requirements :nonSyntheticCases])))
+      (is (= true
+             (get-in report
+                     [:claimReadiness
+                      :requirements
+                      :measuredProblemClasses])))
+      (is (= true
+             (get-in report
+                     [:claimReadiness
+                      :requirements
+                      :measuredArchitectureClasses])))
+      (is (= false
+             (get-in report
+                     [:claimReadiness
+                      :requirements
+                      :measuredNonSyntheticProblemClasses])))
+      (is (= false
+             (get-in report
+                     [:claimReadiness
+                      :requirements
+                      :measuredNonSyntheticArchitectureClasses])))
+      (is (= ["No measured non-synthetic problem-class groups; broad real-world claims need replay-backed problem coverage."
+              "No measured non-synthetic architecture-class groups; broad real-world claims need replay-backed architecture coverage."]
+             (get-in report [:claimReadiness :warnings]))))))
 (deftest agent-report-claim-readiness-requires-non-synthetic-cases
   (let [out (temp-dir "ygg-agent-report-synthetic-only-readiness")
         suite {:id "suite"

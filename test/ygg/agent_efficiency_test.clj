@@ -183,6 +183,9 @@
                          :commandTelemetry true
                          :benchmarkPreflight true
                          :measuredProblemClasses measured-problem?
+                         :measuredNonSyntheticProblemClasses measured-problem?
+                         :measuredNonSyntheticArchitectureClasses
+                         measured-architecture?
                          :measuredArchitectureClasses measured-architecture?}
           :warnings (cond-> []
                       (not measured-problem?)
@@ -1405,7 +1408,8 @@
     (is (= "supported" (get-in comparison [:measuredSliceClaim :status])))
     (is (= []
            (get-in comparison [:measuredSliceClaim :failedRequirements])))
-    (is (= [:measuredArchitectureClasses]
+    (is (= [:measuredNonSyntheticArchitectureClasses
+            :measuredArchitectureClasses]
            (get-in comparison
                    [:measuredSliceClaim
                     :laneReadiness
