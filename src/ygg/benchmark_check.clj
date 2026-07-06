@@ -19,6 +19,7 @@
                 (keep (fn [[opt-key artifact-key]]
                         (threshold opts opt-key artifact-key)))
                 [[:min-cases :minCases]
+                 [:min-repos :minRepos]
                  [:min-runs :minRuns]
                  [:min-file-recall-at-5 :minFileRecallAt5]
                  [:min-file-recall-at-10 :minFileRecallAt10]
@@ -86,6 +87,13 @@
            (into (sorted-map)
                  (:max-improvement-target-kind-runs opts)))
 
+    (seq (:min-source-kind-cases opts))
+    (assoc :minSourceKindCases
+           (into (sorted-map)
+                 (map (fn [[kind minimum]]
+                        [kind (double minimum)]))
+                 (:min-source-kind-cases opts)))
+
     (extract/normalize-parser-worker-mode (:require-parser-worker opts))
     (assoc :requiredParserWorker
            (extract/normalize-parser-worker-mode (:require-parser-worker opts)))))
@@ -122,6 +130,49 @@
     (let [actual (double (get-in report [:report report-key] 0))]
       (when (< actual expected)
         (metric-failure metric-label ">=" expected actual)))))
+
+(defn- result-repo-ids
+  [check]
+  (->> (get-in check [:report :results])
+       (keep :repo-id)
+       distinct
+       sort
+       vec))
+
+(defn- repo-count-failures
+  [check]
+  (when-some [expected (get-in check [:thresholds :minRepos])]
+    (let [repo-ids (result-repo-ids check)
+          actual (double (count repo-ids))]
+      (when (< actual expected)
+        [(merge (metric-failure "repos" ">=" expected actual)
+                {:repoIds repo-ids
+                 :message "Fewer distinct completed benchmark repositories are present than required for this claim."})]))))
+
+(defn- scoreable-source-kind-cases
+  [check kind]
+  (->> (get-in check [:report :coverage :scoreableFilesByKind])
+       (filter #(= kind (:kind %)))
+       (map :cases)
+       (reduce + 0)))
+
+(defn- source-kind-case-failures
+  [check]
+  (->> (get-in check [:thresholds :minSourceKindCases])
+       (keep (fn [[kind expected]]
+               (let [actual (double (scoreable-source-kind-cases check kind))]
+                 (when (< actual expected)
+                   (merge (metric-failure (str "sourceKindCases." kind)
+                                          ">="
+                                          expected
+                                          actual)
+                          {:kind kind
+                           :coverage (get-in check
+                                             [:report
+                                              :coverage
+                                              :scoreableFilesByKind])
+                           :message "Fewer completed cases have scoreable source-kind coverage than required for this claim."})))))
+       vec))
 (defn- completeness-failures
   [report]
   (let [artifact-policy (get-in report [:report :artifactPolicy])
@@ -763,6 +814,8 @@
                   (concat
                    (completeness-failures check-base)
                    (duplicate-run-failures check-base)
+                   (repo-count-failures check-base)
+                   (source-kind-case-failures check-base)
                    (keep (fn [[threshold-key metric-key metric-label]]
                            (min-failure check-base
                                         threshold-key

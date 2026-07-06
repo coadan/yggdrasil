@@ -15,6 +15,8 @@ Runs the small non-synthetic docs-handling claim lane:
   --max-noise-at-20 0.90
   --min-expected-evidence-citation-rate 0.80
   --min-case-expected-evidence-citation-rate 0.50
+  --min-repos 3
+  --min-source-kind-cases doc=4
 
 Pass ordinary benchmark-gate options such as --check-only, --skip-existing,
 --setup-check, --case, --cases, --provider, --model, or --dry-run. Later
@@ -38,4 +40,6 @@ exec bash scripts/benchmark-gate.sh \
   --max-noise-at-20 0.90 \
   --min-expected-evidence-citation-rate 0.80 \
   --min-case-expected-evidence-citation-rate 0.50 \
+  --min-repos 3 \
+  --min-source-kind-cases doc=4 \
   "$@"

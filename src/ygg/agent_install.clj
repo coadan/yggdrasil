@@ -206,7 +206,8 @@
        "architecture diagnostic gate, not as standalone broad real-world proof. "
        "For documentation-handling claims, use `bb bench:docs-claim --check-only` "
        "against current artifacts or `bb bench:docs-claim` when artifacts are "
-       "missing or stale.\n"
+       "missing or stale; that lane must include at least three completed repos "
+       "and four completed cases with scoreable `doc` source-kind coverage.\n"
        end-marker "\n"))
 
 (defn- broad-search-hook

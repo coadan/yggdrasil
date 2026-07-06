@@ -81,7 +81,8 @@ handling. It is a non-synthetic selector over historical doc edit cases, stores
 artifacts under `.dev/ygg/docs-claim-gate`, gates expected evidence with the
 same floors as `bb bench:claim-quick`, uses the same `0.30` MRR floor, and keeps
 the default deterministic gate `noise@20` ceiling of `0.90` for single-file docs
-edit cases:
+edit cases. It additionally requires at least three completed repos and four
+completed cases with scoreable `doc` source-kind coverage:
 
 ```sh
 bb bench:docs-claim --setup-check

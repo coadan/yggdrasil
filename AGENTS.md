@@ -61,7 +61,9 @@ at least three measured problem-class groups and three measured architecture-cla
 groups. Use `bb bench:gate` for the default synthetic architecture diagnostic
 gate, not as standalone broad real-world proof. For documentation-handling claims,
 use `bb bench:docs-claim --check-only` against current artifacts or
-`bb bench:docs-claim` when artifacts are missing or stale.
+`bb bench:docs-claim` when artifacts are missing or stale; that lane must include
+at least three completed repos and four completed cases with scoreable `doc`
+source-kind coverage.
 
 Use `.ygg/` for repo-local Yggdrasil references, hooks, plugins, and other
 repo-local Yggdrasil files. Shared project state is central by project id:

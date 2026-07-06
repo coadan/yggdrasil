@@ -148,6 +148,7 @@
     (is (str/includes? usage "sync work auto <project.edn>"))
     (is (str/includes? usage "embed setup [--venv PATH] [--python PYTHON] [--json]"))
     (is (str/includes? usage "--cases ID,ID"))
+    (is (str/includes? usage "--min-repos N"))
     (is (str/includes? usage "--min-evidence-citation-rate N"))
     (is (str/includes? usage "--min-path-evidence-citation-rate N"))
     (is (str/includes? usage "--min-expected-evidence-citation-rate N"))
@@ -161,6 +162,7 @@
     (is (str/includes? usage "--max-context-rank-missing-runs N"))
     (is (str/includes? usage "--max-missed-but-present-in-context-runs N"))
     (is (str/includes? usage "--max-missed-and-absent-from-context-runs N"))
+    (is (str/includes? usage "--min-source-kind-cases KIND=N"))
     (is (str/includes? usage "--require-parser-worker none|java|dotnet|javascript|typescript|all"))
     (is (not (str/includes? usage "overlay")))))
 
@@ -2222,6 +2224,7 @@
                                  "--mode" "ygg"
                                  "--agent" "ygg-baseline-lexical"
                                  "--min-cases" "4"
+                                 "--min-repos" "2"
                                  "--min-runs" "4"
                                  "--min-file-recall-at-10" "1.0"
                                  "--min-mrr" "0.9"
@@ -2264,6 +2267,8 @@
                                  "--max-improvement-target-runs" "0"
                                  "--max-improvement-target-kind-runs" "source-skipped-files=0"
                                  "--max-improvement-target-kind-runs" "hint-diagnostics=1"
+                                 "--min-source-kind-cases" "doc=4"
+                                 "--min-source-kind-cases" "sql=1"
                                  "--max-active-stage-ms" "120000"
                                  "--max-parser-worker-profiles" "1"
                                  "--min-measured-problem-classes" "1"
@@ -2285,6 +2290,7 @@
                   :result-path nil
                   :command nil
                   :min-cases 4
+                  :min-repos 2
                   :min-runs 4
                   :min-file-recall-at-10 1.0
                   :min-mrr 0.9
@@ -2327,6 +2333,8 @@
                   :max-improvement-target-runs 0.0
                   :max-improvement-target-kind-runs {"hint-diagnostics" 1.0
                                                      "source-skipped-files" 0.0}
+                  :min-source-kind-cases {"doc" 4.0
+                                          "sql" 1.0}
                   :max-active-stage-ms 120000
                   :max-parser-worker-profiles 1
                   :min-measured-problem-classes 1

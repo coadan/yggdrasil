@@ -130,6 +130,8 @@
                        "--min-expected-evidence-citation-rate 0.80"))
     (is (str/includes? (nth lines 2)
                        "--min-case-expected-evidence-citation-rate 0.50"))
+    (is (not (str/includes? (nth lines 2)
+                            "--min-source-kind-cases")))
     (is (str/includes? (nth lines 3)
                        "python3 scripts/stage-time-gate.py"))
     (is (str/includes? (nth lines 3)
@@ -219,6 +221,10 @@
                        "--min-case-expected-evidence-citation-rate N"))
     (is (str/includes? (:out result)
                        "Default: 0.50"))
+    (is (str/includes? (:out result)
+                       "--min-repos N"))
+    (is (str/includes? (:out result)
+                       "--min-source-kind-cases KIND=N"))
     (is (str/includes? (:out result)
                        "--min-measured-problem-classes N"))
     (is (str/includes? (:out result)
@@ -328,6 +334,10 @@
                        "--min-expected-evidence-citation-rate 0.80"))
     (is (str/includes? (nth lines 2)
                        "--min-case-expected-evidence-citation-rate 0.50"))
+    (is (str/includes? (nth lines 2)
+                       "--min-repos 3"))
+    (is (str/includes? (nth lines 2)
+                       "--min-source-kind-cases doc=4"))
     (is (str/includes? (nth lines 3)
                        "python3 scripts/stage-time-gate.py"))))
 
@@ -343,7 +353,11 @@
     (is (str/includes? (:out result)
                        "--min-expected-evidence-citation-rate 0.80"))
     (is (str/includes? (:out result)
-                       "--min-case-expected-evidence-citation-rate 0.50"))))
+                       "--min-case-expected-evidence-citation-rate 0.50"))
+    (is (str/includes? (:out result)
+                       "--min-repos 3"))
+    (is (str/includes? (:out result)
+                       "--min-source-kind-cases doc=4"))))
 
 (deftest dry-run-runs-stage-time-gate-when-threshold-is-set
   (let [result (run-gate "--dry-run"

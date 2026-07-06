@@ -2402,6 +2402,66 @@
     (is (= false (get-in passed [:thresholds :requireComplete])))
     (is (= false (get-in passed [:thresholds :allowDuplicateRuns])))))
 
+(deftest agent-check-enforces-repo-and-source-kind-coverage-thresholds
+  (let [report {:schema benchmark/agent-report-schema
+                :suite-id "suite"
+                :cases 3
+                :completed 3
+                :runs 3
+                :missing []
+                :scores {}
+                :coverage {:scoreableFilesByKind [{:kind "code"
+                                                   :cases 1
+                                                   :scoreableFiles 4}
+                                                  {:kind "doc"
+                                                   :cases 2
+                                                   :scoreableFiles 5}]}
+                :results [{:case-id "case-1"
+                           :repo-id "repo-a"}
+                          {:case-id "case-2"
+                           :repo-id "repo-b"}
+                          {:case-id "case-3"
+                           :repo-id "repo-b"}]}
+        failed (benchmark/check-agent-report
+                report
+                {:min-repos 3
+                 :min-source-kind-cases {"doc" 3
+                                         "sql" 1}})
+        passed (benchmark/check-agent-report
+                report
+                {:min-repos 2
+                 :min-source-kind-cases {"code" 1
+                                         "doc" 2}})]
+    (is (= "failed" (:status failed)))
+    (is (= #{"repos" "sourceKindCases.doc" "sourceKindCases.sql"}
+           (set (map :metric (:failures failed)))))
+    (is (= {:metric "repos"
+            :operator ">="
+            :expected 3.0
+            :actual 2.0
+            :repoIds ["repo-a" "repo-b"]}
+           (select-keys (first (filter #(= "repos" (:metric %))
+                                       (:failures failed)))
+                        [:metric :operator :expected :actual :repoIds])))
+    (is (= {:metric "sourceKindCases.doc"
+            :operator ">="
+            :expected 3.0
+            :actual 2.0
+            :kind "doc"}
+           (select-keys (first (filter #(= "sourceKindCases.doc" (:metric %))
+                                       (:failures failed)))
+                        [:metric :operator :expected :actual :kind])))
+    (is (= {:metric "sourceKindCases.sql"
+            :operator ">="
+            :expected 1.0
+            :actual 0.0
+            :kind "sql"}
+           (select-keys (first (filter #(= "sourceKindCases.sql" (:metric %))
+                                       (:failures failed)))
+                        [:metric :operator :expected :actual :kind])))
+    (is (= "passed" (:status passed)))
+    (is (empty? (:failures passed)))))
+
 (deftest checks-agent-report-decision-thresholds
   (let [report {:schema benchmark/agent-report-schema
                 :suite-id "suite"

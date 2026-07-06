@@ -6,15 +6,19 @@
             [ygg.queue :as queue]
             [clojure.string :as str]))
 
-(defn- parse-improvement-target-kind-limit
-  [value]
+(defn- parse-kind-limit
+  [flag value]
   (let [[kind limit extra] (str/split value #"=")]
     (when (or (str/blank? kind)
               (str/blank? limit)
               extra)
-      (throw (ex-info "Expected --max-improvement-target-kind-runs as kind=N."
+      (throw (ex-info (str "Expected " flag " as kind=N.")
                       {:value value})))
     [kind (Double/parseDouble limit)]))
+
+(defn- parse-improvement-target-kind-limit
+  [value]
+  (parse-kind-limit "--max-improvement-target-kind-runs" value))
 
 (defn- improvement-target-kind-limits
   [args]
@@ -22,6 +26,13 @@
    (into (sorted-map)
          (map parse-improvement-target-kind-limit)
          (option-values args "--max-improvement-target-kind-runs"))))
+
+(defn- source-kind-case-minimums
+  [args]
+  (not-empty
+   (into (sorted-map)
+         (map #(parse-kind-limit "--min-source-kind-cases" %))
+         (option-values args "--min-source-kind-cases"))))
 
 (defn- bench-opts
   [args]
@@ -117,6 +128,9 @@
     (parse-optional-long args "--min-runs") (assoc :min-runs
                                                    (parse-optional-long args
                                                                         "--min-runs"))
+    (parse-optional-long args "--min-repos") (assoc :min-repos
+                                                    (parse-optional-long args
+                                                                         "--min-repos"))
     (parse-optional-long args "--min-shared-cases") (assoc
                                                      :min-shared-cases
                                                      (parse-optional-long
@@ -378,6 +392,8 @@
     (improvement-target-kind-limits args) (assoc
                                            :max-improvement-target-kind-runs
                                            (improvement-target-kind-limits args))
+    (source-kind-case-minimums args) (assoc :min-source-kind-cases
+                                            (source-kind-case-minimums args))
     (parse-optional-long args "--max-active-stage-ms") (assoc :max-active-stage-ms
                                                               (parse-optional-long
                                                                args

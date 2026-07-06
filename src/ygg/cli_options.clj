@@ -77,7 +77,7 @@
     "--graphify-query-budget" "--graphify-max-workers" "--parser-worker"
     "--ref" "--subdir" "--cache-dir" "--shell-report" "--ygg-report"
     "--timeout-ms" "--index-timeout-ms" "--extract-parallelism" "--min-cases" "--min-runs"
-    "--min-shared-cases"
+    "--min-shared-cases" "--min-repos"
     "--retrieval-limit" "--embedding-provider-limit"
     "--output" "--anchor" "--symbol" "--literal" "--lanes"
     "--fusion-strategy" "--diversity-rerank-limit" "--fts-candidate-limit"
@@ -119,6 +119,7 @@
     "--max-ranked-outside-top-20-runs"
     "--max-improvement-target-runs"
     "--max-improvement-target-kind-runs"
+    "--min-source-kind-cases"
     "--max-active-stage-ms" "--max-parser-worker-profiles"
     "--min-measured-problem-classes" "--min-measured-architecture-classes"
     "--require-parser-worker" "--regression-tolerance" "--skip-existing"})

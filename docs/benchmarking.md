@@ -66,7 +66,9 @@ non-synthetic selector `benchmarks/historical-docs-claim-quick.edn`, stores
 artifacts under `.dev/ygg/docs-claim-gate`, gates expected evidence with the
 same floors as `bb bench:claim-quick`, uses the same `0.30` MRR floor, and keeps
 the default deterministic gate `noise@20` ceiling of `0.90` for single-file docs
-edit cases. Use `--check-only` only when current score artifacts already exist.
+edit cases. It also requires at least three completed benchmark repos and four
+completed cases with scoreable `doc` source-kind coverage. Use `--check-only`
+only when current score artifacts already exist.
 
 If a checkout exists only under the legacy `.dev/oss-test-cases/repos/` cache,
 the preflight reports that path so it can be moved or symlinked into the common
@@ -549,7 +551,10 @@ plugin-fit choice, not just a shorter suspected-file list.
   `--max-benchmark-preflight-blockers` to fail when benchmark preflight
   checks block Yggdrasil-mode claims,
   `--max-missing-declared-source-kind-runs` to fail when selected cases declare
-  source kinds that produce no scoreable coverage, `--max-missed-runs`,
+  source kinds that produce no scoreable coverage, `--min-repos` to require
+  repo breadth in completed artifacts, `--min-source-kind-cases KIND=N` to
+  require enough completed cases with scoreable coverage for an explicit suite
+  source kind, `--max-missed-runs`,
   `--max-context-rank-missing-runs`,
   `--max-missed-but-present-in-context-runs`, and
   `--max-missed-and-absent-from-context-runs` to separate agent selection misses

@@ -36,6 +36,10 @@ Options:
   --min-case-expected-evidence-citation-rate N
                       Minimum per-case expected-evidence citation rate.
                       Default: 0.50.
+  --min-repos N       Minimum distinct completed benchmark repos.
+  --min-source-kind-cases KIND=N
+                      Minimum completed cases with scoreable source-kind
+                      coverage. May be repeated.
   --min-measured-problem-classes N
                       Minimum measured problem-class groups.
   --min-measured-architecture-classes N
@@ -121,6 +125,9 @@ max_case_stage_regression_ratio=""
 max_total_stage_regression_ratio=""
 min_expected_evidence_citation_rate="0.80"
 min_case_expected_evidence_citation_rate="0.50"
+min_repos=""
+min_source_kind_cases=()
+min_source_kind_case_count=0
 min_measured_problem_classes=""
 min_measured_architecture_classes=""
 min_stage_regression_ms=""
@@ -262,6 +269,15 @@ while [[ $# -gt 0 ]]; do
       ;;
     --min-case-expected-evidence-citation-rate)
       min_case_expected_evidence_citation_rate="$2"
+      shift 2
+      ;;
+    --min-repos)
+      min_repos="$2"
+      shift 2
+      ;;
+    --min-source-kind-cases)
+      min_source_kind_cases+=("$2")
+      min_source_kind_case_count=$((min_source_kind_case_count + 1))
       shift 2
       ;;
     --min-measured-problem-classes)
@@ -421,6 +437,14 @@ if [[ -n "$min_expected_evidence_citation_rate" ]]; then
 fi
 if [[ -n "$min_case_expected_evidence_citation_rate" ]]; then
   agent_check_args+=(--min-case-expected-evidence-citation-rate "$min_case_expected_evidence_citation_rate")
+fi
+if [[ -n "$min_repos" ]]; then
+  agent_check_args+=(--min-repos "$min_repos")
+fi
+if [[ "$min_source_kind_case_count" -gt 0 ]]; then
+  for source_kind_case_minimum in "${min_source_kind_cases[@]}"; do
+    agent_check_args+=(--min-source-kind-cases "$source_kind_case_minimum")
+  done
 fi
 if [[ -n "$min_measured_problem_classes" ]]; then
   agent_check_args+=(--min-measured-problem-classes "$min_measured_problem_classes")
