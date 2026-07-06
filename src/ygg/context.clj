@@ -199,6 +199,12 @@
 (def ^:private source-graph-candidate-min-score
   1.0)
 
+(def ^:private source-graph-query-token-limit
+  32)
+
+(def ^:private source-graph-query-token-max-length
+  48)
+
 (def ^:private source-graph-rare-token-weight
   2.0)
 
@@ -1387,6 +1393,34 @@
             (:file-kind row)
             (:normalized-value row))))
 
+(defn- hex-like-token?
+  [token]
+  (boolean (re-matches #"[a-f0-9]{12,}" (str token))))
+
+(defn- duplicate-terminal-punctuation-token?
+  [token token-set]
+  (let [token (str token)]
+    (and (< 1 (count token))
+         (contains? #{\. \, \; \: \! \?} (last token))
+         (contains? token-set (subs token 0 (dec (count token)))))))
+
+(defn- source-graph-query-token?
+  [token token-set]
+  (let [token (str token)]
+    (and (not (str/blank? token))
+         (<= (count token) source-graph-query-token-max-length)
+         (not (hex-like-token? token))
+         (not (duplicate-terminal-punctuation-token? token token-set)))))
+
+(defn- source-graph-query-tokens
+  [query-tokens]
+  (let [tokens (vec (distinct query-tokens))
+        token-set (set tokens)]
+    (->> tokens
+         (filter #(source-graph-query-token? % token-set))
+         (take source-graph-query-token-limit)
+         vec)))
+
 (defn- matched-source-graph-query-tokens
   [distinct-query-tokens tokens]
   (let [row-token-set (set tokens)]
@@ -2002,14 +2036,15 @@
   [xtdb query-tokens {:keys [project-id repo-id read-context]}]
   (if-not (store/xtdb-handle? xtdb)
     []
-    (let [constraints (source-graph-scope-constraints project-id repo-id)
+    (let [match-tokens (source-graph-query-tokens query-tokens)
+          constraints (source-graph-scope-constraints project-id repo-id)
           matched-node-candidates (ranked-source-graph-candidates
                                    query-tokens
                                    (store/rows-matching-any-token
                                     xtdb
                                     (:nodes store/tables)
                                     source-graph-node-token-fields
-                                    query-tokens
+                                    match-tokens
                                     constraints
                                     read-context)
                                    source-graph-neighbor-scan-limit)
@@ -2040,7 +2075,7 @@
                                          xtdb
                                          (:files store/tables)
                                          source-graph-file-token-fields
-                                         query-tokens
+                                         match-tokens
                                          (assoc constraints :active? true)
                                          read-context)
                                         source-graph-file-candidate-limit)
@@ -2051,7 +2086,7 @@
                xtdb
                (:file-facts store/tables)
                source-graph-file-fact-token-fields
-               query-tokens
+               match-tokens
                (assoc constraints :active? true)
                read-context))
          source-graph-file-fact-candidate-limit))))))
@@ -3250,6 +3285,33 @@
                                      :graph-adjacency-query-count
                                      :context-chunks])
       :contextTimingsMs (:context-timings-ms instrumentation)})))
+
+(def ^:private context-progress-slowest-limit
+  8)
+
+(defn- context-timing-row
+  [[step elapsed-ms]]
+  {:step (name step)
+   :elapsedMs elapsed-ms})
+
+(defn context-progress-summary
+  "Return the bounded benchmark progress summary for a context packet."
+  [packet]
+  (let [timings (get-in packet [:search :instrumentation :context-timings-ms])
+        slowest-steps (->> timings
+                           (remove (fn [[step _]]
+                                     (= :total step)))
+                           (sort-by (comp - long val))
+                           (take context-progress-slowest-limit)
+                           (mapv context-timing-row))]
+    (cond-> {:docs (count (:docs packet))
+             :entities (count (:entities packet))
+             :edges (count (:edges packet))
+             :warnings (count (:warnings packet))}
+      (seq timings)
+      (assoc :contextTimingsMs timings)
+      (seq slowest-steps)
+      (assoc :slowestContextSteps slowest-steps))))
 
 (defn- compact-basis
   [packet]

@@ -720,11 +720,7 @@
                             (get-in prepared [:input :queryText])
                             (assoc (agent-baseline-context-options prepared opts)
                                    :correction-overlay correction-overlay))
-                          (fn [packet]
-                            {:docs (count (:docs packet))
-                             :entities (count (:entities packet))
-                             :edges (count (:edges packet))
-                             :warnings (count (:warnings packet))}))
+                          context/context-progress-summary)
                   agent-result (baseline-agent-result suite
                                                       case
                                                       prepared

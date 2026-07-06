@@ -1301,11 +1301,7 @@
                                   prepared
                                   opts)
                                  :correction-overlay correction-overlay))
-                        (fn [packet]
-                          {:docs (count (:docs packet))
-                           :entities (count (:entities packet))
-                           :edges (count (:edges packet))
-                           :warnings (count (:warnings packet))}))
+                        context/context-progress-summary)
                 related-artifacts (benchmark-progress/progress-stage!
                                    suite
                                    case

@@ -476,6 +476,15 @@
                   :kind :namespace}))))
     (is (zero? @tokenize-calls))))
 
+(deftest source-graph-query-tokens-drop-generated-noise-and-stay-bounded
+  (let [source-graph-query-tokens @#'context/source-graph-query-tokens
+        sha-token "9b583a0dd51061db2f459d4c53a5fc6731bbfbe5"
+        tokens (concat ["fix" sha-token "reads." "reads"]
+                       (map #(str "token" %) (range 40)))]
+    (is (= (into ["fix" "reads"]
+                 (map #(str "token" %) (range 30)))
+           (source-graph-query-tokens tokens)))))
+
 (deftest evidence-warns-when-indexer-diagnostics-exist
   (let [warnings (#'context/evidence-warnings
                   {:search-docs 1
@@ -3308,6 +3317,49 @@
             :semantic-score-ms 123
             :vector-search-ms 44}
            (get-in packet [:search :instrumentation])))))
+
+(deftest context-progress-summary-includes-slowest-timings
+  (let [summary (context/context-progress-summary
+                 {:docs [{} {}]
+                  :entities [{}]
+                  :edges [{} {} {}]
+                  :warnings ["limited"]
+                  :search {:instrumentation
+                           {:context-timings-ms {:search 12
+                                                 :source-candidates 4
+                                                 :expand-candidate-siblings 2
+                                                 :expand-candidate-support-owners 3
+                                                 :source-declarations 5
+                                                 :system-graph 9
+                                                 :context-chunks 7
+                                                 :activity 1
+                                                 :memories 6
+                                                 :total 60}}}})]
+    (is (= {:docs 2
+            :entities 1
+            :edges 3
+            :warnings 1
+            :contextTimingsMs {:search 12
+                               :source-candidates 4
+                               :expand-candidate-siblings 2
+                               :expand-candidate-support-owners 3
+                               :source-declarations 5
+                               :system-graph 9
+                               :context-chunks 7
+                               :activity 1
+                               :memories 6
+                               :total 60}
+            :slowestContextSteps [{:step "search" :elapsedMs 12}
+                                  {:step "system-graph" :elapsedMs 9}
+                                  {:step "context-chunks" :elapsedMs 7}
+                                  {:step "memories" :elapsedMs 6}
+                                  {:step "source-declarations" :elapsedMs 5}
+                                  {:step "source-candidates" :elapsedMs 4}
+                                  {:step "expand-candidate-support-owners"
+                                   :elapsedMs 3}
+                                  {:step "expand-candidate-siblings"
+                                   :elapsedMs 2}]}
+           summary))))
 
 (deftest context-packet-compact-output-ranks-results-by-visible-score
   (with-redefs [query/search-report (fn [_ _ _]
