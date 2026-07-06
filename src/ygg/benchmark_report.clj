@@ -32,6 +32,12 @@
 (def ^:private problem-class-minimum-cases
   2)
 
+(def ^:private claim-readiness-min-repos
+  2)
+
+(def ^:private claim-readiness-min-source-kinds
+  2)
+
 (def ^:private rank-blocker-limit
   5)
 
@@ -1210,6 +1216,13 @@
        (keep #(some-> (:tag %) str))
        sort
        vec))
+(defn- diagnostic-values
+  [dataset-diagnostics collection-key value-key]
+  (->> (get dataset-diagnostics collection-key)
+       (keep #(some-> (get % value-key) str not-empty))
+       sort
+       vec))
+
 (defn- report-claim-readiness
   [report]
   (let [problem-classes (:problemClasses report)
@@ -1272,9 +1285,16 @@
         non-synthetic-cases? (pos? (long (or (:nonSyntheticCases
                                               dataset-diagnostics)
                                              0)))
+        repo-ids (diagnostic-values dataset-diagnostics :repos :repoId)
+        source-kind-keys (diagnostic-values dataset-diagnostics :sourceKinds :kind)
+        repo-breadth? (<= claim-readiness-min-repos (count repo-ids))
+        source-kind-breadth? (<= claim-readiness-min-source-kinds
+                                 (count source-kind-keys))
         requirements {:completedCases completed?
                       :hasRuns has-runs?
                       :nonSyntheticCases non-synthetic-cases?
+                      :repoBreadth repo-breadth?
+                      :sourceKindBreadth source-kind-breadth?
                       :measuredProblemClasses (boolean (seq measured-problem-tags))
                       :measuredNonSyntheticProblemClasses
                       (boolean (seq measured-non-synthetic-problem-tags))
@@ -1292,6 +1312,10 @@
      :broadArchitectureClaimSupported supported?
      :measuredProblemClassTags measured-problem-tags
      :measuredArchitectureClassTags measured-architecture-tags
+     :repoIds repo-ids
+     :sourceKindKeys source-kind-keys
+     :minimumReposForBroadClaim claim-readiness-min-repos
+     :minimumSourceKindsForBroadClaim claim-readiness-min-source-kinds
      :requirements requirements
      :warnings (cond-> []
                  (not completed?)
@@ -1302,6 +1326,18 @@
 
                  (not non-synthetic-cases?)
                  (conj "No non-synthetic replay cases are included; broad real-world claims are unproven.")
+
+                 (not repo-breadth?)
+                 (conj (str "Only " (count repo-ids)
+                            " benchmark repo(s); broad real-world claims require at least "
+                            claim-readiness-min-repos
+                            "."))
+
+                 (not source-kind-breadth?)
+                 (conj (str "Only " (count source-kind-keys)
+                            " declared source-kind group(s); broad real-world claims require at least "
+                            claim-readiness-min-source-kinds
+                            "."))
 
                  (empty? measured-problem-tags)
                  (conj "No measured problem-class groups; include enough cases per class before claiming representative gains.")

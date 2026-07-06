@@ -1293,15 +1293,23 @@
   (let [out (temp-dir "ygg-agent-report-problem-classes")
         suite {:id "suite"
                :cases [{:id "arch-runtime"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
                         :tags [:problem-architecture
                                :architecture-runtime-boundary]}
                        {:id "arch-deps"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
                         :tags [:problem-architecture
                                :architecture-dependency-flow]}
                        {:id "audit-docs"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
                         :tags [:problem-architecture
                                :audit-scope-docs]}
                        {:id "localization"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
                         :tags [:problem-localization]}]}
         write-score! (fn [case-id tags recall]
                        (spit-json!
@@ -1400,9 +1408,15 @@
               :broadArchitectureClaimSupported false
               :measuredProblemClassTags ["problem-architecture"]
               :measuredArchitectureClassTags []
+              :repoIds ["repo-a" "repo-b"]
+              :sourceKindKeys ["doc" "javascript"]
+              :minimumReposForBroadClaim 2
+              :minimumSourceKindsForBroadClaim 2
               :requirements {:completedCases true
                              :hasRuns true
                              :nonSyntheticCases true
+                             :repoBreadth true
+                             :sourceKindBreadth true
                              :measuredProblemClasses true
                              :measuredNonSyntheticProblemClasses true
                              :measuredArchitectureClasses false
@@ -1419,22 +1433,32 @@
   (let [out (temp-dir "ygg-agent-report-mixed-synthetic-readiness")
         suite {:id "suite"
                :cases [{:id "synthetic-arch-deps-1"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
                         :tags [:synthetic
                                :problem-architecture
                                :architecture-dependency-flow]}
                        {:id "synthetic-arch-deps-2"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
                         :tags [:synthetic
                                :problem-architecture
                                :architecture-dependency-flow]}
                        {:id "synthetic-audit-docs-1"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
                         :tags [:synthetic
                                :problem-architecture
                                :audit-scope-docs]}
                        {:id "synthetic-audit-docs-2"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
                         :tags [:synthetic
                                :problem-architecture
                                :audit-scope-docs]}
                        {:id "replay-runtime-1"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:python]}
                         :tags [:problem-runtime-config
                                :architecture-runtime-boundary]}]}
         write-score! (fn [case-id tags]
@@ -1509,18 +1533,26 @@
   (let [out (temp-dir "ygg-agent-report-synthetic-only-readiness")
         suite {:id "suite"
                :cases [{:id "arch-deps-1"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
                         :tags [:synthetic
                                :problem-architecture
                                :architecture-dependency-flow]}
                        {:id "arch-deps-2"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
                         :tags [:synthetic
                                :problem-architecture
                                :architecture-dependency-flow]}
                        {:id "audit-docs-1"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
                         :tags [:synthetic
                                :problem-architecture
                                :audit-scope-docs]}
                        {:id "audit-docs-2"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
                         :tags [:synthetic
                                :problem-architecture
                                :audit-scope-docs]}]}
@@ -1581,15 +1613,23 @@
   (let [out (temp-dir "ygg-agent-report-claim-readiness")
         suite {:id "suite"
                :cases [{:id "arch-deps-1"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
                         :tags [:problem-architecture
                                :architecture-dependency-flow]}
                        {:id "arch-deps-2"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
                         :tags [:problem-architecture
                                :architecture-dependency-flow]}
                        {:id "audit-docs-1"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
                         :tags [:problem-architecture
                                :audit-scope-docs]}
                        {:id "audit-docs-2"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
                         :tags [:problem-architecture
                                :audit-scope-docs]}]}
         write-score! (fn [case-id tags recall]
@@ -1654,19 +1694,108 @@
       (is (= []
              (get-in report [:claimReadiness :warnings]))))))
 
+(deftest agent-report-claim-readiness-requires-repo-and-source-kind-breadth
+  (let [out (temp-dir "ygg-agent-report-claim-readiness-breadth")
+        suite {:id "suite"
+               :cases [{:id "arch-deps-1"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
+                        :tags [:problem-architecture
+                               :architecture-dependency-flow]}
+                       {:id "arch-deps-2"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
+                        :tags [:problem-architecture
+                               :architecture-dependency-flow]}
+                       {:id "audit-docs-1"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
+                        :tags [:problem-architecture
+                               :audit-scope-docs]}
+                       {:id "audit-docs-2"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
+                        :tags [:problem-architecture
+                               :audit-scope-docs]}]}
+        write-score! (fn [case-id tags]
+                       (spit-json!
+                        out
+                        (str "suite/cases/" case-id "/agent-scores/run.score.json")
+                        {:schema benchmark/agent-score-schema
+                         :suite-id "suite"
+                         :case-id case-id
+                         :repo-id "repo-a"
+                         :tags tags
+                         :benchmarkPreflight passing-benchmark-preflight
+                         :expectations {:evidence [{:kind "architecture-reference"
+                                                    :path (str case-id ".clj")}]}
+                         :agent {:agentId "codex"
+                                 :mode "ygg"
+                                 :topFiles [{:path (str case-id ".clj")
+                                             :rank 1
+                                             :evidence ["architecture-evidence"]}]
+                                 :commands ["bb query architecture --project fixture"]}
+                         :groundTruth {:changedFiles [(str case-id ".clj")]
+                                       :scoreableFiles [(str case-id ".clj")]
+                                       :unsupportedGroundTruthFiles []}
+                         :groundTruthRanks {:files [{:path (str case-id ".clj")
+                                                     :rank 1
+                                                     :found? true}]}
+                         :scores {:fileRecallAt5 1.0
+                                  :fileRecallAt10 1.0
+                                  :fileRecallAt20 1.0
+                                  :meanReciprocalRankFile 1.0
+                                  :noiseRatioAt20 0.0
+                                  :evidenceCitationRate 1.0
+                                  :pathEvidenceCitationRate 1.0
+                                  :expectedEvidenceCitationRate 1.0
+                                  :expectedEvidenceCitations 1
+                                  :expectedEvidenceCitationTargets 1
+                                  :changedFiles 1
+                                  :scoreableChangedFiles 1
+                                  :unsupportedGroundTruthFiles 0}}))]
+    (doseq [case (:cases suite)]
+      (write-score! (:id case) (mapv name (:tags case))))
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})]
+      (is (= "not-supported" (get-in report [:claimReadiness :status])))
+      (is (= false
+             (get-in report
+                     [:claimReadiness :broadArchitectureClaimSupported])))
+      (is (= false
+             (get-in report [:claimReadiness :requirements :repoBreadth])))
+      (is (= false
+             (get-in report
+                     [:claimReadiness :requirements :sourceKindBreadth])))
+      (is (= ["repo-a"]
+             (get-in report [:claimReadiness :repoIds])))
+      (is (= ["javascript"]
+             (get-in report [:claimReadiness :sourceKindKeys])))
+      (is (= ["Only 1 benchmark repo(s); broad real-world claims require at least 2."
+              "Only 1 declared source-kind group(s); broad real-world claims require at least 2."]
+             (get-in report [:claimReadiness :warnings]))))))
+
 (deftest agent-report-claim-readiness-requires-benchmark-preflight
   (let [out (temp-dir "ygg-agent-report-benchmark-preflight")
         suite {:id "suite"
                :cases [{:id "arch-deps-1"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
                         :tags [:problem-architecture
                                :architecture-dependency-flow]}
                        {:id "arch-deps-2"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
                         :tags [:problem-architecture
                                :architecture-dependency-flow]}
                        {:id "audit-docs-1"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
                         :tags [:problem-architecture
                                :audit-scope-docs]}
                        {:id "audit-docs-2"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
                         :tags [:problem-architecture
                                :audit-scope-docs]}]}
         write-score! (fn [case-id tags benchmark-preflight]
@@ -1753,15 +1882,23 @@
   (let [out (temp-dir "ygg-agent-report-expected-evidence-readiness")
         suite {:id "suite"
                :cases [{:id "arch-deps-1"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
                         :tags [:problem-architecture
                                :architecture-dependency-flow]}
                        {:id "arch-deps-2"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:javascript]}
                         :tags [:problem-architecture
                                :architecture-dependency-flow]}
                        {:id "audit-docs-1"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
                         :tags [:problem-architecture
                                :audit-scope-docs]}
                        {:id "audit-docs-2"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
                         :tags [:problem-architecture
                                :audit-scope-docs]}]}
         write-score! (fn [case-id tags]

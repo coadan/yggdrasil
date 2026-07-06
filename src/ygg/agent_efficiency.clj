@@ -363,6 +363,8 @@
   [:completedCases
    :hasRuns
    :nonSyntheticCases
+   :repoBreadth
+   :sourceKindBreadth
    :evidenceCitationMetrics
    :expectedEvidenceCitationMetrics
    :decisionQualityMetrics

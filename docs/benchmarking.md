@@ -225,7 +225,9 @@ Read `Problem-class signals`, `Architecture-class signals`, and
 lanes share completed cases, architecture-class tags are measured, evidence
 quality is available, expected-evidence citation metrics are present,
 decision-quality metrics are comparable when decision cases are configured, and
-the report remains claim-ready. In `--json` output, read
+the report remains claim-ready. Report-level claim readiness requires at least
+two benchmark repos and two declared source-kind groups; lane wrapper gates may
+require stricter suite-specific breadth. In `--json` output, read
 `compactSummary.verdict` first for the bounded helped/regressed/inconclusive
 answer and `compactSummary.why` for the short reason list. Then inspect
 `classSignals.problemClasses` and `classSignals.architectureClasses`; a row with
@@ -488,6 +490,10 @@ plugin-fit choice, not just a shorter suspected-file list.
   diagnostics, and a sync/check-equivalent validation-gaps status. Shell-only
   reports mark this preflight as `not-applicable`; Yggdrasil reports must pass it
   before the lane is claim-ready for benchmark claims.
+  Report-level claim readiness also records `repoIds`, `sourceKindKeys`,
+  `minimumReposForBroadClaim`, and `minimumSourceKindsForBroadClaim`; broad
+  reports need at least two repos and two declared source-kind groups before
+  they can support broad real-world claims.
   Decision-quality reports include `decisionDiagnostics`, which counts
   configured decision runs, missing decision outputs, missed required choices,
   wrongly included choices, unknown ids, uncited choices, and grouped choice-gap
