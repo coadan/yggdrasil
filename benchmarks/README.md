@@ -112,7 +112,11 @@ bb bench:gate
 
 Every deterministic gate also writes `stage-time-gate.json` under its output
 root so indexing, embedding, context-packet, execution, and scoring time remain
-visible even when no timing thresholds are configured.
+visible even when no timing thresholds are configured. The default gate also
+requires expected-evidence citation quality: aggregate
+`expectedEvidenceCitationRate >= 0.80` and every selected case
+`case.expectedEvidenceCitationRate >= 0.50`. Pass explicit lower thresholds only
+for focused debugging or ablation work.
 
 Baseline regeneration uses `--reuse-context` by default so repeated gates can
 refresh scores and preflight without rebuilding unchanged context packets. The

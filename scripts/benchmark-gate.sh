@@ -30,6 +30,12 @@ Options:
                       Minimum aggregate file recall@20. Default: 0.80.
   --min-mrr N         Minimum aggregate file MRR. Default: 0.50.
   --max-noise-at-20 N Maximum aggregate noise@20. Default: 0.90.
+  --min-expected-evidence-citation-rate N
+                      Minimum aggregate expected-evidence citation rate.
+                      Default: 0.80.
+  --min-case-expected-evidence-citation-rate N
+                      Minimum per-case expected-evidence citation rate.
+                      Default: 0.50.
   --provider PROVIDER Embedding provider for semantic/hybrid retrievers.
   --model MODEL       Embedding model for semantic/hybrid retrievers.
   --batch-size N      Embedding batch size for semantic/hybrid retrievers.
@@ -58,10 +64,6 @@ Options:
   --max-total-stage-regression-ratio N
                       Fail if an aggregate stage current/baseline ratio exceeds this value.
                       Default with --stage-time-baseline-report: 1.50.
-  --min-expected-evidence-citation-rate N
-                      Fail if aggregate expected-evidence citation rate is below N.
-  --min-case-expected-evidence-citation-rate N
-                      Fail if any case expected-evidence citation rate is below N.
   --min-stage-regression-ms N
                       Ignore timing deltas at or below this ms floor.
                       Default with --stage-time-baseline-report: 5000.
@@ -113,8 +115,8 @@ max_case_stage_regression_ms=""
 max_total_stage_regression_ms=""
 max_case_stage_regression_ratio=""
 max_total_stage_regression_ratio=""
-min_expected_evidence_citation_rate=""
-min_case_expected_evidence_citation_rate=""
+min_expected_evidence_citation_rate="0.80"
+min_case_expected_evidence_citation_rate="0.50"
 min_stage_regression_ms=""
 stage_filters=()
 stage_filter_count=0
