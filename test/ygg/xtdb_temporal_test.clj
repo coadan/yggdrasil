@@ -254,6 +254,38 @@
                   {:valid-at t1}
                   [:xt/id :project-id :label]))))))
 
+(deftest rows-matching-any-token-batches-large-token-predicates
+  (let [calls (atom [])
+        tokens (mapv #(str "token" %) (range 70))]
+    (with-redefs [store/q
+                  (fn [xtdb sql ctx]
+                    (is (= {:node :stub} xtdb))
+                    (swap! calls conj {:sql sql
+                                       :args (:args ctx)})
+                    (if (= 1 (count @calls))
+                      [{"_id" "row:shared"
+                        "path" "src/shared.clj"}]
+                      [{"_id" "row:shared"
+                        "path" "src/shared.clj"}
+                       {"_id" "row:last"
+                        "path" "src/last.clj"}]))]
+      (is (= ["row:shared" "row:last"]
+             (mapv :xt/id
+                   (store/rows-matching-any-token
+                    {:node :stub}
+                    :ygg/token-match
+                    [:path :label]
+                    tokens
+                    {:project-id "demo"}
+                    {:valid-at t1}
+                    [:xt/id :path]))))
+      (is (= [129 13] (mapv (comp count :args) @calls)))
+      (is (= (zipmap (mapv #(str "%" % "%") tokens)
+                     (repeat 2))
+             (frequencies (mapcat #(rest (:args %)) @calls))))
+      (is (every? #(<= (count (re-seq #"LIKE" (:sql %))) 128)
+                  @calls)))))
+
 (deftest constrained-rows-fallback-filters-test-stub-rows
   (with-redefs [store/all-rows (fn [_ table]
                                  (is (= :ygg/constrained-test table))

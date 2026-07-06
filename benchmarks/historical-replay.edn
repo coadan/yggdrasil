@@ -13,6 +13,9 @@
          {:id "flask"
           :root "../.dev/ygg/benchmark-repos/flask"
           :role :application}
+         {:id "graphify"
+          :root "../.dev/ygg/benchmark-repos/graphify"
+          :role :application}
          {:id "junit-framework"
           :root "../.dev/ygg/benchmark-repos/junit-framework"
           :role :library}
@@ -21,6 +24,9 @@
           :role :library}
          {:id "opentelemetry-collector-contrib"
           :root "../.dev/ygg/benchmark-repos/opentelemetry-collector-contrib"
+          :role :application}
+         {:id "supabase-postgres"
+          :root "../.dev/ygg/benchmark-repos/supabase-postgres"
           :role :application}
          {:id "terraform-aws-vpc"
           :root "../.dev/ygg/benchmark-repos/terraform-aws-vpc"
@@ -162,6 +168,34 @@
                   :url "https://github.com/pallets/flask/pull/6013"
                   :title "autoescape selection uses case-insensitive comparison"
                   :body "Historical replay of Flask commit 9368fb3f3c52d74534d14c1bef03c79c103356cd. The fix made autoescape selection compare file extensions case-insensitively. Identify the Python framework file that owns the runtime autoescape behavior before looking at the fixing diff."}}
+
+         {:id "historical-graphify-read-glob-hook-extension-boundary"
+          :repo-id "graphify"
+          :coverage {:source-kinds [:python]}
+          :tags [:historical
+                 :problem-implementation
+                 :problem-runtime-config
+                 :problem-cross-file
+                 :architecture-runtime-boundary
+                 :agent-tooling
+                 :shell-sufficient-control
+                 :python
+                 :graphify]
+          :index-files ["graphify/__main__.py"
+                        "tests/test_read_hook.py"]
+          :index-context? false
+          :base-sha "1e3270a374498b446eb68c8f72a92d6ccf68a0ff"
+          :fix-sha "9b583a0dd51061db2f459d4c53a5fc6731bbfbe5"
+          :ground-truth {:localization-files ["graphify/__main__.py"
+                                              "tests/test_read_hook.py"]}
+          :expectations {:citation-evidence [{:kind :read-glob-hook
+                                              :path "graphify/__main__.py"}
+                                             {:kind :read-glob-hook-test
+                                              :path "tests/test_read_hook.py"}]}
+          :issue {:id "graphify-1463"
+                  :url "https://github.com/safishamsi/graphify/pull/1463"
+                  :title "fix(hooks): match the real file extension in the Read|Glob hook"
+                  :body "Historical replay of Graphify commit 9b583a0dd51061db2f459d4c53a5fc6731bbfbe5. The fix changed the Read|Glob PreToolUse hook from substring extension matching to real trailing-extension matching, added framework source extensions, and pinned regressions for .json false positives plus Astro/Vue/Svelte source reads. Identify the hook implementation and regression test files likely to need edits before looking at the fixing diff."}}
 
          {:id "historical-junit-system-properties-extension-backup"
           :repo-id "junit-framework"
@@ -455,4 +489,31 @@
           :issue {:id "axios-10820"
                   :url "https://github.com/axios/axios/pull/10820"
                   :title "test: harden http test server lifecycle to fix flaky FormData EPIPE"
-                  :body "Historical replay of axios commit 9fcdf488119c56133ac6bc1df7155598e347b773. The fix was test-only: it hardened HTTP test server lifecycle behavior for flaky FormData EPIPE failures. Identify the test setup and adapter test files likely to need edits before looking at the fixing diff."}}]}
+                  :body "Historical replay of axios commit 9fcdf488119c56133ac6bc1df7155598e347b773. The fix was test-only: it hardened HTTP test server lifecycle behavior for flaky FormData EPIPE failures. Identify the test setup and adapter test files likely to need edits before looking at the fixing diff."}}
+
+         {:id "historical-supabase-event-trigger-schema-regression"
+          :repo-id "supabase-postgres"
+          :coverage {:source-kinds [:sql]}
+          :tags [:historical
+                 :problem-test-only
+                 :test-only-regression
+                 :problem-runtime-config
+                 :audit-scope-runtime-config
+                 :sql
+                 :supabase
+                 :shell-sufficient-control]
+          :index-files ["nix/tests/sql/evtrigs.sql"
+                        "nix/tests/expected/evtrigs.out"]
+          :index-context? false
+          :base-sha "62421a2b09e8bb8dc4579e2a4c04e7aa7e1e6aa9"
+          :fix-sha "79837275296612c2d896dd90ee028e70024f8323"
+          :ground-truth {:localization-files ["nix/tests/sql/evtrigs.sql"
+                                              "nix/tests/expected/evtrigs.out"]}
+          :expectations {:citation-evidence [{:kind :sql-event-trigger-test
+                                              :path "nix/tests/sql/evtrigs.sql"}
+                                             {:kind :sql-event-trigger-expected-output
+                                              :path "nix/tests/expected/evtrigs.out"}]}
+          :issue {:id "supabase-postgres-79837275"
+                  :url "https://github.com/supabase/postgres/commit/79837275296612c2d896dd90ee028e70024f8323"
+                  :title "test: add event trigger function schema"
+                  :body "Historical replay of Supabase Postgres commit 79837275296612c2d896dd90ee028e70024f8323. The fix updated the event-trigger regression query to include each trigger function schema and refreshed the expected output. Identify the SQL regression and expected result files likely to need edits before looking at the fixing diff."}}]}

@@ -18,6 +18,9 @@
 (def ^:private tuple-query-batch-size
   512)
 
+(def ^:private token-query-max-predicate-pairs
+  128)
+
 (defn- xdg-data-home
   []
   (or (System/getenv "XDG_DATA_HOME")
@@ -706,6 +709,34 @@
                    ")"))
      :args (mapv (comp token-like-pattern second) pairs)}))
 
+(defn- token-query-batches
+  [fields tokens]
+  (let [field-count (max 1 (count fields))
+        batch-size (max 1 (quot token-query-max-predicate-pairs field-count))]
+    (partition-all batch-size tokens)))
+
+(defn- token-query-row-key
+  [row]
+  (or (:xt/id row)
+      (:_id row)
+      (get row "_id")
+      row))
+
+(defn- distinct-token-query-rows
+  [rows]
+  (loop [remaining (seq rows)
+         seen #{}
+         result []]
+    (if-not remaining
+      result
+      (let [row (first remaining)
+            row-key (token-query-row-key row)]
+        (if (contains? seen row-key)
+          (recur (next remaining) seen result)
+          (recur (next remaining)
+                 (conj seen row-key)
+                 (conj result row)))))))
+
 (defn- string-prefix-sql
   [field prefixes]
   (let [prefixes (vec prefixes)
@@ -1205,18 +1236,28 @@
        []
 
        (xtdb-handle? xtdb)
-       (let [{token-where :where token-args :args} (token-match-sql fields tokens)
-             {constraint-where :where constraint-args :args} (equality-sql constraints)
-             where-clauses (cond-> constraint-where token-where (conj token-where))
-             sql (str "SELECT "
-                      (select-sql return-fields)
-                      " FROM "
-                      (sql-table-name table)
-                      (when (seq where-clauses)
-                        (str " WHERE "
-                             (str/join " AND " where-clauses))))]
-         (map #(normalize-projected-sql-row return-fields %)
-              (q xtdb sql (assoc ctx :args (vec (concat constraint-args token-args))))))
+       (let [{constraint-where :where constraint-args :args} (equality-sql constraints)
+             query-batch (fn [token-batch]
+                           (let [{token-where :where token-args :args} (token-match-sql
+                                                                        fields
+                                                                        token-batch)
+                                 where-clauses (cond-> constraint-where
+                                                 token-where (conj token-where))
+                                 sql (str "SELECT "
+                                          (select-sql return-fields)
+                                          " FROM "
+                                          (sql-table-name table)
+                                          (when (seq where-clauses)
+                                            (str " WHERE "
+                                                 (str/join " AND " where-clauses))))]
+                             (map #(normalize-projected-sql-row return-fields %)
+                                  (q xtdb
+                                     sql
+                                     (assoc ctx
+                                            :args
+                                            (vec (concat constraint-args token-args)))))))]
+         (distinct-token-query-rows
+          (mapcat query-batch (token-query-batches fields tokens))))
 
        :else
        (let [rows (filter #(token-match-row? fields tokens %)

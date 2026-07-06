@@ -219,6 +219,7 @@
       :base-sha (:base-sha case)
       :fix-sha (:fix-sha case)
       :index-files (:index-files case)
+      :index-context? (:index-context? case)
       :ground-truth (:ground-truth case)}]))
 (defn- resolve-case-repo
   [suite case repo-ref]
@@ -640,9 +641,11 @@
                       (if (seq index-files)
                         (assoc repo
                                :index-files
-                               (index-files-with-ancestor-context
-                                (get worktree-roots id)
-                                index-files))
+                               (if (false? (:index-context? repo))
+                                 (vec index-files)
+                                 (index-files-with-ancestor-context
+                                  (get worktree-roots id)
+                                  index-files)))
                         repo))
                     repos)
         graph-roots (benchmark-progress/progress-stage!

@@ -663,8 +663,8 @@
             "feature-planning"
             "historical-replay-quick"]
            (mapv :id (:included-suites suite))))
-    (is (= 28 (count cases)))
-    (is (= 8 (count (:repos suite))))
+    (is (= 30 (count cases)))
+    (is (= 9 (count (:repos suite))))
     (is (every? suite-repo-ids
                 ["bootstrap"
                  "supabase-postgres"
@@ -673,7 +673,8 @@
                  "opentelemetry-collector"
                  "terraform-aws-vpc"
                  "flask"
-                 "junit-framework"]))
+                 "junit-framework"
+                 "graphify"]))
     (is (every? source-kinds
                 [:web-framework :manifest :env :sql :javascript :dotnet
                  :compose :go :terraform :python :java :ci :doc]))
@@ -711,6 +712,8 @@
         quick-repo-ids (set (map :id (:repos quick)))
         claim-quick-repo-ids (set (map :id (:repos claim-quick)))
         full-repo-ids (set (map :id (:repos full)))
+        quick-source-kinds (set (mapcat #(get-in % [:coverage :source-kinds])
+                                        (:cases quick)))
         quick-doc-cases (filter #(contains? (set (get-in % [:coverage :source-kinds]))
                                             :doc)
                                 (:cases quick))
@@ -718,13 +721,13 @@
     (is (= "historical-replay-quick" (:id quick)))
     (is (= "historical-replay-claim-quick" (:id claim-quick)))
     (is (= "historical-replay-full" (:id full)))
-    (is (= 10 (count quick-case-ids)))
+    (is (= 12 (count quick-case-ids)))
     (is (= ["historical-axios-defer-env-proxy-to-node"
             "historical-dapper-prefer-enum-type-handlers"
             "historical-terraform-vpc-endpoint-dns-record-ip-type"
             "historical-flask-autoescape-case-insensitive"]
            claim-quick-case-ids))
-    (is (= 14 (count full-case-ids)))
+    (is (= 16 (count full-case-ids)))
     (is (every? #(seq (get-in % [:expectations :citation-evidence]))
                 (:cases claim-quick)))
     (is (= (set claim-quick-case-ids)
@@ -740,6 +743,9 @@
                    "historical-otel-routing-default-error-mode"))
     (is (not (contains? quick-repo-ids "opentelemetry-collector-contrib")))
     (is (contains? full-repo-ids "opentelemetry-collector-contrib"))
+    (is (every? quick-repo-ids ["graphify" "supabase-postgres"]))
+    (is (every? full-repo-ids ["graphify" "supabase-postgres"]))
+    (is (every? quick-source-kinds [:python :sql]))
     (is (<= 4 (count quick-doc-cases)))
     (is (every? quick-doc-repos ["axios" "bootstrap" "flask"]))
     (is (every? (set full-case-ids) quick-case-ids))
@@ -1431,11 +1437,27 @@
                                                ["connector/routingconnector/factory.go"]}
                                 :issue {:id "nested-go-module"
                                         :title "Nested Go module"
-                                        :body "Inspect the routing connector factory."}}]}))
+                                        :body "Inspect the routing connector factory."}}
+                               {:id "source-only"
+                                :repo-id "repo"
+                                :base-sha base-sha
+                                :fix-sha fix-sha
+                                :index-files ["connector/routingconnector/factory.go"]
+                                :index-context? false
+                                :ground-truth {:localization-files
+                                               ["connector/routingconnector/factory.go"]}
+                                :issue {:id "source-only"
+                                        :title "Source-only bounded index"
+                                        :body "Inspect only the routing connector factory."}}]}))
         (let [suite (benchmark/read-suite suite-path)
-              prepared (first (:cases (benchmark/prepare-suite! suite {:out out})))
+              prepared-by-id (->> (:cases (benchmark/prepare-suite! suite {:out out}))
+                                  (map (juxt :case-id identity))
+                                  (into {}))
+              prepared (get prepared-by-id "nested-go-module")
               graph-root (get-in prepared [:graphRoots "repo"])
-              indexed-files (get-in prepared [:repos 0 :indexFiles])]
+              indexed-files (get-in prepared [:repos 0 :indexFiles])
+              source-only (get prepared-by-id "source-only")
+              source-only-root (get-in source-only [:graphRoots "repo"])]
           (is (= ["connector/routingconnector/factory.go"
                   "connector/routingconnector/go.mod"
                   "connector/routingconnector/go.sum"
@@ -1445,7 +1467,14 @@
           (is (.isFile (io/file graph-root "connector/routingconnector/go.mod")))
           (is (.isFile (io/file graph-root "connector/routingconnector/go.sum")))
           (is (.isFile (io/file graph-root "go.mod")))
-          (is (false? (.exists (io/file graph-root "other/go.mod")))))))))
+          (is (false? (.exists (io/file graph-root "other/go.mod"))))
+          (is (= ["connector/routingconnector/factory.go"]
+                 (get-in source-only [:repos 0 :indexFiles])))
+          (is (.isFile (io/file source-only-root
+                                "connector/routingconnector/factory.go")))
+          (is (false? (.exists (io/file source-only-root
+                                        "connector/routingconnector/go.mod"))))
+          (is (false? (.exists (io/file source-only-root "go.mod")))))))))
 
 (deftest progress-stage-records-shutdown-interruption
   (let [out (temp-dir "ygg-bench-progress-shutdown")

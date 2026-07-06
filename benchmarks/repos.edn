@@ -13,7 +13,8 @@
          {:id "supabase-postgres"
           :url "https://github.com/supabase/postgres.git"
           :dir "supabase-postgres"
-          :required-shas ["948b5feb51b9605babc6820475b5ccff44f29552"]}
+          :required-shas ["62421a2b09e8bb8dc4579e2a4c04e7aa7e1e6aa9"
+                          "79837275296612c2d896dd90ee028e70024f8323"]}
          {:id "axios"
           :url "https://github.com/axios/axios.git"
           :dir "axios"
@@ -63,4 +64,5 @@
          {:id "graphify"
           :url "https://github.com/safishamsi/graphify.git"
           :dir "graphify"
-          :required-shas ["9b583a0dd51061db2f459d4c53a5fc6731bbfbe5"]}]}
+          :required-shas ["1e3270a374498b446eb68c8f72a92d6ccf68a0ff"
+                          "9b583a0dd51061db2f459d4c53a5fc6731bbfbe5"]}]}

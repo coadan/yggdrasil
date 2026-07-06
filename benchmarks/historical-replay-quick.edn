@@ -9,6 +9,8 @@
                               "historical-bootstrap-remove-ios-navbar-dropdowns-doc"
                               "historical-flask-request-json-status-doc"
                               "historical-axios-proxy-node-only-doc"
+                              "historical-graphify-read-glob-hook-extension-boundary"
                               "historical-bootstrap-node-version-workflows"
                               "historical-dapper-reference-trimmer-dependencies"
-                              "historical-axios-formdata-epipe-test-lifecycle"]}]}
+                              "historical-axios-formdata-epipe-test-lifecycle"
+                              "historical-supabase-event-trigger-schema-regression"]}]}
