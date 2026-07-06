@@ -65,6 +65,8 @@
                  [:max-warning-runs :maxWarningRuns]
                  [:max-missing-decision-runs :maxMissingDecisionRuns]
                  [:max-hint-diagnostic-runs :maxHintDiagnosticRuns]
+                 [:max-blocking-hint-diagnostic-runs
+                  :maxBlockingHintDiagnosticRuns]
                  [:max-identity-mismatch-runs :maxIdentityMismatchRuns]
                  [:max-unverified-score-runs :maxUnverifiedScoreRuns]
                  [:max-graph-expectation-failures :maxGraphExpectationFailures]
@@ -394,6 +396,30 @@
                                                  :agentDiagnostics
                                                  :hintDiagnosticsByKind])
                  :message "Some Yggdrasil hint artifacts reported help-quality diagnostics."})]))))
+
+(defn- blocking-hint-diagnostic-run-failures
+  [check]
+  (when-some [expected (get-in check
+                               [:thresholds
+                                :maxBlockingHintDiagnosticRuns])]
+    (let [actual (double (get-in check
+                                 [:report
+                                  :agentDiagnostics
+                                  :blockingHintDiagnosticRuns]
+                                 0))]
+      (when (> actual expected)
+        [(merge (metric-failure "blockingHintDiagnosticRuns" "<=" expected actual)
+                {:case-ids (get-in check
+                                   [:report
+                                    :agentDiagnostics
+                                    :blockingHintDiagnosticCaseIds])
+                 :blockingHintDiagnosticsByKind
+                 (get-in check
+                         [:report
+                          :agentDiagnostics
+                          :blockingHintDiagnosticsByKind])
+                 :message "Some Yggdrasil hint artifacts reported blocking help-quality diagnostics."})]))))
+
 (defn- identity-mismatch-run-failures
   [check]
   (when-some [expected (get-in check [:thresholds :maxIdentityMismatchRuns])]
@@ -998,6 +1024,7 @@
                    (missing-decision-run-failures check-base)
                    (warning-run-failures check-base)
                    (hint-diagnostic-run-failures check-base)
+                   (blocking-hint-diagnostic-run-failures check-base)
                    (identity-mismatch-run-failures check-base)
                    (unverified-score-failures check-base)
                    (graph-expectation-failures check-base)

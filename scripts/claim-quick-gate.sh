@@ -15,6 +15,7 @@ Runs the small non-synthetic claim-readiness lane:
   --max-noise-at-20 0.80
   --min-expected-evidence-citation-rate 0.80
   --min-case-expected-evidence-citation-rate 0.50
+  --max-blocking-hint-diagnostic-runs 0
   --min-repos 6
   --min-source-kind-cases javascript=2
   --min-source-kind-cases python=2

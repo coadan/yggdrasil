@@ -2239,6 +2239,12 @@
                                                             :runs 1
                                                             :cases 1
                                                             :caseIds ["case-1"]}]
+                                   :blockingHintDiagnosticRuns 1
+                                   :blockingHintDiagnosticCaseIds ["case-1"]
+                                   :blockingHintDiagnosticsByKind [{:kind "source-skipped-files"
+                                                                    :runs 1
+                                                                    :cases 1
+                                                                    :caseIds ["case-1"]}]
                                    :identityMismatchRuns 1
                                    :identityMismatchCaseIds ["case-1"]
                                    :identityMismatches 2}
@@ -2354,6 +2360,7 @@
                  :max-commandless-runs 0
                  :max-warning-runs 0
                  :max-hint-diagnostic-runs 0
+                 :max-blocking-hint-diagnostic-runs 0
                  :max-identity-mismatch-runs 0
                  :max-unverified-score-runs 0
                  :max-graph-expectation-failures 0
@@ -2470,6 +2477,7 @@
              "commandlessRuns"
              "warningRuns"
              "hintDiagnosticRuns"
+             "blockingHintDiagnosticRuns"
              "identityMismatchRuns"
              "unverifiedScoreRuns"
              "graphExpectationFailures"
@@ -2514,6 +2522,7 @@
                    "benchmarkPreflightBlockers"
                    "missingPredictedFileRuns"
                    "hintDiagnosticRuns"
+                   "blockingHintDiagnosticRuns"
                    "contextRankMissingRuns"
                    "missedButPresentInContextRuns"
                    "missedAndAbsentFromContextRuns"
@@ -2586,6 +2595,7 @@
             :maxCommandlessRuns 0.0
             :maxWarningRuns 0.0
             :maxHintDiagnosticRuns 0.0
+            :maxBlockingHintDiagnosticRuns 0.0
             :maxIdentityMismatchRuns 0.0
             :maxUnverifiedScoreRuns 0.0
             :maxGraphExpectationFailures 0.0

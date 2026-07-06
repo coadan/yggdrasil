@@ -158,6 +158,7 @@
     (is (str/includes? usage "--max-commandless-runs N"))
     (is (str/includes? usage "--max-missing-predicted-file-runs N"))
     (is (str/includes? usage "--max-warning-runs N"))
+    (is (str/includes? usage "--max-blocking-hint-diagnostic-runs N"))
     (is (str/includes? usage "--max-identity-mismatch-runs N"))
     (is (str/includes? usage "--max-context-rank-missing-runs N"))
     (is (str/includes? usage "--max-missed-but-present-in-context-runs N"))
@@ -2265,6 +2266,7 @@
                                  "--max-missing-predicted-file-runs" "0"
                                  "--max-missing-decision-runs" "0"
                                  "--max-warning-runs" "0"
+                                 "--max-blocking-hint-diagnostic-runs" "0"
                                  "--max-identity-mismatch-runs" "0"
                                  "--max-missing-declared-source-kind-runs" "0"
                                  "--max-missed-runs" "0"
@@ -2333,6 +2335,7 @@
                   :max-missing-predicted-file-runs 0.0
                   :max-missing-decision-runs 0.0
                   :max-warning-runs 0.0
+                  :max-blocking-hint-diagnostic-runs 0.0
                   :max-identity-mismatch-runs 0.0
                   :max-missing-declared-source-kind-runs 0.0
                   :max-missed-runs 0.0

@@ -15,6 +15,7 @@ Runs the small non-synthetic docs-handling claim lane:
   --max-noise-at-20 0.90
   --min-expected-evidence-citation-rate 0.80
   --min-case-expected-evidence-citation-rate 0.50
+  --max-blocking-hint-diagnostic-runs 0
   --min-repos 3
   --min-source-kind-cases doc=4
   --min-measured-problem-classes 1

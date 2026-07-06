@@ -105,6 +105,7 @@
     "--max-missing-decision-runs"
     "--max-commandless-runs" "--max-warning-runs"
     "--max-hint-diagnostic-runs"
+    "--max-blocking-hint-diagnostic-runs"
     "--max-identity-mismatch-runs"
     "--max-unverified-score-runs"
     "--max-graph-expectation-failures"

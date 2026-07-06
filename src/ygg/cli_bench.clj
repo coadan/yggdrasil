@@ -324,6 +324,11 @@
                                                                (parse-optional-double
                                                                 args
                                                                 "--max-hint-diagnostic-runs"))
+    (parse-optional-double args "--max-blocking-hint-diagnostic-runs") (assoc
+                                                                        :max-blocking-hint-diagnostic-runs
+                                                                        (parse-optional-double
+                                                                         args
+                                                                         "--max-blocking-hint-diagnostic-runs"))
     (parse-optional-double args "--max-identity-mismatch-runs") (assoc
                                                                  :max-identity-mismatch-runs
                                                                  (parse-optional-double

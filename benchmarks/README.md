@@ -85,17 +85,17 @@ missing declared source-kind coverage runs before it can support broad
 real-world claims. It also needs at least three measured problem-class groups
 and three measured architecture-class groups in non-synthetic replay cases, and
 expected-evidence citation quality must meet the aggregate `0.80` and per-case
-`0.50` floors; wrapper gates such as `bb bench:claim-quick` add
-suite-specific per-source-kind floors.
+`0.50` floors; wrapper gates such as `bb bench:claim-quick` also reject blocking
+hint diagnostics and add suite-specific per-source-kind floors.
 
 Use the docs claim lane when the claim is specifically about documentation
 handling. It is a non-synthetic selector over historical doc edit cases, stores
 artifacts under `.dev/ygg/docs-claim-gate`, gates expected evidence with the
 same floors as `bb bench:claim-quick`, uses the same `0.30` MRR floor, and keeps
 the default deterministic gate `noise@20` ceiling of `0.90` for single-file docs
-edit cases. It additionally requires at least three completed repos, four
-completed cases with scoreable `doc` source-kind coverage, and at least one
-measured docs problem/architecture class:
+edit cases. It additionally rejects blocking hint diagnostics, requires at least
+three completed repos, four completed cases with scoreable `doc` source-kind
+coverage, and at least one measured docs problem/architecture class:
 
 ```sh
 bb bench:docs-claim --setup-check

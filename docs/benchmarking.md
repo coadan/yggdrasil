@@ -43,8 +43,10 @@ suite is synthetic architecture coverage, so use it as a diagnostic gate, not
 as standalone broad real-world proof. Check-only mode skips baseline
 regeneration but still rejects missing, stale, unverified, graph-failing,
 benchmark-preflight-blocked, or per-case estimated context-packet token-budget
-violating score artifacts. If artifacts predate deterministic baseline token
-estimates, run the full gate once before using check-only mode for token claims.
+violating score artifacts. It also rejects blocking hint diagnostics while still
+allowing non-blocking hint diagnostics to remain visible in the report. If
+artifacts predate deterministic baseline token estimates, run the full gate once
+before using check-only mode for token claims.
 
 Use `bb bench:claim-quick` for the small non-synthetic claim-readiness lane,
 including immediately before architecture or extractor claims when current score
@@ -56,7 +58,8 @@ It runs `benchmarks/historical-replay-claim-quick.edn`, stores artifacts under
 `--min-case-expected-evidence-citation-rate 0.50` by default. It keeps the
 standard recall floors, uses `--min-mrr 0.30`, and enforces
 `--max-noise-at-20 0.80` because the lane checks historical claim-readiness
-rather than synthetic exact-rank behavior. It also enforces at least three
+rather than synthetic exact-rank behavior. It rejects blocking hint diagnostics
+with `--max-blocking-hint-diagnostic-runs 0`. It also enforces at least three
 measured problem-class groups, three measured architecture-class groups, six
 completed repos, and scoreable cases across the tracked JavaScript, Python,
 docs, .NET, Terraform, SQL, and text source-kind mix so broad claims are not backed
@@ -70,9 +73,11 @@ non-synthetic selector `benchmarks/historical-docs-claim-quick.edn`, stores
 artifacts under `.dev/ygg/docs-claim-gate`, gates expected evidence with the
 same floors as `bb bench:claim-quick`, uses the same `0.30` MRR floor, and keeps
 the default deterministic gate `noise@20` ceiling of `0.90` for single-file docs
-edit cases. It also requires at least three completed benchmark repos and four
-completed cases with scoreable `doc` source-kind coverage, plus at least one
-measured docs problem/architecture class. The wrapper also passes
+edit cases. It rejects blocking hint diagnostics with
+`--max-blocking-hint-diagnostic-runs 0`. It also requires at least three
+completed benchmark repos and four completed cases with scoreable `doc`
+source-kind coverage, plus at least one measured docs problem/architecture
+class. The wrapper also passes
 `--require-docs-claim-readiness`, so `agent-check` fails unless the generated
 report's `docsClaimReadiness` field supports docs-handling claims. Use
 `--check-only` only when current score artifacts already exist.
@@ -561,7 +566,9 @@ plugin-fit choice, not just a shorter suspected-file list.
   agents do not cite commands,
   `--max-warning-runs` to fail when scorer or agent warnings are present beyond
   the configured budget, `--max-hint-diagnostic-runs` to fail when score
-  artifacts include Yggdrasil hint diagnostics,
+  artifacts include any Yggdrasil hint diagnostics,
+  `--max-blocking-hint-diagnostic-runs` to fail only when hint diagnostics are
+  marked blocking,
   `--max-identity-mismatch-runs` to fail when score
   artifacts report a wrong schema, case id, or case fingerprint,
   `--max-unverified-score-runs` to fail when
@@ -1125,6 +1132,11 @@ ground truth remains a single-repo shorthand.
   generated hint file reported help-quality diagnostics. Gate this with
   `--max-hint-diagnostic-runs` when the hints should be free of coverage,
   source-support, or zero-candidate warnings.
+- `agentDiagnostics.blockingHintDiagnosticRuns`: scored Yggdrasil-mode artifacts
+  whose generated hint file reported blocking help-quality diagnostics. Gate this
+  with `--max-blocking-hint-diagnostic-runs 0` for claim lanes that should fail
+  on blocking coverage/source-support issues while still reporting non-blocking
+  diagnostics.
 - `agentDiagnostics.identityMismatchRuns`: scored agent artifacts whose schema,
   case id, or case fingerprint did not match the prepared case. These are also
   counted under `warningRuns`; gate them directly with

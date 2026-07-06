@@ -36,6 +36,8 @@ Options:
   --min-case-expected-evidence-citation-rate N
                       Minimum per-case expected-evidence citation rate.
                       Default: 0.50.
+  --max-blocking-hint-diagnostic-runs N
+                      Maximum runs with blocking hint diagnostics. Default: 0.
   --min-repos N       Minimum distinct completed benchmark repos.
   --min-source-kind-cases KIND=N
                       Minimum completed cases with scoreable source-kind
@@ -131,6 +133,7 @@ max_case_stage_regression_ratio=""
 max_total_stage_regression_ratio=""
 min_expected_evidence_citation_rate="0.80"
 min_case_expected_evidence_citation_rate="0.50"
+max_blocking_hint_diagnostic_runs="0"
 min_repos=""
 min_source_kind_cases=()
 min_source_kind_case_count=0
@@ -277,6 +280,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --min-case-expected-evidence-citation-rate)
       min_case_expected_evidence_citation_rate="$2"
+      shift 2
+      ;;
+    --max-blocking-hint-diagnostic-runs)
+      max_blocking_hint_diagnostic_runs="$2"
       shift 2
       ;;
     --min-repos)
@@ -446,6 +453,7 @@ agent_check_args=(
   --max-case-total-tokens 24000
   --max-input-hinted-cases 0
   --max-unverified-score-runs 0
+  --max-blocking-hint-diagnostic-runs "$max_blocking_hint_diagnostic_runs"
   --out "$out"
 )
 if [[ -n "$min_expected_evidence_citation_rate" ]]; then
