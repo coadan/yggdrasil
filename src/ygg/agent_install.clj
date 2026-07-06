@@ -200,11 +200,13 @@
        "are missing or stale. The lane must pass with claim readiness "
        "supported, graph expectations passing, and zero benchmark preflight "
        "blockers, including measured problem and architecture-class coverage "
-       "in non-synthetic replay cases. Use `bb bench:gate` for the default "
-       "synthetic architecture diagnostic gate, not as standalone broad "
-       "real-world proof. For documentation-handling claims, use "
-       "`bb bench:docs-claim --check-only` against current artifacts or "
-       "`bb bench:docs-claim` when artifacts are missing or stale.\n"
+       "in non-synthetic replay cases. The broad quick claim lane must include "
+       "at least three measured problem-class groups and three measured "
+       "architecture-class groups. Use `bb bench:gate` for the default synthetic "
+       "architecture diagnostic gate, not as standalone broad real-world proof. "
+       "For documentation-handling claims, use `bb bench:docs-claim --check-only` "
+       "against current artifacts or `bb bench:docs-claim` when artifacts are "
+       "missing or stale.\n"
        end-marker "\n"))
 
 (defn- broad-search-hook

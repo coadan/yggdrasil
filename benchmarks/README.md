@@ -64,11 +64,13 @@ bb bench:claim-quick --skip-existing
 artifacts under `.dev/ygg/claim-quick-gate`, and gates expected-evidence
 citation coverage with an aggregate floor of `0.80` and per-case floor of
 `0.50`. It keeps the regular recall floors and uses a non-synthetic readiness
-MRR floor of `0.30` plus an aggregate `noise@20` ceiling of `0.80`; the full
-historical replay remains the authoritative claim lane. Regenerating the gate
-reuses compatible baseline context manifests by default, keyed by benchmark
-options and a Yggdrasil implementation fingerprint. Use `--fresh-context` when
-profiling full rebuild cost or intentionally replacing context artifacts.
+MRR floor of `0.30` plus an aggregate `noise@20` ceiling of `0.80`. Broad
+claim readiness must include at least three measured problem-class groups and
+three measured architecture-class groups. The full historical replay remains
+the authoritative claim lane. Regenerating the gate reuses compatible baseline
+context manifests by default, keyed by benchmark options and a Yggdrasil
+implementation fingerprint. Use `--fresh-context` when profiling full rebuild
+cost or intentionally replacing context artifacts.
 
 Use the docs claim lane when the claim is specifically about documentation
 handling. It is a non-synthetic selector over historical doc edit cases, stores
@@ -134,7 +136,8 @@ for focused debugging or ablation work. Because synthetic-only suites now fail
 claim readiness, broad real-world claims should use a non-synthetic lane such as
 `bb bench:claim-quick` or the full historical replay lane. Claim readiness also
 requires measured problem and architecture-class coverage in non-synthetic
-replay cases.
+replay cases; the quick broad claim lane enforces at least three measured groups
+of each kind.
 
 Baseline regeneration uses `--reuse-context` by default so repeated gates can
 refresh scores and preflight without rebuilding unchanged context packets. The

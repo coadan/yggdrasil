@@ -36,6 +36,10 @@ Options:
   --min-case-expected-evidence-citation-rate N
                       Minimum per-case expected-evidence citation rate.
                       Default: 0.50.
+  --min-measured-problem-classes N
+                      Minimum measured problem-class groups.
+  --min-measured-architecture-classes N
+                      Minimum measured architecture-class groups.
   --provider PROVIDER Embedding provider for semantic/hybrid retrievers.
   --model MODEL       Embedding model for semantic/hybrid retrievers.
   --batch-size N      Embedding batch size for semantic/hybrid retrievers.
@@ -117,6 +121,8 @@ max_case_stage_regression_ratio=""
 max_total_stage_regression_ratio=""
 min_expected_evidence_citation_rate="0.80"
 min_case_expected_evidence_citation_rate="0.50"
+min_measured_problem_classes=""
+min_measured_architecture_classes=""
 min_stage_regression_ms=""
 stage_filters=()
 stage_filter_count=0
@@ -256,6 +262,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --min-case-expected-evidence-citation-rate)
       min_case_expected_evidence_citation_rate="$2"
+      shift 2
+      ;;
+    --min-measured-problem-classes)
+      min_measured_problem_classes="$2"
+      shift 2
+      ;;
+    --min-measured-architecture-classes)
+      min_measured_architecture_classes="$2"
       shift 2
       ;;
     --min-stage-regression-ms)
@@ -407,6 +421,12 @@ if [[ -n "$min_expected_evidence_citation_rate" ]]; then
 fi
 if [[ -n "$min_case_expected_evidence_citation_rate" ]]; then
   agent_check_args+=(--min-case-expected-evidence-citation-rate "$min_case_expected_evidence_citation_rate")
+fi
+if [[ -n "$min_measured_problem_classes" ]]; then
+  agent_check_args+=(--min-measured-problem-classes "$min_measured_problem_classes")
+fi
+if [[ -n "$min_measured_architecture_classes" ]]; then
+  agent_check_args+=(--min-measured-architecture-classes "$min_measured_architecture_classes")
 fi
 
 run_bench agent-check "${agent_check_args[@]}"

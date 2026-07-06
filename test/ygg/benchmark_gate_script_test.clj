@@ -219,6 +219,10 @@
                        "--min-case-expected-evidence-citation-rate N"))
     (is (str/includes? (:out result)
                        "Default: 0.50"))
+    (is (str/includes? (:out result)
+                       "--min-measured-problem-classes N"))
+    (is (str/includes? (:out result)
+                       "--min-measured-architecture-classes N"))
     (is (str/includes? (:out result) "--retriever MODE"))
     (is (str/includes? (:out result) "current artifacts already"))))
 
@@ -245,6 +249,10 @@
                        "--min-expected-evidence-citation-rate 0.80"))
     (is (str/includes? (nth lines 2)
                        "--min-case-expected-evidence-citation-rate 0.50"))
+    (is (str/includes? (nth lines 2)
+                       "--min-measured-problem-classes 3"))
+    (is (str/includes? (nth lines 2)
+                       "--min-measured-architecture-classes 3"))
     (is (str/includes? (nth lines 3)
                        "python3 scripts/stage-time-gate.py"))))
 
@@ -255,7 +263,11 @@
                                      "--min-case-expected-evidence-citation-rate"
                                      "0.25"
                                      "--max-noise-at-20"
-                                     "0.95")
+                                     "0.95"
+                                     "--min-measured-problem-classes"
+                                     "2"
+                                     "--min-measured-architecture-classes"
+                                     "2")
         check-line (first (filter #(str/includes? % "bench agent-check")
                                   (output-lines result)))]
     (is (= 0 (:exit result)))
@@ -265,6 +277,10 @@
                        "--min-case-expected-evidence-citation-rate 0.25"))
     (is (str/includes? check-line
                        "--max-noise-at-20 0.95"))
+    (is (str/includes? check-line
+                       "--min-measured-problem-classes 2"))
+    (is (str/includes? check-line
+                       "--min-measured-architecture-classes 2"))
     (is (not (str/includes? check-line
                             "--min-expected-evidence-citation-rate 1.0")))
     (is (not (str/includes? check-line
@@ -284,7 +300,11 @@
     (is (str/includes? (:out result)
                        "--min-expected-evidence-citation-rate 0.80"))
     (is (str/includes? (:out result)
-                       "--min-case-expected-evidence-citation-rate 0.50"))))
+                       "--min-case-expected-evidence-citation-rate 0.50"))
+    (is (str/includes? (:out result)
+                       "--min-measured-problem-classes 3"))
+    (is (str/includes? (:out result)
+                       "--min-measured-architecture-classes 3"))))
 (deftest docs-claim-dry-run-uses-docs-suite-and-expected-evidence-gates
   (let [result (run-docs-claim-gate "--dry-run")
         lines (output-lines result)]

@@ -56,11 +56,12 @@ claim lane: `bb bench:claim-quick --check-only` when current score artifacts
 exist; run `bb bench:claim-quick` when they are missing or stale. The lane must
 pass with claim readiness supported, graph expectations passing, and zero
 benchmark preflight blockers, including measured problem and architecture-class
-coverage in non-synthetic replay cases. Use `bb bench:gate` for the default
-synthetic architecture diagnostic gate, not as standalone broad real-world
-proof. For documentation-handling claims, use `bb bench:docs-claim --check-only`
-against current artifacts or `bb bench:docs-claim` when artifacts are missing or
-stale.
+coverage in non-synthetic replay cases. The broad quick claim lane must include
+at least three measured problem-class groups and three measured architecture-class
+groups. Use `bb bench:gate` for the default synthetic architecture diagnostic
+gate, not as standalone broad real-world proof. For documentation-handling claims,
+use `bb bench:docs-claim --check-only` against current artifacts or
+`bb bench:docs-claim` when artifacts are missing or stale.
 
 Use `.ygg/` for repo-local Yggdrasil references, hooks, plugins, and other
 repo-local Yggdrasil files. Shared project state is central by project id:

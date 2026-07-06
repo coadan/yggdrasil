@@ -56,8 +56,10 @@ It runs `benchmarks/historical-replay-claim-quick.edn`, stores artifacts under
 `--min-case-expected-evidence-citation-rate 0.50` by default. It keeps the
 standard recall floors, uses `--min-mrr 0.30`, and enforces
 `--max-noise-at-20 0.80` because the lane checks historical claim-readiness
-rather than synthetic exact-rank behavior. The full historical replay remains
-the authoritative claim lane.
+rather than synthetic exact-rank behavior. It also enforces at least three
+measured problem-class groups and three measured architecture-class groups so
+broad claims are not backed by a single real-world slice. The full historical
+replay remains the authoritative claim lane.
 
 Use `bb bench:docs-claim` for documentation-handling claims. It runs the
 non-synthetic selector `benchmarks/historical-docs-claim-quick.edn`, stores
