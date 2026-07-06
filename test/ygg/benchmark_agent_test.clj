@@ -5015,6 +5015,138 @@
                "tests/unit/adapters/adapters.test.js"]
               (mapv :path result)))))
 
+(deftest compact-output-frontloads-source-graph-query-evidence-head
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        doc-row (fn [path rank tokens pairs source-rank rank-score]
+                  (row path
+                       rank
+                       {:docCount 1
+                        :candidateFileCount 1
+                        :entityCount 0
+                        :retrievedSourceCount 1
+                        :matchedTokenCount tokens
+                        :matchedTokenPairCount pairs
+                        :matchedPathQueryTokenCount 2
+                        :retrievedPathQueryTokenBoost 6.0
+                        :sourceGraphCandidateEvidenceScore 0.55
+                        :candidateSourceRank source-rank
+                        :rankScore rank-score}))
+        source-query-row (fn [path rank metrics]
+                           (row path
+                                rank
+                                (merge {:candidateFileCount 1
+                                        :entityCount 0
+                                        :matchedTokenCount 6
+                                        :matchedTokenPairCount 2
+                                        :matchedPathQueryTokenCount 2
+                                        :sourceGraphCandidateEvidenceScore 0.56
+                                        :sourceGraphQueryEvidenceBoost 9.0}
+                                       metrics)))
+        files [(doc-row "tests/Dapper.Tests/ParameterTests.cs" 1 7 3 7 22.6)
+               (row "benchmarks/Dapper.Tests.Performance/Benchmarks.Belgrade.cs"
+                    2
+                    {:candidateFileCount 2
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 5
+                     :matchedTokenPairCount 2
+                     :matchedPathQueryTokenCount 2
+                     :sourceGraphCandidateEvidenceScore 0.55
+                     :architectureSupportBoost 0.81
+                     :rankScore 23.0})
+               (doc-row "benchmarks/Dapper.Tests.Performance/Benchmarks.cs"
+                        3
+                        6
+                        2
+                        2
+                        14.5)
+               (source-query-row "Dapper/SqlMapper.Settings.cs"
+                                 4
+                                 {:docCount 0
+                                  :directFileCandidateCount 1
+                                  :rankScore 24.3})
+               (doc-row "tests/Dapper.Tests/EnumTests.cs" 5 4 1 27 23.7)
+               (source-query-row "Dapper/SqlMapper.cs"
+                                 6
+                                 {:docCount 1
+                                  :retrievedSourceCount 1
+                                  :docSupportedSourceGraphQueryBoost 2.0
+                                  :candidateFileCount 17
+                                  :rankScore 23.6})]
+        paths (mapv :path (compact-output files 10 nil))]
+    (is (= ["tests/Dapper.Tests/ParameterTests.cs"
+            "benchmarks/Dapper.Tests.Performance/Benchmarks.cs"
+            "tests/Dapper.Tests/EnumTests.cs"
+            "Dapper/SqlMapper.cs"
+            "Dapper/SqlMapper.Settings.cs"]
+           (subvec paths 0 5)))
+    (is (< (.indexOf paths "Dapper/SqlMapper.Settings.cs")
+           (.indexOf paths
+                     "benchmarks/Dapper.Tests.Performance/Benchmarks.Belgrade.cs")))))
+
+(deftest compact-output-frontloads-direct-doc-architecture-row
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :metrics metrics})
+        doc-row (fn [path rank tokens]
+                  (row path
+                       rank
+                       {:docCount 1
+                        :candidateFileCount 1
+                        :entityCount 0
+                        :retrievedSourceCount 1
+                        :matchedTokenCount tokens
+                        :matchedPathQueryTokenCount 2
+                        :rankScore (- 20.0 rank)}))
+        files [(doc-row "tests/unit/adapters/fetch.test.js" 1 11)
+               (row "lib/core/AxiosError.js"
+                    2
+                    {:candidateFileCount 2
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 8
+                     :matchedTokenPairCount 2
+                     :matchedPathQueryTokenCount 1
+                     :sourceGraphCandidateEvidenceScore 0.36
+                     :rankScore 19.6})
+               (doc-row "lib/env/data.js" 3 2)
+               (doc-row "tests/smoke/cjs/tests/fetch.smoke.test.cjs" 4 6)
+               (row "tests/unit/adapters/adapters.test.js"
+                    7
+                    {:candidateFileCount 2
+                     :docCount 0
+                     :entityCount 0
+                     :directFileCandidateCount 1
+                     :fileIdentitySupportLabelCount 5
+                     :matchedTokenCount 8
+                     :matchedTokenPairCount 2
+                     :matchedPathQueryTokenCount 3
+                     :sourceGraphCandidateEvidenceScore 0.33
+                     :rankScore 4.3})
+               (row "lib/adapters/http.js"
+                    8
+                    {:candidateFileCount 4
+                     :docCount 1
+                     :entityCount 0
+                     :directFileCandidateCount 1
+                     :retrievedSourceCount 1
+                     :architectureSupportBoost 0.96
+                     :matchedTokenCount 8
+                     :matchedTokenPairCount 2
+                     :matchedPathQueryTokenCount 2
+                     :sourceGraphCandidateEvidenceScore 0.33
+                     :rankScore 15.0})]
+        paths (mapv :path (compact-output files 10 nil))]
+    (is (< (.indexOf paths "lib/adapters/http.js")
+           (.indexOf paths "tests/unit/adapters/adapters.test.js")))
+    (is (> 5 (.indexOf paths "lib/adapters/http.js")))))
+
 (deftest compact-output-spreads-candidate-support-signatures
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank signature]

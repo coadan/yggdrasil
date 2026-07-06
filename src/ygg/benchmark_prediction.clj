@@ -347,6 +347,24 @@
   2)
 (def ^:private compact-output-preserved-doc-head-source-score-min
   0.3)
+(def ^:private compact-output-query-evidence-head-rank-window
+  8)
+(def ^:private compact-output-query-evidence-head-sort-rank
+  0.006)
+(def ^:private compact-output-query-evidence-head-sort-step
+  0.001)
+(def ^:private compact-output-query-evidence-head-limit
+  2)
+(def ^:private compact-output-query-evidence-head-boost-min
+  2.0)
+(def ^:private compact-output-direct-doc-architecture-rank-window
+  10)
+(def ^:private compact-output-direct-doc-architecture-sort-rank
+  0.008)
+(def ^:private compact-output-direct-doc-architecture-token-min
+  5)
+(def ^:private compact-output-direct-doc-architecture-source-score-min
+  0.3)
 (def ^:private compact-output-score-tail-min-files
   4)
 (def ^:private compact-output-score-tail-prefix-min-files
@@ -5133,11 +5151,93 @@
                     ::compact-output-sort-rank
                     (compact-output-ranked-doc-head-sort-rank %)))))
 
+(defn- compact-output-query-evidence-head-row?
+  [row]
+  (and (<= (long (or (:rank row) Long/MAX_VALUE))
+           compact-output-query-evidence-head-rank-window)
+       (pos? (positive-metric row :candidateFileCount))
+       (<= compact-output-query-evidence-head-boost-min
+           (row-metric-double row :sourceGraphQueryEvidenceBoost))
+       (<= candidate-file-only-query-evidence-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= candidate-file-only-query-evidence-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (or (pos? (positive-metric row :directFileCandidateCount))
+           (pos? (row-metric-double row
+                                    :docSupportedSourceGraphQueryBoost)))))
+
+(defn- compact-output-query-evidence-head-key
+  [row]
+  [(- (row-metric-double row :sourceGraphQueryEvidenceBoost))
+   (- (row-metric-double row :docSupportedSourceGraphQueryBoost))
+   (- (positive-metric row :directFileCandidateCount))
+   (- (positive-metric row :matchedTokenPairCount))
+   (- (positive-metric row :matchedCompoundTokenPairCount))
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-rank-score row))
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-query-evidence-head-rows
+  [files]
+  (->> files
+       (filter compact-output-query-evidence-head-row?)
+       (sort-by compact-output-query-evidence-head-key)
+       (take compact-output-query-evidence-head-limit)
+       (map-indexed (fn [idx row]
+                      (assoc row
+                             ::compact-output-sort-rank
+                             (+ compact-output-query-evidence-head-sort-rank
+                                (* compact-output-query-evidence-head-sort-step
+                                   idx)))))))
+
+(defn- compact-output-direct-doc-architecture-row?
+  [row]
+  (and (<= (long (or (:rank row) Long/MAX_VALUE))
+           compact-output-direct-doc-architecture-rank-window)
+       (pos? (positive-metric row :docCount))
+       (pos? (positive-metric row :candidateFileCount))
+       (pos? (positive-metric row :directFileCandidateCount))
+       (pos? (positive-metric row :retrievedSourceCount))
+       (pos? (row-metric-double row :architectureSupportBoost))
+       (<= compact-output-direct-doc-architecture-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= compact-output-direct-doc-architecture-source-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (or (pos? (positive-metric row :matchedTokenPairCount))
+           (pos? (positive-metric row :matchedCompoundTokenPairCount))
+           (<= compact-output-preserved-doc-head-path-token-min
+               (positive-metric row :matchedPathQueryTokenCount)))))
+
+(defn- compact-output-direct-doc-architecture-key
+  [row]
+  [(- (row-metric-double row :architectureSupportBoost))
+   (- (positive-metric row :matchedTokenPairCount))
+   (- (positive-metric row :matchedTokenCount))
+   (- (row-rank-score row))
+   (:rank row)
+   (:repo-id row)
+   (:path row)])
+
+(defn- compact-output-direct-doc-architecture-row
+  [files selected-keys]
+  (->> files
+       (filter #(and (not (contains? selected-keys (file-row-key %)))
+                     (compact-output-direct-doc-architecture-row? %)))
+       (sort-by compact-output-direct-doc-architecture-key)
+       first
+       (#(when %
+           (assoc % ::compact-output-sort-rank
+                  compact-output-direct-doc-architecture-sort-rank)))))
+
 (defn- compact-output-prune-protected-row?
   [row]
   (or (compact-output-retrieved-label-doc-row? row)
       (compact-output-query-evidence-doc-row? row)
       (compact-output-ranked-doc-head-row? row)
+      (compact-output-query-evidence-head-row? row)
+      (compact-output-direct-doc-architecture-row? row)
       (compact-output-retrieved-path-self-identity-row? row)
       (compact-output-retrieved-path-query-token-row? row)
       (compact-output-candidate-path-self-identity-row? row)
@@ -5434,6 +5534,15 @@
                                     head-selection
                                     (compact-output-ranked-doc-head-rows
                                      files))
+             head-selection (reduce add-compact-output-row
+                                    head-selection
+                                    (compact-output-query-evidence-head-rows
+                                     files))
+             head-selection (add-compact-output-row
+                             head-selection
+                             (compact-output-direct-doc-architecture-row
+                              files
+                              (:keys head-selection)))
              selected (add-compact-output-row
                        head-selection
                        (compact-output-attached-doc-row files
