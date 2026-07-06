@@ -82,8 +82,10 @@ cost or intentionally replacing context artifacts.
 Agent reports also carry generic claim-readiness requirements. A report must
 include at least six benchmark repos, seven declared source-kind groups, and no
 missing declared source-kind coverage runs before it can support broad
-real-world claims; wrapper gates such as `bb bench:claim-quick` add
-suite-specific per-source-kind floors.
+real-world claims. It also needs at least three measured problem-class groups
+and three measured architecture-class groups in non-synthetic replay cases;
+wrapper gates such as `bb bench:claim-quick` add suite-specific
+per-source-kind floors.
 
 Use the docs claim lane when the claim is specifically about documentation
 handling. It is a non-synthetic selector over historical doc edit cases, stores

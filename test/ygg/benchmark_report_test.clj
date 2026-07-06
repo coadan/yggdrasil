@@ -54,41 +54,49 @@
     :repo-id "repo-a"
     :coverage {:source-kinds [:javascript]}
     :tags [:problem-architecture
+           :problem-cross-file
            :architecture-dependency-flow]}
    {:id "arch-deps-2"
     :repo-id "repo-a"
     :coverage {:source-kinds [:javascript]}
     :tags [:problem-architecture
+           :problem-cross-file
            :architecture-dependency-flow]}
    {:id "audit-docs-1"
     :repo-id "repo-b"
     :coverage {:source-kinds [:doc]}
     :tags [:problem-architecture
+           :problem-docs-config-coupling
            :audit-scope-docs]}
    {:id "audit-docs-2"
     :repo-id "repo-b"
     :coverage {:source-kinds [:doc]}
     :tags [:problem-architecture
+           :problem-docs-config-coupling
            :audit-scope-docs]}
    {:id "runtime-python"
     :repo-id "repo-c"
     :coverage {:source-kinds [:python]}
     :tags [:problem-architecture
+           :problem-runtime-config
            :architecture-runtime-boundary]}
    {:id "runtime-dotnet"
     :repo-id "repo-d"
     :coverage {:source-kinds [:dotnet]}
     :tags [:problem-architecture
+           :problem-runtime-config
            :architecture-runtime-boundary]}
    {:id "data-terraform"
     :repo-id "repo-e"
     :coverage {:source-kinds [:terraform]}
     :tags [:problem-architecture
+           :problem-api-contract
            :architecture-data-ownership]}
    {:id "data-sql-text"
     :repo-id "repo-f"
     :coverage {:source-kinds [:sql :text]}
     :tags [:problem-architecture
+           :problem-api-contract
            :architecture-data-ownership]}])
 
 (defn- source-kind-names
@@ -1521,14 +1529,16 @@
               :sourceKindKeys ["doc" "javascript"]
               :minimumReposForBroadClaim 6
               :minimumSourceKindsForBroadClaim 7
+              :minimumMeasuredProblemClassesForBroadClaim 3
+              :minimumMeasuredArchitectureClassesForBroadClaim 3
               :requirements {:completedCases true
                              :hasRuns true
                              :nonSyntheticCases true
                              :repoBreadth false
                              :sourceKindBreadth false
                              :declaredSourceKindCoverage true
-                             :measuredProblemClasses true
-                             :measuredNonSyntheticProblemClasses true
+                             :measuredProblemClasses false
+                             :measuredNonSyntheticProblemClasses false
                              :measuredArchitectureClasses false
                              :measuredNonSyntheticArchitectureClasses false
                              :evidenceCitationMetrics true
@@ -1538,6 +1548,8 @@
                              :benchmarkPreflight true}
               :warnings ["Only 2 benchmark repo(s); broad real-world claims require at least 6."
                          "Only 2 declared source-kind group(s); broad real-world claims require at least 7."
+                         "Only 1 measured problem-class group(s); broad real-world claims require at least 3."
+                         "Only 1 measured non-synthetic problem-class group(s); broad real-world claims require at least 3."
                          "No measured architecture-class groups; architecture tags are present only below the class-claim threshold or absent."
                          "No measured non-synthetic architecture-class groups; broad real-world claims need replay-backed architecture coverage."]}
              (:claimReadiness report))))))
@@ -1618,7 +1630,11 @@
       (is (= true
              (get-in report
                      [:claimReadiness :broadArchitectureClaimSupported])))
-      (is (= ["problem-architecture"]
+      (is (= ["problem-api-contract"
+              "problem-architecture"
+              "problem-cross-file"
+              "problem-docs-config-coupling"
+              "problem-runtime-config"]
              (get-in report [:claimReadiness :measuredProblemClassTags])))
       (is (= ["architecture-data-ownership"
               "architecture-dependency-flow"
@@ -1629,6 +1645,14 @@
       (is (= 7
              (get-in report
                      [:claimReadiness :minimumSourceKindsForBroadClaim])))
+      (is (= 3
+             (get-in report
+                     [:claimReadiness
+                      :minimumMeasuredProblemClassesForBroadClaim])))
+      (is (= 3
+             (get-in report
+                     [:claimReadiness
+                      :minimumMeasuredArchitectureClassesForBroadClaim])))
       (is (= []
              (get-in report [:claimReadiness :warnings]))))))
 
@@ -1816,7 +1840,11 @@
       (is (= ["javascript"]
              (get-in report [:claimReadiness :sourceKindKeys])))
       (is (= ["Only 1 benchmark repo(s); broad real-world claims require at least 6."
-              "Only 1 declared source-kind group(s); broad real-world claims require at least 7."]
+              "Only 1 declared source-kind group(s); broad real-world claims require at least 7."
+              "Only 1 measured problem-class group(s); broad real-world claims require at least 3."
+              "Only 1 measured non-synthetic problem-class group(s); broad real-world claims require at least 3."
+              "Only 2 measured architecture-class group(s); broad real-world claims require at least 3."
+              "Only 2 measured non-synthetic architecture-class group(s); broad real-world claims require at least 3."]
              (get-in report [:claimReadiness :warnings]))))))
 
 (deftest agent-report-claim-readiness-requires-declared-source-kind-coverage

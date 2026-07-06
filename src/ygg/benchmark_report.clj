@@ -38,6 +38,12 @@
 (def ^:private claim-readiness-min-source-kinds
   7)
 
+(def ^:private claim-readiness-min-measured-problem-classes
+  3)
+
+(def ^:private claim-readiness-min-measured-architecture-classes
+  3)
+
 (def ^:private docs-claim-readiness-min-repos
   3)
 
@@ -1321,6 +1327,17 @@
         measured-non-synthetic-architecture-tags (measured-diagnostic-class-tags
                                                   dataset-diagnostics
                                                   :nonSyntheticArchitectureClasses)
+        measured-problem-class-breadth? (<= claim-readiness-min-measured-problem-classes
+                                            (count measured-problem-tags))
+        measured-non-synthetic-problem-class-breadth?
+        (<= claim-readiness-min-measured-problem-classes
+            (count measured-non-synthetic-problem-tags))
+        measured-architecture-class-breadth?
+        (<= claim-readiness-min-measured-architecture-classes
+            (count measured-architecture-tags))
+        measured-non-synthetic-architecture-class-breadth?
+        (<= claim-readiness-min-measured-architecture-classes
+            (count measured-non-synthetic-architecture-tags))
         completed? (report-completed? report)
         has-runs? (report-has-runs? report)
         evidence-metrics? (report-evidence-metrics? report)
@@ -1341,13 +1358,12 @@
                       :repoBreadth repo-breadth?
                       :sourceKindBreadth source-kind-breadth?
                       :declaredSourceKindCoverage declared-source-kind-coverage?
-                      :measuredProblemClasses (boolean (seq measured-problem-tags))
+                      :measuredProblemClasses measured-problem-class-breadth?
                       :measuredNonSyntheticProblemClasses
-                      (boolean (seq measured-non-synthetic-problem-tags))
-                      :measuredArchitectureClasses (boolean
-                                                    (seq measured-architecture-tags))
+                      measured-non-synthetic-problem-class-breadth?
+                      :measuredArchitectureClasses measured-architecture-class-breadth?
                       :measuredNonSyntheticArchitectureClasses
-                      (boolean (seq measured-non-synthetic-architecture-tags))
+                      measured-non-synthetic-architecture-class-breadth?
                       :evidenceCitationMetrics evidence-metrics?
                       :expectedEvidenceCitationMetrics expected-evidence-metrics?
                       :decisionQualityMetrics decision-metrics?
@@ -1362,6 +1378,10 @@
      :sourceKindKeys source-kind-keys
      :minimumReposForBroadClaim claim-readiness-min-repos
      :minimumSourceKindsForBroadClaim claim-readiness-min-source-kinds
+     :minimumMeasuredProblemClassesForBroadClaim
+     claim-readiness-min-measured-problem-classes
+     :minimumMeasuredArchitectureClassesForBroadClaim
+     claim-readiness-min-measured-architecture-classes
      :requirements requirements
      :warnings (cond-> []
                  (not completed?)
@@ -1391,16 +1411,48 @@
                  (empty? measured-problem-tags)
                  (conj "No measured problem-class groups; include enough cases per class before claiming representative gains.")
 
+                 (and (seq measured-problem-tags)
+                      (not measured-problem-class-breadth?))
+                 (conj (str "Only " (count measured-problem-tags)
+                            " measured problem-class group(s); broad real-world claims require at least "
+                            claim-readiness-min-measured-problem-classes
+                            "."))
+
                  (and non-synthetic-cases?
                       (empty? measured-non-synthetic-problem-tags))
                  (conj "No measured non-synthetic problem-class groups; broad real-world claims need replay-backed problem coverage.")
 
+                 (and non-synthetic-cases?
+                      (seq measured-non-synthetic-problem-tags)
+                      (not measured-non-synthetic-problem-class-breadth?))
+                 (conj (str "Only "
+                            (count measured-non-synthetic-problem-tags)
+                            " measured non-synthetic problem-class group(s); broad real-world claims require at least "
+                            claim-readiness-min-measured-problem-classes
+                            "."))
+
                  (empty? measured-architecture-tags)
                  (conj "No measured architecture-class groups; architecture tags are present only below the class-claim threshold or absent.")
+
+                 (and (seq measured-architecture-tags)
+                      (not measured-architecture-class-breadth?))
+                 (conj (str "Only " (count measured-architecture-tags)
+                            " measured architecture-class group(s); broad real-world claims require at least "
+                            claim-readiness-min-measured-architecture-classes
+                            "."))
 
                  (and non-synthetic-cases?
                       (empty? measured-non-synthetic-architecture-tags))
                  (conj "No measured non-synthetic architecture-class groups; broad real-world claims need replay-backed architecture coverage.")
+
+                 (and non-synthetic-cases?
+                      (seq measured-non-synthetic-architecture-tags)
+                      (not measured-non-synthetic-architecture-class-breadth?))
+                 (conj (str "Only "
+                            (count measured-non-synthetic-architecture-tags)
+                            " measured non-synthetic architecture-class group(s); broad real-world claims require at least "
+                            claim-readiness-min-measured-architecture-classes
+                            "."))
 
                  (not evidence-metrics?)
                  (conj "Evidence citation metrics are unavailable; citation quality is unproven.")

@@ -231,7 +231,9 @@ quality is available, expected-evidence citation metrics are present,
 decision-quality metrics are comparable when decision cases are configured, and
 the report remains claim-ready. Report-level claim readiness requires at least
 six benchmark repos, seven declared source-kind groups, and zero missing
-declared source-kind coverage runs; lane wrapper gates may require stricter
+declared source-kind coverage runs. It also requires at least three measured
+problem-class groups and three measured architecture-class groups in
+non-synthetic replay cases; lane wrapper gates may require stricter
 per-source-kind floors. In `--json` output, read
 `compactSummary.verdict` first for the bounded helped/regressed/inconclusive
 answer and `compactSummary.why` for the short reason list. Then inspect
@@ -497,7 +499,8 @@ plugin-fit choice, not just a shorter suspected-file list.
   before the lane is claim-ready for benchmark claims.
   Report-level claim readiness also records `repoIds`, `sourceKindKeys`,
   `minimumReposForBroadClaim`, and `minimumSourceKindsForBroadClaim`; broad
-  reports need at least six repos, seven declared source-kind groups, and no
+  reports need at least six repos, seven declared source-kind groups, three
+  measured problem-class groups, three measured architecture-class groups, and no
   `missingDeclaredSourceKindRuns` before they can support broad real-world
   claims.
   Decision-quality reports include `decisionDiagnostics`, which counts
