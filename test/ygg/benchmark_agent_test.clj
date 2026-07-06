@@ -5247,6 +5247,136 @@
             "migrations/schema-orioledb-17.sql"]
            paths))))
 
+(deftest compact-output-promotes-direct-support-owner-rows-with-shared-signature
+  (let [compact-output @#'benchmark-prediction/compact-output-selected-files
+        row (fn [path rank metrics]
+              {:path path
+               :rank rank
+               :repo-id "fixture"
+               :metrics metrics})
+        shared-signature [["src/core/error.js"]]
+        files [(row "tests/transport/fetch-test.js" 1
+                    {:rankScore 22.0
+                     :candidateFileCount 5
+                     :docCount 1
+                     :entityCount 0
+                     :retrievedSourceCount 1
+                     :matchedTokenCount 11
+                     :matchedTokenPairCount 3
+                     :matchedPathQueryTokenCount 3
+                     :sourceGraphCandidateEvidenceScore 0.38
+                     :candidateGrepScore 0.42
+                     :fileIdentitySupportLabelCount 4
+                     :retrievedSupportLabelCount 5
+                     :candidateSupportLabelSignatures shared-signature})
+               (row "src/core/error.js" 2
+                    {:rankScore 19.5
+                     :candidateFileCount 2
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 8
+                     :matchedTokenPairCount 2
+                     :sourceGraphCandidateEvidenceScore 0.36
+                     :retrievedSupportLabelCount 3
+                     :candidateSupportLabelSignatures [["src/core/headers.js"]]})
+               (row "src/env/data.js" 14
+                    {:rankScore 12.4
+                     :candidateFileCount 1
+                     :docCount 1
+                     :entityCount 0
+                     :retrievedSourceCount 1
+                     :matchedTokenCount 6
+                     :matchedTokenPairCount 2
+                     :matchedPathQueryTokenCount 2
+                     :sourceGraphCandidateEvidenceScore 0.36})
+               (row "tests/smoke/fetch-smoke-test.js" 15
+                    {:rankScore 6.1
+                     :candidateFileCount 1
+                     :docCount 1
+                     :entityCount 0
+                     :retrievedSourceCount 1
+                     :matchedTokenCount 6
+                     :matchedTokenPairCount 1
+                     :matchedPathQueryTokenCount 1
+                     :candidateGrepScore 0.28})
+               (row "tests/cancel/canceled-error-test.js" 16
+                    {:rankScore 3.1
+                     :candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 9
+                     :matchedTokenPairCount 2
+                     :matchedPathQueryTokenCount 2
+                     :sourceGraphCandidateEvidenceScore 0.33
+                     :fileIdentitySupportLabelCount 2
+                     :candidateSupportLabelSignatures [["src/cancel/canceled-error.js"]]})
+               (row "tests/core/client-test.js" 17
+                    {:rankScore 3.0
+                     :candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 5
+                     :matchedTokenPairCount 2
+                     :matchedPathQueryTokenCount 3
+                     :sourceGraphCandidateEvidenceScore 0.33
+                     :fileIdentitySupportLabelCount 3
+                     :candidateSupportLabelSignatures [["src/core/client.js"]]})
+               (row "src/core/headers.js" 18
+                    {:rankScore 6.0
+                     :candidateFileCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 8
+                     :matchedTokenPairCount 2
+                     :matchedPathQueryTokenCount 1
+                     :sourceGraphCandidateEvidenceScore 0.36
+                     :retrievedSupportLabelCount 3})
+               (row "src/transport/http.js" 19
+                    {:rankScore 15.0
+                     :candidateFileCount 7
+                     :directFileCandidateCount 1
+                     :docCount 1
+                     :entityCount 0
+                     :retrievedSourceCount 1
+                     :matchedTokenCount 11
+                     :matchedTokenPairCount 3
+                     :matchedPathQueryTokenCount 2
+                     :sourceGraphCandidateEvidenceScore 0.33
+                     :supportOwnerEvidenceCount 1
+                     :retrievedSupportLabelCount 3
+                     :candidateSupportLabelSignatures shared-signature})
+               (row "src/transport/fetch.js" 20
+                    {:rankScore 12.2
+                     :candidateFileCount 4
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 11
+                     :matchedTokenPairCount 3
+                     :matchedPathQueryTokenCount 1
+                     :sourceGraphCandidateEvidenceScore 0.36
+                     :candidateGrepScore 0.36
+                     :fileIdentitySupportLabelCount 1
+                     :retrievedSupportLabelCount 2
+                     :candidateSupportLabelSignatures shared-signature})
+               (row "tests/transport/http-test.js" 21
+                    {:rankScore 11.4
+                     :candidateFileCount 3
+                     :directFileCandidateCount 1
+                     :docCount 0
+                     :entityCount 0
+                     :matchedTokenCount 11
+                     :matchedTokenPairCount 3
+                     :matchedPathQueryTokenCount 4
+                     :sourceGraphCandidateEvidenceScore 0.33
+                     :supportOwnerEvidenceCount 1
+                     :retrievedSupportLabelCount 4
+                     :candidateSupportLabelSignatures shared-signature})]
+        paths (mapv :path (compact-output files 10 nil))]
+    (is (<= (.indexOf paths "src/transport/http.js") 4))
+    (is (<= (.indexOf paths "tests/transport/http-test.js") 4))
+    (is (< (.indexOf paths "tests/transport/http-test.js")
+           (.indexOf paths "src/env/data.js")))))
+
 (deftest compact-output-anchors-early-source-graph-grep-row
   (let [compact-output @#'benchmark-prediction/compact-output-selected-files
         row (fn [path rank metrics]

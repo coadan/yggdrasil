@@ -3906,12 +3906,23 @@
        (<= compact-output-strong-retrieved-source-boost-min
            (row-metric-double row :repeatedRetrievedSourceBoost))))
 
+(defn- compact-output-direct-support-owner-row?
+  [row]
+  (and (pos? (positive-metric row :directFileCandidateCount))
+       (pos? (positive-metric row :supportOwnerEvidenceCount))
+       (<= candidate-file-only-query-evidence-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= compact-output-support-owner-source-graph-source-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))
+       (<= 2 (positive-metric row :retrievedSupportLabelCount))))
+
 (defn- spread-candidate-support-signature-duplicates
   [rows]
   (let [{:keys [kept deferred]}
         (reduce
          (fn [{:keys [seen] :as acc} row]
            (if-let [k (and (not (prediction-rank-protected? row))
+                           (not (compact-output-direct-support-owner-row? row))
                            (not (compact-output-strong-retrieved-supported-row?
                                  row))
                            (prediction-candidate-support-diversity-key row))]
@@ -5407,6 +5418,8 @@
                                      row)
                                 (compact-output-doc-supported-source-graph-head-sort-rank
                                  row))
+                              (when (compact-output-direct-support-owner-row? row)
+                                compact-output-support-owner-source-graph-sort-rank)
                               (when (compact-output-candidate-source-graph-head-row? row)
                                 compact-output-candidate-source-graph-head-sort-rank)
                               (when (compact-output-retrieved-path-self-identity-row?
