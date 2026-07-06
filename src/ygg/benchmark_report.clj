@@ -33,10 +33,10 @@
   2)
 
 (def ^:private claim-readiness-min-repos
-  2)
+  6)
 
 (def ^:private claim-readiness-min-source-kinds
-  2)
+  7)
 
 (def ^:private docs-claim-readiness-min-repos
   3)

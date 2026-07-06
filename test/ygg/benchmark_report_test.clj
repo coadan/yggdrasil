@@ -5,7 +5,6 @@
             [ygg.benchmark-report :as benchmark-report]
             [ygg.benchmark-test-support :refer [spit-file! spit-json! temp-dir]]
             [ygg.context :as context]
-            [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
 (def passing-benchmark-preflight
@@ -49,6 +48,115 @@
                                              :count 9
                                              :blocking false
                                              :message "Package version conflicts are present in indexed dependency facts."}]}]}))
+
+(def ^:private broad-claim-readiness-cases
+  [{:id "arch-deps-1"
+    :repo-id "repo-a"
+    :coverage {:source-kinds [:javascript]}
+    :tags [:problem-architecture
+           :architecture-dependency-flow]}
+   {:id "arch-deps-2"
+    :repo-id "repo-a"
+    :coverage {:source-kinds [:javascript]}
+    :tags [:problem-architecture
+           :architecture-dependency-flow]}
+   {:id "audit-docs-1"
+    :repo-id "repo-b"
+    :coverage {:source-kinds [:doc]}
+    :tags [:problem-architecture
+           :audit-scope-docs]}
+   {:id "audit-docs-2"
+    :repo-id "repo-b"
+    :coverage {:source-kinds [:doc]}
+    :tags [:problem-architecture
+           :audit-scope-docs]}
+   {:id "runtime-python"
+    :repo-id "repo-c"
+    :coverage {:source-kinds [:python]}
+    :tags [:problem-architecture
+           :architecture-runtime-boundary]}
+   {:id "runtime-dotnet"
+    :repo-id "repo-d"
+    :coverage {:source-kinds [:dotnet]}
+    :tags [:problem-architecture
+           :architecture-runtime-boundary]}
+   {:id "data-terraform"
+    :repo-id "repo-e"
+    :coverage {:source-kinds [:terraform]}
+    :tags [:problem-architecture
+           :architecture-data-ownership]}
+   {:id "data-sql-text"
+    :repo-id "repo-f"
+    :coverage {:source-kinds [:sql :text]}
+    :tags [:problem-architecture
+           :architecture-data-ownership]}])
+
+(defn- source-kind-names
+  [case]
+  (mapv name (get-in case [:coverage :source-kinds])))
+
+(defn- score-coverage
+  [case]
+  (let [source-kinds (source-kind-names case)]
+    {:declaredSourceKinds source-kinds
+     :scoreableSourceKinds source-kinds
+     :scoreableFilesByKind (mapv (fn [source-kind]
+                                   {:kind source-kind
+                                    :files 1})
+                                 source-kinds)
+     :missingDeclaredSourceKinds []}))
+
+(defn- broad-claim-score-map
+  [recall expected-evidence?]
+  (cond-> {:fileRecallAt5 recall
+           :fileRecallAt10 recall
+           :fileRecallAt20 recall
+           :meanReciprocalRankFile recall
+           :noiseRatioAt20 (- 1.0 recall)
+           :evidenceCitationRate 1.0
+           :pathEvidenceCitationRate 1.0
+           :changedFiles 1
+           :scoreableChangedFiles 1
+           :unsupportedGroundTruthFiles 0}
+    expected-evidence?
+    (assoc :expectedEvidenceCitationRate 1.0
+           :expectedEvidenceCitations 1
+           :expectedEvidenceCitationTargets 1)))
+
+(defn- write-broad-claim-score!
+  ([out case]
+   (write-broad-claim-score! out case {}))
+  ([out case {:keys [benchmark-preflight coverage expected-evidence? recall]
+              :or {benchmark-preflight passing-benchmark-preflight
+                   expected-evidence? true
+                   recall 1.0}}]
+   (let [case-id (:id case)
+         coverage (or coverage (score-coverage case))]
+     (spit-json!
+      out
+      (str "suite/cases/" case-id "/agent-scores/run.score.json")
+      {:schema benchmark/agent-score-schema
+       :suite-id "suite"
+       :case-id case-id
+       :repo-id (:repo-id case)
+       :tags (mapv name (:tags case))
+       :coverage coverage
+       :benchmarkPreflight benchmark-preflight
+       :expectations {:evidence [{:kind "architecture-reference"
+                                  :path (str case-id ".clj")}]}
+       :agent {:agentId "codex"
+               :mode "ygg"
+               :topFiles [{:path (str case-id ".clj")
+                           :rank 1
+                           :evidence ["architecture-evidence"]}]
+               :commands ["bb query architecture --project fixture"]}
+       :groundTruth {:changedFiles [(str case-id ".clj")]
+                     :scoreableFiles [(str case-id ".clj")]
+                     :unsupportedGroundTruthFiles []}
+       :groundTruthRanks {:files [{:path (str case-id ".clj")
+                                   :rank 1
+                                   :found? true}]}
+       :scores (broad-claim-score-map recall expected-evidence?)}))))
 
 (deftest packet-evidence-only-results-are-not-commandless
   (let [top-files [{:path "src/app.clj"
@@ -1411,13 +1519,13 @@
               :measuredArchitectureClassTags []
               :repoIds ["repo-a" "repo-b"]
               :sourceKindKeys ["doc" "javascript"]
-              :minimumReposForBroadClaim 2
-              :minimumSourceKindsForBroadClaim 2
+              :minimumReposForBroadClaim 6
+              :minimumSourceKindsForBroadClaim 7
               :requirements {:completedCases true
                              :hasRuns true
                              :nonSyntheticCases true
-                             :repoBreadth true
-                             :sourceKindBreadth true
+                             :repoBreadth false
+                             :sourceKindBreadth false
                              :declaredSourceKindCoverage true
                              :measuredProblemClasses true
                              :measuredNonSyntheticProblemClasses true
@@ -1428,80 +1536,21 @@
                              :decisionQualityMetrics true
                              :commandTelemetry true
                              :benchmarkPreflight true}
-              :warnings ["No measured architecture-class groups; architecture tags are present only below the class-claim threshold or absent."
+              :warnings ["Only 2 benchmark repo(s); broad real-world claims require at least 6."
+                         "Only 2 declared source-kind group(s); broad real-world claims require at least 7."
+                         "No measured architecture-class groups; architecture tags are present only below the class-claim threshold or absent."
                          "No measured non-synthetic architecture-class groups; broad real-world claims need replay-backed architecture coverage."]}
              (:claimReadiness report))))))
 (deftest agent-report-claim-readiness-requires-measured-non-synthetic-classes
   (let [out (temp-dir "ygg-agent-report-mixed-synthetic-readiness")
         suite {:id "suite"
-               :cases [{:id "synthetic-arch-deps-1"
-                        :repo-id "repo-a"
-                        :coverage {:source-kinds [:javascript]}
-                        :tags [:synthetic
-                               :problem-architecture
-                               :architecture-dependency-flow]}
-                       {:id "synthetic-arch-deps-2"
-                        :repo-id "repo-a"
-                        :coverage {:source-kinds [:javascript]}
-                        :tags [:synthetic
-                               :problem-architecture
-                               :architecture-dependency-flow]}
-                       {:id "synthetic-audit-docs-1"
-                        :repo-id "repo-b"
-                        :coverage {:source-kinds [:doc]}
-                        :tags [:synthetic
-                               :problem-architecture
-                               :audit-scope-docs]}
-                       {:id "synthetic-audit-docs-2"
-                        :repo-id "repo-b"
-                        :coverage {:source-kinds [:doc]}
-                        :tags [:synthetic
-                               :problem-architecture
-                               :audit-scope-docs]}
-                       {:id "replay-runtime-1"
-                        :repo-id "repo-b"
-                        :coverage {:source-kinds [:python]}
-                        :tags [:problem-runtime-config
-                               :architecture-runtime-boundary]}]}
-        write-score! (fn [case-id tags]
-                       (spit-json!
-                        out
-                        (str "suite/cases/" case-id "/agent-scores/run.score.json")
-                        {:schema benchmark/agent-score-schema
-                         :suite-id "suite"
-                         :case-id case-id
-                         :repo-id "repo"
-                         :tags tags
-                         :benchmarkPreflight passing-benchmark-preflight
-                         :expectations {:evidence [{:kind "architecture-reference"
-                                                    :path (str case-id ".clj")}]}
-                         :agent {:agentId "codex"
-                                 :mode "ygg"
-                                 :topFiles [{:path (str case-id ".clj")
-                                             :rank 1
-                                             :evidence [(str case-id ".clj")]}]
-                                 :commands ["bb query architecture --project fixture"]}
-                         :groundTruth {:changedFiles [(str case-id ".clj")]
-                                       :scoreableFiles [(str case-id ".clj")]
-                                       :unsupportedGroundTruthFiles []}
-                         :groundTruthRanks {:files [{:path (str case-id ".clj")
-                                                     :rank 1
-                                                     :found? true}]}
-                         :scores {:fileRecallAt5 1.0
-                                  :fileRecallAt10 1.0
-                                  :fileRecallAt20 1.0
-                                  :meanReciprocalRankFile 1.0
-                                  :noiseRatioAt20 0.0
-                                  :evidenceCitationRate 1.0
-                                  :pathEvidenceCitationRate 1.0
-                                  :expectedEvidenceCitationRate 1.0
-                                  :expectedEvidenceCitations 1
-                                  :expectedEvidenceCitationTargets 1
-                                  :changedFiles 1
-                                  :scoreableChangedFiles 1
-                                  :unsupportedGroundTruthFiles 0}}))]
+               :cases (mapv (fn [case]
+                              (if (= "arch-deps-1" (:id case))
+                                case
+                                (update case :tags into [:synthetic])))
+                            broad-claim-readiness-cases)}]
     (doseq [case (:cases suite)]
-      (write-score! (:id case) (mapv name (:tags case))))
+      (write-broad-claim-score! out case))
     (let [report (benchmark/report-agent-suite suite {:out out
                                                       :allow-unverified-scores? true})]
       (is (= "not-supported" (get-in report [:claimReadiness :status])))
@@ -1534,69 +1583,10 @@
 (deftest agent-report-claim-readiness-requires-non-synthetic-cases
   (let [out (temp-dir "ygg-agent-report-synthetic-only-readiness")
         suite {:id "suite"
-               :cases [{:id "arch-deps-1"
-                        :repo-id "repo-a"
-                        :coverage {:source-kinds [:javascript]}
-                        :tags [:synthetic
-                               :problem-architecture
-                               :architecture-dependency-flow]}
-                       {:id "arch-deps-2"
-                        :repo-id "repo-a"
-                        :coverage {:source-kinds [:javascript]}
-                        :tags [:synthetic
-                               :problem-architecture
-                               :architecture-dependency-flow]}
-                       {:id "audit-docs-1"
-                        :repo-id "repo-b"
-                        :coverage {:source-kinds [:doc]}
-                        :tags [:synthetic
-                               :problem-architecture
-                               :audit-scope-docs]}
-                       {:id "audit-docs-2"
-                        :repo-id "repo-b"
-                        :coverage {:source-kinds [:doc]}
-                        :tags [:synthetic
-                               :problem-architecture
-                               :audit-scope-docs]}]}
-        write-score! (fn [case-id tags]
-                       (spit-json!
-                        out
-                        (str "suite/cases/" case-id "/agent-scores/run.score.json")
-                        {:schema benchmark/agent-score-schema
-                         :suite-id "suite"
-                         :case-id case-id
-                         :repo-id "repo"
-                         :tags tags
-                         :benchmarkPreflight passing-benchmark-preflight
-                         :expectations {:evidence [{:kind "architecture-reference"
-                                                    :path (str case-id ".clj")}]}
-                         :agent {:agentId "codex"
-                                 :mode "ygg"
-                                 :topFiles [{:path (str case-id ".clj")
-                                             :rank 1
-                                             :evidence [(str case-id ".clj")]}]
-                                 :commands ["bb query architecture --project fixture"]}
-                         :groundTruth {:changedFiles [(str case-id ".clj")]
-                                       :scoreableFiles [(str case-id ".clj")]
-                                       :unsupportedGroundTruthFiles []}
-                         :groundTruthRanks {:files [{:path (str case-id ".clj")
-                                                     :rank 1
-                                                     :found? true}]}
-                         :scores {:fileRecallAt5 1.0
-                                  :fileRecallAt10 1.0
-                                  :fileRecallAt20 1.0
-                                  :meanReciprocalRankFile 1.0
-                                  :noiseRatioAt20 0.0
-                                  :evidenceCitationRate 1.0
-                                  :pathEvidenceCitationRate 1.0
-                                  :expectedEvidenceCitationRate 1.0
-                                  :expectedEvidenceCitations 1
-                                  :expectedEvidenceCitationTargets 1
-                                  :changedFiles 1
-                                  :scoreableChangedFiles 1
-                                  :unsupportedGroundTruthFiles 0}}))]
+               :cases (mapv #(update % :tags into [:synthetic])
+                            broad-claim-readiness-cases)}]
     (doseq [case (:cases suite)]
-      (write-score! (:id case) (mapv name (:tags case))))
+      (write-broad-claim-score! out case))
     (let [report (benchmark/report-agent-suite suite {:out out
                                                       :allow-unverified-scores? true})]
       (is (= "not-supported" (get-in report [:claimReadiness :status])))
@@ -1614,75 +1604,14 @@
 (deftest agent-report-claim-readiness-recognizes-measured-architecture-coverage
   (let [out (temp-dir "ygg-agent-report-claim-readiness")
         suite {:id "suite"
-               :cases [{:id "arch-deps-1"
-                        :repo-id "repo-a"
-                        :coverage {:source-kinds [:javascript]}
-                        :tags [:problem-architecture
-                               :architecture-dependency-flow]}
-                       {:id "arch-deps-2"
-                        :repo-id "repo-a"
-                        :coverage {:source-kinds [:javascript]}
-                        :tags [:problem-architecture
-                               :architecture-dependency-flow]}
-                       {:id "audit-docs-1"
-                        :repo-id "repo-b"
-                        :coverage {:source-kinds [:doc]}
-                        :tags [:problem-architecture
-                               :audit-scope-docs]}
-                       {:id "audit-docs-2"
-                        :repo-id "repo-b"
-                        :coverage {:source-kinds [:doc]}
-                        :tags [:problem-architecture
-                               :audit-scope-docs]}]}
-        write-score! (fn [case-id tags recall]
-                       (spit-json!
-                        out
-                        (str "suite/cases/" case-id "/agent-scores/run.score.json")
-                        {:schema benchmark/agent-score-schema
-                         :suite-id "suite"
-                         :case-id case-id
-                         :repo-id "repo"
-                         :tags tags
-                         :benchmarkPreflight passing-benchmark-preflight
-                         :expectations {:evidence [{:kind "architecture-reference"
-                                                    :path (str case-id ".clj")}]}
-                         :agent {:agentId "codex"
-                                 :mode "ygg"
-                                 :topFiles [{:path (str case-id ".clj")
-                                             :rank 1
-                                             :evidence ["architecture-evidence"]}]
-                                 :commands ["bb query architecture --project fixture"]}
-                         :groundTruth {:changedFiles [(str case-id ".clj")]
-                                       :scoreableFiles [(str case-id ".clj")]
-                                       :unsupportedGroundTruthFiles []}
-                         :groundTruthRanks {:files [{:path (str case-id ".clj")
-                                                     :rank 1
-                                                     :found? true}]}
-                         :scores {:fileRecallAt5 recall
-                                  :fileRecallAt10 recall
-                                  :fileRecallAt20 recall
-                                  :meanReciprocalRankFile recall
-                                  :noiseRatioAt20 (- 1.0 recall)
-                                  :evidenceCitationRate 1.0
-                                  :pathEvidenceCitationRate 1.0
-                                  :expectedEvidenceCitationRate 1.0
-                                  :expectedEvidenceCitations 1
-                                  :expectedEvidenceCitationTargets 1
-                                  :changedFiles 1
-                                  :scoreableChangedFiles 1
-                                  :unsupportedGroundTruthFiles 0}}))]
-    (write-score! "arch-deps-1"
-                  ["problem-architecture" "architecture-dependency-flow"]
-                  1.0)
-    (write-score! "arch-deps-2"
-                  ["problem-architecture" "architecture-dependency-flow"]
-                  0.75)
-    (write-score! "audit-docs-1"
-                  ["problem-architecture" "audit-scope-docs"]
-                  1.0)
-    (write-score! "audit-docs-2"
-                  ["problem-architecture" "audit-scope-docs"]
-                  0.75)
+               :cases broad-claim-readiness-cases}]
+    (doseq [case (:cases suite)]
+      (write-broad-claim-score! out
+                                case
+                                {:recall (if (#{"arch-deps-2" "audit-docs-2"}
+                                              (:id case))
+                                           0.75
+                                           1.0)}))
     (let [report (benchmark/report-agent-suite suite {:out out
                                                       :allow-unverified-scores? true})]
       (is (= "supported" (get-in report [:claimReadiness :status])))
@@ -1691,8 +1620,15 @@
                      [:claimReadiness :broadArchitectureClaimSupported])))
       (is (= ["problem-architecture"]
              (get-in report [:claimReadiness :measuredProblemClassTags])))
-      (is (= ["architecture-dependency-flow" "audit-scope-docs"]
+      (is (= ["architecture-data-ownership"
+              "architecture-dependency-flow"
+              "architecture-runtime-boundary"
+              "audit-scope-docs"]
              (get-in report [:claimReadiness :measuredArchitectureClassTags])))
+      (is (= 6 (get-in report [:claimReadiness :minimumReposForBroadClaim])))
+      (is (= 7
+             (get-in report
+                     [:claimReadiness :minimumSourceKindsForBroadClaim])))
       (is (= []
              (get-in report [:claimReadiness :warnings]))))))
 
@@ -1879,95 +1815,22 @@
              (get-in report [:claimReadiness :repoIds])))
       (is (= ["javascript"]
              (get-in report [:claimReadiness :sourceKindKeys])))
-      (is (= ["Only 1 benchmark repo(s); broad real-world claims require at least 2."
-              "Only 1 declared source-kind group(s); broad real-world claims require at least 2."]
+      (is (= ["Only 1 benchmark repo(s); broad real-world claims require at least 6."
+              "Only 1 declared source-kind group(s); broad real-world claims require at least 7."]
              (get-in report [:claimReadiness :warnings]))))))
 
 (deftest agent-report-claim-readiness-requires-declared-source-kind-coverage
   (let [out (temp-dir "ygg-agent-report-claim-readiness-source-kind-coverage")
         suite {:id "suite"
-               :cases [{:id "arch-deps-1"
-                        :repo-id "repo-a"
-                        :coverage {:source-kinds [:javascript]}
-                        :tags [:problem-architecture
-                               :architecture-dependency-flow]}
-                       {:id "arch-deps-2"
-                        :repo-id "repo-a"
-                        :coverage {:source-kinds [:javascript]}
-                        :tags [:problem-architecture
-                               :architecture-dependency-flow]}
-                       {:id "audit-docs-1"
-                        :repo-id "repo-b"
-                        :coverage {:source-kinds [:doc]}
-                        :tags [:problem-architecture
-                               :audit-scope-docs]}
-                       {:id "audit-docs-2"
-                        :repo-id "repo-b"
-                        :coverage {:source-kinds [:doc]}
-                        :tags [:problem-architecture
-                               :audit-scope-docs]}]}
-        write-score! (fn [case-id tags coverage]
-                       (spit-json!
-                        out
-                        (str "suite/cases/" case-id "/agent-scores/run.score.json")
-                        {:schema benchmark/agent-score-schema
-                         :suite-id "suite"
-                         :case-id case-id
-                         :repo-id (if (str/starts-with? case-id "arch-")
-                                    "repo-a"
-                                    "repo-b")
-                         :tags tags
-                         :coverage coverage
-                         :benchmarkPreflight passing-benchmark-preflight
-                         :expectations {:evidence [{:kind "architecture-reference"
-                                                    :path (str case-id ".clj")}]}
-                         :agent {:agentId "codex"
-                                 :mode "ygg"
-                                 :topFiles [{:path (str case-id ".clj")
-                                             :rank 1
-                                             :evidence ["architecture-evidence"]}]
-                                 :commands ["bb query architecture --project fixture"]}
-                         :groundTruth {:changedFiles [(str case-id ".clj")]
-                                       :scoreableFiles [(str case-id ".clj")]
-                                       :unsupportedGroundTruthFiles []}
-                         :groundTruthRanks {:files [{:path (str case-id ".clj")
-                                                     :rank 1
-                                                     :found? true}]}
-                         :scores {:fileRecallAt5 1.0
-                                  :fileRecallAt10 1.0
-                                  :fileRecallAt20 1.0
-                                  :meanReciprocalRankFile 1.0
-                                  :noiseRatioAt20 0.0
-                                  :evidenceCitationRate 1.0
-                                  :pathEvidenceCitationRate 1.0
-                                  :expectedEvidenceCitationRate 1.0
-                                  :expectedEvidenceCitations 1
-                                  :expectedEvidenceCitationTargets 1
-                                  :changedFiles 1
-                                  :scoreableChangedFiles 1
-                                  :unsupportedGroundTruthFiles 0}}))]
-    (write-score! "arch-deps-1"
-                  ["problem-architecture" "architecture-dependency-flow"]
-                  {:declaredSourceKinds ["javascript"]
-                   :scoreableSourceKinds ["javascript"]
-                   :scoreableFilesByKind [{:kind "javascript"
-                                           :files 1}]})
-    (write-score! "arch-deps-2"
-                  ["problem-architecture" "architecture-dependency-flow"]
-                  {:declaredSourceKinds ["javascript"]
-                   :scoreableSourceKinds ["javascript"]
-                   :scoreableFilesByKind [{:kind "javascript"
-                                           :files 1}]})
-    (write-score! "audit-docs-1"
-                  ["problem-architecture" "audit-scope-docs"]
-                  {:declaredSourceKinds ["doc"]
-                   :missingDeclaredSourceKinds ["doc"]})
-    (write-score! "audit-docs-2"
-                  ["problem-architecture" "audit-scope-docs"]
-                  {:declaredSourceKinds ["doc"]
-                   :scoreableSourceKinds ["doc"]
-                   :scoreableFilesByKind [{:kind "doc"
-                                           :files 1}]})
+               :cases broad-claim-readiness-cases}]
+    (doseq [case (:cases suite)]
+      (write-broad-claim-score!
+       out
+       case
+       (if (= "audit-docs-1" (:id case))
+         {:coverage {:declaredSourceKinds ["doc"]
+                     :missingDeclaredSourceKinds ["doc"]}}
+         {})))
     (let [report (benchmark/report-agent-suite suite {:out out
                                                       :allow-unverified-scores? true})]
       (is (= "not-supported" (get-in report [:claimReadiness :status])))
@@ -1984,7 +1847,7 @@
       (is (= true
              (get-in report
                      [:claimReadiness :requirements :sourceKindBreadth])))
-      (is (= {:runs 4
+      (is (= {:runs 8
               :missingDeclaredSourceKindRuns 1
               :missingDeclaredSourceKindCaseIds ["audit-docs-1"]
               :missingDeclaredSourceKinds [{:kind "doc"
@@ -2004,75 +1867,14 @@
 (deftest agent-report-claim-readiness-requires-benchmark-preflight
   (let [out (temp-dir "ygg-agent-report-benchmark-preflight")
         suite {:id "suite"
-               :cases [{:id "arch-deps-1"
-                        :repo-id "repo-a"
-                        :coverage {:source-kinds [:javascript]}
-                        :tags [:problem-architecture
-                               :architecture-dependency-flow]}
-                       {:id "arch-deps-2"
-                        :repo-id "repo-a"
-                        :coverage {:source-kinds [:javascript]}
-                        :tags [:problem-architecture
-                               :architecture-dependency-flow]}
-                       {:id "audit-docs-1"
-                        :repo-id "repo-b"
-                        :coverage {:source-kinds [:doc]}
-                        :tags [:problem-architecture
-                               :audit-scope-docs]}
-                       {:id "audit-docs-2"
-                        :repo-id "repo-b"
-                        :coverage {:source-kinds [:doc]}
-                        :tags [:problem-architecture
-                               :audit-scope-docs]}]}
-        write-score! (fn [case-id tags benchmark-preflight]
-                       (spit-json!
-                        out
-                        (str "suite/cases/" case-id "/agent-scores/run.score.json")
-                        {:schema benchmark/agent-score-schema
-                         :suite-id "suite"
-                         :case-id case-id
-                         :repo-id "repo"
-                         :tags tags
-                         :benchmarkPreflight benchmark-preflight
-                         :expectations {:evidence [{:kind "architecture-reference"
-                                                    :path (str case-id ".clj")}]}
-                         :agent {:agentId "codex"
-                                 :mode "ygg"
-                                 :topFiles [{:path (str case-id ".clj")
-                                             :rank 1
-                                             :evidence ["architecture-evidence"]}]
-                                 :commands ["bb query architecture --project fixture"]}
-                         :groundTruth {:changedFiles [(str case-id ".clj")]
-                                       :scoreableFiles [(str case-id ".clj")]
-                                       :unsupportedGroundTruthFiles []}
-                         :groundTruthRanks {:files [{:path (str case-id ".clj")
-                                                     :rank 1
-                                                     :found? true}]}
-                         :scores {:fileRecallAt5 1.0
-                                  :fileRecallAt10 1.0
-                                  :fileRecallAt20 1.0
-                                  :meanReciprocalRankFile 1.0
-                                  :noiseRatioAt20 0.0
-                                  :evidenceCitationRate 1.0
-                                  :pathEvidenceCitationRate 1.0
-                                  :expectedEvidenceCitationRate 1.0
-                                  :expectedEvidenceCitations 1
-                                  :expectedEvidenceCitationTargets 1
-                                  :changedFiles 1
-                                  :scoreableChangedFiles 1
-                                  :unsupportedGroundTruthFiles 0}}))]
-    (write-score! "arch-deps-1"
-                  ["problem-architecture" "architecture-dependency-flow"]
-                  failing-sync-benchmark-preflight)
-    (write-score! "arch-deps-2"
-                  ["problem-architecture" "architecture-dependency-flow"]
-                  passing-benchmark-preflight)
-    (write-score! "audit-docs-1"
-                  ["problem-architecture" "audit-scope-docs"]
-                  passing-benchmark-preflight)
-    (write-score! "audit-docs-2"
-                  ["problem-architecture" "audit-scope-docs"]
-                  passing-benchmark-preflight)
+               :cases broad-claim-readiness-cases}]
+    (doseq [case (:cases suite)]
+      (write-broad-claim-score!
+       out
+       case
+       {:benchmark-preflight (if (= "arch-deps-1" (:id case))
+                               failing-sync-benchmark-preflight
+                               passing-benchmark-preflight)}))
     (let [report (benchmark/report-agent-suite suite {:out out
                                                       :allow-unverified-scores? true})]
       (is (= "not-supported" (get-in report [:claimReadiness :status])))
@@ -2107,68 +1909,9 @@
 (deftest agent-report-claim-readiness-requires-scored-expected-evidence
   (let [out (temp-dir "ygg-agent-report-expected-evidence-readiness")
         suite {:id "suite"
-               :cases [{:id "arch-deps-1"
-                        :repo-id "repo-a"
-                        :coverage {:source-kinds [:javascript]}
-                        :tags [:problem-architecture
-                               :architecture-dependency-flow]}
-                       {:id "arch-deps-2"
-                        :repo-id "repo-a"
-                        :coverage {:source-kinds [:javascript]}
-                        :tags [:problem-architecture
-                               :architecture-dependency-flow]}
-                       {:id "audit-docs-1"
-                        :repo-id "repo-b"
-                        :coverage {:source-kinds [:doc]}
-                        :tags [:problem-architecture
-                               :audit-scope-docs]}
-                       {:id "audit-docs-2"
-                        :repo-id "repo-b"
-                        :coverage {:source-kinds [:doc]}
-                        :tags [:problem-architecture
-                               :audit-scope-docs]}]}
-        write-score! (fn [case-id tags]
-                       (spit-json!
-                        out
-                        (str "suite/cases/" case-id "/agent-scores/run.score.json")
-                        {:schema benchmark/agent-score-schema
-                         :suite-id "suite"
-                         :case-id case-id
-                         :repo-id "repo"
-                         :tags tags
-                         :benchmarkPreflight passing-benchmark-preflight
-                         :expectations {:evidence [{:kind "architecture-reference"
-                                                    :path (str case-id ".clj")}]}
-                         :agent {:agentId "codex"
-                                 :mode "ygg"
-                                 :topFiles [{:path (str case-id ".clj")
-                                             :rank 1
-                                             :evidence ["architecture-evidence"]}]
-                                 :commands ["bb query architecture --project fixture"]}
-                         :groundTruth {:changedFiles [(str case-id ".clj")]
-                                       :scoreableFiles [(str case-id ".clj")]
-                                       :unsupportedGroundTruthFiles []}
-                         :groundTruthRanks {:files [{:path (str case-id ".clj")
-                                                     :rank 1
-                                                     :found? true}]}
-                         :scores {:fileRecallAt5 1.0
-                                  :fileRecallAt10 1.0
-                                  :fileRecallAt20 1.0
-                                  :meanReciprocalRankFile 1.0
-                                  :noiseRatioAt20 0.0
-                                  :evidenceCitationRate 1.0
-                                  :pathEvidenceCitationRate 1.0
-                                  :changedFiles 1
-                                  :scoreableChangedFiles 1
-                                  :unsupportedGroundTruthFiles 0}}))]
-    (write-score! "arch-deps-1"
-                  ["problem-architecture" "architecture-dependency-flow"])
-    (write-score! "arch-deps-2"
-                  ["problem-architecture" "architecture-dependency-flow"])
-    (write-score! "audit-docs-1"
-                  ["problem-architecture" "audit-scope-docs"])
-    (write-score! "audit-docs-2"
-                  ["problem-architecture" "audit-scope-docs"])
+               :cases broad-claim-readiness-cases}]
+    (doseq [case (:cases suite)]
+      (write-broad-claim-score! out case {:expected-evidence? false}))
     (let [report (benchmark/report-agent-suite suite {:out out
                                                       :allow-unverified-scores? true})]
       (is (= "not-supported" (get-in report [:claimReadiness :status])))
@@ -2181,11 +1924,15 @@
              (get-in report [:claimReadiness :warnings])))
       (is (= {:kind "expected-evidence-citation-metric-gaps"
               :area "benchmark-hygiene"
-              :runs 4
+              :runs 8
               :caseIds ["arch-deps-1"
                         "arch-deps-2"
                         "audit-docs-1"
-                        "audit-docs-2"]
+                        "audit-docs-2"
+                        "data-sql-text"
+                        "data-terraform"
+                        "runtime-dotnet"
+                        "runtime-python"]
               :message "Benchmark cases declared expected evidence without scored expected-evidence citation metrics."}
              (->> (:improvementSummary report)
                   (filter #(= "expected-evidence-citation-metric-gaps"
