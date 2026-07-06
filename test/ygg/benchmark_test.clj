@@ -715,6 +715,7 @@
         claim-quick-repo-ids (set (map :id (:repos claim-quick)))
         docs-claim-repo-ids (set (map :id (:repos docs-claim)))
         full-repo-ids (set (map :id (:repos full)))
+        claim-quick-case-by-id (into {} (map (juxt :id identity)) (:cases claim-quick))
         claim-quick-source-kinds (set (mapcat #(get-in % [:coverage :source-kinds])
                                               (:cases claim-quick)))
         claim-quick-source-kind-counts (frequencies
@@ -793,14 +794,26 @@
     (is (= 6 (count claim-quick-repo-ids)))
     (is (= #{"axios" "bootstrap" "flask"}
            docs-claim-repo-ids))
-    (is (= #{:javascript :dotnet :terraform :python :doc :sql}
+    (is (= ["Dapper/SqlMapper.Settings.cs"
+            "Dapper/SqlMapper.cs"]
+           (get-in claim-quick-case-by-id
+                   ["historical-dapper-prefer-enum-type-handlers"
+                    :ground-truth
+                    :localization-files])))
+    (is (= #{:sql :text}
+           (set (get-in claim-quick-case-by-id
+                        ["historical-supabase-event-trigger-schema-regression"
+                         :coverage
+                         :source-kinds]))))
+    (is (= #{:javascript :dotnet :terraform :python :doc :sql :text}
            claim-quick-source-kinds))
     (is (= {:javascript 2
             :dotnet 1
             :terraform 1
             :python 2
             :doc 2
-            :sql 1}
+            :sql 1
+            :text 1}
            claim-quick-source-kind-counts))
     (is (= #{:doc} docs-claim-source-kinds))
     (is (<= 2 (get claim-quick-tags "problem-docs-config-coupling" 0)))
@@ -1332,8 +1345,7 @@
           (is (= [{:path "docs/release.md"
                    :kind "doc"}]
                  (get-in prepared [:groundTruth :coverageExcludedFiles])))
-          (is (= [{:path "src/new.clj"
-                   :reason "missing-at-base"}]
+          (is (= []
                  (get-in prepared [:groundTruth :unsupportedGroundTruthFiles])))
           (is (= {:hinted true
                   :mentionedChangedFiles ["src/app.clj"]

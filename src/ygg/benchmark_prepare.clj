@@ -550,8 +550,9 @@
         agent-input-fingerprint (agent-input-fingerprint suite case)
         repo (first repos)
         primary-worktree-root (get worktree-roots (:repo-id repo))
-        unsupported (unsupported-ground-truth-files worktree-roots
-                                                    (:changedFiles truth))
+        unsupported (unsupported-ground-truth-files
+                     worktree-roots
+                     (benchmark-score/target-ground-truth-files truth))
         truth (assoc truth :unsupportedGroundTruthFiles unsupported)
         coverage-filter (coverage-filtered-ground-truth case worktree-roots truth)
         truth (merge truth coverage-filter)]
