@@ -1356,6 +1356,8 @@
                      :commandlessCaseIds ["case-2"]
                      :warningRuns 1
                      :warningCaseIds ["case-3"]}
+        localization-diagnostics {:foundOutsideTop5Runs 1
+                                  :foundOutsideTop5CaseIds ["case-4"]}
         report-out (with-out-str
                      (cli-bench/print-benchmark-summary
                       {:schema benchmark/agent-report-schema
@@ -1366,7 +1368,8 @@
                        :scores {:fileRecallAt10 0.5
                                 :meanReciprocalRankFile 0.25
                                 :evidenceCitationRate 0.75}
-                       :agentDiagnostics diagnostics}))
+                       :agentDiagnostics diagnostics
+                       :localizationDiagnostics localization-diagnostics}))
         check-out (with-out-str
                     (cli-bench/print-benchmark-summary
                      {:schema benchmark/agent-check-schema
@@ -1406,7 +1409,8 @@
                                          :slowestCases [{:case-id "case-2"
                                                          :status "completed"
                                                          :elapsedMs 7000}]}
-                               :agentDiagnostics diagnostics}
+                               :agentDiagnostics diagnostics
+                               :localizationDiagnostics localization-diagnostics}
                       :timings {:elapsedMs 12000
                                 :warmElapsedMs 3000
                                 :amortizedSetupElapsedMs 9000
@@ -1438,7 +1442,8 @@
     (doseq [out [report-out check-out]]
       (is (str/includes? out "- missing-predicted-file-runs 1 files 2 cases case-1"))
       (is (str/includes? out "- commandless-runs 1 cases case-2"))
-      (is (str/includes? out "- warning-runs 1 cases case-3")))
+      (is (str/includes? out "- warning-runs 1 cases case-3"))
+      (is (str/includes? out "- found-outside-top5 1 cases case-4")))
     (is (str/includes? check-out "- timing-ms 12000 warm 3000 amortized-setup 9000 agent-ready 250 running 0 failed 0"))
     (is (str/includes? check-out "- stage-class-timing graph-setup elapsed 8000 ms"))
     (is (str/includes? check-out "- stage-class-timing embedding elapsed 6000 ms"))

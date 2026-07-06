@@ -625,6 +625,14 @@
        (doseq [warning (:warnings readiness)]
          (println "-" warning))))))
 
+(defn- print-localization-diagnostic-summary
+  [localization]
+  (when (pos? (long (:foundOutsideTop5Runs localization 0)))
+    (println "- found-outside-top5"
+             (:foundOutsideTop5Runs localization)
+             "cases"
+             (str/join "," (:foundOutsideTop5CaseIds localization)))))
+
 (defn- timing-stage-class-rows
   [timings]
   (or (seq (:stageClassElapsedMs timings))
@@ -743,6 +751,7 @@
       (print-benchmark-preflight-summary (:benchmarkPreflightDiagnostics result))
       (print-claim-readiness (:claimReadiness result))
       (print-docs-claim-readiness (:docsClaimReadiness result))
+      (print-localization-diagnostic-summary (:localizationDiagnostics result))
       (when-let [blocker (first (get-in result
                                         [:localizationDiagnostics
                                          :rankedOutsideTop5BlockingFiles]))]
@@ -846,6 +855,8 @@
                (format "%.2f" (double (get-in result
                                               [:report :scores :noiseRatioAt20]
                                               0.0))))
+      (print-localization-diagnostic-summary
+       (get-in result [:report :localizationDiagnostics]))
       (when-let [blocker (first (get-in result
                                         [:report
                                          :localizationDiagnostics

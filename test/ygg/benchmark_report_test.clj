@@ -252,6 +252,22 @@
            (select-keys (aggregate [saturated-result])
                         [:rankedOutsideTop5Runs
                          :rankedOutsideTop5CaseIds])))
+    (is (= {:foundOutsideTop5Runs 1
+            :foundOutsideTop5CaseIds ["saturated"]
+            :foundOutsideTop5Files [{:path "src/file6.clj"
+                                     :occurrences 1
+                                     :runs 1
+                                     :caseIds ["saturated"]
+                                     :bestRank 6}
+                                    {:path "src/file7.clj"
+                                     :occurrences 1
+                                     :runs 1
+                                     :caseIds ["saturated"]
+                                     :bestRank 7}]}
+           (select-keys (aggregate [saturated-result])
+                        [:foundOutsideTop5Runs
+                         :foundOutsideTop5CaseIds
+                         :foundOutsideTop5Files])))
     (is (= {:rankedOutsideTop5Runs 1
             :rankedOutsideTop5CaseIds ["blocked"]}
            (select-keys (aggregate [blocked-result])
@@ -628,6 +644,12 @@
               :missedButPresentInContextCaseIds ["case-1"]
               :missedAndAbsentFromContextRuns 0
               :missedAndAbsentFromContextCaseIds []
+              :foundOutsideTop5Runs 1
+              :foundOutsideTop5CaseIds ["case-1"]
+              :foundOutsideTop10Runs 0
+              :foundOutsideTop10CaseIds []
+              :foundOutsideTop20Runs 0
+              :foundOutsideTop20CaseIds []
               :rankedOutsideTop5Runs 1
               :rankedOutsideTop5CaseIds ["case-1"]
               :rankedOutsideTop10Runs 0
@@ -646,6 +668,13 @@
                                         :runs 1
                                         :caseIds ["case-1"]
                                         :bestRank 7}]
+              :foundOutsideTop5Files [{:path "src/app.clj"
+                                       :occurrences 1
+                                       :runs 1
+                                       :caseIds ["case-1"]
+                                       :bestRank 7}]
+              :foundOutsideTop10Files []
+              :foundOutsideTop20Files []
               :rankedOutsideTop5BlockingFiles [{:path "src/other.clj"
                                                 :occurrences 1
                                                 :runs 1

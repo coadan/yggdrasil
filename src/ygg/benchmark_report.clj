@@ -2299,6 +2299,12 @@
      :missedButPresentInContextCaseIds (case-ids missed-present-in-context)
      :missedAndAbsentFromContextRuns (count missed-absent-from-context)
      :missedAndAbsentFromContextCaseIds (case-ids missed-absent-from-context)
+     :foundOutsideTop5Runs (count outside-top5)
+     :foundOutsideTop5CaseIds (case-ids outside-top5)
+     :foundOutsideTop10Runs (count outside-top10)
+     :foundOutsideTop10CaseIds (case-ids outside-top10)
+     :foundOutsideTop20Runs (count outside-top20)
+     :foundOutsideTop20CaseIds (case-ids outside-top20)
      :rankedOutsideTop5Runs (count avoidable-outside-top5)
      :rankedOutsideTop5CaseIds (case-ids avoidable-outside-top5)
      :rankedOutsideTop10Runs (count avoidable-outside-top10)
@@ -2310,6 +2316,15 @@
      :pathUncitedRankedFiles (aggregate-ranked-file-diagnostics
                               result-pairs
                               :pathUncitedRankedFiles)
+     :foundOutsideTop5Files (aggregate-ranked-file-diagnostics
+                             result-pairs
+                             :rankedOutsideTop5)
+     :foundOutsideTop10Files (aggregate-ranked-file-diagnostics
+                              result-pairs
+                              :rankedOutsideTop10)
+     :foundOutsideTop20Files (aggregate-ranked-file-diagnostics
+                              result-pairs
+                              :rankedOutsideTop20)
      :rankedOutsideTop5BlockingFiles (aggregate-rank-blockers
                                       result-pairs
                                       :rankedOutsideTop5Blockers)
