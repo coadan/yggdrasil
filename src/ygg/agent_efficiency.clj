@@ -13,6 +13,12 @@
 (def default-min-shared-cases
   2)
 
+(def ^:private broad-efficiency-min-measured-problem-classes
+  3)
+
+(def ^:private broad-efficiency-min-measured-architecture-classes
+  3)
+
 (def ^:private metric-specs
   [{:key :fileRecallAt5
     :label "fileRecallAt5"
@@ -1052,11 +1058,24 @@
                                         :architectureClasses)
         shared-measured-architecture-tags (shared-keys
                                            shell-measured-architecture-tags
-                                           ygg-measured-architecture-tags)]
+                                           ygg-measured-architecture-tags)
+        measured-problem-class-count (count shared-measured-problem-tags)
+        measured-architecture-class-count (count
+                                           shared-measured-architecture-tags)
+        enough-measured-problem-classes? (<= broad-efficiency-min-measured-problem-classes
+                                             measured-problem-class-count)
+        enough-measured-architecture-classes? (<= broad-efficiency-min-measured-architecture-classes
+                                                  measured-architecture-class-count)]
     {:sharedTagKeys (vec shared-tags)
      :problemClassTags problem-tags
      :architectureClassTags architecture-tags
      :problemClassSummaryAvailable summary-available?
+     :minimumMeasuredProblemClassesForBroadClaim
+     broad-efficiency-min-measured-problem-classes
+     :minimumMeasuredArchitectureClassesForBroadClaim
+     broad-efficiency-min-measured-architecture-classes
+     :measuredProblemClassCount measured-problem-class-count
+     :measuredArchitectureClassCount measured-architecture-class-count
      :shellProblemClassTags (class-keys shell-report :classes)
      :yggProblemClassTags (class-keys ygg-report :classes)
      :shellMeasuredProblemClassTags shell-measured-problem-tags
@@ -1069,12 +1088,15 @@
      :sharedMeasuredArchitectureClassTags shared-measured-architecture-tags
      :hasProblemClasses (boolean (seq problem-tags))
      :hasArchitectureClasses (boolean (seq architecture-tags))
-     :hasMeasuredProblemClasses (boolean (seq shared-measured-problem-tags))
-     :hasMeasuredArchitectureClasses (boolean (seq shared-measured-architecture-tags))
+     :hasAnyMeasuredProblemClasses (pos? measured-problem-class-count)
+     :hasAnyMeasuredArchitectureClasses
+     (pos? measured-architecture-class-count)
+     :hasMeasuredProblemClasses enough-measured-problem-classes?
+     :hasMeasuredArchitectureClasses enough-measured-architecture-classes?
      :broadEfficiencyClaimSupported (boolean
                                      (and summary-available?
-                                          (seq shared-measured-problem-tags)
-                                          (seq shared-measured-architecture-tags)))
+                                          enough-measured-problem-classes?
+                                          enough-measured-architecture-classes?))
      :warnings (cond-> []
                  (empty? problem-tags)
                  (conj "No shared problem-class tags; do not use this report for broad efficiency claims.")
@@ -1088,8 +1110,24 @@
                  (and summary-available? (empty? shared-measured-problem-tags))
                  (conj "No shared measured problem-class groups; class tags are present but below the benchmark claim threshold in at least one lane.")
 
+                 (and summary-available?
+                      (pos? measured-problem-class-count)
+                      (not enough-measured-problem-classes?))
+                 (conj (str "Only " measured-problem-class-count
+                            " shared measured problem-class group(s); broad efficiency claims require at least "
+                            broad-efficiency-min-measured-problem-classes
+                            "."))
+
                  (and summary-available? (empty? shared-measured-architecture-tags))
-                 (conj "No shared measured architecture-class groups; architecture tags are present but below the benchmark claim threshold in at least one lane."))}))
+                 (conj "No shared measured architecture-class groups; architecture tags are present but below the benchmark claim threshold in at least one lane.")
+
+                 (and summary-available?
+                      (pos? measured-architecture-class-count)
+                      (not enough-measured-architecture-classes?))
+                 (conj (str "Only " measured-architecture-class-count
+                            " shared measured architecture-class group(s); broad efficiency claims require at least "
+                            broad-efficiency-min-measured-architecture-classes
+                            ".")))}))
 
 (defn- class-signal-row
   [measured-tags group]

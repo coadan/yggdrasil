@@ -281,7 +281,9 @@ Use existing benchmark report fields first:
   shared class-shaped tag from a class that counts toward claim readiness; fall
   back to `byTag.groups` only when inspecting arbitrary non-class tags. Use
   `classSignals.summary.measuredProblemClasses` and
-  `classSignals.summary.measuredArchitectureClasses` for machine gates.
+  `classSignals.summary.measuredArchitectureClasses` for machine gates. Broad
+  efficiency readiness requires at least three shared measured problem-class
+  groups and three shared measured architecture-class groups.
 - timing: stage timings and active-stage diagnostics from progress artifacts
 
 For patching runs, also record test pass rate, lint pass rate, unrelated file

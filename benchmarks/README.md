@@ -50,6 +50,10 @@ bb agent-efficiency all \
   --out .dev/ygg/agent-efficiency/historical-replay-quick
 ```
 
+Treat the resulting `bb bench efficiency` broad claim as ready only when both
+lanes share at least three measured problem-class groups and three measured
+architecture-class groups.
+
 Use the claim quick lane when you need a small non-synthetic claim-readiness
 check with expected-evidence citation metrics. This lane is intentionally only a
 selector over curated historical cases that define `:expectations

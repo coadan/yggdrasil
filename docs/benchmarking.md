@@ -226,7 +226,9 @@ answer and `compactSummary.why` for the short reason list. Then inspect
 `classSignals.problemClasses` and `classSignals.architectureClasses`; a row with
 `measured: false` is useful context but does not count toward broad claim
 readiness. Use `classSignals.summary.measuredProblemClasses` and
-`classSignals.summary.measuredArchitectureClasses` for automated gates. Treat
+`classSignals.summary.measuredArchitectureClasses` for automated gates. Broad
+efficiency readiness requires at least three shared measured problem-class
+groups and three shared measured architecture-class groups. Treat
 `improvementTargetRuns` as lower-is-better: a run that improves recall but
 introduces more remediation targets is a mixed result, not a broad efficiency
 win. Generated files under `.dev/ygg/headline-bench/` are disposable

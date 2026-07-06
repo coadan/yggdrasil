@@ -123,6 +123,43 @@
    :scores {:fileRecallAt10 recall10
             :noiseRatioAt20 noise}})
 
+(def ^:private broad-problem-class-tags
+  ["problem-architecture"
+   "problem-cross-file"
+   "problem-localization"])
+
+(def ^:private broad-architecture-class-tags
+  ["architecture-dependency-flow"
+   "architecture-runtime-boundary"
+   "audit-scope-docs"])
+
+(defn- problem-class-row
+  [key claim-status]
+  {:key key
+   :cases 2
+   :runs 2
+   :claimStatus claim-status
+   :minimumCases 2})
+
+(defn- with-broad-problem-classes
+  ([report]
+   (with-broad-problem-classes report {}))
+  ([report {:keys [problem-status architecture-status]
+            :or {problem-status "measured"
+                 architecture-status "measured"}}]
+   (assoc report
+          :problemClasses
+          {:minimumCasesForClassClaim 2
+           :classes (mapv #(problem-class-row % problem-status)
+                          broad-problem-class-tags)
+           :architectureClasses (mapv #(problem-class-row % architecture-status)
+                                      broad-architecture-class-tags)})))
+
+(defn- broad-class-tag-rows
+  [stats]
+  (mapv #(tag-row % stats)
+        (concat broad-problem-class-tags broad-architecture-class-tags)))
+
 (defn- with-problem-classes
   ([report]
    (with-problem-classes report {}))
@@ -1156,7 +1193,7 @@
                 first
                 (#(select-keys % [:shellOnly :ygg :delta :effect :result])))))))
 
-(deftest problem-class-coverage-recognizes-measured-architecture-classes
+(deftest problem-class-coverage-refuses-single-measured-class-groups
   (let [shell (-> shell-report
                   with-problem-classes
                   with-claim-readiness
@@ -1193,23 +1230,36 @@
             :problemClassTags ["problem-architecture"]
             :architectureClassTags ["architecture-dependency-flow"]
             :problemClassSummaryAvailable true
+            :minimumMeasuredProblemClassesForBroadClaim 3
+            :minimumMeasuredArchitectureClassesForBroadClaim 3
+            :measuredProblemClassCount 1
+            :measuredArchitectureClassCount 1
             :sharedMeasuredProblemClassTags ["problem-architecture"]
             :sharedMeasuredArchitectureClassTags ["architecture-dependency-flow"]
             :hasProblemClasses true
             :hasArchitectureClasses true
-            :hasMeasuredProblemClasses true
-            :hasMeasuredArchitectureClasses true
-            :broadEfficiencyClaimSupported true
-            :warnings []}
+            :hasAnyMeasuredProblemClasses true
+            :hasAnyMeasuredArchitectureClasses true
+            :hasMeasuredProblemClasses false
+            :hasMeasuredArchitectureClasses false
+            :broadEfficiencyClaimSupported false
+            :warnings ["Only 1 shared measured problem-class group(s); broad efficiency claims require at least 3."
+                       "Only 1 shared measured architecture-class group(s); broad efficiency claims require at least 3."]}
            (select-keys (:problemClassCoverage comparison)
                         [:sharedTagKeys
                          :problemClassTags
                          :architectureClassTags
                          :problemClassSummaryAvailable
+                         :minimumMeasuredProblemClassesForBroadClaim
+                         :minimumMeasuredArchitectureClassesForBroadClaim
+                         :measuredProblemClassCount
+                         :measuredArchitectureClassCount
                          :sharedMeasuredProblemClassTags
                          :sharedMeasuredArchitectureClassTags
                          :hasProblemClasses
                          :hasArchitectureClasses
+                         :hasAnyMeasuredProblemClasses
+                         :hasAnyMeasuredArchitectureClasses
                          :hasMeasuredProblemClasses
                          :hasMeasuredArchitectureClasses
                          :broadEfficiencyClaimSupported
@@ -1236,30 +1286,73 @@
     (is (= true
            (get-in architecture-by-tag
                    ["architecture-dependency-flow" :measured])))
-    (is (= {:status "supported"
+    (is (= "not-supported" (get-in comparison [:claimReadiness :status])))
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness :requirements :problemClassCoverage])))
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness :requirements :architectureClassCoverage])))
+    (is (= (get-in comparison [:problemClassCoverage :warnings])
+           (get-in comparison [:claimReadiness :warnings])))))
+
+(deftest problem-class-coverage-supports-broad-measured-class-floor
+  (let [shell (-> shell-report
+                  with-broad-problem-classes
+                  with-claim-readiness
+                  (assoc :byTag (broad-class-tag-rows {:cases 2
+                                                       :runs 2
+                                                       :recall10 0.5
+                                                       :noise 0.5})))
+        ygg (-> ygg-report
+                with-broad-problem-classes
+                with-claim-readiness
+                (assoc :byTag (broad-class-tag-rows {:cases 2
+                                                     :runs 2
+                                                     :recall10 1.0
+                                                     :noise 0.25})))
+        [shell ygg] (with-reduced-ygg-token-usage shell ygg)
+        comparison (agent-efficiency/compare-reports shell ygg)
+        class-summary (get-in comparison [:classSignals :summary])]
+    (is (= {:minimumMeasuredProblemClassesForBroadClaim 3
+            :minimumMeasuredArchitectureClassesForBroadClaim 3
+            :measuredProblemClassCount 3
+            :measuredArchitectureClassCount 3
+            :sharedMeasuredProblemClassTags broad-problem-class-tags
+            :sharedMeasuredArchitectureClassTags broad-architecture-class-tags
+            :hasAnyMeasuredProblemClasses true
+            :hasAnyMeasuredArchitectureClasses true
+            :hasMeasuredProblemClasses true
+            :hasMeasuredArchitectureClasses true
             :broadEfficiencyClaimSupported true
-            :sharedCases 2
-            :minSharedCases 2
-            :requirements {:sameSuite true
-                           :sameCases true
-                           :enoughSharedCases true
-                           :yggImprovedWithoutRegressions true
-                           :directionalMetrics true
-                           :problemClassCoverage true
-                           :architectureClassCoverage true
-                           :evidenceMetrics true
-                           :expectedEvidenceCitationMetrics true
-                           :decisionQualityMetrics true
-                           :commandTelemetry true
-                           :perCaseTokenReduction true
-                           :shellLaneClaimReady true
-                           :yggLaneClaimReady true}
-            :laneClaimReadiness {:shellOnly (:claimReadiness shell)
-                                 :ygg (:claimReadiness ygg)}
-            :optionalTelemetry {:tokenCostMetrics false}
-            :warnings []
-            :notes ["Token/cost telemetry is unavailable; token and cost deltas are not part of this claim."]}
-           (:claimReadiness comparison)))))
+            :warnings []}
+           (select-keys (:problemClassCoverage comparison)
+                        [:minimumMeasuredProblemClassesForBroadClaim
+                         :minimumMeasuredArchitectureClassesForBroadClaim
+                         :measuredProblemClassCount
+                         :measuredArchitectureClassCount
+                         :sharedMeasuredProblemClassTags
+                         :sharedMeasuredArchitectureClassTags
+                         :hasAnyMeasuredProblemClasses
+                         :hasAnyMeasuredArchitectureClasses
+                         :hasMeasuredProblemClasses
+                         :hasMeasuredArchitectureClasses
+                         :broadEfficiencyClaimSupported
+                         :warnings])))
+    (is (= {:problemClasses 3
+            :measuredProblemClasses 3
+            :architectureClasses 3
+            :measuredArchitectureClasses 3}
+           class-summary))
+    (is (= broad-problem-class-tags
+           (mapv :tag (get-in comparison [:classSignals :problemClasses]))))
+    (is (= broad-architecture-class-tags
+           (mapv :tag (get-in comparison
+                              [:classSignals :architectureClasses]))))
+    (is (= "supported" (get-in comparison [:claimReadiness :status])))
+    (is (true? (get-in comparison
+                       [:claimReadiness :broadEfficiencyClaimSupported])))
+    (is (= [] (get-in comparison [:claimReadiness :warnings])))))
 
 (deftest problem-class-coverage-recognizes-audit-scope-architecture-classes
   (let [problem-classes {:minimumCasesForClassClaim 2
@@ -1321,33 +1414,21 @@
 
 (deftest measured-class-coverage-refuses-insufficient-architecture-classes
   (let [shell (-> shell-report
-                  (with-problem-classes {:architecture-status
-                                         "insufficient-cases"})
+                  (with-broad-problem-classes {:architecture-status
+                                               "insufficient-cases"})
                   with-claim-readiness
-                  (assoc :byTag [(tag-row "problem-architecture"
-                                          {:cases 1
-                                           :runs 1
-                                           :recall10 0.5
-                                           :noise 0.5})
-                                 (tag-row "architecture-dependency-flow"
-                                          {:cases 1
-                                           :runs 1
-                                           :recall10 0.5
-                                           :noise 0.5})]))
+                  (assoc :byTag (broad-class-tag-rows {:cases 1
+                                                       :runs 1
+                                                       :recall10 0.5
+                                                       :noise 0.5})))
         ygg (-> ygg-report
-                (with-problem-classes {:architecture-status
-                                       "insufficient-cases"})
+                (with-broad-problem-classes {:architecture-status
+                                             "insufficient-cases"})
                 with-claim-readiness
-                (assoc :byTag [(tag-row "problem-architecture"
-                                        {:cases 1
-                                         :runs 1
-                                         :recall10 1.0
-                                         :noise 0.25})
-                               (tag-row "architecture-dependency-flow"
-                                        {:cases 1
-                                         :runs 1
-                                         :recall10 1.0
-                                         :noise 0.25})]))
+                (assoc :byTag (broad-class-tag-rows {:cases 1
+                                                     :runs 1
+                                                     :recall10 1.0
+                                                     :noise 0.25})))
         [shell ygg] (with-reduced-ygg-token-usage shell ygg)
         comparison (agent-efficiency/compare-reports shell ygg)]
     (is (= true (get-in comparison
@@ -1427,31 +1508,19 @@
 
 (deftest refuses-broad-efficiency-when-source-lane-is-not-claim-ready
   (let [shell (-> shell-report
-                  with-problem-classes
+                  with-broad-problem-classes
                   (with-claim-readiness false)
-                  (assoc :byTag [(tag-row "problem-architecture"
-                                          {:cases 2
-                                           :runs 2
-                                           :recall10 0.5
-                                           :noise 0.5})
-                                 (tag-row "architecture-dependency-flow"
-                                          {:cases 2
-                                           :runs 2
-                                           :recall10 0.5
-                                           :noise 0.5})]))
+                  (assoc :byTag (broad-class-tag-rows {:cases 2
+                                                       :runs 2
+                                                       :recall10 0.5
+                                                       :noise 0.5})))
         ygg (-> ygg-report
-                with-problem-classes
+                with-broad-problem-classes
                 with-claim-readiness
-                (assoc :byTag [(tag-row "problem-architecture"
-                                        {:cases 2
-                                         :runs 2
-                                         :recall10 1.0
-                                         :noise 0.25})
-                               (tag-row "architecture-dependency-flow"
-                                        {:cases 2
-                                         :runs 2
-                                         :recall10 1.0
-                                         :noise 0.25})]))
+                (assoc :byTag (broad-class-tag-rows {:cases 2
+                                                     :runs 2
+                                                     :recall10 1.0
+                                                     :noise 0.25})))
         [shell ygg] (with-reduced-ygg-token-usage shell ygg)
         comparison (agent-efficiency/compare-reports shell ygg)]
     (is (= false
@@ -1512,32 +1581,20 @@
 
 (deftest timing-regressions-do-not-block-non-performance-claim
   (let [shell (-> shell-report
-                  with-problem-classes
+                  with-broad-problem-classes
                   with-claim-readiness
-                  (assoc :byTag [(tag-row "problem-architecture"
-                                          {:cases 2
-                                           :runs 2
-                                           :recall10 0.5
-                                           :noise 0.5})
-                                 (tag-row "architecture-dependency-flow"
-                                          {:cases 2
-                                           :runs 2
-                                           :recall10 0.5
-                                           :noise 0.5})]))
+                  (assoc :byTag (broad-class-tag-rows {:cases 2
+                                                       :runs 2
+                                                       :recall10 0.5
+                                                       :noise 0.5})))
         ygg (-> ygg-report
-                with-problem-classes
+                with-broad-problem-classes
                 with-claim-readiness
                 (assoc-in [:timings :warmElapsedMs] 3000)
-                (assoc :byTag [(tag-row "problem-architecture"
-                                        {:cases 2
-                                         :runs 2
-                                         :recall10 0.75
-                                         :noise 0.25})
-                               (tag-row "architecture-dependency-flow"
-                                        {:cases 2
-                                         :runs 2
-                                         :recall10 0.75
-                                         :noise 0.25})]))
+                (assoc :byTag (broad-class-tag-rows {:cases 2
+                                                     :runs 2
+                                                     :recall10 0.75
+                                                     :noise 0.25})))
         [shell ygg] (with-reduced-ygg-token-usage shell ygg)
         comparison (agent-efficiency/compare-reports shell ygg)
         markdown (agent-efficiency/markdown-report comparison)
@@ -1637,10 +1694,20 @@
     (is (not (contains? (:evidenceCitationRate deltas-by-key) :effect)))))
 
 (deftest claim-readiness-requires-comparable-expected-evidence-citation
-  (let [shell (with-claim-readiness (with-problem-classes shell-report))
+  (let [shell (-> shell-report
+                  with-broad-problem-classes
+                  with-claim-readiness
+                  (assoc :byTag (broad-class-tag-rows {:cases 2
+                                                       :runs 2
+                                                       :recall10 0.5
+                                                       :noise 0.5})))
         ygg (-> ygg-report
-                with-problem-classes
+                with-broad-problem-classes
                 with-claim-readiness
+                (assoc :byTag (broad-class-tag-rows {:cases 2
+                                                     :runs 2
+                                                     :recall10 1.0
+                                                     :noise 0.25}))
                 (assoc-in [:scores :expectedEvidenceCitationRate] 0.8))
         [shell ygg] (with-reduced-ygg-token-usage shell ygg)
         comparison (agent-efficiency/compare-reports shell ygg)]
@@ -1774,31 +1841,19 @@
 (deftest plain-output-shows-category-and-class-signals
   (let [root (temp-dir "ygg-agent-efficiency-plain")
         shell (-> shell-report
-                  with-problem-classes
+                  with-broad-problem-classes
                   with-claim-readiness
-                  (assoc :byTag [(tag-row "problem-architecture"
-                                          {:cases 2
-                                           :runs 2
-                                           :recall10 0.5
-                                           :noise 0.5})
-                                 (tag-row "architecture-dependency-flow"
-                                          {:cases 2
-                                           :runs 2
-                                           :recall10 0.5
-                                           :noise 0.5})]))
+                  (assoc :byTag (broad-class-tag-rows {:cases 2
+                                                       :runs 2
+                                                       :recall10 0.5
+                                                       :noise 0.5})))
         ygg (-> ygg-report
-                with-problem-classes
+                with-broad-problem-classes
                 with-claim-readiness
-                (assoc :byTag [(tag-row "problem-architecture"
-                                        {:cases 2
-                                         :runs 2
-                                         :recall10 0.75
-                                         :noise 0.25})
-                               (tag-row "architecture-dependency-flow"
-                                        {:cases 2
-                                         :runs 2
-                                         :recall10 0.75
-                                         :noise 0.25})]))
+                (assoc :byTag (broad-class-tag-rows {:cases 2
+                                                     :runs 2
+                                                     :recall10 0.75
+                                                     :noise 0.25})))
         [shell ygg] (with-reduced-ygg-token-usage shell ygg)
         shell-path (spit-json! root "shell/agent-report.json" shell)
         ygg-path (spit-json! root "ygg/agent-report.json" ygg)
@@ -1812,7 +1867,7 @@
     (is (.contains out "Category signals:"))
     (is (.contains out "observed metrics: 4"))
     (is (.contains out
-                   "Class signal summary: problem 1/1 measured, architecture 1/1 measured"))
+                   "Class signal summary: problem 3/3 measured, architecture 3/3 measured"))
     (is (.contains out
                    "- command-telemetry: ygg-improved (observed metrics: 4)"))
     (is (.contains out "Problem-class signals:"))
