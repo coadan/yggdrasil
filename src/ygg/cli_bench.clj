@@ -555,18 +555,37 @@
                not-run-runs
                "cases"
                (str/join "," case-ids)))))
+
+(defn- failed-readiness-requirements
+  [claim-readiness]
+  (->> (:requirements claim-readiness)
+       (keep (fn [[requirement passed?]]
+               (when-not (true? passed?)
+                 requirement)))
+       (sort-by name)
+       vec))
+
 (defn- print-claim-readiness
   [claim-readiness]
   (when claim-readiness
-    (println "- claim-readiness" (:status claim-readiness))
+    (println "- broad-claim-readiness" (:status claim-readiness))
+    (when (contains? claim-readiness :broadArchitectureClaimSupported)
+      (println "- broad-architecture-claim-supported"
+               (:broadArchitectureClaimSupported claim-readiness)))
+    (when (contains? claim-readiness :broadEfficiencyClaimSupported)
+      (println "- broad-efficiency-claim-supported"
+               (:broadEfficiencyClaimSupported claim-readiness)))
     (when (seq (:measuredProblemClassTags claim-readiness))
       (println "- measured-problem-classes"
                (str/join "," (:measuredProblemClassTags claim-readiness))))
     (when (seq (:measuredArchitectureClassTags claim-readiness))
       (println "- measured-architecture-classes"
                (str/join "," (:measuredArchitectureClassTags claim-readiness))))
+    (when-let [failed (seq (failed-readiness-requirements claim-readiness))]
+      (println "- broad-claim-failed-requirements"
+               (str/join "," (map name failed))))
     (when (seq (:warnings claim-readiness))
-      (println "## Claim Readiness Warnings")
+      (println "## Broad Claim Readiness Warnings")
       (doseq [warning (:warnings claim-readiness)]
         (println "-" warning)))))
 

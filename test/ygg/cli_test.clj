@@ -1495,6 +1495,8 @@
                          :broadArchitectureClaimSupported false
                          :measuredProblemClassTags ["problem-architecture"]
                          :measuredArchitectureClassTags []
+                         :requirements {:measuredProblemClasses true
+                                        :measuredArchitectureClasses false}
                          :warnings ["No measured architecture-class groups."]}
         report-out (with-out-str
                      (cli-bench/print-benchmark-summary
@@ -1522,9 +1524,13 @@
                                :claimReadiness claim-readiness}
                       :failures []}))]
     (doseq [out [report-out check-out]]
-      (is (str/includes? out "- claim-readiness not-supported"))
+      (is (str/includes? out "- broad-claim-readiness not-supported"))
+      (is (str/includes? out "- broad-architecture-claim-supported false"))
       (is (str/includes? out "- measured-problem-classes problem-architecture"))
-      (is (str/includes? out "## Claim Readiness Warnings"))
+      (is (str/includes?
+           out
+           "- broad-claim-failed-requirements measuredArchitectureClasses"))
+      (is (str/includes? out "## Broad Claim Readiness Warnings"))
       (is (str/includes? out "- No measured architecture-class groups.")))))
 
 (deftest benchmark-summary-prints-benchmark-preflight
