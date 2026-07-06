@@ -533,7 +533,7 @@
         warnings (#'context/evidence-warnings counts retrieval weak)
         actions (#'context/next-actions counts retrieval "fixture")]
     (is (= [:source-files] weak))
-    (is (some #{"Some files were skipped by the latest index run; inspect source coverage before treating missing facts as absent."}
+    (is (some #{"Some source candidates were skipped; inspect source coverage before treating missing facts as absent."}
               warnings))
     (is (some #(= {:kind :coverage
                    :label "Inspect skipped source candidates"
@@ -885,7 +885,7 @@
     (is (some #{"Query results are degraded because indexing is still running; rerun after the active operation finishes for complete evidence."}
               warnings))))
 
-(deftest evidence-surfaces-skipped-index-run-files
+(deftest evidence-does-not-treat-reused-index-files-as-skipped-source
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table
                                    :ygg/files [{:xt/id "file:app"
@@ -948,27 +948,19 @@
                      :activity-count 1
                      :runtime-count 1
                      :validation-count 1})]
-      (is (= :limited (:status evidence)))
-      (is (contains? (set (:weak evidence)) :source-files))
+      (is (= :ready (:status evidence)))
+      (is (not (contains? (set (:weak evidence)) :source-files)))
       (is (= {:plane :source-files
-              :status :weak
+              :status :available
               :counts {:files 1
-                       :skipped-files 3
+                       :skipped-files 0
                        :diagnostics 0}}
              (some #(when (= :source-files (:plane %)) %)
                    (:planes evidence))))
-      (is (some #{"Some files were skipped by the latest index run; inspect source coverage before treating missing facts as absent."}
-                (:warnings evidence)))
-      (is (some #(= {:kind :coverage
-                     :label "Inspect skipped source candidates"
-                     :count 3
-                     :command "ygg sync coverage <project.edn> --json"
-                     :pluginRegistryCommand "bb plugin registry list <registry.edn> --kind extractor --query <file-kind-or-extension>"
-                     :pluginScaffoldCommand "bb plugin new <package-dir> --extractor --file-kind <file-kind> --path-glob '<glob>' --fixture fixtures/sample.<ext>"
-                     :pluginGapCommand "bb plugin gap extractor <package-dir> <repo-root> <file> --json"
-                     :mcpTool "ygg_status"}
-                    %)
-                (:nextActions evidence))))))
+      (is (not (some #{"Some source candidates were skipped; inspect source coverage before treating missing facts as absent."}
+                     (:warnings evidence))))
+      (is (empty? (filter #(= "Inspect skipped source candidates" (:label %))
+                          (:nextActions evidence)))))))
 
 (deftest evidence-exposes-indexed-dependency-plane
   (with-redefs [store/all-rows (fn [_ table _]

@@ -447,7 +447,9 @@
         nodes (scoped-active-index-rows xtdb (:nodes store/tables) opts)
         edges (scoped-active-index-rows xtdb (:edges store/tables) opts)
         diagnostics (scoped-active-index-rows xtdb (:diagnostics store/tables) opts)
-        skipped-files (index-run-skipped-files xtdb opts)
+        ;; Index run :files-skipped counts unchanged files reused by incremental
+        ;; indexing. It is not evidence of unsupported source candidates.
+        skipped-files 0
         indexed-connectivity (indexed-connectivity-from-rows files nodes edges)
         summary {:schema context-schema
                  :basis "indexed-graph"

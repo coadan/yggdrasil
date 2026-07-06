@@ -354,7 +354,7 @@
                :command "ygg sync coverage <project.edn> --json"}]
              (:nextActions summary))))))
 
-(deftest context-summary-includes-latest-index-run-skipped-files
+(deftest context-summary-does-not-treat-reused-index-files-as-skipped-source
   (with-redefs [store/all-rows (fn [_ table _]
                                  (case table
                                    :ygg/files []
@@ -395,12 +395,8 @@
                    :xtdb
                    {:project-id "fixture"
                     :repo-id "app"})]
-      (is (= 2 (get-in summary [:totals :skippedFiles])))
-      (is (= [{:kind :coverage
-               :label "Inspect skipped source candidates"
-               :count 2
-               :command "ygg sync coverage <project.edn> --json"}]
-             (:nextActions summary))))))
+      (is (= 0 (get-in summary [:totals :skippedFiles])))
+      (is (nil? (:nextActions summary))))))
 
 (deftest context-summary-actions-isolated-indexed-files
   (with-redefs [store/all-rows (fn [_ table _]

@@ -3468,11 +3468,7 @@
         activity-events (activity/all-events xtdb project-scope)]
     (merge
      {:files (scoped-active-count xtdb (:files store/tables) scope)
-      :skipped-files (coverage/index-run-skipped-files
-                      xtdb
-                      {:project-id project-id
-                       :repo-id repo-id
-                       :read-context read-context})
+      :skipped-files 0
       :nodes (count nodes)
       :edges (count edges)
       :external-packages (count (filter #(= :external-package (:kind %)) nodes))
@@ -3537,11 +3533,7 @@
                        :event-kind :result-schema-mismatch})]
     (merge
      {:files (scoped-active-count xtdb (:files store/tables) scope)
-      :skipped-files (coverage/index-run-skipped-files
-                      xtdb
-                      {:project-id project-id
-                       :repo-id repo-id
-                       :read-context read-context})
+      :skipped-files 0
       :nodes (scoped-active-count xtdb (:nodes store/tables) scope)
       :edges (scoped-active-count xtdb (:edges store/tables) scope)
       :external-packages (scoped-active-count xtdb
@@ -3828,7 +3820,7 @@
      (conj "Indexer diagnostics are present; inspect source coverage before relying on missing facts.")
 
      (pos? (:skipped-files counts 0))
-     (conj "Some files were skipped by the latest index run; inspect source coverage before treating missing facts as absent.")
+     (conj "Some source candidates were skipped; inspect source coverage before treating missing facts as absent.")
 
      (zero? (+ (:external-packages counts 0)
                (:package-import-edges counts 0)
