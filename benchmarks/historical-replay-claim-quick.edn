@@ -7,4 +7,7 @@
                               "historical-dapper-prefer-enum-type-handlers"
                               "historical-terraform-vpc-endpoint-dns-record-ip-type"
                               "historical-flask-autoescape-case-insensitive"
-                              "historical-flask-request-json-status-doc"]}]}
+                              "historical-graphify-read-glob-hook-extension-boundary"
+                              "historical-flask-request-json-status-doc"
+                              "historical-axios-formdata-epipe-test-lifecycle"
+                              "historical-supabase-event-trigger-schema-regression"]}]}

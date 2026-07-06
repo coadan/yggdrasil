@@ -729,8 +729,11 @@
             "historical-dapper-prefer-enum-type-handlers"
             "historical-terraform-vpc-endpoint-dns-record-ip-type"
             "historical-flask-autoescape-case-insensitive"
+            "historical-graphify-read-glob-hook-extension-boundary"
             "historical-flask-request-json-status-doc"
-            "historical-axios-proxy-node-only-doc"]
+            "historical-axios-proxy-node-only-doc"
+            "historical-axios-formdata-epipe-test-lifecycle"
+            "historical-supabase-event-trigger-schema-regression"]
            claim-quick-case-ids))
     (is (= 16 (count full-case-ids)))
     (is (every? #(seq (get-in % [:expectations :citation-evidence]))
@@ -740,10 +743,14 @@
                 (filter #(seq (get-in % [:expectations :citation-evidence])))
                 (map :id)
                 set)))
-    (is (= #{"axios" "dapper" "terraform-aws-vpc" "flask"}
+    (is (= #{"axios" "dapper" "terraform-aws-vpc" "flask"
+             "graphify" "supabase-postgres"}
            claim-quick-repo-ids))
     (is (contains? claim-quick-source-kinds :doc))
+    (is (contains? claim-quick-source-kinds :sql))
     (is (<= 2 (get claim-quick-tags "problem-docs-config-coupling" 0)))
+    (is (<= 2 (get claim-quick-tags "problem-implementation" 0)))
+    (is (<= 2 (get claim-quick-tags "problem-test-only" 0)))
     (is (<= 2 (get claim-quick-tags "audit-scope-docs" 0)))
     (is (not (contains? (set quick-case-ids)
                         "historical-otel-routing-default-error-mode")))

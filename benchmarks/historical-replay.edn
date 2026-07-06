@@ -486,6 +486,12 @@
           :ground-truth {:localization-files ["tests/setup/server.js"
                                               "tests/unit/adapters/fetch.test.js"
                                               "tests/unit/adapters/http.test.js"]}
+          :expectations {:citation-evidence [{:kind :test-server-lifecycle
+                                              :path "tests/setup/server.js"}
+                                             {:kind :fetch-adapter-lifecycle-test
+                                              :path "tests/unit/adapters/fetch.test.js"}
+                                             {:kind :http-adapter-lifecycle-test
+                                              :path "tests/unit/adapters/http.test.js"}]}
           :issue {:id "axios-10820"
                   :url "https://github.com/axios/axios/pull/10820"
                   :title "test: harden http test server lifecycle to fix flaky FormData EPIPE"
