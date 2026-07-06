@@ -115,7 +115,7 @@
      :missingDeclaredSourceKinds []}))
 
 (defn- broad-claim-score-map
-  [recall expected-evidence?]
+  [recall expected-evidence? expected-evidence-rate]
   (cond-> {:fileRecallAt5 recall
            :fileRecallAt10 recall
            :fileRecallAt20 recall
@@ -127,16 +127,21 @@
            :scoreableChangedFiles 1
            :unsupportedGroundTruthFiles 0}
     expected-evidence?
-    (assoc :expectedEvidenceCitationRate 1.0
+    (assoc :expectedEvidenceCitationRate expected-evidence-rate
            :expectedEvidenceCitations 1
            :expectedEvidenceCitationTargets 1)))
 
 (defn- write-broad-claim-score!
   ([out case]
    (write-broad-claim-score! out case {}))
-  ([out case {:keys [benchmark-preflight coverage expected-evidence? recall]
+  ([out case {:keys [benchmark-preflight
+                     coverage
+                     expected-evidence?
+                     expected-evidence-rate
+                     recall]
               :or {benchmark-preflight passing-benchmark-preflight
                    expected-evidence? true
+                   expected-evidence-rate 1.0
                    recall 1.0}}]
    (let [case-id (:id case)
          coverage (or coverage (score-coverage case))]
@@ -164,7 +169,9 @@
        :groundTruthRanks {:files [{:path (str case-id ".clj")
                                    :rank 1
                                    :found? true}]}
-       :scores (broad-claim-score-map recall expected-evidence?)}))))
+       :scores (broad-claim-score-map recall
+                                      expected-evidence?
+                                      expected-evidence-rate)}))))
 
 (deftest packet-evidence-only-results-are-not-commandless
   (let [top-files [{:path "src/app.clj"
@@ -1531,6 +1538,8 @@
               :minimumSourceKindsForBroadClaim 7
               :minimumMeasuredProblemClassesForBroadClaim 3
               :minimumMeasuredArchitectureClassesForBroadClaim 3
+              :minimumExpectedEvidenceCitationRateForClaim 0.8
+              :minimumCaseExpectedEvidenceCitationRateForClaim 0.5
               :requirements {:completedCases true
                              :hasRuns true
                              :nonSyntheticCases true
@@ -1543,6 +1552,8 @@
                              :measuredNonSyntheticArchitectureClasses false
                              :evidenceCitationMetrics true
                              :expectedEvidenceCitationMetrics true
+                             :expectedEvidenceCitationQuality true
+                             :caseExpectedEvidenceCitationQuality true
                              :decisionQualityMetrics true
                              :commandTelemetry true
                              :benchmarkPreflight true}
@@ -1756,6 +1767,8 @@
               :measuredNonSyntheticDocsArchitectureClasses true
               :evidenceCitationMetrics true
               :expectedEvidenceCitationMetrics true
+              :expectedEvidenceCitationQuality true
+              :caseExpectedEvidenceCitationQuality true
               :decisionQualityMetrics true
               :commandTelemetry true
               :benchmarkPreflight true}
@@ -1966,6 +1979,63 @@
                   (filter #(= "expected-evidence-citation-metric-gaps"
                               (:kind %)))
                   first))))))
+
+(deftest agent-report-claim-readiness-requires-aggregate-expected-evidence-quality
+  (let [out (temp-dir "ygg-agent-report-expected-evidence-quality")
+        suite {:id "suite"
+               :cases broad-claim-readiness-cases}]
+    (doseq [case (:cases suite)]
+      (write-broad-claim-score! out case {:expected-evidence-rate 0.75}))
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})]
+      (is (= "not-supported" (get-in report [:claimReadiness :status])))
+      (is (= false
+             (get-in report
+                     [:claimReadiness
+                      :requirements
+                      :expectedEvidenceCitationQuality])))
+      (is (= true
+             (get-in report
+                     [:claimReadiness
+                      :requirements
+                      :caseExpectedEvidenceCitationQuality])))
+      (is (= 0.8
+             (get-in report
+                     [:claimReadiness
+                      :minimumExpectedEvidenceCitationRateForClaim])))
+      (is (= ["Expected-evidence citation rate 0.75 is below the broad real-world claim floor 0.80."]
+             (get-in report [:claimReadiness :warnings]))))))
+
+(deftest agent-report-claim-readiness-requires-case-expected-evidence-quality
+  (let [out (temp-dir "ygg-agent-report-case-expected-evidence-quality")
+        suite {:id "suite"
+               :cases broad-claim-readiness-cases}]
+    (doseq [case (:cases suite)]
+      (write-broad-claim-score!
+       out
+       case
+       {:expected-evidence-rate (if (= "arch-deps-1" (:id case))
+                                  0.25
+                                  1.0)}))
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})]
+      (is (= "not-supported" (get-in report [:claimReadiness :status])))
+      (is (= true
+             (get-in report
+                     [:claimReadiness
+                      :requirements
+                      :expectedEvidenceCitationQuality])))
+      (is (= false
+             (get-in report
+                     [:claimReadiness
+                      :requirements
+                      :caseExpectedEvidenceCitationQuality])))
+      (is (= 0.5
+             (get-in report
+                     [:claimReadiness
+                      :minimumCaseExpectedEvidenceCitationRateForClaim])))
+      (is (= ["Some case expected-evidence citation rates are below the broad real-world claim floor 0.50: arch-deps-1."]
+             (get-in report [:claimReadiness :warnings]))))))
 
 (deftest agent-report-counts-citation-only-expected-evidence-for-readiness
   (let [out (temp-dir "ygg-agent-report-citation-evidence-readiness")

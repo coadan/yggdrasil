@@ -227,14 +227,15 @@ bb bench efficiency \
 Read `Problem-class signals`, `Architecture-class signals`, and
 `Claim readiness` together. A headline result is useful only when the compared
 lanes share completed cases, architecture-class tags are measured, evidence
-quality is available, expected-evidence citation metrics are present,
+quality is available, expected-evidence citation metrics meet the claim floors,
 decision-quality metrics are comparable when decision cases are configured, and
 the report remains claim-ready. Report-level claim readiness requires at least
 six benchmark repos, seven declared source-kind groups, and zero missing
 declared source-kind coverage runs. It also requires at least three measured
 problem-class groups and three measured architecture-class groups in
-non-synthetic replay cases; lane wrapper gates may require stricter
-per-source-kind floors. In `--json` output, read
+non-synthetic replay cases; expected-evidence citation quality must meet the
+aggregate `0.80` and per-case `0.50` floors. Lane wrapper gates may require
+stricter per-source-kind floors. In `--json` output, read
 `compactSummary.verdict` first for the bounded helped/regressed/inconclusive
 answer and `compactSummary.why` for the short reason list. Then inspect
 `classSignals.problemClasses` and `classSignals.architectureClasses`; a row with
@@ -500,7 +501,8 @@ plugin-fit choice, not just a shorter suspected-file list.
   Report-level claim readiness also records `repoIds`, `sourceKindKeys`,
   `minimumReposForBroadClaim`, and `minimumSourceKindsForBroadClaim`; broad
   reports need at least six repos, seven declared source-kind groups, three
-  measured problem-class groups, three measured architecture-class groups, and no
+  measured problem-class groups, three measured architecture-class groups,
+  expected-evidence citation quality above the report floors, and no
   `missingDeclaredSourceKindRuns` before they can support broad real-world
   claims.
   Decision-quality reports include `decisionDiagnostics`, which counts
@@ -1057,9 +1059,11 @@ ground truth remains a single-repo shorthand.
 - `expectationDiagnostics`: report-level and grouped counters showing how many
   runs declared expected evidence and how many had scored
   `expectedEvidenceCitationRate` metrics. Claim readiness requires at least one
-  expected-evidence citation metric and no declared expected-evidence rows with
-  missing scored metrics. If stale or hand-written score artifacts declare
-  expected evidence without the scored metric, `improvementSummary` includes an
+  expected-evidence citation metric, no declared expected-evidence rows with
+  missing scored metrics, aggregate expected-evidence citation rate at or above
+  `0.80`, and every case expected-evidence citation rate at or above `0.50`.
+  If stale or hand-written score artifacts declare expected evidence without the
+  scored metric, `improvementSummary` includes an
   `expected-evidence-citation-metric-gaps` benchmark-hygiene row.
 - `changedFiles`: files changed by the fixing diff.
 - `localizationFiles`: localization target files, or changed files when no

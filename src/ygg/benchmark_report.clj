@@ -44,6 +44,12 @@
 (def ^:private claim-readiness-min-measured-architecture-classes
   3)
 
+(def ^:private claim-readiness-min-expected-evidence-citation-rate
+  0.80)
+
+(def ^:private claim-readiness-min-case-expected-evidence-citation-rate
+  0.50)
+
 (def ^:private docs-claim-readiness-min-repos
   3)
 
@@ -1267,6 +1273,36 @@
                   :missingExpectedEvidenceCitationMetricRuns]
                  0)))))
 
+(defn- score-at-least?
+  [score floor]
+  (and (number? score)
+       (<= (double floor) (double score))))
+
+(defn- report-expected-evidence-citation-quality?
+  [report]
+  (score-at-least? (get-in report [:scores :expectedEvidenceCitationRate])
+                   claim-readiness-min-expected-evidence-citation-rate))
+
+(defn- low-expected-evidence-citation-case-ids
+  [report]
+  (->> (:results report)
+       (filter (fn [result]
+                 (not (score-at-least?
+                       (get-in result [:scores :expectedEvidenceCitationRate])
+                       claim-readiness-min-case-expected-evidence-citation-rate))))
+       (map :case-id)
+       distinct
+       sort
+       vec))
+
+(defn- case-expected-evidence-citation-quality?
+  [report]
+  (empty? (low-expected-evidence-citation-case-ids report)))
+
+(defn- formatted-rate
+  [rate]
+  (format "%.2f" (double (or rate 0.0))))
+
 (defn- report-command-telemetry?
   [report]
   (and (report-has-runs? report)
@@ -1342,6 +1378,12 @@
         has-runs? (report-has-runs? report)
         evidence-metrics? (report-evidence-metrics? report)
         expected-evidence-metrics? (report-expected-evidence-metrics? report)
+        expected-evidence-citation-quality?
+        (report-expected-evidence-citation-quality? report)
+        case-expected-evidence-citation-quality?
+        (case-expected-evidence-citation-quality? report)
+        low-expected-evidence-case-ids
+        (low-expected-evidence-citation-case-ids report)
         command-telemetry? (report-command-telemetry? report)
         decision-metrics? (report-decision-metrics? report)
         benchmark-preflight? (report-benchmark-preflight? report)
@@ -1366,6 +1408,12 @@
                       measured-non-synthetic-architecture-class-breadth?
                       :evidenceCitationMetrics evidence-metrics?
                       :expectedEvidenceCitationMetrics expected-evidence-metrics?
+                      :expectedEvidenceCitationQuality
+                      (and expected-evidence-metrics?
+                           expected-evidence-citation-quality?)
+                      :caseExpectedEvidenceCitationQuality
+                      (and expected-evidence-metrics?
+                           case-expected-evidence-citation-quality?)
                       :decisionQualityMetrics decision-metrics?
                       :commandTelemetry command-telemetry?
                       :benchmarkPreflight benchmark-preflight?}
@@ -1382,6 +1430,10 @@
      claim-readiness-min-measured-problem-classes
      :minimumMeasuredArchitectureClassesForBroadClaim
      claim-readiness-min-measured-architecture-classes
+     :minimumExpectedEvidenceCitationRateForClaim
+     claim-readiness-min-expected-evidence-citation-rate
+     :minimumCaseExpectedEvidenceCitationRateForClaim
+     claim-readiness-min-case-expected-evidence-citation-rate
      :requirements requirements
      :warnings (cond-> []
                  (not completed?)
@@ -1460,6 +1512,26 @@
                  (not expected-evidence-metrics?)
                  (conj "Expected-evidence citation metrics are unavailable or incomplete; non-code help quality is unproven.")
 
+                 (and expected-evidence-metrics?
+                      (not expected-evidence-citation-quality?))
+                 (conj (str "Expected-evidence citation rate "
+                            (formatted-rate (get-in report
+                                                    [:scores
+                                                     :expectedEvidenceCitationRate]))
+                            " is below the broad real-world claim floor "
+                            (formatted-rate
+                             claim-readiness-min-expected-evidence-citation-rate)
+                            "."))
+
+                 (and expected-evidence-metrics?
+                      (seq low-expected-evidence-case-ids))
+                 (conj (str "Some case expected-evidence citation rates are below the broad real-world claim floor "
+                            (formatted-rate
+                             claim-readiness-min-case-expected-evidence-citation-rate)
+                            ": "
+                            (str/join "," low-expected-evidence-case-ids)
+                            "."))
+
                  (not decision-metrics?)
                  (conj "Decision-quality metrics are configured but incomplete; complex-system decision claims are unproven.")
 
@@ -1497,6 +1569,12 @@
         has-runs? (report-has-runs? report)
         evidence-metrics? (report-evidence-metrics? report)
         expected-evidence-metrics? (report-expected-evidence-metrics? report)
+        expected-evidence-citation-quality?
+        (report-expected-evidence-citation-quality? report)
+        case-expected-evidence-citation-quality?
+        (case-expected-evidence-citation-quality? report)
+        low-expected-evidence-case-ids
+        (low-expected-evidence-citation-case-ids report)
         command-telemetry? (report-command-telemetry? report)
         decision-metrics? (report-decision-metrics? report)
         benchmark-preflight? (report-benchmark-preflight? report)
@@ -1524,6 +1602,12 @@
                       (boolean (seq measured-non-synthetic-architecture-tags))
                       :evidenceCitationMetrics evidence-metrics?
                       :expectedEvidenceCitationMetrics expected-evidence-metrics?
+                      :expectedEvidenceCitationQuality
+                      (and expected-evidence-metrics?
+                           expected-evidence-citation-quality?)
+                      :caseExpectedEvidenceCitationQuality
+                      (and expected-evidence-metrics?
+                           case-expected-evidence-citation-quality?)
                       :decisionQualityMetrics decision-metrics?
                       :commandTelemetry command-telemetry?
                       :benchmarkPreflight benchmark-preflight?}
@@ -1537,6 +1621,10 @@
      :docSourceKindCases doc-source-kind-cases
      :minimumReposForDocsClaim docs-claim-readiness-min-repos
      :minimumDocSourceKindCases docs-claim-readiness-min-doc-cases
+     :minimumExpectedEvidenceCitationRateForClaim
+     claim-readiness-min-expected-evidence-citation-rate
+     :minimumCaseExpectedEvidenceCitationRateForClaim
+     claim-readiness-min-case-expected-evidence-citation-rate
      :requirements requirements
      :warnings (cond-> []
                  (not completed?)
@@ -1582,6 +1670,26 @@
 
                  (not expected-evidence-metrics?)
                  (conj "Expected-evidence citation metrics are unavailable or incomplete; docs evidence quality is unproven.")
+
+                 (and expected-evidence-metrics?
+                      (not expected-evidence-citation-quality?))
+                 (conj (str "Expected-evidence citation rate "
+                            (formatted-rate (get-in report
+                                                    [:scores
+                                                     :expectedEvidenceCitationRate]))
+                            " is below the docs-handling claim floor "
+                            (formatted-rate
+                             claim-readiness-min-expected-evidence-citation-rate)
+                            "."))
+
+                 (and expected-evidence-metrics?
+                      (seq low-expected-evidence-case-ids))
+                 (conj (str "Some case expected-evidence citation rates are below the docs-handling claim floor "
+                            (formatted-rate
+                             claim-readiness-min-case-expected-evidence-citation-rate)
+                            ": "
+                            (str/join "," low-expected-evidence-case-ids)
+                            "."))
 
                  (not decision-metrics?)
                  (conj "Decision-quality metrics are configured but incomplete; docs decision claims are unproven.")
