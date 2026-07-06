@@ -256,6 +256,15 @@
     (is (str/includes? (nth lines 2)
                        "--min-case-expected-evidence-citation-rate 0.50"))
     (is (str/includes? (nth lines 2)
+                       "--min-repos 6"))
+    (doseq [source-kind-minimum ["--min-source-kind-cases javascript=2"
+                                 "--min-source-kind-cases python=2"
+                                 "--min-source-kind-cases doc=2"
+                                 "--min-source-kind-cases dotnet=1"
+                                 "--min-source-kind-cases terraform=1"
+                                 "--min-source-kind-cases sql=1"]]
+      (is (str/includes? (nth lines 2) source-kind-minimum)))
+    (is (str/includes? (nth lines 2)
                        "--min-measured-problem-classes 3"))
     (is (str/includes? (nth lines 2)
                        "--min-measured-architecture-classes 3"))
@@ -270,6 +279,10 @@
                                      "0.25"
                                      "--max-noise-at-20"
                                      "0.95"
+                                     "--min-repos"
+                                     "4"
+                                     "--min-source-kind-cases"
+                                     "doc=1"
                                      "--min-measured-problem-classes"
                                      "2"
                                      "--min-measured-architecture-classes"
@@ -283,6 +296,10 @@
                        "--min-case-expected-evidence-citation-rate 0.25"))
     (is (str/includes? check-line
                        "--max-noise-at-20 0.95"))
+    (is (str/includes? check-line
+                       "--min-repos 4"))
+    (is (str/includes? check-line
+                       "--min-source-kind-cases doc=1"))
     (is (str/includes? check-line
                        "--min-measured-problem-classes 2"))
     (is (str/includes? check-line
@@ -307,6 +324,15 @@
                        "--min-expected-evidence-citation-rate 0.80"))
     (is (str/includes? (:out result)
                        "--min-case-expected-evidence-citation-rate 0.50"))
+    (is (str/includes? (:out result)
+                       "--min-repos 6"))
+    (doseq [source-kind-minimum ["--min-source-kind-cases javascript=2"
+                                 "--min-source-kind-cases python=2"
+                                 "--min-source-kind-cases doc=2"
+                                 "--min-source-kind-cases dotnet=1"
+                                 "--min-source-kind-cases terraform=1"
+                                 "--min-source-kind-cases sql=1"]]
+      (is (str/includes? (:out result) source-kind-minimum)))
     (is (str/includes? (:out result)
                        "--min-measured-problem-classes 3"))
     (is (str/includes? (:out result)
@@ -338,6 +364,10 @@
                        "--min-repos 3"))
     (is (str/includes? (nth lines 2)
                        "--min-source-kind-cases doc=4"))
+    (is (str/includes? (nth lines 2)
+                       "--min-measured-problem-classes 1"))
+    (is (str/includes? (nth lines 2)
+                       "--min-measured-architecture-classes 1"))
     (is (str/includes? (nth lines 3)
                        "python3 scripts/stage-time-gate.py"))))
 
@@ -357,7 +387,11 @@
     (is (str/includes? (:out result)
                        "--min-repos 3"))
     (is (str/includes? (:out result)
-                       "--min-source-kind-cases doc=4"))))
+                       "--min-source-kind-cases doc=4"))
+    (is (str/includes? (:out result)
+                       "--min-measured-problem-classes 1"))
+    (is (str/includes? (:out result)
+                       "--min-measured-architecture-classes 1"))))
 
 (deftest dry-run-runs-stage-time-gate-when-threshold-is-set
   (let [result (run-gate "--dry-run"

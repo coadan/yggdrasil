@@ -57,9 +57,11 @@ It runs `benchmarks/historical-replay-claim-quick.edn`, stores artifacts under
 standard recall floors, uses `--min-mrr 0.30`, and enforces
 `--max-noise-at-20 0.80` because the lane checks historical claim-readiness
 rather than synthetic exact-rank behavior. It also enforces at least three
-measured problem-class groups and three measured architecture-class groups so
-broad claims are not backed by a single real-world slice. The full historical
-replay remains the authoritative claim lane.
+measured problem-class groups, three measured architecture-class groups, six
+completed repos, and scoreable cases across the tracked JavaScript, Python,
+docs, .NET, Terraform, and SQL source-kind mix so broad claims are not backed
+by a single real-world slice. The full historical replay remains the
+authoritative claim lane.
 
 Use `bb bench:docs-claim` for documentation-handling claims. It runs the
 non-synthetic selector `benchmarks/historical-docs-claim-quick.edn`, stores
@@ -67,8 +69,9 @@ artifacts under `.dev/ygg/docs-claim-gate`, gates expected evidence with the
 same floors as `bb bench:claim-quick`, uses the same `0.30` MRR floor, and keeps
 the default deterministic gate `noise@20` ceiling of `0.90` for single-file docs
 edit cases. It also requires at least three completed benchmark repos and four
-completed cases with scoreable `doc` source-kind coverage. Use `--check-only`
-only when current score artifacts already exist.
+completed cases with scoreable `doc` source-kind coverage, plus at least one
+measured docs problem/architecture class. Use `--check-only` only when current
+score artifacts already exist.
 
 If a checkout exists only under the legacy `.dev/oss-test-cases/repos/` cache,
 the preflight reports that path so it can be moved or symlinked into the common

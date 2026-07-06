@@ -69,20 +69,23 @@ artifacts under `.dev/ygg/claim-quick-gate`, and gates expected-evidence
 citation coverage with an aggregate floor of `0.80` and per-case floor of
 `0.50`. It keeps the regular recall floors and uses a non-synthetic readiness
 MRR floor of `0.30` plus an aggregate `noise@20` ceiling of `0.80`. Broad
-claim readiness must include at least three measured problem-class groups and
-three measured architecture-class groups. The full historical replay remains
-the authoritative claim lane. Regenerating the gate reuses compatible baseline
-context manifests by default, keyed by benchmark options and a Yggdrasil
-implementation fingerprint. Use `--fresh-context` when profiling full rebuild
-cost or intentionally replacing context artifacts.
+claim readiness must include all six curated repos, scoreable cases across the
+tracked JavaScript, Python, docs, .NET, Terraform, and SQL source-kind mix, at
+least three measured problem-class groups, and at least three measured
+architecture-class groups. The full historical replay remains the authoritative
+claim lane. Regenerating the gate reuses compatible baseline context manifests
+by default, keyed by benchmark options and a Yggdrasil implementation
+fingerprint. Use `--fresh-context` when profiling full rebuild cost or
+intentionally replacing context artifacts.
 
 Use the docs claim lane when the claim is specifically about documentation
 handling. It is a non-synthetic selector over historical doc edit cases, stores
 artifacts under `.dev/ygg/docs-claim-gate`, gates expected evidence with the
 same floors as `bb bench:claim-quick`, uses the same `0.30` MRR floor, and keeps
 the default deterministic gate `noise@20` ceiling of `0.90` for single-file docs
-edit cases. It additionally requires at least three completed repos and four
-completed cases with scoreable `doc` source-kind coverage:
+edit cases. It additionally requires at least three completed repos, four
+completed cases with scoreable `doc` source-kind coverage, and at least one
+measured docs problem/architecture class:
 
 ```sh
 bb bench:docs-claim --setup-check

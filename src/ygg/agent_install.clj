@@ -201,13 +201,15 @@
        "supported, graph expectations passing, and zero benchmark preflight "
        "blockers, including measured problem and architecture-class coverage "
        "in non-synthetic replay cases. The broad quick claim lane must include "
-       "at least three measured problem-class groups and three measured "
+       "at least six completed repos, scoreable cases across the tracked "
+       "source-kind mix, three measured problem-class groups, and three measured "
        "architecture-class groups. Use `bb bench:gate` for the default synthetic "
        "architecture diagnostic gate, not as standalone broad real-world proof. "
        "For documentation-handling claims, use `bb bench:docs-claim --check-only` "
        "against current artifacts or `bb bench:docs-claim` when artifacts are "
-       "missing or stale; that lane must include at least three completed repos "
-       "and four completed cases with scoreable `doc` source-kind coverage.\n"
+       "missing or stale; that lane must include at least three completed repos, "
+       "four completed cases with scoreable `doc` source-kind coverage, and "
+       "measured docs problem/architecture-class coverage.\n"
        end-marker "\n"))
 
 (defn- broad-search-hook

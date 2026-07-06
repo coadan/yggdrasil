@@ -15,6 +15,13 @@ Runs the small non-synthetic claim-readiness lane:
   --max-noise-at-20 0.80
   --min-expected-evidence-citation-rate 0.80
   --min-case-expected-evidence-citation-rate 0.50
+  --min-repos 6
+  --min-source-kind-cases javascript=2
+  --min-source-kind-cases python=2
+  --min-source-kind-cases doc=2
+  --min-source-kind-cases dotnet=1
+  --min-source-kind-cases terraform=1
+  --min-source-kind-cases sql=1
   --min-measured-problem-classes 3
   --min-measured-architecture-classes 3
 
@@ -40,6 +47,13 @@ exec bash scripts/benchmark-gate.sh \
   --max-noise-at-20 0.80 \
   --min-expected-evidence-citation-rate 0.80 \
   --min-case-expected-evidence-citation-rate 0.50 \
+  --min-repos 6 \
+  --min-source-kind-cases javascript=2 \
+  --min-source-kind-cases python=2 \
+  --min-source-kind-cases doc=2 \
+  --min-source-kind-cases dotnet=1 \
+  --min-source-kind-cases terraform=1 \
+  --min-source-kind-cases sql=1 \
   --min-measured-problem-classes 3 \
   --min-measured-architecture-classes 3 \
   "$@"

@@ -717,10 +717,30 @@
         full-repo-ids (set (map :id (:repos full)))
         claim-quick-source-kinds (set (mapcat #(get-in % [:coverage :source-kinds])
                                               (:cases claim-quick)))
+        claim-quick-source-kind-counts (frequencies
+                                        (mapcat #(get-in % [:coverage
+                                                            :source-kinds])
+                                                (:cases claim-quick)))
         docs-claim-source-kinds (set (mapcat #(get-in % [:coverage :source-kinds])
                                              (:cases docs-claim)))
         claim-quick-tags (frequencies (mapcat :tags (:cases claim-quick)))
         docs-claim-tags (frequencies (mapcat :tags (:cases docs-claim)))
+        docs-claim-measured-problem-tags (->> docs-claim-tags
+                                              (filter (fn [[tag count]]
+                                                        (and (benchmark-classes/problem-class-tag?
+                                                              tag)
+                                                             (<= 2 count))))
+                                              (map first)
+                                              sort
+                                              vec)
+        docs-claim-measured-architecture-tags (->> docs-claim-tags
+                                                   (filter (fn [[tag count]]
+                                                             (and (benchmark-classes/architecture-class-tag?
+                                                                   tag)
+                                                                  (<= 2 count))))
+                                                   (map first)
+                                                   sort
+                                                   vec)
         quick-source-kinds (set (mapcat #(get-in % [:coverage :source-kinds])
                                         (:cases quick)))
         quick-doc-cases (filter #(contains? (set (get-in % [:coverage :source-kinds]))
@@ -770,10 +790,18 @@
     (is (= #{"axios" "dapper" "terraform-aws-vpc" "flask"
              "graphify" "supabase-postgres"}
            claim-quick-repo-ids))
+    (is (= 6 (count claim-quick-repo-ids)))
     (is (= #{"axios" "bootstrap" "flask"}
            docs-claim-repo-ids))
-    (is (contains? claim-quick-source-kinds :doc))
-    (is (contains? claim-quick-source-kinds :sql))
+    (is (= #{:javascript :dotnet :terraform :python :doc :sql}
+           claim-quick-source-kinds))
+    (is (= {:javascript 2
+            :dotnet 1
+            :terraform 1
+            :python 2
+            :doc 2
+            :sql 1}
+           claim-quick-source-kind-counts))
     (is (= #{:doc} docs-claim-source-kinds))
     (is (<= 2 (get claim-quick-tags "problem-docs-config-coupling" 0)))
     (is (<= 2 (get claim-quick-tags "problem-implementation" 0)))
@@ -783,6 +811,10 @@
     (is (<= 4 (get docs-claim-tags "docs" 0)))
     (is (<= 4 (get docs-claim-tags "problem-docs-config-coupling" 0)))
     (is (<= 3 (get docs-claim-tags "audit-scope-docs" 0)))
+    (is (= ["problem-docs-config-coupling"]
+           docs-claim-measured-problem-tags))
+    (is (= ["audit-scope-docs"]
+           docs-claim-measured-architecture-tags))
     (is (not (contains? docs-claim-tags "synthetic")))
     (is (not (contains? (set quick-case-ids)
                         "historical-otel-routing-default-error-mode")))
@@ -1732,6 +1764,7 @@
              :metrics {:firstSourceRank 1
                        :supportCount 1
                        :docCount 1
+                       :attachedDocCount 0
                        :entityCount 0
                        :candidateFileCount 0
                        :retrievedSourceCount 0
