@@ -150,12 +150,26 @@ bb bench repos check --suite benchmarks/oss-issue-patch-replay.edn
 bb bench agent-run benchmarks/oss-issue-patch-replay.edn \
   --mode shell-only \
   --agent shell-agent \
-  --out .dev/ygg/agent-efficiency/oss-issue-patch-replay
+  --out .dev/ygg/agent-efficiency/oss-issue-patch-replay/shell-only
 
 bb bench agent-run benchmarks/oss-issue-patch-replay.edn \
   --mode ygg \
   --agent ygg-agent \
-  --out .dev/ygg/agent-efficiency/oss-issue-patch-replay
+  --out .dev/ygg/agent-efficiency/oss-issue-patch-replay/ygg
+
+bb bench agent-report benchmarks/oss-issue-patch-replay.edn \
+  --mode shell-only \
+  --agent shell-agent \
+  --out .dev/ygg/agent-efficiency/oss-issue-patch-replay/shell-only
+
+bb bench agent-report benchmarks/oss-issue-patch-replay.edn \
+  --mode ygg \
+  --agent ygg-agent \
+  --out .dev/ygg/agent-efficiency/oss-issue-patch-replay/ygg
+
+bb bench agent-compare benchmarks/oss-issue-patch-replay.edn \
+  --baseline-report .dev/ygg/agent-efficiency/oss-issue-patch-replay/shell-only/agent-report.json \
+  --candidate-report .dev/ygg/agent-efficiency/oss-issue-patch-replay/ygg/agent-report.json
 ```
 
 Use the full lane as the authoritative non-synthetic claim lane, including the
