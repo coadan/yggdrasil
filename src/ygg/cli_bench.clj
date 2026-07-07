@@ -606,6 +606,31 @@
        (sort-by name)
        vec))
 
+(defn- source-kind-quality-part
+  [label values]
+  (str label " " (if (seq values)
+                   (str/join "," values)
+                   "none")))
+
+(defn- print-source-kind-quality-summary
+  [source-kind-quality]
+  (when source-kind-quality
+    (println "- source-kind-quality"
+             "min-cases"
+             (:minimumCasesForSourceKindQuality source-kind-quality)
+             "min-measured"
+             (:minimumMeasuredSourceKindQualityGroupsForBroadClaim
+              source-kind-quality)
+             (source-kind-quality-part
+              "measured"
+              (:measuredSourceKindKeys source-kind-quality))
+             (source-kind-quality-part
+              "underpowered"
+              (:underpoweredSourceKindKeys source-kind-quality))
+             (source-kind-quality-part
+              "below-floor"
+              (:lowQualitySourceKindKeys source-kind-quality)))))
+
 (defn- print-claim-readiness
   [claim-readiness]
   (when claim-readiness
@@ -622,6 +647,7 @@
     (when (seq (:measuredArchitectureClassTags claim-readiness))
       (println "- measured-architecture-classes"
                (str/join "," (:measuredArchitectureClassTags claim-readiness))))
+    (print-source-kind-quality-summary (:sourceKindQuality claim-readiness))
     (when-let [failed (seq (failed-readiness-requirements claim-readiness))]
       (println "- broad-claim-failed-requirements"
                (str/join "," (map name failed))))

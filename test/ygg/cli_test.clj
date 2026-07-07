@@ -1544,6 +1544,13 @@
                          :broadArchitectureClaimSupported false
                          :measuredProblemClassTags ["problem-architecture"]
                          :measuredArchitectureClassTags []
+                         :sourceKindQuality {:minimumCasesForSourceKindQuality 2
+                                             :minimumMeasuredSourceKindQualityGroupsForBroadClaim 2
+                                             :measuredSourceKindKeys ["doc"
+                                                                      "javascript"]
+                                             :underpoweredSourceKindKeys ["ci"
+                                                                          "go"]
+                                             :lowQualitySourceKindKeys ["python"]}
                          :requirements {:measuredProblemClasses true
                                         :measuredArchitectureClasses false}
                          :warnings ["No measured architecture-class groups."]}
@@ -1576,6 +1583,9 @@
       (is (str/includes? out "- broad-claim-readiness not-supported"))
       (is (str/includes? out "- broad-architecture-claim-supported false"))
       (is (str/includes? out "- measured-problem-classes problem-architecture"))
+      (is (str/includes?
+           out
+           "- source-kind-quality min-cases 2 min-measured 2 measured doc,javascript underpowered ci,go below-floor python"))
       (is (str/includes?
            out
            "- broad-claim-failed-requirements measuredArchitectureClasses"))
