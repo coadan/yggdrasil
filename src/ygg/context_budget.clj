@@ -757,6 +757,34 @@
         (if (<= (estimate-tokens trimmed) budget)
           (recur (inc mid) hi selected)
           (recur lo (dec mid) best))))))
+
+(defn- candidate-file-warning
+  [selected-count total]
+  (if (< selected-count total)
+    (str "candidate files trimmed to "
+         selected-count
+         " of "
+         total
+         " to fit context budget")
+    "candidate file details compacted to fit context budget"))
+
+(defn- fitting-candidate-selection-with-warning
+  [packet candidates reserve total budget]
+  (loop [lo 0
+         hi (count candidates)
+         best nil]
+    (if (> lo hi)
+      best
+      (let [mid (quot (+ lo hi) 2)
+            selected (candidate-selection candidates mid reserve)
+            warning (candidate-file-warning (count selected) total)
+            trimmed (-> packet
+                        (assoc :candidateFiles selected)
+                        (update :warnings conj warning))]
+        (if (and (seq selected)
+                 (<= (estimate-tokens trimmed) budget))
+          (recur (inc mid) hi [selected warning])
+          (recur lo (dec mid) best))))))
 (def ^:private candidate-file-reserve-fraction
   0.25)
 
@@ -783,25 +811,27 @@
                        (trim-optional-context-metadata candidate-context-budget)
                        (assoc :candidateFiles candidates))
             compact-candidates (mapv compact-candidate-file candidates)
-            selected-candidates (fitting-candidate-selection
-                                 packet
-                                 compact-candidates
-                                 (concat
-                                  (architecture-candidate-reserve compact-candidates)
-                                  (candidate-source-reserve compact-candidates))
-                                 budget)]
+            reserve-candidates (concat
+                                (architecture-candidate-reserve compact-candidates)
+                                (candidate-source-reserve compact-candidates))
+            selected-without-warning (fitting-candidate-selection
+                                      packet
+                                      compact-candidates
+                                      reserve-candidates
+                                      budget)
+            [selected-candidates warning]
+            (or (fitting-candidate-selection-with-warning
+                 packet
+                 compact-candidates
+                 reserve-candidates
+                 total
+                 budget)
+                [selected-without-warning
+                 (candidate-file-warning (count selected-without-warning) total)])]
         (if (seq selected-candidates)
           (-> packet
               (assoc :candidateFiles selected-candidates)
-              (add-warning-with-budget
-               (if (< (count selected-candidates) total)
-                 (str "candidate files trimmed to "
-                      (count selected-candidates)
-                      " of "
-                      total
-                      " to fit context budget")
-                 "candidate file details compacted to fit context budget")
-               budget))
+              (add-warning-with-budget warning budget))
           (-> packet
               (assoc :candidateFiles [])
               (add-warning-with-budget
