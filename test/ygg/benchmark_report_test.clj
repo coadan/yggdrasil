@@ -1851,6 +1851,39 @@
              (get-in report [:docsClaimReadiness :repoIds])))
       (is (= ["ci" "doc"]
              (get-in report [:docsClaimReadiness :sourceKindKeys])))
+      (is (= [{:kind "ci"
+               :runs 1
+               :cases 1
+               :caseIds ["docs-config-ci"]
+               :scores {:fileRecallAt5 1.0
+                        :fileRecallAt10 1.0
+                        :fileRecallAt20 1.0
+                        :meanReciprocalRankFile 1.0
+                        :noiseRatioAt20 0.0
+                        :evidenceCitationRate 1.0
+                        :pathEvidenceCitationRate 1.0
+                        :expectedEvidenceCitationRate 1.0
+                        :changedFiles 1
+                        :scoreableChangedFiles 1
+                        :unsupportedGroundTruthFiles 0
+                        :coverageExcludedGroundTruthFiles 0}}
+              {:kind "doc"
+               :runs 4
+               :cases 4
+               :caseIds ["docs-a" "docs-b" "docs-c" "docs-d"]
+               :scores {:fileRecallAt5 1.0
+                        :fileRecallAt10 1.0
+                        :fileRecallAt20 1.0
+                        :meanReciprocalRankFile 1.0
+                        :noiseRatioAt20 0.0
+                        :evidenceCitationRate 1.0
+                        :pathEvidenceCitationRate 1.0
+                        :expectedEvidenceCitationRate 1.0
+                        :changedFiles 4
+                        :scoreableChangedFiles 4
+                        :unsupportedGroundTruthFiles 0
+                        :coverageExcludedGroundTruthFiles 0}}]
+             (:sourceKindScores report)))
       (is (= 4 (get-in report [:docsClaimReadiness :docSourceKindCases])))
       (is (= {:fileRecallAt5 1.0
               :fileRecallAt10 1.0

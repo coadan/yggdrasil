@@ -1371,9 +1371,36 @@
   [report source-kind]
   (filterv #(scoreable-source-kind-result? source-kind %) (:results report)))
 
+(defn- source-kind-score-row
+  [report source-kind]
+  (let [results (source-kind-score-results report source-kind)
+        case-ids (->> results
+                      (map :case-id)
+                      distinct
+                      sort
+                      vec)]
+    {:kind source-kind
+     :runs (count results)
+     :cases (count case-ids)
+     :caseIds case-ids
+     :scores (aggregate-agent-scores results)}))
+
+(defn- source-kind-score-rows
+  [report]
+  (->> (or (get-in report [:coverage :scoreableSourceKinds])
+           (mapcat #(get-in % [:coverage :scoreableSourceKinds])
+                   (:results report)))
+       distinct
+       sort
+       (mapv #(source-kind-score-row report %))))
+
 (defn- source-kind-score-summary
   [report source-kind]
-  (aggregate-agent-scores (source-kind-score-results report source-kind)))
+  (or (some (fn [row]
+              (when (= source-kind (:kind row))
+                (:scores row)))
+            (:sourceKindScores report))
+      (aggregate-agent-scores (source-kind-score-results report source-kind))))
 
 (defn- report-claim-readiness
   [report]
@@ -2511,6 +2538,9 @@
                                             results)}
                       agent-preparation
                       (assoc :agentPreparation agent-preparation))
+        report-base (assoc report-base
+                           :sourceKindScores
+                           (source-kind-score-rows report-base))
         report-base (assoc report-base
                            :improvementSummary
                            (report-improvement-summary report-base))
