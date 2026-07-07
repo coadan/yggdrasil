@@ -121,6 +121,9 @@
                                    {:package package
                                     :import-name (:package-name package)
                                     :resolution-source :package-name})))))
-        packages (distinct-packages (map :package matches))]
+        matches (sort-by (comp - count :import-name) matches)
+        best-prefix-len (some-> (first matches) :import-name count)
+        best (filter #(= best-prefix-len (count (:import-name %))) matches)
+        packages (distinct-packages (map :package best))]
     (when (= 1 (count packages))
-      (first matches))))
+      (first best))))

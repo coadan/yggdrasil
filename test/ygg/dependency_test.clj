@@ -1,6 +1,7 @@
 (ns ygg.dependency-test
   (:require [ygg.dependency :as dependency]
             [ygg.dependency.imports.python :as python-imports]
+            [ygg.dependency.resolve.java :as resolve-java]
             [ygg.dependency.resolve.python :as resolve-python]
             [ygg.xtdb :as store]
             [clojure.test :refer [deftest is]]))
@@ -132,7 +133,9 @@
                            :active? true}
              :return-fields @#'dependency/dependency-edge-row-fields}]
            (mapv #(select-keys % [:table :field :values :constraints :return-fields])
-                 @edge-queries)))))
+                 @edge-queries)))
+    (is (contains? (set (:return-fields (first @edge-queries)))
+                   :import-names))))
 
 (deftest import-package-resolution-preserves-type-import-kind-from-batched-edge-projection
   (let [file {:path "site/src/libs/rehype.ts"
@@ -209,6 +212,68 @@
                                       :import-name
                                       :resolution-source])
                      edges)))))))
+
+(deftest java-maven-resolution-derives-coordinate-import-prefixes
+  (let [package (fn [id package-name]
+                  {:xt/id id
+                   :kind :external-package
+                   :ecosystem :maven
+                   :package-name package-name})
+        packages [(package "pkg:picocli" "info.picocli:picocli")
+                  (package "pkg:bnd" "biz.aQute.bnd:biz.aQute.bndlib")
+                  (package "pkg:coroutines" "org.jetbrains.kotlinx:kotlinx-coroutines-core")
+                  (package "pkg:junit4" "junit:junit")
+                  (package "pkg:jupiter" "org.junit.jupiter:junit-jupiter-api")]
+        resolve-target (fn [target]
+                         (resolve-java/resolve-import
+                          {:packages-by-source {"gradle/libs.versions.toml" packages}
+                           :edge {:path "src/main/java/example/App.java"}
+                           :target target}))]
+    (is (= {:package {:package-name "info.picocli:picocli"}
+            :import-name "picocli"
+            :resolution-source :maven-coordinate-prefix}
+           (select-keys (update (resolve-target "picocli.CommandLine")
+                                :package
+                                select-keys
+                                [:package-name])
+                        [:package :import-name :resolution-source])))
+    (is (= {:package {:package-name "biz.aQute.bnd:biz.aQute.bndlib"}
+            :import-name "aQute.bnd"}
+           (-> (resolve-target "aQute.bnd.osgi.Jar")
+               (update :package select-keys [:package-name])
+               (select-keys [:package :import-name]))))
+    (is (= {:package {:package-name "org.jetbrains.kotlinx:kotlinx-coroutines-core"}
+            :import-name "kotlinx.coroutines"}
+           (-> (resolve-target "kotlinx.coroutines.BuildersKt.runBlocking")
+               (update :package select-keys [:package-name])
+               (select-keys [:package :import-name]))))
+    (is (= {:package {:package-name "junit:junit"}
+            :import-name "junit"}
+           (-> (resolve-target "junit.framework.TestCase")
+               (update :package select-keys [:package-name])
+               (select-keys [:package :import-name]))))))
+
+(deftest import-package-resolution-prefers-most-specific-import-name
+  (let [stdlib {:xt/id "pkg:kotlin-stdlib"
+                :kind :external-package
+                :ecosystem :maven
+                :package-name "org.jetbrains.kotlin:kotlin-stdlib"
+                :import-names ["kotlin"]}
+        reflect {:xt/id "pkg:kotlin-reflect"
+                 :kind :external-package
+                 :ecosystem :maven
+                 :package-name "org.jetbrains.kotlin:kotlin-reflect"
+                 :import-names ["kotlin.reflect"]}
+        result (resolve-java/resolve-import
+                {:packages-by-source {"build.gradle.kts" [stdlib reflect]}
+                 :edge {:path "src/main/java/example/App.java"}
+                 :target "kotlin.reflect.KFunction"})]
+    (is (= {:package {:package-name "org.jetbrains.kotlin:kotlin-reflect"}
+            :import-name "kotlin.reflect"
+            :resolution-source :manifest-import-name}
+           (-> result
+               (update :package select-keys [:package-name])
+               (select-keys [:package :import-name :resolution-source]))))))
 
 (deftest package-report-uses-relation-scoped-edge-reads
   (let [row-queries (atom [])
@@ -545,6 +610,66 @@
       (is (= #{:maven-coordinate-prefix}
              (set (map :resolution-source edges))))
       (is (not-any? #(= "demo.Local" (:import-name %)) edges)))))
+
+(deftest import-package-resolution-uses-import-names-from-requires-edge
+  (with-redefs [store/rows-by-field (fn [_ table _ _]
+                                      (case table
+                                        :ygg/files
+                                        [{:path "module/src/main/java/demo/App.java"
+                                          :kind :java
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        :ygg/nodes
+                                        [{:xt/id "manifest:module"
+                                          :kind :manifest
+                                          :path "module/build.gradle.kts"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}
+                                         {:xt/id "pkg:maven:kotlin-stdlib"
+                                          :kind :external-package
+                                          :ecosystem :maven
+                                          :package-name "org.jetbrains.kotlin:kotlin-stdlib"
+                                          :active? true
+                                          :project-id "project-a"
+                                          :repo-id "repo-a"}]
+                                        []))
+                store/q (fn [_ query]
+                          (case (last query)
+                            :requires
+                            [{:source-id "manifest:module"
+                              :target-id "pkg:maven:kotlin-stdlib"
+                              :relation :requires
+                              :import-names ["kotlin"]
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :imports
+                            [{:source-id "node:namespace:demo"
+                              :target-id "node:namespace:kotlin.Unit"
+                              :relation :imports
+                              :path "module/src/main/java/demo/App.java"
+                              :source-line 3
+                              :active? true
+                              :project-id "project-a"
+                              :repo-id "repo-a"}]
+                            :resolves []
+                            :uses []
+                            :version-of []
+                            []))]
+    (let [edges (dependency/resolve-import-package-edges
+                 :xtdb
+                 "project-a"
+                 "repo-a"
+                 "run-a"
+                 {})]
+      (is (= ["org.jetbrains.kotlin:kotlin-stdlib"]
+             (mapv :package-name edges)))
+      (is (= ["kotlin"]
+             (mapv :import-name edges)))
+      (is (= [:manifest-import-name]
+             (mapv :resolution-source edges))))))
 
 (deftest import-package-resolution-leaves-ambiguous-java-maven-group-import-unresolved
   (with-redefs [store/rows-by-field (fn [_ table _ _]

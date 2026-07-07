@@ -31,6 +31,15 @@
              module-name
              (str "kotlin-" module-name))))))
 
+(defn- kotlin-helper-import-names
+  [module-name]
+  (let [module-name (str/replace (str module-name) #"^kotlin-" "")]
+    (case module-name
+      ("stdlib" "stdlib-common" "stdlib-jdk7" "stdlib-jdk8") ["kotlin"]
+      "reflect" ["kotlin.reflect"]
+      "test" ["kotlin.test"]
+      nil)))
+
 (defn- gradle-dependencies
   [content]
   (gradle-line-facts
@@ -79,6 +88,7 @@
          (let [[_ scope module-name] kotlin-helper-dep]
            [(common/package-fact {:ecosystem :maven
                                   :package-name (kotlin-helper-package-name module-name)
+                                  :import-names (kotlin-helper-import-names module-name)
                                   :dependency-scope scope
                                   :source-line source-line})])
 

@@ -1017,8 +1017,14 @@
     (is (= "compileOnly"
            (:dependency-scope
             (package-node "maven:org.jetbrains.kotlin:kotlin-stdlib"))))
+    (is (= ["kotlin"]
+           (:import-names
+            (package-node "maven:org.jetbrains.kotlin:kotlin-stdlib"))))
     (is (= "testRuntimeOnly"
            (:dependency-scope
+            (package-node "maven:org.jetbrains.kotlin:kotlin-reflect"))))
+    (is (= ["kotlin.reflect"]
+           (:import-names
             (package-node "maven:org.jetbrains.kotlin:kotlin-reflect"))))
     (is (= 2 (get relations :requires 0)))))
 

@@ -81,6 +81,7 @@
    :version-range
    :dependency-scope
    :import-name
+   :import-names
    :import-kind
    :source-kind
    :resolution-source
@@ -132,6 +133,16 @@
 (def ^:private package-evidence-source-kinds
   #{:manifest :doc-file})
 
+(defn- package-with-edge-import-names
+  [package edge]
+  (let [import-names (->> (concat (:import-names package)
+                                  (:import-names edge))
+                          (remove str/blank?)
+                          distinct
+                          vec)]
+    (cond-> package
+      (seq import-names) (assoc :import-names import-names))))
+
 (defn- package-source-entries
   [nodes-by-id edges]
   (->> edges
@@ -142,7 +153,8 @@
                  (when (and (contains? package-evidence-source-kinds
                                        (:kind source))
                             (package-node? target))
-                   [(:path source) target]))))))
+                   [(:path source)
+                    (package-with-edge-import-names target edge)]))))))
 
 (defn- lock-package-source-entries
   [nodes-by-id edges]

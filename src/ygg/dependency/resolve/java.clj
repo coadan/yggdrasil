@@ -10,6 +10,16 @@
       {:group-id group-id
        :artifact-id artifact-id})))
 
+(defn- group-id-suffix-prefixes
+  [group-id]
+  (let [parts (vec (remove str/blank? (str/split (str group-id) #"\.")))]
+    (->> (range (max 0 (- (count parts) 1)))
+         (map #(subvec parts %))
+         (filter #(< 1 (count %)))
+         (map #(str/join "." %))
+         distinct
+         vec)))
+
 (defn- maven-artifact-prefixes
   [group-id artifact-id]
   (let [parts (vec (remove str/blank? (str/split (str artifact-id) #"-")))]
@@ -20,14 +30,29 @@
          distinct
          vec)))
 
+(defn- artifact-import-prefixes
+  [artifact-id]
+  (let [parts (vec (remove str/blank? (str/split (str artifact-id) #"-")))]
+    (->> (range (if (= 1 (count parts)) 1 2) (inc (count parts)))
+         (map #(subvec parts 0 %))
+         (remove empty?)
+         (map #(str/join "." %))
+         distinct
+         vec)))
+
 (defn- maven-import-prefixes
   [{:keys [package-name]}]
   (when-let [{:keys [group-id artifact-id]} (maven-coordinate package-name)]
-    (->> (cond-> [group-id]
-           (str/includes? group-id ".")
-           (into (maven-artifact-prefixes group-id artifact-id)))
+    (->> (concat [group-id]
+                 (group-id-suffix-prefixes group-id)
+                 (maven-artifact-prefixes group-id artifact-id)
+                 (artifact-import-prefixes artifact-id))
          distinct
          vec)))
+
+(defn- prefix-score
+  [prefix]
+  (count (remove str/blank? (str/split (str prefix) #"[./]"))))
 
 (defn- maven-coordinate-match
   [target package]
@@ -37,7 +62,7 @@
                  {:package package
                   :import-name prefix
                   :resolution-source :maven-coordinate-prefix
-                  :match-score (if (str/includes? prefix ".") 2 1)})))
+                  :match-score (prefix-score prefix)})))
        (sort-by (juxt (comp - :match-score)
                       (comp - count :import-name)))))
 

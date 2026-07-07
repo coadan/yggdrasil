@@ -81,6 +81,26 @@
           :patch {:required? true
                   :verifiers [{:id "git-diff-check"
                                :command "git diff --check"}]}
+          :correction-overlay {:package-imports [{:repo "junit-framework"
+                                                  :import "kotlinx.coroutines"
+                                                  :ecosystem :maven
+                                                  :package "org.jetbrains.kotlinx:kotlinx-coroutines-core"
+                                                  :reason "Benchmark fixture review: Java imports from kotlinx.coroutines resolve to the declared coroutines core package, not the test helper package."}
+                                                 {:repo "junit-framework"
+                                                  :import "de.skuzzle.test.snapshots.data.xml"
+                                                  :ecosystem :maven
+                                                  :package "de.skuzzle.test:snapshot-tests-xml"
+                                                  :reason "Benchmark fixture review: Snapshot Tests XML classes are provided by the declared snapshot-tests-xml package."}
+                                                 {:repo "junit-framework"
+                                                  :import "de.skuzzle.test.snapshots.junit5"
+                                                  :ecosystem :maven
+                                                  :package "de.skuzzle.test:snapshot-tests-junit5"
+                                                  :reason "Benchmark fixture review: Snapshot Tests JUnit 5 classes are provided by the declared snapshot-tests-junit5 package."}
+                                                 {:repo "junit-framework"
+                                                  :import "de.skuzzle.test.snapshots"
+                                                  :ecosystem :maven
+                                                  :package "de.skuzzle.test:snapshot-tests-junit5"
+                                                  :reason "Benchmark fixture review: remaining Snapshot Tests imports are covered by the declared snapshot-tests-junit5 package."}]}
           :ground-truth {:localization-files ["junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesExtension.java"
                                               "junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesModification.java"
                                               "jupiter-tests/src/test/java/org/junit/jupiter/api/util/SystemPropertiesExtensionTests.java"]}
