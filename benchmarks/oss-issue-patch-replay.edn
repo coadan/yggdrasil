@@ -1,0 +1,310 @@
+{:id "oss-issue-patch-replay"
+ :project-id "oss-issue-patch-replay"
+ :description "Small real OSS issue-to-patch replay lane for shell-only versus default Yggdrasil auto/hybrid agent patch outcomes."
+ :repos [{:id "axios"
+          :root "../.dev/ygg/benchmark-repos/axios"
+          :role :application}
+         {:id "dapper"
+          :root "../.dev/ygg/benchmark-repos/dapper"
+          :role :library}
+         {:id "flask"
+          :root "../.dev/ygg/benchmark-repos/flask"
+          :role :application}
+         {:id "graphify"
+          :root "../.dev/ygg/benchmark-repos/graphify"
+          :role :application}
+         {:id "junit-framework"
+          :root "../.dev/ygg/benchmark-repos/junit-framework"
+          :role :library}
+         {:id "supabase-postgres"
+          :root "../.dev/ygg/benchmark-repos/supabase-postgres"
+          :role :application}
+         {:id "terraform-aws-vpc"
+          :root "../.dev/ygg/benchmark-repos/terraform-aws-vpc"
+          :role :library}]
+ :cases [{:id "oss-patch-dapper-prefer-enum-type-handlers"
+          :repo-id "dapper"
+          :result-scope :patch
+          :coverage {:source-kinds [:dotnet]}
+          :tags [:oss-patch
+                 :real-oss-patch
+                 :patch-outcome
+                 :historical
+                 :problem-implementation
+                 :problem-cross-file
+                 :problem-api-contract
+                 :architecture-data-ownership
+                 :audit-scope-dependencies
+                 :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
+                 :dotnet]
+          :base-sha "512f024667b79b4a17a38f33da59b072a43579f1"
+          :fix-sha "2a8faab235c21892fb4c9a4529510d030516d691"
+          :patch {:required? true
+                  :verifiers [{:id "git-diff-check"
+                               :command "git diff --check"}]}
+          :ground-truth {:localization-files ["Dapper/SqlMapper.Settings.cs"
+                                              "Dapper/SqlMapper.cs"]}
+          :expectations {:citation-evidence [{:kind :dotnet-type-handler
+                                              :path "Dapper/SqlMapper.cs"}
+                                             {:kind :dotnet-settings
+                                              :path "Dapper/SqlMapper.Settings.cs"}]}
+          :issue {:id "dapper-2200"
+                  :url "https://github.com/DapperLib/Dapper/pull/2200"
+                  :title "Fix/prefer typehandlers for enums"
+                  :body "Real OSS patch replay of Dapper commit 2a8faab235c21892fb4c9a4529510d030516d691. Fix enum handling so registered enum TypeHandlers can be preferred before default enum boxing, including the setting/API surface and focused regression coverage. Use only the base checkout and issue text; do not inspect the fixing diff."}}
+
+         {:id "oss-patch-junit-system-properties-extension-backup"
+          :repo-id "junit-framework"
+          :result-scope :patch
+          :coverage {:source-kinds [:java]}
+          :tags [:oss-patch
+                 :real-oss-patch
+                 :patch-outcome
+                 :historical
+                 :problem-implementation
+                 :problem-cross-file
+                 :problem-api-contract
+                 :architecture-data-ownership
+                 :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
+                 :java
+                 :junit]
+          :base-sha "c8168b7c79a0591f421ef37dbbd20eb1f34cafef"
+          :fix-sha "5bc7cb12f5bc4492011bdcf278fde44ac45166d5"
+          :patch {:required? true
+                  :verifiers [{:id "git-diff-check"
+                               :command "git diff --check"}]}
+          :ground-truth {:localization-files ["junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesExtension.java"
+                                              "junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesModification.java"
+                                              "jupiter-tests/src/test/java/org/junit/jupiter/api/util/SystemPropertiesExtensionTests.java"]}
+          :expectations {:citation-evidence [{:kind :system-properties-extension
+                                              :path "junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesExtension.java"}
+                                             {:kind :system-properties-modification
+                                              :path "junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesModification.java"}
+                                             {:kind :system-properties-extension-test
+                                              :path "jupiter-tests/src/test/java/org/junit/jupiter/api/util/SystemPropertiesExtensionTests.java"}]}
+          :issue {:id "junit-framework-5764"
+                  :url "https://github.com/junit-team/junit-framework/pull/5764"
+                  :title "Store one partial backup for each SystemPropertiesExtension context"
+                  :body "Real OSS patch replay of JUnit commit 5bc7cb12f5bc4492011bdcf278fde44ac45166d5. Fix SystemPropertiesExtension lifecycle backup behavior so each context keeps the right partial backup, including any helper type and regression tests. Use only the base checkout and issue text; do not inspect the fixing diff."}}
+
+         {:id "oss-patch-axios-max-body-length-follow-redirects"
+          :repo-id "axios"
+          :result-scope :patch
+          :coverage {:source-kinds [:javascript]}
+          :tags [:oss-patch
+                 :real-oss-patch
+                 :patch-outcome
+                 :historical
+                 :problem-implementation
+                 :problem-dependency-boundary
+                 :problem-runtime-config
+                 :architecture-runtime-boundary
+                 :dependency-package-changes
+                 :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
+                 :javascript]
+          :base-sha "30499d6af0961ec38619792013a534d1933b08a9"
+          :fix-sha "1792eda11aff8fe0f8c8a6e5ae6ff305740a6460"
+          :patch {:required? true
+                  :verifiers [{:id "git-diff-check"
+                               :command "git diff --check"}]}
+          :ground-truth {:localization-files ["lib/adapters/http.js"]}
+          :expectations {:citation-evidence [{:kind :http-adapter-follow-redirects-boundary
+                                              :path "lib/adapters/http.js"}]}
+          :issue {:id "axios-10993"
+                  :url "https://github.com/axios/axios/pull/10993"
+                  :title "fix: ensure maxBodyLength is explicitly passed to follow-redirects"
+                  :body "Real OSS patch replay of Axios commit 1792eda11aff8fe0f8c8a6e5ae6ff305740a6460. Fix the HTTP adapter so maxBodyLength is explicitly passed into the follow-redirects boundary. Use only the base checkout and issue text; do not inspect the fixing diff."}}
+
+         {:id "oss-patch-dapper-reference-trimmer-dependencies"
+          :repo-id "dapper"
+          :result-scope :patch
+          :coverage {:source-kinds [:manifest]}
+          :tags [:oss-patch
+                 :real-oss-patch
+                 :patch-outcome
+                 :historical
+                 :problem-implementation
+                 :problem-dependency-change
+                 :architecture-dependency-flow
+                 :dependency-package-changes
+                 :audit-scope-dependencies
+                 :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
+                 :dotnet]
+          :base-sha "953f3718052940e72d0f20e22d836b1595f5dcd8"
+          :fix-sha "72a54c475f75e18cb93cba0809d00a5e6e49efd9"
+          :patch {:required? true
+                  :verifiers [{:id "git-diff-check"
+                               :command "git diff --check"}]}
+          :ground-truth {:localization-files ["Dapper.SqlBuilder/Dapper.SqlBuilder.csproj"
+                                              "Directory.Packages.props"
+                                              "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"]}
+          :expectations {:citation-evidence [{:kind :dotnet-project-reference-trimmer
+                                              :path "Dapper.SqlBuilder/Dapper.SqlBuilder.csproj"}
+                                             {:kind :dotnet-central-package-management
+                                              :path "Directory.Packages.props"}
+                                             {:kind :dotnet-benchmark-project-reference
+                                              :path "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"}]}
+          :issue {:id "dapper-2191"
+                  :url "https://github.com/DapperLib/Dapper/pull/2191"
+                  :title "Add ReferenceTrimmer and remove unused references"
+                  :body "Real OSS patch replay of Dapper commit 72a54c475f75e18cb93cba0809d00a5e6e49efd9. Add ReferenceTrimmer dependency support and remove unused project references in the affected project and central package files. Use only the base checkout and issue text; do not inspect the fixing diff."}}
+
+         {:id "oss-patch-flask-autoescape-case-insensitive"
+          :repo-id "flask"
+          :result-scope :patch
+          :coverage {:source-kinds [:python]}
+          :tags [:oss-patch
+                 :real-oss-patch
+                 :patch-outcome
+                 :historical
+                 :problem-implementation
+                 :problem-runtime-config
+                 :problem-api-contract
+                 :architecture-runtime-boundary
+                 :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
+                 :python
+                 :flask]
+          :base-sha "06ea505ce2b2042af26e96d35ebf159af7c0869d"
+          :fix-sha "9368fb3f3c52d74534d14c1bef03c79c103356cd"
+          :patch {:required? true
+                  :verifiers [{:id "git-diff-check"
+                               :command "git diff --check"}]}
+          :ground-truth {:localization-files ["src/flask/sansio/app.py"]}
+          :expectations {:citation-evidence [{:kind :flask-autoescape-runtime
+                                              :path "src/flask/sansio/app.py"}]}
+          :issue {:id "flask-6013"
+                  :url "https://github.com/pallets/flask/pull/6013"
+                  :title "autoescape selection uses case-insensitive comparison"
+                  :body "Real OSS patch replay of Flask commit 9368fb3f3c52d74534d14c1bef03c79c103356cd. Fix autoescape selection so file extension comparisons are case-insensitive. Use only the base checkout and issue text; do not inspect the fixing diff."}}
+
+         {:id "oss-patch-graphify-read-glob-hook-extension-boundary"
+          :repo-id "graphify"
+          :result-scope :patch
+          :coverage {:source-kinds [:python]}
+          :tags [:oss-patch
+                 :real-oss-patch
+                 :patch-outcome
+                 :historical
+                 :problem-implementation
+                 :problem-runtime-config
+                 :problem-cross-file
+                 :architecture-runtime-boundary
+                 :agent-tooling
+                 :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
+                 :python
+                 :graphify]
+          :index-files ["graphify/__main__.py"
+                        "tests/test_read_hook.py"]
+          :index-context? false
+          :base-sha "1e3270a374498b446eb68c8f72a92d6ccf68a0ff"
+          :fix-sha "9b583a0dd51061db2f459d4c53a5fc6731bbfbe5"
+          :patch {:required? true
+                  :verifiers [{:id "git-diff-check"
+                               :command "git diff --check"}]}
+          :ground-truth {:localization-files ["graphify/__main__.py"
+                                              "tests/test_read_hook.py"]}
+          :expectations {:citation-evidence [{:kind :read-glob-hook
+                                              :path "graphify/__main__.py"}
+                                             {:kind :read-glob-hook-test
+                                              :path "tests/test_read_hook.py"}]}
+          :issue {:id "graphify-1463"
+                  :url "https://github.com/safishamsi/graphify/pull/1463"
+                  :title "fix(hooks): match the real file extension in the Read|Glob hook"
+                  :body "Real OSS patch replay of Graphify commit 9b583a0dd51061db2f459d4c53a5fc6731bbfbe5. Fix Read|Glob PreToolUse hook extension matching so it uses real trailing extensions, covers framework source extensions, and pins regression cases for false positives. Use only the base checkout and issue text; do not inspect the fixing diff."}}
+
+         {:id "oss-patch-terraform-vpc-endpoint-dns-record-ip-type"
+          :repo-id "terraform-aws-vpc"
+          :result-scope :patch
+          :coverage {:source-kinds [:terraform]}
+          :tags [:oss-patch
+                 :real-oss-patch
+                 :patch-outcome
+                 :historical
+                 :problem-implementation
+                 :problem-runtime-config
+                 :problem-architecture
+                 :architecture-data-ownership
+                 :audit-scope-runtime-config
+                 :iac
+                 :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
+                 :terraform]
+          :base-sha "82d1929e669efef4e2ad00611b8a68e7a56e049c"
+          :fix-sha "7a28ce8ec6a17a8ca52710e47763f3a52c155110"
+          :patch {:required? true
+                  :verifiers [{:id "git-diff-check"
+                               :command "git diff --check"}]}
+          :ground-truth {:localization-files ["modules/vpc-endpoints/main.tf"]}
+          :expectations {:citation-evidence [{:kind :terraform-vpc-endpoint-config
+                                              :path "modules/vpc-endpoints/main.tf"}]}
+          :issue {:id "terraform-aws-vpc-1292"
+                  :url "https://github.com/terraform-aws-modules/terraform-aws-vpc/pull/1292"
+                  :title "fix: Correct dns_options.dns_record_ip_type lookup for aws_vpc_endpoint"
+                  :body "Real OSS patch replay of terraform-aws-vpc commit 7a28ce8ec6a17a8ca52710e47763f3a52c155110. Fix the VPC endpoint module so dns_options.dns_record_ip_type is looked up from the correct endpoint configuration. Use only the base checkout and issue text; do not inspect the fixing diff."}}
+
+         {:id "oss-patch-supabase-event-trigger-schema-regression"
+          :repo-id "supabase-postgres"
+          :result-scope :patch
+          :coverage {:source-kinds [:sql :text]}
+          :tags [:oss-patch
+                 :real-oss-patch
+                 :patch-outcome
+                 :historical
+                 :problem-implementation
+                 :problem-test-only
+                 :test-only-regression
+                 :problem-runtime-config
+                 :architecture-data-ownership
+                 :audit-scope-runtime-config
+                 :ygg-should-win
+                 :recall-hybrid
+                 :recall-graph
+                 :recall-lexical
+                 :recall-semantic
+                 :sql
+                 :supabase]
+          :index-files ["nix/tests/sql/evtrigs.sql"
+                        "nix/tests/expected/evtrigs.out"]
+          :index-context? false
+          :base-sha "62421a2b09e8bb8dc4579e2a4c04e7aa7e1e6aa9"
+          :fix-sha "79837275296612c2d896dd90ee028e70024f8323"
+          :patch {:required? true
+                  :verifiers [{:id "git-diff-check"
+                               :command "git diff --check"}]}
+          :ground-truth {:localization-files ["nix/tests/sql/evtrigs.sql"
+                                              "nix/tests/expected/evtrigs.out"]}
+          :expectations {:citation-evidence [{:kind :sql-event-trigger-test
+                                              :path "nix/tests/sql/evtrigs.sql"}
+                                             {:kind :sql-event-trigger-expected-output
+                                              :path "nix/tests/expected/evtrigs.out"}]}
+          :issue {:id "supabase-postgres-79837275"
+                  :url "https://github.com/supabase/postgres/commit/79837275296612c2d896dd90ee028e70024f8323"
+                  :title "test: add event trigger function schema"
+                  :body "Real OSS patch replay of Supabase Postgres commit 79837275296612c2d896dd90ee028e70024f8323. Fix the event-trigger regression query and expected output so trigger function schema is included. Use only the base checkout and issue text; do not inspect the fixing diff."}}]}

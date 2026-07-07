@@ -88,6 +88,31 @@
       (:acceptable-defer truth) (assoc :acceptableDefer (id-list (:acceptable-defer truth)))
       (:acceptableDefer truth) (assoc :acceptableDefer (id-list (:acceptableDefer truth))))))
 
+(defn- normalize-patch-verifier
+  [verifier]
+  (let [id (normalize-id (:id verifier))
+        command (some-> (:command verifier) str str/trim not-empty)]
+    (when (benchmark-util/blankish? id)
+      (throw (ex-info "Patch verifier is missing :id."
+                      {:verifier verifier})))
+    (when-not command
+      (throw (ex-info "Patch verifier is missing :command."
+                      {:verifier verifier})))
+    (cond-> {:id id
+             :command command}
+      (:repo-id verifier) (assoc :repoId (str (:repo-id verifier)))
+      (:repoId verifier) (assoc :repoId (str (:repoId verifier)))
+      (:timeout-ms verifier) (assoc :timeoutMs (long (:timeout-ms verifier)))
+      (:timeoutMs verifier) (assoc :timeoutMs (long (:timeoutMs verifier))))))
+
+(defn- patch-config
+  [case]
+  (when-let [patch (:patch case)]
+    (let [verifiers (mapv normalize-patch-verifier (:verifiers patch))]
+      (cond-> {:required (boolean (:required? patch))
+               :verifiers verifiers}
+        (:policy patch) (assoc :policy (name (:policy patch)))))))
+
 (defn run-git!
   [repo-root args]
   (let [{:keys [exit out err]} (apply shell/sh "git" "-C" repo-root args)]
@@ -498,6 +523,7 @@
    :query-text (issue-text case)
    :coverage {:source-kinds (declared-source-kinds case)}
    :decision-candidates (decision-candidates case)
+   :patch (patch-config case)
    :expectations (case-expectations case)
    :ground-truth (:ground-truth case)
    :decision-ground-truth (normalize-decision-ground-truth case)})
@@ -513,6 +539,7 @@
    :result-scope (:result-scope case)
    :query-text (issue-text case)
    :decision-candidates (decision-candidates case)
+   :patch (patch-config case)
    :coverage {:source-kinds (declared-source-kinds case)}})
 
 (defn- fingerprint
@@ -575,6 +602,7 @@
              :agentInputFingerprint agent-input-fingerprint
              :resultScope (:result-scope case)
              :tags (case-tags case)
+             :patch (patch-config case)
              :expectations (case-expectations case)
              :baseSha (:base-sha repo)
              :fixSha (:fix-sha repo)

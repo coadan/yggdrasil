@@ -1463,6 +1463,92 @@
                  (mapv :stage (:events progress))))
           (is (= 1 (:runs report)))
           (is (= "script-agent" (get-in report [:results 0 :agent :agentId]))))))))
+
+(deftest patch-agent-run-records-worktree-diff-and-verifiers
+  (let [root (temp-dir "ygg-bench-agent-patch-repo")
+        out (temp-dir "ygg-bench-agent-patch-out")
+        suite-dir (temp-dir "ygg-bench-agent-patch-suite")
+        suite-path (.getPath (io/file suite-dir "benchmark.edn"))
+        script-path (.getPath (io/file suite-dir "patch-agent.sh"))]
+    (git! root "init")
+    (git! root "config" "user.email" "ygg@example.test")
+    (git! root "config" "user.name" "Yggdrasil Test")
+    (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :old)\n")
+    (let [base-sha (commit! root "base")]
+      (spit-file! root "src/app.clj" "(ns app)\n(defn broken [] :fixed)\n")
+      (let [fix-sha (commit! root "fix")]
+        (spit suite-path
+              (pr-str {:id "patch-agent-fixture"
+                       :repos [{:id "repo"
+                                :root root}]
+                       :cases [{:id "case-1"
+                                :repo-id "repo"
+                                :result-scope :patch
+                                :base-sha base-sha
+                                :fix-sha fix-sha
+                                :patch {:required? true
+                                        :verifiers [{:id "git-diff-check"
+                                                     :command "git diff --check"}]}
+                                :ground-truth {:localization-files ["src/app.clj"]}
+                                :issue {:id 1
+                                        :title "broken app"
+                                        :body "The app returns the old value."}}]}))
+        (spit script-path
+              (str "set -e\n"
+                   "grep -q 'Issue Patch Benchmark' \"$YGG_BENCH_PROMPT\"\n"
+                   "! grep -q 'Localization only. Do not patch files.' \"$YGG_BENCH_PROMPT\"\n"
+                   "grep -q 'git diff --check' \"$YGG_BENCH_PROMPT\"\n"
+                   "cat > src/app.clj <<'EOF'\n"
+                   "(ns app)\n(defn broken [] :fixed)\n"
+                   "EOF\n"
+                   "cat > \"$YGG_BENCH_RESULT\" <<'JSON'\n"
+                   "{\"schema\":\"" benchmark/agent-result-schema "\","
+                   "\"suspectedFiles\":[{\"path\":\"src/app.clj\","
+                   "\"rank\":1,\"confidence\":1.0,\"reason\":\"patched\","
+                   "\"evidence\":[\"src/app.clj edited\"]}],"
+                   "\"warnings\":[],"
+                   "\"summary\":\"patched\"}\n"
+                   "JSON\n"))
+        (let [suite (benchmark/read-suite suite-path)
+              result (benchmark/agent-runs! suite {:out out
+                                                   :case-id "case-1"
+                                                   :agent-id "patch-agent"
+                                                   :mode "shell-only"
+                                                   :prompt-profile "fast"
+                                                   :command (str "sh " script-path)})
+              run (first (:runs result))
+              score (json/read-json
+                     (slurp (get-in run [:artifacts :agentScorePath]))
+                     :key-fn keyword)
+              agent-result (json/read-json
+                            (slurp (get-in run [:artifacts :agentResultPath]))
+                            :key-fn keyword)
+              output-schema (json/read-json
+                             (slurp (get-in run [:artifacts :outputSchemaPath]))
+                             :key-fn keyword)
+              progress (json/read-json
+                        (slurp (benchmark-paths/progress-path
+                                suite
+                                (first (:cases suite))
+                                {:out out}))
+                        :key-fn keyword)]
+          (is (= "passed" (:status run)))
+          (is (= "changed" (get-in run [:patchOutcome :status])))
+          (is (= ["src/app.clj"]
+                 (get-in run [:patchOutcome :changedFiles])))
+          (is (= "passed"
+                 (get-in run [:patchOutcome :verifiers 0 :status])))
+          (is (= "changed" (get-in agent-result [:patchOutcome :status])))
+          (is (= 1.0 (get-in score [:scores :patchFileRecall])))
+          (is (= 1.0 (get-in score [:scores :patchFilePrecision])))
+          (is (= 1.0 (get-in score [:scores :patchVerifierPassRate])))
+          (is (= ["src/app.clj"]
+                 (get-in score [:patchScoring :matchedChangedFiles])))
+          (is (not (contains? (get-in output-schema [:properties])
+                              :patchOutcome)))
+          (is (some #(= "patch-outcome" (:stage %))
+                    (:events progress))))))))
+
 (deftest external-agent-result-preserves-identity-mismatches
   (let [root (temp-dir "ygg-bench-agent-run-identity-repo")
         out (temp-dir "ygg-bench-agent-run-identity-out")

@@ -317,6 +317,55 @@
                 :repos
                 (mapv :repo-id))))))
 
+(deftest oss-issue-patch-replay-suite-covers-real-patch-outcomes
+  (let [suite (benchmark/read-suite "benchmarks/oss-issue-patch-replay.edn")
+        cases (:cases suite)
+        tags-by-case (into {}
+                           (map (fn [case]
+                                  [(:id case) (set (:tags case))]))
+                           cases)
+        required-recall-tags #{"recall-hybrid"
+                               "recall-graph"
+                               "recall-lexical"
+                               "recall-semantic"}
+        source-kinds (set (mapcat #(get-in % [:coverage :source-kinds])
+                                  cases))
+        repo-ids (set (map :repo-id cases))
+        problem-tags (set (filter benchmark-classes/problem-class-tag?
+                                  (mapcat :tags cases)))
+        architecture-tags (set (filter benchmark-classes/architecture-class-tag?
+                                       (mapcat :tags cases)))]
+    (is (= "oss-issue-patch-replay" (:id suite)))
+    (is (<= 8 (count cases) 12))
+    (is (= 8 (count cases)))
+    (is (every? #(= "patch" (:result-scope %)) cases))
+    (is (every? #(true? (get-in % [:patch :required?])) cases))
+    (is (every? #(= [{:id "git-diff-check"
+                      :command "git diff --check"}]
+                    (get-in % [:patch :verifiers]))
+                cases))
+    (is (every? #(contains? % "ygg-should-win")
+                (vals tags-by-case)))
+    (is (every? #(contains? % "real-oss-patch")
+                (vals tags-by-case)))
+    (is (every? #(contains? % "patch-outcome")
+                (vals tags-by-case)))
+    (is (not-any? #(contains? % "shell-sufficient-control")
+                  (vals tags-by-case)))
+    (is (not-any? #(contains? % "ygg-should-lose")
+                  (vals tags-by-case)))
+    (is (every? #(set/subset? required-recall-tags %)
+                (vals tags-by-case)))
+    (is (<= 6 (count repo-ids)))
+    (is (<= 6 (count source-kinds)))
+    (is (<= 4 (count problem-tags)))
+    (is (<= 3 (count architecture-tags)))
+    (is (every? #(seq (get-in % [:ground-truth :localization-files]))
+                cases))
+    (is (every? #(str/includes? (get-in % [:issue :body])
+                                "do not inspect the fixing diff")
+                cases))))
+
 (deftest should-win-tags-require-composed-recall-and-class-coverage
   (let [suite-paths ["benchmarks/feature-planning.edn"
                      "benchmarks/decision-quality-pilot.edn"
@@ -324,7 +373,8 @@
                      "benchmarks/architecture-synthetic.edn"
                      "benchmarks/architecture-coverage.edn"
                      "benchmarks/multi-repo-quality.edn"
-                     "benchmarks/task-category-broad.edn"]
+                     "benchmarks/task-category-broad.edn"
+                     "benchmarks/oss-issue-patch-replay.edn"]
         required-recall-tags #{"recall-hybrid"
                                "recall-graph"
                                "recall-lexical"
@@ -506,7 +556,7 @@
     (is (seq suite-files))
     (is (some #(= "architecture-synthetic" (:id %)) suites))
     (is (some #(= "agent-efficiency-broad" (:id %)) suites))
-    (is (every? #(not (str/includes? (.getName %) "oss-")) suite-files))
+    (is (some #(= "oss-issue-patch-replay" (:id %)) suites))
     (doseq [suite-file suite-files
             repo (:repos (edn/read-string (slurp suite-file)))]
       (is (str/includes? (:root repo) "/.dev/ygg/benchmark-repos/")))))
@@ -2040,6 +2090,61 @@
              :rank 3
              :found? true}]
            (get-in scored [:groundTruthRanks :files])))))
+
+(deftest scores-agent-patch-outcome-result
+  (let [root (temp-dir "ygg-bench-agent-patch-score")
+        _ (spit-file! root "src/app.clj" "(ns app)\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "suite-case-1"
+                  :caseFingerprint "sha256:test-case"
+                  :agentInputFingerprint "sha256:test-input"
+                  :repoIds ["repo"]
+                  :baseSha "base"
+                  :fixSha "fix"
+                  :worktreeRoot root
+                  :resultScope "patch"
+                  :patch {:required true
+                          :verifiers [{:id "git-diff-check"
+                                       :command "git diff --check"}]}
+                  :groundTruth {:changedFiles ["src/app.clj"
+                                               "test/app_test.clj"]
+                                :unsupportedGroundTruthFiles []}}
+        agent-result {:schema benchmark/agent-result-schema
+                      :caseId "case-1"
+                      :caseFingerprint "sha256:test-case"
+                      :agentInputFingerprint "sha256:test-input"
+                      :agentId "codex"
+                      :mode "ygg"
+                      :suspectedFiles [{:path "src/app.clj"
+                                        :rank 1
+                                        :confidence 0.9
+                                        :reason "patched"
+                                        :evidence ["src/app.clj edited"]}]
+                      :suspectedSymbols []
+                      :commands []
+                      :warnings []
+                      :summary "Patched."
+                      :patchOutcome {:source "benchmark-worktree-diff"
+                                     :status "changed"
+                                     :changedFiles ["src/app.clj"
+                                                    "README.md"]
+                                     :verifiers [{:id "git-diff-check"
+                                                  :command "git diff --check"
+                                                  :status "failed"
+                                                  :exit 1}]}}
+        scored (benchmark/score-agent-result prepared agent-result)]
+    (is (= 0.5 (get-in scored [:scores :patchFileRecall])))
+    (is (= 0.5 (get-in scored [:scores :patchFilePrecision])))
+    (is (= 0.5 (get-in scored [:scores :patchFileF1])))
+    (is (= 0.0 (get-in scored [:scores :patchVerifierPassRate])))
+    (is (= ["test/app_test.clj"]
+           (get-in scored [:patchScoring :missingChangedFiles])))
+    (is (= ["README.md"]
+           (get-in scored [:patchScoring :unexpectedChangedFiles])))
+    (is (some #{"patch benchmark verifier failed"}
+              (get-in scored [:agent :warnings])))))
 
 (deftest scores-agent-result-resolves-keywordized-multi-root-repos
   (let [root-a (temp-dir "ygg-bench-agent-score-root-a")

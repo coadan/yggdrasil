@@ -30,11 +30,22 @@
    "Keep suspectedFiles limited to the best inspection targets; cite broad background, examples, generated, or clearly read-only files as evidence instead."
    "When Yggdrasil hints expose coverageSourceKinds or coverage-filtered diagnostics, check those source-kind lanes before finalizing suspectedFiles."])
 
+(def patch-scope-rules
+  ["Apply the fix in the base checkout and leave the worktree diff uncommitted for benchmark scoring."
+   "After editing, set suspectedFiles to the files you changed or the files most central to the patch."
+   "Run focused checks when practical, especially the configured patch verifier commands listed in the prompt."
+   "Do not commit the patch or inspect the fixing diff, PR body, post-fix commits, or ground-truth artifacts."])
+
+(defn patch-result-scope?
+  [result-scope]
+  (= "patch" (or (some-> result-scope name) "edit-files")))
+
 (defn result-scope-rules
   [result-scope]
   (case (or (some-> result-scope name) "edit-files")
     "edit-files" suspected-files-scope-rules
     "inspection-files" inspection-files-scope-rules
+    "patch" patch-scope-rules
     suspected-files-scope-rules))
 
 (def evidence-citation-rules
@@ -215,8 +226,12 @@
   (case profile
     "fast" (vec
             (remove nil?
-                    ["## Fast Localization Profile"
-                     "- Localization only. Do not patch files."
+                    [(if (patch-result-scope? result-scope)
+                       "## Fast Patch Profile"
+                       "## Fast Localization Profile")
+                     (if (patch-result-scope? result-scope)
+                       "- Patch outcome mode. Apply a minimal focused fix and leave the diff in the worktree."
+                       "- Localization only. Do not patch files.")
                      "- Do not run full test/build suites."
                      (if (ygg-mode? packet)
                        "- Yggdrasil fast mode hard cap: use at most 3 local shell commands; zero commands is valid when prepared evidence is sufficient."
@@ -244,7 +259,9 @@
                        "- For single-file documentation or wording tasks, if the prepared/context summary identifies the target page, return that file without repeated local reads.")
                      (when (ygg-mode? packet)
                        "- For zero-command answers, every suspectedFiles evidence string must cite a shown prepared/context/related/candidate evidence row for that path; issue-text inference alone is not enough.")
-                     "- Return the best 1-5 suspected files as soon as evidence is sufficient."
+                     (if (patch-result-scope? result-scope)
+                       "- Return the best 1-5 changed or patch-central suspected files after editing."
+                       "- Return the best 1-5 suspected files as soon as evidence is sufficient.")
                      (str "- " (str/join "\n- " (result-scope-rules result-scope)))
                      (str "- " (str/join "\n- " evidence-citation-rules))
                      (str "- " (str/join "\n- " result-integrity-rules))
@@ -630,6 +647,28 @@
      "```"
      ""]))
 
+(defn- patch-outcome-lines
+  [packet]
+  (when (patch-result-scope? (get-in packet [:task :resultScope]))
+    (let [verifiers (vec (get-in packet [:task :patch :verifiers]))]
+      (vec
+       (concat
+        ["## Patch Outcome"
+         "The benchmark records the git diff after your command exits and scores changed files plus verifier outcomes."
+         "Leave the patch in the worktree; do not commit it."
+         "Write the result JSON after editing. The benchmark adds measured patchOutcome data itself."
+         ""]
+        (when (seq verifiers)
+          (concat
+           ["Configured patch verifier commands:"]
+           (map (fn [{:keys [id command repoId]}]
+                  (str "- `" id "`"
+                       (when repoId
+                         (str " repo " repoId))
+                       ": `" command "`"))
+                verifiers)
+           [""])))))))
+
 (defn- ygg-mode-lines
   [packet]
   ["## Yggdrasil Mode"
@@ -668,11 +707,14 @@
   [packet result-path output-schema-path opts]
   (let [profile (agent-prompt-profile opts)
         task (:task packet)
-        result-scope (:resultScope task)]
+        result-scope (:resultScope task)
+        patch-scope? (patch-result-scope? result-scope)]
     (str/join
      "\n"
      (concat
-      ["# Yggdrasil Issue Localization Benchmark"
+      [(if patch-scope?
+         "# Yggdrasil Issue Patch Benchmark"
+         "# Yggdrasil Issue Localization Benchmark")
        ""
        "You are evaluating a coding-agent workflow against one real issue."
        "Use only the base checkout, the issue text in the packet, and Yggdrasil output generated from that base checkout."
@@ -704,12 +746,17 @@
       ["## Task"
        (get-in packet [:task :objective])
        ""
-       "Use the issue text above, inspect the checkout, and write the ranked localization result JSON."
-       "Return files before proposing or applying a patch."
+       (if patch-scope?
+         "Use the issue text above, inspect the checkout, apply a focused patch, and write the result JSON."
+         "Use the issue text above, inspect the checkout, and write the ranked localization result JSON.")
+       (if patch-scope?
+         "Leave changed files in the worktree so the benchmark can score the patch outcome."
+         "Return files before proposing or applying a patch.")
        (str/join "\n" (task-rule-lines task))
        ""]
       (decision-prompt-lines packet)
       (result-contract-lines profile packet)
+      (patch-outcome-lines packet)
       (prepared-summary-lines packet)
       (ygg-mode-lines packet)
       ["## Run Metadata"

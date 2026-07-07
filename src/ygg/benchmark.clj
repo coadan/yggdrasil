@@ -793,6 +793,136 @@
                       :artifact-ok? false})))]
     (update result :agent-result merge-token-usage-artifacts opts result-path)))
 
+(def ^:private patch-git-timeout-ms
+  30000)
+
+(def ^:private default-patch-verifier-timeout-ms
+  120000)
+
+(defn- patch-configured?
+  [prepared]
+  (or (= "patch" (:resultScope prepared))
+      (some? (:patch prepared))))
+
+(defn- process-lines
+  [process-result]
+  (->> (:stdout process-result)
+       str/split-lines
+       (map str/trim)
+       (remove str/blank?)
+       vec))
+
+(defn- run-worktree-command
+  [root command timeout-ms]
+  (benchmark-agent-run/run-process! command root {} timeout-ms))
+
+(defn- patch-file-row
+  [multi-repo? repo-id path]
+  (if multi-repo?
+    {:repoId repo-id
+     :path path}
+    path))
+
+(defn- generated-worktree-artifact-path?
+  [path]
+  (boolean
+   (some #(str/starts-with? path %)
+         [".cpcache/"
+          ".ygg/"])))
+
+(defn- changed-files-for-root
+  [multi-repo? repo-id root]
+  (let [tracked (run-worktree-command root
+                                      "git diff --name-only HEAD --"
+                                      patch-git-timeout-ms)
+        untracked (run-worktree-command root
+                                        "git ls-files --others --exclude-standard"
+                                        patch-git-timeout-ms)
+        warnings (vec
+                  (concat
+                   (when-not (zero? (:exit tracked))
+                     [(str "git diff failed for repo " repo-id
+                           " with status " (:exit tracked))])
+                   (when-not (zero? (:exit untracked))
+                     [(str "git ls-files --others failed for repo " repo-id
+                           " with status " (:exit untracked))])))]
+    {:files (->> (concat (when (zero? (:exit tracked))
+                           (process-lines tracked))
+                         (when (zero? (:exit untracked))
+                           (process-lines untracked)))
+                 (remove generated-worktree-artifact-path?)
+                 distinct
+                 sort
+                 (mapv #(patch-file-row multi-repo? repo-id %)))
+     :warnings warnings}))
+
+(defn- patch-verifier-root
+  [prepared verifier]
+  (let [repo-id (or (:repoId verifier)
+                    (:repo-id verifier)
+                    (:repo-id prepared))]
+    (or (when repo-id
+          (get (:worktreeRoots prepared) repo-id))
+        (:worktreeRoot prepared))))
+
+(defn- run-patch-verifier
+  [prepared verifier]
+  (let [root (patch-verifier-root prepared verifier)
+        command (:command verifier)
+        timeout-ms (long (or (:timeoutMs verifier)
+                             default-patch-verifier-timeout-ms))]
+    (if (and root command)
+      (let [result (run-worktree-command root command timeout-ms)]
+        (cond-> {:id (:id verifier)
+                 :command command
+                 :status (if (zero? (:exit result)) "passed" "failed")
+                 :exit (:exit result)
+                 :timedOut (boolean (:timedOut result))
+                 :durationMs (:durationMs result)}
+          (:repoId verifier)
+          (assoc :repoId (:repoId verifier))
+
+          (not (str/blank? (:stdout result)))
+          (assoc :stdout (:stdout result))
+
+          (not (str/blank? (:stderr result)))
+          (assoc :stderr (:stderr result))))
+      {:id (:id verifier)
+       :command command
+       :status "failed"
+       :exit -1
+       :timedOut false
+       :durationMs 0
+       :warnings ["patch verifier did not resolve to a benchmark worktree"]})))
+
+(defn- measured-patch-outcome
+  [prepared]
+  (let [multi-repo? (< 1 (count (:repoIds prepared)))
+        roots (sort-by (comp str key)
+                       (or (:worktreeRoots prepared)
+                           {(:repo-id prepared) (:worktreeRoot prepared)}))
+        changed-by-repo (mapv (fn [[repo-id root]]
+                                (assoc (changed-files-for-root multi-repo?
+                                                               repo-id
+                                                               root)
+                                       :repoId repo-id))
+                              roots)
+        changed-files (->> changed-by-repo
+                           (mapcat :files)
+                           vec)
+        verifiers (mapv #(run-patch-verifier prepared %)
+                        (get-in prepared [:patch :verifiers]))
+        warnings (->> changed-by-repo
+                      (mapcat :warnings)
+                      vec)]
+    (cond-> {:source "benchmark-worktree-diff"
+             :status (if (seq changed-files) "changed" "empty")
+             :changedFiles changed-files
+             :verifiers verifiers
+             :warnings warnings}
+      (get-in prepared [:patch :required])
+      (assoc :required true))))
+
 (defn- read-json-artifact
   [path]
   (when (and path (.isFile (io/file path)))
@@ -1677,7 +1807,20 @@
                                            result-path
                                            run-opts
                                            process-result)
-        agent-result (:agent-result read-result)
+        patch-outcome (when (patch-configured? prepared)
+                        (benchmark-progress/progress-stage!
+                         suite
+                         case
+                         opts
+                         :patch-outcome
+                         #(measured-patch-outcome prepared)
+                         (fn [outcome]
+                           {:changedFiles (count (:changedFiles outcome))
+                            :verifiers (count (:verifiers outcome))
+                            :status (:status outcome)})))
+        agent-result (cond-> (:agent-result read-result)
+                       patch-outcome
+                       (assoc :patchOutcome patch-outcome))
         _ (benchmark-io/write-json-file! result-path agent-result)
         context-artifacts (context-artifact-telemetry
                            {:prompt prompt-path
@@ -1798,7 +1941,10 @@
                      :scores (:scores scored)
                      :warnings (get-in scored [:agent :warnings])}
               (:preparation ygg-prep)
-              (assoc :agentPreparation (:preparation ygg-prep)))]
+              (assoc :agentPreparation (:preparation ygg-prep))
+
+              patch-outcome
+              (assoc :patchOutcome patch-outcome))]
     (benchmark-io/write-json-file! score-path scored)
     (benchmark-io/write-json-file! run-path run)
     run))

@@ -140,13 +140,17 @@
   (case result-scope
     "inspection-files" (str "Identify the repo-relative files and optional symbols that should "
                             "be inspected before editing from the base checkout.")
+    "patch" (str "Fix the issue in the base checkout, leave the worktree diff in place, "
+                 "and write the benchmark result JSON.")
     (str "Identify the repo-relative files and optional symbols most likely "
          "needed to fix the issue from the base checkout.")))
 (defn- task-rules
   [result-scope]
   (vec
    (concat ["Use only the base checkout and issue text in this packet."
-            "Return ranked suspected files before attempting a patch."
+            (if (= "patch" result-scope)
+              "Apply the fix in the worktree and leave the patch uncommitted for benchmark scoring."
+              "Return ranked suspected files before attempting a patch.")
             "For multi-repo cases, include the repo id for each suspected file."]
            (benchmark-agent-run/result-scope-rules result-scope)
            benchmark-agent-run/evidence-citation-rules
@@ -156,12 +160,17 @@
 (defn- task-shape
   [prepared]
   (let [result-scope (or (:resultScope prepared) "edit-files")]
-    (cond-> {:kind "issue-localization"
+    (cond-> {:kind (if (= "patch" result-scope)
+                     "issue-patch"
+                     "issue-localization")
              :resultScope result-scope
              :objective (task-objective result-scope)
              :rules (task-rules result-scope)
              :expectedResultSchema agent-result-schema
              :resultContract (benchmark-agent-run/agent-result-contract)}
+      (:patch prepared)
+      (assoc :patch (:patch prepared))
+
       (seq (:decisionCandidates prepared))
       (assoc :decisionCandidates (:decisionCandidates prepared)
              :decisionKind (get-in prepared [:decisionGroundTruth :kind])

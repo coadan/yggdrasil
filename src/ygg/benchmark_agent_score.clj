@@ -240,6 +240,7 @@
                              "items" {"type" "string"}}
                  "summary" {"type" "string"}
                  "decision" (agent-result-decision-json-schema)
+                 "patchOutcome" {"type" "object"}
                  "tokenUsage" {"type" "object"
                                "additionalProperties" false
                                "properties" {"inputTokens" {"type" "integer"
@@ -302,6 +303,7 @@
                 ["object" "null"])
       (assoc-in ["properties" "tokenUsage" "required"]
                 ["inputTokens" "outputTokens" "totalTokens" "costUsd" "source"])
+      (update "properties" dissoc "patchOutcome")
       (update-in ["properties" "suspectedFiles" "items" "properties"]
                  dissoc
                  "metrics")
@@ -881,6 +883,109 @@
     (/ (* 2.0 precision recall)
        (+ precision recall))
     0.0))
+
+(defn- patch-configured?
+  [prepared]
+  (or (= "patch" (:resultScope prepared))
+      (some? (:patch prepared))))
+
+(defn- patch-outcome
+  [agent-result]
+  (or (:patchOutcome agent-result)
+      (:patch-outcome agent-result)))
+
+(defn- patch-changed-files
+  [outcome]
+  (vec (or (:changedFiles outcome)
+           (:changed-files outcome)
+           [])))
+
+(defn- patch-verifiers
+  [outcome]
+  (vec (or (:verifiers outcome)
+           [])))
+
+(defn- patch-verifier-passed?
+  [verifier]
+  (or (= "passed" (token-name (:status verifier)))
+      (zero? (long (or (:exit verifier) -1)))))
+
+(defn- changed-file-match?
+  [actual expected]
+  (benchmark-score/same-file? expected actual))
+
+(defn- matching-changed-files
+  [expected actual]
+  (->> expected
+       (filter (fn [expected-file]
+                 (some #(changed-file-match? % expected-file) actual)))
+       vec))
+
+(defn- missing-changed-files
+  [expected actual]
+  (->> expected
+       (remove (fn [expected-file]
+                 (some #(changed-file-match? % expected-file) actual)))
+       vec))
+
+(defn- unexpected-changed-files
+  [expected actual]
+  (->> actual
+       (remove (fn [actual-file]
+                 (some #(changed-file-match? actual-file %) expected)))
+       vec))
+
+(defn- patch-scoring-warnings
+  [required? outcome actual verifiers]
+  (vec
+   (keep identity
+         [(when (and required? (nil? outcome))
+            "patch benchmark did not record patch outcome")
+          (when (and required? (empty? actual))
+            "patch benchmark required a worktree diff but none was produced")
+          (when (and required?
+                     (seq verifiers)
+                     (not-every? patch-verifier-passed? verifiers))
+            "patch benchmark verifier failed")])))
+
+(defn- score-patch
+  [prepared agent-result]
+  (when (patch-configured? prepared)
+    (let [outcome (patch-outcome agent-result)
+          required? (boolean (get-in prepared [:patch :required]))
+          expected (vec (or (get-in prepared [:groundTruth :changedFiles]) []))
+          actual (patch-changed-files outcome)
+          verifiers (patch-verifiers outcome)
+          matched (matching-changed-files expected actual)
+          missing (missing-changed-files expected actual)
+          unexpected (unexpected-changed-files expected actual)
+          verifier-passed (count (filter patch-verifier-passed? verifiers))
+          precision (ratio (count matched) (count actual))
+          recall (ratio (count matched) (count expected))]
+      {:configured true
+       :required required?
+       :attempted (boolean (seq actual))
+       :changedFiles actual
+       :expectedChangedFiles expected
+       :matchedChangedFiles matched
+       :missingChangedFiles missing
+       :unexpectedChangedFiles unexpected
+       :verifiers verifiers
+       :warnings (patch-scoring-warnings required? outcome actual verifiers)
+       :scores {:patchRequired (if required? 1 0)
+                :patchAttempted (if (seq actual) 1 0)
+                :patchChangedFiles (count actual)
+                :patchExpectedChangedFiles (count expected)
+                :patchMatchedChangedFiles (count matched)
+                :patchUnexpectedChangedFiles (count unexpected)
+                :patchMissingChangedFiles (count missing)
+                :patchFileRecall recall
+                :patchFilePrecision precision
+                :patchFileF1 (f1 precision recall)
+                :patchVerifierCount (count verifiers)
+                :patchVerifierPassed verifier-passed
+                :patchVerifierPassRate (ratio verifier-passed
+                                              (count verifiers))}})))
 (defn- score-decision
   [prepared agent-result]
   (when (decision-configured? prepared)
@@ -955,12 +1060,14 @@
   (let [top-files (agent-file-predictions prepared agent-result)
         roots (roots-by-repo prepared)
         decision-scoring (score-decision prepared agent-result)
+        patch-scoring (score-patch prepared agent-result)
         result-shape {:groundTruth (:groundTruth prepared)
                       :expectations (:expectations prepared)
                       :ygg {:topFiles top-files}}
         warnings (cond-> (vec (distinct (concat (or (:warnings agent-result) [])
                                                 (agent-result-shape-warnings agent-result)
                                                 (decision-scoring-warnings prepared agent-result)
+                                                (:warnings patch-scoring)
                                                 (agent-result-identity-warnings prepared
                                                                                 agent-result))))
                    (empty? top-files)
@@ -993,6 +1100,9 @@
                       (:decision agent-result)
                       (assoc :decision (:decision agent-result))
 
+                      (patch-outcome agent-result)
+                      (assoc :patchOutcome (patch-outcome agent-result))
+
                       (:tokenUsage agent-result)
                       (assoc :tokenUsage (:tokenUsage agent-result)))]
     (cond-> {:schema agent-score-schema
@@ -1015,6 +1125,10 @@
              :agent agent-score
              :groundTruthRanks (:groundTruthRanks result-with-ranks)
              :scores (merge (benchmark-score/score-result result-with-ranks)
-                            (:scores decision-scoring))}
+                            (:scores decision-scoring)
+                            (:scores patch-scoring))}
       decision-scoring
-      (assoc :decisionScoring (dissoc decision-scoring :scores)))))
+      (assoc :decisionScoring (dissoc decision-scoring :scores))
+
+      patch-scoring
+      (assoc :patchScoring (dissoc patch-scoring :scores)))))

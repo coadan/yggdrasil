@@ -79,7 +79,7 @@
     expectations))
 
 (def supported-result-scopes
-  ["edit-files" "inspection-files"])
+  ["edit-files" "inspection-files" "patch"])
 (def ^:private supported-result-scope-set
   (set supported-result-scopes))
 (defn normalize-result-scope

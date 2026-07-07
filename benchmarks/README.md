@@ -132,6 +132,32 @@ bb agent-efficiency all \
   --out .dev/ygg/agent-efficiency/task-category-broad
 ```
 
+Use the OSS patch replay lane when the claim is about actual coding-agent patch
+outcomes instead of localization. This lane is deliberately small and curated:
+each case starts from a real OSS base SHA, hides the fixing diff from the agent,
+requires an uncommitted worktree patch, and scores the measured git diff against
+the real fix commit's changed files. The default verifier is
+`git diff --check`; add focused language or project test verifiers only when
+they are stable enough to replay cheaply.
+
+Run both shell-only and default Yggdrasil auto/hybrid agents, then compare patch
+metrics such as `patchFileRecall`, `patchFileF1`, and
+`patchVerifierPassRate`:
+
+```sh
+bb bench repos check --suite benchmarks/oss-issue-patch-replay.edn
+
+bb bench agent-run benchmarks/oss-issue-patch-replay.edn \
+  --mode shell-only \
+  --agent shell-agent \
+  --out .dev/ygg/agent-efficiency/oss-issue-patch-replay
+
+bb bench agent-run benchmarks/oss-issue-patch-replay.edn \
+  --mode ygg \
+  --agent ygg-agent \
+  --out .dev/ygg/agent-efficiency/oss-issue-patch-replay
+```
+
 Use the full lane as the authoritative non-synthetic claim lane, including the
 heavy multi-repo replay case:
 
