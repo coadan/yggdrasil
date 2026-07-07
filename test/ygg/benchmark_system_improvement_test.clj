@@ -47,6 +47,20 @@
                                                          :caseIds ["case-1"]}]}
                      :benchmarkPreflightDiagnostics {:blockedRuns 1
                                                      :blockedCaseIds ["case-1"]}
+                     :sourceKindQuality {:rows [{:kind "doc"
+                                                 :runs 1
+                                                 :cases 1
+                                                 :caseIds ["case-1"]
+                                                 :fileRecallAt10 1.0
+                                                 :meanReciprocalRankFile 1.0
+                                                 :status "insufficient-cases"}
+                                                {:kind "javascript"
+                                                 :runs 2
+                                                 :cases 2
+                                                 :caseIds ["case-1" "case-2"]
+                                                 :fileRecallAt10 0.25
+                                                 :meanReciprocalRankFile 0.25
+                                                 :status "below-floor"}]}
                      :problemClasses {:classes []
                                       :architectureClasses []}}
         signals (signal-by-kind
@@ -66,6 +80,18 @@
            (get-in signals ["missing-context-ranks" :lane])))
     (is (= "benchmark-suite-gap"
            (get-in signals ["missing-declared-source-kinds" :lane])))
+    (is (= "benchmark-suite-gap"
+           (get-in signals ["underpowered-source-kind-quality" :lane])))
+    (is (= "retrieval-gap"
+           (get-in signals ["source-kind-quality-below-floor" :lane])))
+    (is (= [{:kind "javascript"
+             :runs 2
+             :cases 2
+             :caseIds ["case-1" "case-2"]
+             :fileRecallAt10 0.25
+             :meanReciprocalRankFile 0.25
+             :status "below-floor"}]
+           (get-in signals ["source-kind-quality-below-floor" :evidence])))
     (is (= "agent-protocol-gap"
            (get-in signals ["commandless-runs" :lane])))
     (is (= "token-telemetry-gap"

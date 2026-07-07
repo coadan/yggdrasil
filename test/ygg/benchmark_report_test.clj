@@ -572,6 +572,7 @@
               "ranked-outside-top5"
               "path-citation-gaps"
               "missing-declared-source-kinds"
+              "underpowered-source-kind-quality"
               "coverage-excluded-ground-truth"
               "hint-diagnostics"
               "audit-scope-trust-boundary"
@@ -1780,6 +1781,57 @@
                      [:claimReadiness
                       :sourceKindQuality
                       :lowQualitySourceKindKeys])))
+      (is (= {:kind "underpowered-source-kind-quality"
+              :area "benchmark-suite-gap"
+              :runs 5
+              :caseIds ["data-sql-text"
+                        "data-terraform"
+                        "runtime-dotnet"
+                        "runtime-python"]
+              :message "Source-kind groups are present but have too few scoreable cases to support source-kind quality claims."
+              :details [{:kind "dotnet"
+                         :runs 1
+                         :cases 1
+                         :caseIds ["runtime-dotnet"]
+                         :fileRecallAt10 1.0
+                         :meanReciprocalRankFile 1.0
+                         :status "insufficient-cases"}
+                        {:kind "python"
+                         :runs 1
+                         :cases 1
+                         :caseIds ["runtime-python"]
+                         :fileRecallAt10 1.0
+                         :meanReciprocalRankFile 1.0
+                         :status "insufficient-cases"}
+                        {:kind "sql"
+                         :runs 1
+                         :cases 1
+                         :caseIds ["data-sql-text"]
+                         :fileRecallAt10 1.0
+                         :meanReciprocalRankFile 1.0
+                         :status "insufficient-cases"}
+                        {:kind "terraform"
+                         :runs 1
+                         :cases 1
+                         :caseIds ["data-terraform"]
+                         :fileRecallAt10 1.0
+                         :meanReciprocalRankFile 1.0
+                         :status "insufficient-cases"}
+                        {:kind "text"
+                         :runs 1
+                         :cases 1
+                         :caseIds ["data-sql-text"]
+                         :fileRecallAt10 1.0
+                         :meanReciprocalRankFile 1.0
+                         :status "insufficient-cases"}]}
+             (->> (:improvementSummary report)
+                  (filter #(= "underpowered-source-kind-quality" (:kind %)))
+                  first)))
+      (is (= "benchmark-suite-gap"
+             (->> (:systemImprovementSignals report)
+                  (filter #(= "underpowered-source-kind-quality" (:kind %)))
+                  first
+                  :lane)))
       (is (= []
              (get-in report [:claimReadiness :warnings]))))))
 
@@ -1812,7 +1864,27 @@
              (get-in readiness
                      [:sourceKindQuality :lowQualitySourceKindKeys])))
       (is (= ["Source-kind localization quality is below broad real-world claim floors (file-recall@10 0.80, MRR 0.50): javascript r10 0.25 mrr 0.25."]
-             (:warnings readiness))))))
+             (:warnings readiness)))
+      (is (= {:kind "source-kind-quality-below-floor"
+              :area "retrieval-or-ranking-quality"
+              :runs 2
+              :caseIds ["arch-deps-1" "arch-deps-2"]
+              :message "Measured source-kind groups are below broad claim localization quality floors."
+              :details [{:kind "javascript"
+                         :runs 2
+                         :cases 2
+                         :caseIds ["arch-deps-1" "arch-deps-2"]
+                         :fileRecallAt10 0.25
+                         :meanReciprocalRankFile 0.25
+                         :status "below-floor"}]}
+             (->> (:improvementSummary report)
+                  (filter #(= "source-kind-quality-below-floor" (:kind %)))
+                  first)))
+      (is (= "retrieval-gap"
+             (->> (:systemImprovementSignals report)
+                  (filter #(= "source-kind-quality-below-floor" (:kind %)))
+                  first
+                  :lane))))))
 
 (deftest agent-report-docs-claim-readiness-supports-docs-lane
   (let [out (temp-dir "ygg-agent-report-docs-claim-readiness")

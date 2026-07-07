@@ -1507,7 +1507,8 @@
         repo-breadth? (<= claim-readiness-min-repos (count repo-ids))
         source-kind-breadth? (<= claim-readiness-min-source-kinds
                                  (count source-kind-keys))
-        source-kind-quality (source-kind-quality-summary report)
+        source-kind-quality (or (:sourceKindQuality report)
+                                (source-kind-quality-summary report))
         source-kind-quality-required? (and source-kind-breadth?
                                            declared-source-kind-coverage?)
         source-kind-quality-breadth? (or (not source-kind-quality-required?)
@@ -1952,6 +1953,29 @@
   (first (filter #(= check-name (:check %))
                  (:checks benchmark-preflight))))
 
+(defn- source-kind-quality-gap-details
+  [rows]
+  (mapv #(select-keys % [:kind
+                         :runs
+                         :cases
+                         :caseIds
+                         :fileRecallAt10
+                         :meanReciprocalRankFile
+                         :status])
+        rows))
+
+(defn- source-kind-quality-gap-runs
+  [rows]
+  (reduce + 0 (map #(long (or (:runs %) 0)) rows)))
+
+(defn- source-kind-quality-gap-case-ids
+  [rows]
+  (->> rows
+       (mapcat :caseIds)
+       distinct
+       sort
+       vec))
+
 (defn- report-improvement-summary
   [report]
   (let [agent-diagnostics (:agentDiagnostics report)
@@ -1962,6 +1986,12 @@
         graph-expectations (:graphExpectationDiagnostics report)
         benchmark-preflight (:benchmarkPreflightDiagnostics report)
         sync-check (preflight-check benchmark-preflight "syncCheck")
+        source-kind-quality (or (:sourceKindQuality report)
+                                (source-kind-quality-summary report))
+        underpowered-source-kinds (filterv #(= "insufficient-cases" (:status %))
+                                           (:rows source-kind-quality))
+        low-quality-source-kinds (filterv #(= "below-floor" (:status %))
+                                          (:rows source-kind-quality))
         artifacts (:artifactDiagnostics report)
         hint-details (hint-diagnostic-details agent-diagnostics)
         blocking-hint-details (blocking-hint-diagnostic-details agent-diagnostics)
@@ -2024,6 +2054,20 @@
               :case-ids (:missingDeclaredSourceKindCaseIds coverage)
               :message "Benchmark cases declared source kinds with no scoreable indexed files."
               :details (:missingDeclaredSourceKinds coverage)})
+            (improvement-row
+             {:kind "underpowered-source-kind-quality"
+              :area "benchmark-suite-gap"
+              :runs (source-kind-quality-gap-runs underpowered-source-kinds)
+              :case-ids (source-kind-quality-gap-case-ids underpowered-source-kinds)
+              :message "Source-kind groups are present but have too few scoreable cases to support source-kind quality claims."
+              :details (source-kind-quality-gap-details underpowered-source-kinds)})
+            (improvement-row
+             {:kind "source-kind-quality-below-floor"
+              :area "retrieval-or-ranking-quality"
+              :runs (source-kind-quality-gap-runs low-quality-source-kinds)
+              :case-ids (source-kind-quality-gap-case-ids low-quality-source-kinds)
+              :message "Measured source-kind groups are below broad claim localization quality floors."
+              :details (source-kind-quality-gap-details low-quality-source-kinds)})
             (improvement-row
              {:kind "coverage-excluded-ground-truth"
               :area "coverage-declarations"
@@ -2642,6 +2686,9 @@
         report-base (assoc report-base
                            :sourceKindScores
                            (source-kind-score-rows report-base))
+        report-base (assoc report-base
+                           :sourceKindQuality
+                           (source-kind-quality-summary report-base))
         report-base (assoc report-base
                            :improvementSummary
                            (report-improvement-summary report-base))

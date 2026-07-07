@@ -131,6 +131,19 @@
                "source-skipped-files"
                "audit-scope-trust-boundary"]))))
 
+(defn- source-kind-quality-gap-rows
+  [report status]
+  (filterv #(= status (:status %))
+           (get-in report [:sourceKindQuality :rows])))
+
+(defn- source-kind-quality-gap-runs
+  [rows]
+  (reduce + 0 (map #(long-value (:runs %)) rows)))
+
+(defn- source-kind-quality-gap-case-ids
+  [rows]
+  (sorted-vec (mapcat :caseIds rows)))
+
 (defn- detail-evidence
   [detail]
   (when detail
@@ -154,6 +167,12 @@
         source-extraction (hint-detail report "source-extraction-diagnostics")
         source-skipped (hint-detail report "source-skipped-files")
         audit-boundary (hint-detail report "audit-scope-trust-boundary")
+        underpowered-source-kinds (source-kind-quality-gap-rows
+                                   report
+                                   "insufficient-cases")
+        low-quality-source-kinds (source-kind-quality-gap-rows
+                                  report
+                                  "below-floor")
         missing-kind-lane (if (extractor-related-diagnostics? report)
                             "extractor-gap"
                             "benchmark-suite-gap")]
@@ -237,6 +256,21 @@
          :rationale (if (= "extractor-gap" missing-kind-lane)
                       "Benchmark-declared source kinds were missing while extraction diagnostics were present."
                       "Benchmark-declared source kinds had no scoreable indexed files without extractor diagnostics, so suite declarations or coverage tags likely need tightening.")})
+       (signal
+        {:kind "underpowered-source-kind-quality"
+         :lane "benchmark-suite-gap"
+         :runs (source-kind-quality-gap-runs underpowered-source-kinds)
+         :case-ids (source-kind-quality-gap-case-ids underpowered-source-kinds)
+         :evidence underpowered-source-kinds
+         :confidence "medium"
+         :rationale "Source-kind groups are present but do not yet have enough scoreable cases for source-kind quality claims."})
+       (signal
+        {:kind "source-kind-quality-below-floor"
+         :lane "retrieval-gap"
+         :runs (source-kind-quality-gap-runs low-quality-source-kinds)
+         :case-ids (source-kind-quality-gap-case-ids low-quality-source-kinds)
+         :evidence low-quality-source-kinds
+         :rationale "Measured source-kind groups are below broad claim localization quality floors."})
        (signal
         {:kind "coverage-excluded-ground-truth"
          :lane "benchmark-suite-gap"
