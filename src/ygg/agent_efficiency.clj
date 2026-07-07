@@ -246,6 +246,28 @@
     :path [:decisionDiagnostics :gapRuns]
     :direction :lower}])
 
+(def ^:private patch-outcome-metric-specs
+  [{:key :patchFileRecall
+    :label "patchFileRecall"
+    :category :patch-outcome
+    :path [:scores :patchFileRecall]
+    :direction :higher}
+   {:key :patchFilePrecision
+    :label "patchFilePrecision"
+    :category :patch-outcome
+    :path [:scores :patchFilePrecision]
+    :direction :higher}
+   {:key :patchFileF1
+    :label "patchFileF1"
+    :category :patch-outcome
+    :path [:scores :patchFileF1]
+    :direction :higher}
+   {:key :patchVerifierPassRate
+    :label "patchVerifierPassRate"
+    :category :patch-outcome
+    :path [:scores :patchVerifierPassRate]
+    :direction :higher}])
+
 (def ^:private case-score-specs
   (->> metric-specs
        (filter #(= :scores (first (:path %))))
@@ -260,7 +282,7 @@
   #{"timing"})
 
 (def ^:private category-order
-  (->> (concat metric-specs decision-metric-specs)
+  (->> (concat metric-specs decision-metric-specs patch-outcome-metric-specs)
        (map (comp name :category))
        distinct
        vec))
@@ -281,6 +303,8 @@
    :fileReadSegmentCount
    :decisionF1
    :decisionEvidenceCitationRate
+   :patchFileF1
+   :patchVerifierPassRate
    :warmElapsedMs
    :elapsedMs
    :totalTokens
@@ -298,6 +322,8 @@
    [:fileReadCommandCount :fileReadDelta]
    [:decisionF1 :decisionF1Delta]
    [:decisionEvidenceCitationRate :decisionEvidenceCitationRateDelta]
+   [:patchFileF1 :patchFileF1Delta]
+   [:patchVerifierPassRate :patchVerifierPassRateDelta]
    [:warmElapsedMs :warmElapsedMsDelta]
    [:elapsedMs :elapsedMsDelta]
    [:totalTokens :totalTokensDelta]
@@ -315,6 +341,8 @@
    [:fileReadDelta "file read delta"]
    [:decisionF1Delta "decisionF1 delta"]
    [:decisionEvidenceCitationRateDelta "decision evidence citation delta"]
+   [:patchFileF1Delta "patchFileF1 delta"]
+   [:patchVerifierPassRateDelta "patch verifier pass-rate delta"]
    [:warmElapsedMsDelta "warmElapsedMs delta"]
    [:elapsedMsDelta "raw elapsedMs delta"]
    [:totalTokensDelta "totalTokens delta"]
@@ -331,6 +359,7 @@
    :evidenceMetrics
    :expectedEvidenceCitationMetrics
    :decisionQualityMetrics
+   :patchOutcomeMetrics
    :commandTelemetry
    :perCaseTokenReduction
    :shellLaneClaimReady
@@ -345,6 +374,7 @@
    :evidenceMetrics
    :expectedEvidenceCitationMetrics
    :decisionQualityMetrics
+   :patchOutcomeMetrics
    :commandTelemetry
    :perCaseTokenReduction])
 
@@ -369,6 +399,7 @@
    :evidenceCitationMetrics
    :expectedEvidenceCitationMetrics
    :decisionQualityMetrics
+   :patchOutcomeMetrics
    :commandTelemetry
    :benchmarkPreflight
    :measuredProblemClasses
@@ -388,7 +419,11 @@
     :decisionRecall
     :decisionPrecision
     :decisionF1
-    :decisionEvidenceCitationRate})
+    :decisionEvidenceCitationRate
+    :patchFileRecall
+    :patchFilePrecision
+    :patchFileF1
+    :patchVerifierPassRate})
 
 (def ^:private token-tradeoff-metric-keys
   #{:totalTokens
@@ -575,6 +610,18 @@
     decision-metric-specs
     []))
 
+(defn- patch-outcome-present?
+  [report]
+  (some #(number? (get-in report (:path %)))
+        patch-outcome-metric-specs))
+
+(defn- patch-outcome-metric-specs-for
+  [shell-report ygg-report]
+  (if (or (patch-outcome-present? shell-report)
+          (patch-outcome-present? ygg-report))
+    patch-outcome-metric-specs
+    []))
+
 (defn- case-token-usage-present?
   [report]
   (boolean
@@ -593,6 +640,8 @@
   (->> (concat case-score-specs
                (filter #(= :scores (first (:path %)))
                        (decision-metric-specs-for shell-report ygg-report))
+               (filter #(= :scores (first (:path %)))
+                       (patch-outcome-metric-specs-for shell-report ygg-report))
                (case-token-metric-specs-for shell-report ygg-report))
        vec))
 
@@ -1219,6 +1268,18 @@
       (and (decision-score-present? shell-report)
            (decision-score-present? ygg-report))))
 
+(defn- patch-score-present?
+  [report]
+  (and (number? (get-in report [:scores :patchFileF1]))
+       (number? (get-in report [:scores :patchVerifierPassRate]))))
+
+(defn- patch-outcome-comparable?
+  [shell-report ygg-report]
+  (or (not (or (patch-outcome-present? shell-report)
+               (patch-outcome-present? ygg-report)))
+      (and (patch-score-present? shell-report)
+           (patch-score-present? ygg-report))))
+
 (defn- lane-claim-ready?
   [report]
   (let [claim-readiness (:claimReadiness report)]
@@ -1329,6 +1390,9 @@
         decision-quality-metrics? (decision-quality-comparable?
                                    shell-report
                                    ygg-report)
+        patch-outcome-metrics? (patch-outcome-comparable?
+                                shell-report
+                                ygg-report)
         command-telemetry? (category-has-directional-metrics?
                             by-category
                             "command-telemetry")
@@ -1350,6 +1414,7 @@
                       :evidenceMetrics evidence-metrics?
                       :expectedEvidenceCitationMetrics expected-evidence-metrics?
                       :decisionQualityMetrics decision-quality-metrics?
+                      :patchOutcomeMetrics patch-outcome-metrics?
                       :commandTelemetry command-telemetry?
                       :perCaseTokenReduction per-case-token-reduction?
                       :shellLaneClaimReady shell-lane-ready?
@@ -1390,6 +1455,9 @@
 
                  (not decision-quality-metrics?)
                  (conj "Decision-quality metrics are configured in at least one lane but are not comparable; complex-system decision quality is unproven.")
+
+                 (not patch-outcome-metrics?)
+                 (conj "Patch outcome metrics are configured in at least one lane but are not comparable; coding-agent patch quality is unproven.")
 
                  (not command-telemetry?)
                  (conj "Command telemetry is unavailable; CLI search/read-loop savings are unproven.")
@@ -1645,6 +1713,9 @@
          decision-specs (decision-metric-specs-for
                          shell-efficiency-report
                          ygg-efficiency-report)
+         patch-outcome-specs (patch-outcome-metric-specs-for
+                              shell-efficiency-report
+                              ygg-efficiency-report)
          deltas (mapv #(metric-delta shell-efficiency-report
                                      ygg-efficiency-report
                                      %)
@@ -1657,6 +1728,7 @@
                               shell-efficiency-report
                               ygg-efficiency-report)
                              decision-specs
+                             patch-outcome-specs
                              (improvement-target-metric-specs
                               shell-efficiency-report
                               ygg-efficiency-report))))

@@ -28,6 +28,7 @@
            expected-evidence
            decision-recall decision-precision decision-f1 decision-evidence
            missing-decision decision-gaps
+           patch-recall patch-precision patch-f1 patch-verifier-pass-rate
            missed outside5 outside10 missing-predicted empty commandless warnings
            command-count search-command-count file-read-command-count
            broad-search-command-count scoped-search-command-count
@@ -52,7 +53,12 @@
                  (assoc :decisionRecall decision-recall
                         :decisionPrecision decision-precision
                         :decisionF1 decision-f1
-                        :decisionEvidenceCitationRate decision-evidence))]
+                        :decisionEvidenceCitationRate decision-evidence)
+                 (some? patch-f1)
+                 (assoc :patchFileRecall patch-recall
+                        :patchFilePrecision patch-precision
+                        :patchFileF1 patch-f1
+                        :patchVerifierPassRate patch-verifier-pass-rate))]
     (cond-> {:schema "ygg.benchmark.agent-report/v1"
              :suite-id "suite"
              :cases (count case-ids)
@@ -217,6 +223,7 @@
                          :evidenceCitationMetrics true
                          :expectedEvidenceCitationMetrics true
                          :decisionQualityMetrics true
+                         :patchOutcomeMetrics true
                          :commandTelemetry true
                          :benchmarkPreflight true
                          :measuredProblemClasses measured-problem?
@@ -483,6 +490,7 @@
                            :evidenceMetrics true
                            :expectedEvidenceCitationMetrics true
                            :decisionQualityMetrics true
+                           :patchOutcomeMetrics true
                            :commandTelemetry true
                            :perCaseTokenReduction false
                            :shellLaneClaimReady true
@@ -599,6 +607,126 @@
            (->> (get-in comparison [:caseDeltas 0 :deltas])
                 (filter #(str/starts-with? (:metric %) "decision"))
                 (mapv :metric))))))
+
+(deftest compares-patch-outcome-when-present
+  (let [shell (-> (report {:mode "shell-only"
+                           :recall5 0.5
+                           :recall10 0.5
+                           :recall20 0.5
+                           :mrr 0.4
+                           :noise 0.5
+                           :evidence 0.25
+                           :path-evidence 0.1
+                           :patch-recall 0.5
+                           :patch-precision 0.5
+                           :patch-f1 0.5
+                           :patch-verifier-pass-rate 0.0
+                           :missed 1
+                           :outside5 1
+                           :outside10 1
+                           :missing-predicted 1
+                           :empty 1
+                           :commandless 2
+                           :warnings 1
+                           :command-count 9
+                           :search-command-count 4
+                           :file-read-command-count 2
+                           :shell-command-count 3
+                           :ygg-command-count 0
+                           :elapsed 1000
+                           :failed 0
+                           :running 0
+                           :case-ids ["case-1" "case-2"]})
+                  (assoc-in [:agentDiagnostics :tokenTelemetry]
+                            {:totalTokens 12000
+                             :inputTokens 9000
+                             :outputTokens 3000
+                             :costUsd 0.6}))
+        ygg (-> (report {:mode "ygg"
+                         :recall5 0.75
+                         :recall10 0.75
+                         :recall20 0.75
+                         :mrr 0.6
+                         :noise 0.25
+                         :evidence 0.5
+                         :path-evidence 0.4
+                         :patch-recall 1.0
+                         :patch-precision 0.75
+                         :patch-f1 0.8571428571428571
+                         :patch-verifier-pass-rate 1.0
+                         :missed 0
+                         :outside5 0
+                         :outside10 0
+                         :missing-predicted 0
+                         :empty 0
+                         :commandless 1
+                         :warnings 0
+                         :command-count 5
+                         :search-command-count 1
+                         :file-read-command-count 1
+                         :shell-command-count 1
+                         :ygg-command-count 2
+                         :elapsed 900
+                         :failed 0
+                         :running 0
+                         :case-ids ["case-1" "case-2"]})
+                (assoc-in [:agentDiagnostics :tokenTelemetry]
+                          {:totalTokens 7000
+                           :inputTokens 5500
+                           :outputTokens 1500
+                           :costUsd 0.35}))
+        comparison (agent-efficiency/compare-reports shell ygg)
+        deltas-by-key (into {} (map (juxt :key identity)) (:deltas comparison))
+        categories-by-key (into {} (map (juxt :category identity)) (:byCategory
+                                                                    comparison))
+        case-delta-metrics (->> (get-in comparison [:caseDeltas 0 :deltas])
+                                (filter #(str/starts-with? (:metric %) "patch"))
+                                (mapv :metric))]
+    (is (= {:shellOnly 0.5
+            :ygg 0.8571428571428571
+            :delta 0.3571428571428571
+            :effect 0.3571428571428571
+            :result "improved"}
+           (select-keys (:patchFileF1 deltas-by-key)
+                        [:shellOnly :ygg :delta :effect :result])))
+    (is (= {:shellOnly 0.0
+            :ygg 1.0
+            :delta 1.0
+            :effect 1.0
+            :result "improved"}
+           (select-keys (:patchVerifierPassRate deltas-by-key)
+                        [:shellOnly :ygg :delta :effect :result])))
+    (is (= {:signal "ygg-improved"
+            :minSharedCases 2
+            :availableMetrics 4
+            :improvedMetrics 4
+            :regressedMetrics 0
+            :unchangedMetrics 0
+            :unavailableMetrics 0}
+           (get-in categories-by-key ["patch-outcome" :summary])))
+    (is (= 0.3571428571428571
+           (get-in comparison [:headlineSummary :patchFileF1Delta])))
+    (is (= 1.0
+           (get-in comparison [:headlineSummary :patchVerifierPassRateDelta])))
+    (is (= true
+           (get-in comparison
+                   [:claimReadiness :requirements :patchOutcomeMetrics])))
+    (is (= ["patchFileRecall"
+            "patchFilePrecision"
+            "patchFileF1"
+            "patchVerifierPassRate"]
+           case-delta-metrics))
+    (is (= {:availableMetrics 11
+            :improvedMetrics 11
+            :regressedMetrics 0
+            :unchangedMetrics 0
+            :unavailableMetrics 1}
+           (select-keys (get-in comparison [:qualityCostTradeoff :quality])
+                        [:availableMetrics
+                         :improvedMetrics
+                         :regressedMetrics
+                         :unchangedMetrics
+                         :unavailableMetrics])))))
 
 (deftest compares-segment-command-telemetry-when-available
   (let [shell (update-in shell-report
@@ -1717,6 +1845,34 @@
     (is (= [:expectedEvidenceCitationMetrics]
            (get-in comparison [:headlineSummary :failedRequirements])))
     (is (some #(= "Expected evidence citation metrics are only available in one lane; non-code evidence citation quality is not comparable."
+                  %)
+              (get-in comparison [:claimReadiness :warnings])))))
+
+(deftest claim-readiness-requires-comparable-patch-outcome
+  (let [shell (-> shell-report
+                  with-broad-problem-classes
+                  with-claim-readiness
+                  (assoc :byTag (broad-class-tag-rows {:cases 2
+                                                       :runs 2
+                                                       :recall10 0.5
+                                                       :noise 0.5})))
+        ygg (-> ygg-report
+                with-broad-problem-classes
+                with-claim-readiness
+                (assoc :byTag (broad-class-tag-rows {:cases 2
+                                                     :runs 2
+                                                     :recall10 1.0
+                                                     :noise 0.25}))
+                (assoc-in [:scores :patchFileF1] 0.8)
+                (assoc-in [:scores :patchVerifierPassRate] 1.0))
+        [shell ygg] (with-reduced-ygg-token-usage shell ygg)
+        comparison (agent-efficiency/compare-reports shell ygg)]
+    (is (= false
+           (get-in comparison
+                   [:claimReadiness :requirements :patchOutcomeMetrics])))
+    (is (= [:patchOutcomeMetrics]
+           (get-in comparison [:headlineSummary :failedRequirements])))
+    (is (some #(= "Patch outcome metrics are configured in at least one lane but are not comparable; coding-agent patch quality is unproven."
                   %)
               (get-in comparison [:claimReadiness :warnings])))))
 
