@@ -2138,6 +2138,7 @@
     (is (= 0.5 (get-in scored [:scores :patchFileRecall])))
     (is (= 0.5 (get-in scored [:scores :patchFilePrecision])))
     (is (= 0.5 (get-in scored [:scores :patchFileF1])))
+    (is (= 1.0 (get-in scored [:scores :patchAttemptRate])))
     (is (= 0.0 (get-in scored [:scores :patchVerifierPassRate])))
     (is (= ["test/app_test.clj"]
            (get-in scored [:patchScoring :missingChangedFiles])))

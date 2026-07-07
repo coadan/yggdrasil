@@ -130,6 +130,12 @@
     (/ (double (reduce + values)) (double (count values)))
     0.0))
 
+(defn- ratio
+  [numerator denominator]
+  (if (pos? denominator)
+    (/ (double numerator) (double denominator))
+    0.0))
+
 (defn aggregate-scores
   [results]
   (let [score-keys (cond-> aggregate-score-keys
@@ -164,10 +170,14 @@
                        (number? (get-in % [:scores k])))
                      aggregate-patch-count-score-keys)
               results)
-      (into scores
-            (map (fn [k]
-                   [k (sum-score results k)]))
-            aggregate-patch-count-score-keys)
+      (let [patch-scores (into {}
+                               (map (fn [k]
+                                      [k (sum-score results k)]))
+                               aggregate-patch-count-score-keys)]
+        (assoc (into scores patch-scores)
+               :patchAttemptRate
+               (ratio (:patchAttempted patch-scores)
+                      (:patchRequired patch-scores))))
       scores)))
 
 (defn- input-hint-summary

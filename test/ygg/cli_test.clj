@@ -1402,9 +1402,11 @@
                          :evidenceCitationRate 1.0
                          :patchFileRecall 0.5
                          :patchFileF1 0.4
+                         :patchAttemptRate 0.5
                          :patchVerifierPassRate 1.0}}))]
     (is (str/includes? out "- patch-file-recall 0.50"))
     (is (str/includes? out "- patch-file-f1 0.40"))
+    (is (str/includes? out "- patch-attempt-rate 0.50"))
     (is (str/includes? out "- patch-verifier-pass-rate 1.00"))))
 
 (deftest benchmark-summary-prints-agent-diagnostics
@@ -2362,6 +2364,7 @@
                                  "--min-decision-evidence-citation-rate" "0.65"
                                  "--min-patch-file-recall" "0.6"
                                  "--min-patch-file-f1" "0.55"
+                                 "--min-patch-attempt-rate" "0.8"
                                  "--min-patch-verifier-pass-rate" "1.0"
                                  "--max-total-tokens" "10000"
                                  "--max-input-tokens" "8000"
@@ -2375,6 +2378,7 @@
                                  "--min-case-decision-f1" "0.5"
                                  "--min-case-patch-file-recall" "0.25"
                                  "--min-case-patch-file-f1" "0.2"
+                                 "--min-case-patch-attempted" "1.0"
                                  "--min-case-patch-verifier-pass-rate" "1.0"
                                  "--max-case-total-tokens" "4000"
                                  "--max-case-input-tokens" "3200"
@@ -2437,6 +2441,7 @@
                   :min-decision-evidence-citation-rate 0.65
                   :min-patch-file-recall 0.6
                   :min-patch-file-f1 0.55
+                  :min-patch-attempt-rate 0.8
                   :min-patch-verifier-pass-rate 1.0
                   :max-total-tokens 10000.0
                   :max-input-tokens 8000.0
@@ -2450,6 +2455,7 @@
                   :min-case-decision-f1 0.5
                   :min-case-patch-file-recall 0.25
                   :min-case-patch-file-f1 0.2
+                  :min-case-patch-attempted 1.0
                   :min-case-patch-verifier-pass-rate 1.0
                   :max-case-total-tokens 4000.0
                   :max-case-input-tokens 3200.0

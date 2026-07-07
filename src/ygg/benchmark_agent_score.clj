@@ -974,6 +974,7 @@
        :warnings (patch-scoring-warnings required? outcome actual verifiers)
        :scores {:patchRequired (if required? 1 0)
                 :patchAttempted (if (seq actual) 1 0)
+                :patchAttemptRate (if (seq actual) 1.0 0.0)
                 :patchChangedFiles (count actual)
                 :patchExpectedChangedFiles (count expected)
                 :patchMatchedChangedFiles (count matched)

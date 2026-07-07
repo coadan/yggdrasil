@@ -487,6 +487,7 @@
       (is (= 4 (get-in report [:scores :scoreableChangedFiles])))
       (is (= 0.5 (get-in report [:scores :patchFileRecall])))
       (is (= 0.5 (get-in report [:scores :patchFileF1])))
+      (is (= 0.5 (get-in report [:scores :patchAttemptRate])))
       (is (= 0.5 (get-in report [:scores :patchVerifierPassRate])))
       (is (= 2 (get-in report [:scores :patchRequired])))
       (is (= 1 (get-in report [:scores :patchAttempted])))
@@ -3242,33 +3243,40 @@
                 :missing []
                 :scores {:patchFileRecall 0.5
                          :patchFileF1 0.4
+                         :patchAttemptRate 0.5
                          :patchVerifierPassRate 0.5}
                 :results [{:case-id "case-1"
                            :agent {:agentId "codex"
                                    :mode "ygg"}
                            :scores {:patchFileRecall 1.0
                                     :patchFileF1 0.8
+                                    :patchAttempted 1
                                     :patchVerifierPassRate 1.0}}
                           {:case-id "case-2"
                            :agent {:agentId "codex"
                                    :mode "ygg"}
                            :scores {:patchFileRecall 0.0
                                     :patchFileF1 0.0
+                                    :patchAttempted 0
                                     :patchVerifierPassRate 0.0}}]}
         failed (benchmark/check-agent-report
                 report
                 {:min-patch-file-recall 0.75
                  :min-patch-file-f1 0.75
+                 :min-patch-attempt-rate 1.0
                  :min-patch-verifier-pass-rate 1.0
                  :min-case-patch-file-recall 0.5
                  :min-case-patch-file-f1 0.5
+                 :min-case-patch-attempted 1.0
                  :min-case-patch-verifier-pass-rate 1.0})]
     (is (= "failed" (:status failed)))
     (is (= #{"patchFileRecall"
              "patchFileF1"
+             "patchAttemptRate"
              "patchVerifierPassRate"
              "case.patchFileRecall"
              "case.patchFileF1"
+             "case.patchAttempted"
              "case.patchVerifierPassRate"}
            (set (map :metric (:failures failed)))))
     (is (= {:case-id "case-2"
@@ -3279,16 +3287,20 @@
                         [:case-id :agentId :mode])))
     (is (= {:minPatchFileRecall 0.75
             :minPatchFileF1 0.75
+            :minPatchAttemptRate 1.0
             :minPatchVerifierPassRate 1.0
             :minCasePatchFileRecall 0.5
             :minCasePatchFileF1 0.5
+            :minCasePatchAttempted 1.0
             :minCasePatchVerifierPassRate 1.0}
            (select-keys (:thresholds failed)
                         [:minPatchFileRecall
                          :minPatchFileF1
+                         :minPatchAttemptRate
                          :minPatchVerifierPassRate
                          :minCasePatchFileRecall
                          :minCasePatchFileF1
+                         :minCasePatchAttempted
                          :minCasePatchVerifierPassRate])))))
 
 (deftest checks-agent-report-token-thresholds
@@ -3440,11 +3452,13 @@
                      :scores {:patchFileRecall 1.0
                               :patchFilePrecision 1.0
                               :patchFileF1 1.0
+                              :patchAttemptRate 1.0
                               :patchVerifierPassRate 1.0}}
         candidate-result {:case-id "case-1"
                           :scores {:patchFileRecall 0.5
                                    :patchFilePrecision 0.5
                                    :patchFileF1 0.5
+                                   :patchAttemptRate 0.5
                                    :patchVerifierPassRate 0.0}}
         report-base {:schema benchmark/agent-report-schema
                      :suite-id "oss-issue-patch-replay"
@@ -3466,10 +3480,12 @@
     (is (= #{"patchFileRecall"
              "patchFilePrecision"
              "patchFileF1"
+             "patchAttemptRate"
              "patchVerifierPassRate"
              "case.patchFileRecall"
              "case.patchFilePrecision"
              "case.patchFileF1"
+             "case.patchAttemptRate"
              "case.patchVerifierPassRate"}
            (set (map :metric (:regressions comparison)))))))
 

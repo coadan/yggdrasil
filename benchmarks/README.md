@@ -141,7 +141,7 @@ the real fix commit's changed files. The default verifier is
 they are stable enough to replay cheaply.
 
 Run both shell-only and default Yggdrasil auto/hybrid agents, then compare patch
-metrics such as `patchFileRecall`, `patchFileF1`, and
+metrics such as `patchAttemptRate`, `patchFileRecall`, `patchFileF1`, and
 `patchVerifierPassRate`:
 
 ```sh

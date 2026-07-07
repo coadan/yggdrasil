@@ -41,6 +41,9 @@
    {:key :patchFileF1
     :label "patchFileF1"
     :direction :higher}
+   {:key :patchAttemptRate
+    :label "patchAttemptRate"
+    :direction :higher}
    {:key :patchVerifierPassRate
     :label "patchVerifierPassRate"
     :direction :higher}])

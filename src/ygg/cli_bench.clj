@@ -224,6 +224,11 @@
                                                         (parse-optional-double
                                                          args
                                                          "--min-patch-file-f1"))
+    (parse-optional-double args "--min-patch-attempt-rate") (assoc
+                                                             :min-patch-attempt-rate
+                                                             (parse-optional-double
+                                                              args
+                                                              "--min-patch-attempt-rate"))
     (parse-optional-double args "--min-patch-verifier-pass-rate") (assoc
                                                                    :min-patch-verifier-pass-rate
                                                                    (parse-optional-double
@@ -298,6 +303,11 @@
                                                              (parse-optional-double
                                                               args
                                                               "--min-case-patch-file-f1"))
+    (parse-optional-double args "--min-case-patch-attempted") (assoc
+                                                               :min-case-patch-attempted
+                                                               (parse-optional-double
+                                                                args
+                                                                "--min-case-patch-attempted"))
     (parse-optional-double args "--min-case-patch-verifier-pass-rate") (assoc
                                                                         :min-case-patch-verifier-pass-rate
                                                                         (parse-optional-double
@@ -853,6 +863,8 @@
         (println "- patch-file-recall" (format "%.2f" (double rate))))
       (when-some [rate (get-in result [:scores :patchFileF1])]
         (println "- patch-file-f1" (format "%.2f" (double rate))))
+      (when-some [rate (get-in result [:scores :patchAttemptRate])]
+        (println "- patch-attempt-rate" (format "%.2f" (double rate))))
       (when-some [rate (get-in result [:scores :patchVerifierPassRate])]
         (println "- patch-verifier-pass-rate"
                  (format "%.2f" (double rate))))

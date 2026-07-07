@@ -262,6 +262,11 @@
     :category :patch-outcome
     :path [:scores :patchFileF1]
     :direction :higher}
+   {:key :patchAttemptRate
+    :label "patchAttemptRate"
+    :category :patch-outcome
+    :path [:scores :patchAttemptRate]
+    :direction :higher}
    {:key :patchVerifierPassRate
     :label "patchVerifierPassRate"
     :category :patch-outcome
@@ -304,6 +309,7 @@
    :decisionF1
    :decisionEvidenceCitationRate
    :patchFileF1
+   :patchAttemptRate
    :patchVerifierPassRate
    :warmElapsedMs
    :elapsedMs
@@ -323,6 +329,7 @@
    [:decisionF1 :decisionF1Delta]
    [:decisionEvidenceCitationRate :decisionEvidenceCitationRateDelta]
    [:patchFileF1 :patchFileF1Delta]
+   [:patchAttemptRate :patchAttemptRateDelta]
    [:patchVerifierPassRate :patchVerifierPassRateDelta]
    [:warmElapsedMs :warmElapsedMsDelta]
    [:elapsedMs :elapsedMsDelta]
@@ -342,6 +349,7 @@
    [:decisionF1Delta "decisionF1 delta"]
    [:decisionEvidenceCitationRateDelta "decision evidence citation delta"]
    [:patchFileF1Delta "patchFileF1 delta"]
+   [:patchAttemptRateDelta "patch attempt-rate delta"]
    [:patchVerifierPassRateDelta "patch verifier pass-rate delta"]
    [:warmElapsedMsDelta "warmElapsedMs delta"]
    [:elapsedMsDelta "raw elapsedMs delta"]
@@ -423,6 +431,7 @@
     :patchFileRecall
     :patchFilePrecision
     :patchFileF1
+    :patchAttemptRate
     :patchVerifierPassRate})
 
 (def ^:private token-tradeoff-metric-keys
@@ -1271,6 +1280,7 @@
 (defn- patch-score-present?
   [report]
   (and (number? (get-in report [:scores :patchFileF1]))
+       (number? (get-in report [:scores :patchAttemptRate]))
        (number? (get-in report [:scores :patchVerifierPassRate]))))
 
 (defn- patch-outcome-comparable?

@@ -17,6 +17,8 @@ Checks existing OSS issue-to-patch replay artifacts:
   --min-repos 6
   --min-patch-file-recall 0.50
   --min-patch-file-f1 0.50
+  --min-patch-attempt-rate 1.00
+  --min-case-patch-attempted 1.00
   --min-patch-verifier-pass-rate 1.00
 
 Run `bench agent-run` and `bench agent-report` for the same suite/out/agent
@@ -37,6 +39,8 @@ min_cases="8"
 min_repos="6"
 min_patch_file_recall="0.50"
 min_patch_file_f1="0.50"
+min_patch_attempt_rate="1.00"
+min_case_patch_attempted="1.00"
 min_patch_verifier_pass_rate="1.00"
 min_source_kind_cases=(
   "dotnet=1"
@@ -120,6 +124,14 @@ while [[ $# -gt 0 ]]; do
       min_patch_file_f1="$2"
       shift 2
       ;;
+    --min-patch-attempt-rate)
+      min_patch_attempt_rate="$2"
+      shift 2
+      ;;
+    --min-case-patch-attempted)
+      min_case_patch_attempted="$2"
+      shift 2
+      ;;
     --min-patch-verifier-pass-rate)
       min_patch_verifier_pass_rate="$2"
       shift 2
@@ -160,6 +172,8 @@ agent_check_args=(
   --min-repos "$min_repos"
   --min-patch-file-recall "$min_patch_file_recall"
   --min-patch-file-f1 "$min_patch_file_f1"
+  --min-patch-attempt-rate "$min_patch_attempt_rate"
+  --min-case-patch-attempted "$min_case_patch_attempted"
   --min-patch-verifier-pass-rate "$min_patch_verifier_pass_rate"
   --max-unverified-score-runs 0
   --out "$out"

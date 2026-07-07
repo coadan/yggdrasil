@@ -29,6 +29,7 @@
            decision-recall decision-precision decision-f1 decision-evidence
            missing-decision decision-gaps
            patch-recall patch-precision patch-f1 patch-verifier-pass-rate
+           patch-attempt-rate
            missed outside5 outside10 missing-predicted empty commandless warnings
            command-count search-command-count file-read-command-count
            broad-search-command-count scoped-search-command-count
@@ -58,6 +59,7 @@
                  (assoc :patchFileRecall patch-recall
                         :patchFilePrecision patch-precision
                         :patchFileF1 patch-f1
+                        :patchAttemptRate (or patch-attempt-rate patch-f1)
                         :patchVerifierPassRate patch-verifier-pass-rate))]
     (cond-> {:schema "ygg.benchmark.agent-report/v1"
              :suite-id "suite"
@@ -698,14 +700,16 @@
                         [:shellOnly :ygg :delta :effect :result])))
     (is (= {:signal "ygg-improved"
             :minSharedCases 2
-            :availableMetrics 4
-            :improvedMetrics 4
+            :availableMetrics 5
+            :improvedMetrics 5
             :regressedMetrics 0
             :unchangedMetrics 0
             :unavailableMetrics 0}
            (get-in categories-by-key ["patch-outcome" :summary])))
     (is (= 0.3571428571428571
            (get-in comparison [:headlineSummary :patchFileF1Delta])))
+    (is (= 0.3571428571428571
+           (get-in comparison [:headlineSummary :patchAttemptRateDelta])))
     (is (= 1.0
            (get-in comparison [:headlineSummary :patchVerifierPassRateDelta])))
     (is (= true
@@ -714,10 +718,11 @@
     (is (= ["patchFileRecall"
             "patchFilePrecision"
             "patchFileF1"
+            "patchAttemptRate"
             "patchVerifierPassRate"]
            case-delta-metrics))
-    (is (= {:availableMetrics 11
-            :improvedMetrics 11
+    (is (= {:availableMetrics 12
+            :improvedMetrics 12
             :regressedMetrics 0
             :unchangedMetrics 0
             :unavailableMetrics 1}

@@ -39,6 +39,7 @@
                   :minDecisionEvidenceCitationRate]
                  [:min-patch-file-recall :minPatchFileRecall]
                  [:min-patch-file-f1 :minPatchFileF1]
+                 [:min-patch-attempt-rate :minPatchAttemptRate]
                  [:min-patch-verifier-pass-rate
                   :minPatchVerifierPassRate]
                  [:max-total-tokens :maxTotalTokens]
@@ -57,6 +58,7 @@
                  [:min-case-decision-f1 :minCaseDecisionF1]
                  [:min-case-patch-file-recall :minCasePatchFileRecall]
                  [:min-case-patch-file-f1 :minCasePatchFileF1]
+                 [:min-case-patch-attempted :minCasePatchAttempted]
                  [:min-case-patch-verifier-pass-rate
                   :minCasePatchVerifierPassRate]
                  [:max-case-total-tokens :maxCaseTotalTokens]
@@ -317,6 +319,9 @@
                 [:minCasePatchFileF1
                  :patchFileF1
                  "case.patchFileF1"]
+                [:minCasePatchAttempted
+                 :patchAttempted
+                 "case.patchAttempted"]
                 [:minCasePatchVerifierPassRate
                  :patchVerifierPassRate
                  "case.patchVerifierPassRate"]])
@@ -1031,6 +1036,9 @@
                           [:minPatchFileF1
                            :patchFileF1
                            "patchFileF1"]
+                          [:minPatchAttemptRate
+                           :patchAttemptRate
+                           "patchAttemptRate"]
                           [:minPatchVerifierPassRate
                            :patchVerifierPassRate
                            "patchVerifierPassRate"]])

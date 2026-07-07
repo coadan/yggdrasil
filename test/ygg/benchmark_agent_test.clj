@@ -1541,6 +1541,7 @@
           (is (= "changed" (get-in agent-result [:patchOutcome :status])))
           (is (= 1.0 (get-in score [:scores :patchFileRecall])))
           (is (= 1.0 (get-in score [:scores :patchFilePrecision])))
+          (is (= 1.0 (get-in score [:scores :patchAttemptRate])))
           (is (= 1.0 (get-in score [:scores :patchVerifierPassRate])))
           (is (= ["src/app.clj"]
                  (get-in score [:patchScoring :matchedChangedFiles])))
