@@ -392,7 +392,20 @@
                           :expectedEvidenceCitationTargets 1
                           :changedFiles 3
                           :scoreableChangedFiles 2
-                          :unsupportedGroundTruthFiles 1}})
+                          :unsupportedGroundTruthFiles 1
+                          :patchFileRecall 1.0
+                          :patchFilePrecision 1.0
+                          :patchFileF1 1.0
+                          :patchVerifierPassRate 1.0
+                          :patchRequired 1
+                          :patchAttempted 1
+                          :patchChangedFiles 2
+                          :patchExpectedChangedFiles 2
+                          :patchMatchedChangedFiles 2
+                          :patchUnexpectedChangedFiles 0
+                          :patchMissingChangedFiles 0
+                          :patchVerifierCount 1
+                          :patchVerifierPassed 1}})
     (spit-json! out
                 "suite/cases/case-1/agent-scores/run-2.score.json"
                 {:schema benchmark/agent-score-schema
@@ -419,7 +432,20 @@
                           :noiseRatioAt20 1.0
                           :changedFiles 3
                           :scoreableChangedFiles 2
-                          :unsupportedGroundTruthFiles 1}})
+                          :unsupportedGroundTruthFiles 1
+                          :patchFileRecall 0.0
+                          :patchFilePrecision 0.0
+                          :patchFileF1 0.0
+                          :patchVerifierPassRate 0.0
+                          :patchRequired 1
+                          :patchAttempted 0
+                          :patchChangedFiles 0
+                          :patchExpectedChangedFiles 1
+                          :patchMatchedChangedFiles 0
+                          :patchUnexpectedChangedFiles 0
+                          :patchMissingChangedFiles 1
+                          :patchVerifierCount 1
+                          :patchVerifierPassed 0}})
     (spit-json! out
                 "suite/cases/case-1/progress.json"
                 {:schema "ygg.benchmark.case-progress/v1"
@@ -459,6 +485,17 @@
       (is (= 0.75 (get-in report [:scores :fileRecallAt10])))
       (is (= 6 (get-in report [:scores :changedFiles])))
       (is (= 4 (get-in report [:scores :scoreableChangedFiles])))
+      (is (= 0.5 (get-in report [:scores :patchFileRecall])))
+      (is (= 0.5 (get-in report [:scores :patchFileF1])))
+      (is (= 0.5 (get-in report [:scores :patchVerifierPassRate])))
+      (is (= 2 (get-in report [:scores :patchRequired])))
+      (is (= 1 (get-in report [:scores :patchAttempted])))
+      (is (= 2 (get-in report [:scores :patchChangedFiles])))
+      (is (= 3 (get-in report [:scores :patchExpectedChangedFiles])))
+      (is (= 2 (get-in report [:scores :patchMatchedChangedFiles])))
+      (is (= 1 (get-in report [:scores :patchMissingChangedFiles])))
+      (is (= 2 (get-in report [:scores :patchVerifierCount])))
+      (is (= 1 (get-in report [:scores :patchVerifierPassed])))
       (is (= [{:mode "all"
                :source "option"
                :runs 1
@@ -3339,6 +3376,45 @@
     (is (= "passed" (:status passed)))
     (is (empty? (:failures passed)))
     (is (= true (get-in passed [:thresholds :allowDuplicateRuns])))))
+
+(deftest compares-agent-reports-for-patch-outcome-regressions
+  (let [base-result {:case-id "case-1"
+                     :scores {:patchFileRecall 1.0
+                              :patchFilePrecision 1.0
+                              :patchFileF1 1.0
+                              :patchVerifierPassRate 1.0}}
+        candidate-result {:case-id "case-1"
+                          :scores {:patchFileRecall 0.5
+                                   :patchFilePrecision 0.5
+                                   :patchFileF1 0.5
+                                   :patchVerifierPassRate 0.0}}
+        report-base {:schema benchmark/agent-report-schema
+                     :suite-id "oss-issue-patch-replay"
+                     :cases 1
+                     :completed 1
+                     :runs 1
+                     :parserWorkers [{:mode "all"
+                                      :source "option"
+                                      :runs 1}]
+                     :scores (:scores base-result)
+                     :results [base-result]}
+        report-candidate (assoc report-base
+                                :scores (:scores candidate-result)
+                                :results [candidate-result])
+        comparison (benchmark/compare-agent-reports report-base
+                                                    report-candidate
+                                                    {})]
+    (is (= "failed" (:status comparison)))
+    (is (= #{"patchFileRecall"
+             "patchFilePrecision"
+             "patchFileF1"
+             "patchVerifierPassRate"
+             "case.patchFileRecall"
+             "case.patchFilePrecision"
+             "case.patchFileF1"
+             "case.patchVerifierPassRate"}
+           (set (map :metric (:regressions comparison)))))))
+
 (deftest compares-agent-reports-for-regressions
   (let [baseline {:schema benchmark/agent-report-schema
                   :suite-id "suite"

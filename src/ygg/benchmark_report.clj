@@ -107,6 +107,23 @@
    :decisionF1
    :decisionEvidenceCitationRate])
 
+(def ^:private aggregate-patch-score-keys
+  [:patchFileRecall
+   :patchFilePrecision
+   :patchFileF1
+   :patchVerifierPassRate])
+
+(def ^:private aggregate-patch-count-score-keys
+  [:patchRequired
+   :patchAttempted
+   :patchChangedFiles
+   :patchExpectedChangedFiles
+   :patchMatchedChangedFiles
+   :patchUnexpectedChangedFiles
+   :patchMissingChangedFiles
+   :patchVerifierCount
+   :patchVerifierPassed])
+
 (defn- average
   [values]
   (if (seq values)
@@ -120,7 +137,12 @@
                                     (number? (get-in % [:scores k])))
                                   aggregate-decision-score-keys)
                            results)
-                     (into aggregate-decision-score-keys))]
+                     (into aggregate-decision-score-keys)
+                     (some #(some (fn [k]
+                                    (number? (get-in % [:scores k])))
+                                  aggregate-patch-score-keys)
+                           results)
+                     (into aggregate-patch-score-keys))]
     (into {}
           (map (fn [k]
                  [k (average (keep #(get-in % [:scores k]) results))]))
@@ -132,12 +154,21 @@
 
 (defn- aggregate-agent-scores
   [results]
-  (assoc (aggregate-scores results)
-         :changedFiles (sum-score results :changedFiles)
-         :scoreableChangedFiles (sum-score results :scoreableChangedFiles)
-         :unsupportedGroundTruthFiles (sum-score results :unsupportedGroundTruthFiles)
-         :coverageExcludedGroundTruthFiles (sum-score results
-                                                      :coverageExcludedGroundTruthFiles)))
+  (let [scores (assoc (aggregate-scores results)
+                      :changedFiles (sum-score results :changedFiles)
+                      :scoreableChangedFiles (sum-score results :scoreableChangedFiles)
+                      :unsupportedGroundTruthFiles (sum-score results :unsupportedGroundTruthFiles)
+                      :coverageExcludedGroundTruthFiles (sum-score results
+                                                                   :coverageExcludedGroundTruthFiles))]
+    (if (some #(some (fn [k]
+                       (number? (get-in % [:scores k])))
+                     aggregate-patch-count-score-keys)
+              results)
+      (into scores
+            (map (fn [k]
+                   [k (sum-score results k)]))
+            aggregate-patch-count-score-keys)
+      scores)))
 
 (defn- input-hint-summary
   [results]

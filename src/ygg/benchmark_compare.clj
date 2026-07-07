@@ -31,6 +31,18 @@
     :direction :higher}
    {:key :expectedEvidenceCitationRate
     :label "expectedEvidenceCitationRate"
+    :direction :higher}
+   {:key :patchFileRecall
+    :label "patchFileRecall"
+    :direction :higher}
+   {:key :patchFilePrecision
+    :label "patchFilePrecision"
+    :direction :higher}
+   {:key :patchFileF1
+    :label "patchFileF1"
+    :direction :higher}
+   {:key :patchVerifierPassRate
+    :label "patchVerifierPassRate"
     :direction :higher}])
 (def ^:private comparison-report-specs
   [{:path [:agentDiagnostics :warningRuns]
