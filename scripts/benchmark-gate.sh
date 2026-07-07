@@ -90,21 +90,24 @@ Options:
   --dry-run           Print commands without running them.
 
 The gate runs the deterministic Yggdrasil baseline and checks the generated
-score artifacts. Baseline regeneration reuses compatible context manifests by
-default; the manifest key includes benchmark options and a Yggdrasil
-implementation fingerprint, so code changes force a fresh context. Use
---fresh-context to profile full rebuild costs. Use --check-only before a claim
-when current artifacts already exist; stale or missing score artifacts still
-fail the strict check. Generated worktrees, XTDB stores, reports, and scores
-stay under the output root. Every gate run also writes stage-time-gate.json so
-performance regressions and slow stage classes are visible without configuring
-timing thresholds.
+score artifacts. Benchmark actions run through the local source tree, not a
+running Yggdrasil daemon, so claim checks evaluate the code in the current
+worktree. Baseline regeneration reuses compatible context manifests by default;
+the manifest key includes benchmark options and a Yggdrasil implementation
+fingerprint, so code changes force a fresh context. Use --fresh-context to
+profile full rebuild costs. Use --check-only before a claim when current
+artifacts already exist; stale or missing score artifacts still fail the strict
+check. Generated worktrees, XTDB stores, reports, and scores stay under the
+output root. Every gate run also writes stage-time-gate.json so performance
+regressions and slow stage classes are visible without configuring timing
+thresholds.
 EOF
 }
 
 suite="benchmarks/architecture-synthetic.edn"
 manifest="benchmarks/repos.edn"
 out=".dev/ygg/benchmark-gate"
+bench_cmd=(clojure -M:run -m ygg.cli-bench)
 case_id=""
 case_ids=""
 retriever="auto"
@@ -375,16 +378,16 @@ run_bench() {
   local action="$1"
   shift
   if [[ -n "$case_id" ]]; then
-    run ./bin/ygg bench "$action" "$suite" --case "$case_id" "$@"
+    run "${bench_cmd[@]}" "$action" "$suite" --case "$case_id" "$@"
   elif [[ -n "$case_ids" ]]; then
-    run ./bin/ygg bench "$action" "$suite" --cases "$case_ids" "$@"
+    run "${bench_cmd[@]}" "$action" "$suite" --cases "$case_ids" "$@"
   else
-    run ./bin/ygg bench "$action" "$suite" "$@"
+    run "${bench_cmd[@]}" "$action" "$suite" "$@"
   fi
 }
 
 setup_check() {
-  run bb bench repos check --manifest "$manifest" --suite "$suite"
+  run "${bench_cmd[@]}" repos check --manifest "$manifest" --suite "$suite"
 }
 
 if [[ "$setup_check_only" == true ]]; then

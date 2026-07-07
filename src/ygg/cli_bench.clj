@@ -4,6 +4,7 @@
             [ygg.benchmark-repos :as benchmark-repos]
             [ygg.cli-options :refer [json-output? option-value option-values parse-case-ids parse-limit parse-optional-double parse-optional-long positional-args]]
             [ygg.queue :as queue]
+            [charred.api :as json]
             [clojure.string :as str]))
 
 (defn- parse-kind-limit
@@ -15,6 +16,18 @@
       (throw (ex-info (str "Expected " flag " as kind=N.")
                       {:value value})))
     [kind (Double/parseDouble limit)]))
+
+(defn- print-json
+  [value]
+  (println (json/write-json-str value {:indent-str "  "})))
+
+(defn- local-bench-usage
+  []
+  "bench efficiency|repos|prepare|run|report|agent-baseline|agent-run|agent-score|agent-report|agent-check|agent-compare|claim-pack|show <benchmark.edn>")
+
+(defn- local-enqueue-output?
+  [_args]
+  false)
 
 (defn- parse-improvement-target-kind-limit
   [value]
@@ -1048,3 +1061,22 @@
                              :status (:status result)
                              :failures (or (:failures result)
                                            (:regressions result))}))))))))
+
+(defn -main
+  "Local benchmark entrypoint used by benchmark gate scripts.
+
+  Unlike `ygg.cli`, this intentionally runs in the current process so claim gates
+  evaluate the current source tree instead of any already-running daemon."
+  [& args]
+  (try
+    (bench! (vec args)
+            {:usage local-bench-usage
+             :print-json print-json
+             :enqueue-output? local-enqueue-output?})
+    (shutdown-agents)
+    (catch Throwable t
+      (binding [*out* *err*]
+        (println (or (.getMessage t)
+                     (str (class t)))))
+      (shutdown-agents)
+      (System/exit 1))))
