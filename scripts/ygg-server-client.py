@@ -10,7 +10,6 @@ import time
 
 
 UNAVAILABLE = 75
-UNAVAILABLE_MESSAGE = "Yggdrasil server is not running. Run `ygg init` first, or `ygg start` when a project is already initialized.\n"
 DEFAULT_SERVER_HOST = "127.0.0.1"
 DEFAULT_SERVER_PORT = 62121
 DEFAULT_CONNECT_TIMEOUT_MS = 30000
@@ -49,6 +48,18 @@ INIT_BOOLEAN_OPTIONS = {
     "--skill",
     "--mcp",
     "--force-agent",
+}
+CONFIG_PATH_POSITIONAL_OPS = {
+    "affected",
+    "audit-scope",
+    "hook",
+    "maintenance",
+    "plugin",
+    "projects",
+    "report",
+    "status",
+    "sync",
+    "watch",
 }
 
 def server_host():
@@ -159,6 +170,172 @@ def has_flag(args, flag):
 
 def has_any(args, flags):
     return any(flag in args for flag in flags)
+
+
+def parent_dirs(path):
+    current = pathlib.Path(path).expanduser().resolve()
+    while True:
+        yield current
+        if current.parent == current:
+            return
+        current = current.parent
+
+
+def display_path(path):
+    try:
+        absolute = pathlib.Path(path).expanduser().resolve()
+    except OSError:
+        absolute = pathlib.Path(path).expanduser().absolute()
+    try:
+        cwd = pathlib.Path.cwd().resolve()
+        relative = os.path.relpath(str(absolute), str(cwd))
+        if relative != ".." and not relative.startswith("../"):
+            return relative
+    except OSError:
+        pass
+    return str(absolute)
+
+
+def project_registry_path():
+    configured = os.environ.get("YGG_PROJECTS_FILE")
+    if configured:
+        return pathlib.Path(configured).expanduser()
+    config_home = os.environ.get("YGG_CONFIG_HOME")
+    if config_home:
+        return pathlib.Path(config_home).expanduser() / "projects.edn"
+    xdg_home = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_home:
+        return pathlib.Path(xdg_home).expanduser() / "ygg" / "projects.edn"
+    return pathlib.Path.home() / ".config" / "ygg" / "projects.edn"
+
+
+def nearest_project_ref_path(cwd=None):
+    for directory in parent_dirs(cwd or os.getcwd()):
+        path = directory / ".ygg" / "project.edn"
+        if path.is_file():
+            return path
+    return None
+
+
+def cwd_project_config_path(cwd=None):
+    path = pathlib.Path(cwd or os.getcwd()) / "project.edn"
+    return path if path.is_file() else None
+
+
+def looks_like_config_path(value):
+    if not value or value.startswith("-"):
+        return False
+    path = pathlib.Path(value)
+    return path.suffix == ".edn" or path.name == "project.edn" or path.is_file()
+
+
+def first_config_path_arg(op, args):
+    explicit = option_value(args, "--config")
+    if explicit:
+        return explicit
+    if op not in CONFIG_PATH_POSITIONAL_OPS:
+        return None
+    skip_next = False
+    for arg in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in INIT_VALUE_OPTIONS or arg in {"--config", "--project", "--repo", "--out"}:
+            skip_next = True
+            continue
+        if arg.startswith("--"):
+            continue
+        if looks_like_config_path(arg):
+            return arg
+    return None
+
+
+def server_endpoint():
+    return f"{server_host()}:{server_port()}"
+
+
+def retry_phrase(op):
+    if op:
+        return f"`ygg {op}`"
+    return "the command"
+
+
+def unavailable_hint(op=None, args=None):
+    args = list(args or [])
+    if op == "init":
+        if "--no-start-server" in args:
+            return (
+                "Server startup was disabled by `--no-start-server`. "
+                "Run `ygg start`, then retry `ygg init`."
+            )
+        return (
+            "The client could not start or contact the service for `ygg init`. "
+            f"Check `{display_path(server_log_path())}`, run `ygg start`, then retry."
+        )
+
+    project_id = option_value(args, "--project")
+    if project_id:
+        return (
+            f"Project `{project_id}` was selected via `--project`. "
+            f"Run `ygg start`, then retry {retry_phrase(op)}."
+        )
+    env_project_id = os.environ.get("YGG_PROJECT_ID")
+    if env_project_id:
+        return (
+            f"Project `{env_project_id}` was selected via `YGG_PROJECT_ID`. "
+            f"Run `ygg start`, then retry {retry_phrase(op)}."
+        )
+
+    config_path = first_config_path_arg(op, args)
+    if config_path:
+        file = pathlib.Path(config_path).expanduser()
+        if file.is_file():
+            return (
+                f"Project config exists at `{display_path(file)}`. "
+                f"Run `ygg start`, then retry {retry_phrase(op)}."
+            )
+        return (
+            f"Project config `{config_path}` was requested but does not exist. "
+            f"Create it with `ygg init <repo-root> --project <id> --out {config_path}`, "
+            "or pass an existing config after `ygg start`."
+        )
+
+    project_ref = nearest_project_ref_path()
+    if project_ref:
+        return (
+            f"Repo-local project reference exists at `{display_path(project_ref)}`. "
+            f"Run `ygg start`, then retry {retry_phrase(op)}."
+        )
+
+    cwd_config = cwd_project_config_path()
+    if cwd_config:
+        return (
+            f"Project config exists at `{display_path(cwd_config)}`. "
+            f"Run `ygg start`, then retry {retry_phrase(op)}."
+        )
+
+    registry_path = project_registry_path()
+    if registry_path.is_file():
+        return (
+            "No project config or repo-local `.ygg/project.edn` was found from "
+            f"`{display_path(os.getcwd())}`. A user project registry exists at "
+            f"`{display_path(registry_path)}`; run `ygg start`, then pass "
+            "`--project <id>` or run inside an initialized repo."
+        )
+
+    return (
+        "No project config or repo-local `.ygg/project.edn` was found from "
+        f"`{display_path(os.getcwd())}`. Run "
+        "`ygg init <repo-root> --project <id> --sync` to initialize this checkout, "
+        "or run `ygg start` and pass `--project <id>` for an existing registered project."
+    )
+
+
+def unavailable_message(op=None, args=None):
+    return (
+        f"Yggdrasil server is not reachable at {server_endpoint()}.\n"
+        f"{unavailable_hint(op, args)}\n"
+    )
 
 
 def init_positional_args(args):
@@ -349,12 +526,13 @@ def mcp_proxy(args):
             continue
         response = request("mcp", args, extra={"message": message})
         if response is None:
-            sys.stderr.write(UNAVAILABLE_MESSAGE)
+            hint = unavailable_hint("mcp", args)
+            sys.stderr.write(unavailable_message("mcp", args))
             write_json_line(jsonrpc_error(
-                "Yggdrasil server is not running.",
+                "Yggdrasil server is not reachable.",
                 message,
                 -32000,
-                {"hint": "Run `ygg init` first, or `ygg start` when a project is already initialized."},
+                {"hint": hint},
             ))
             return UNAVAILABLE
         if not response.get("ok"):
@@ -391,7 +569,7 @@ def print_response(response):
 def server_request(op, args, stream=False, render_progress=False):
     response = request(op, args, stream=stream, render_progress=render_progress)
     if response is None:
-        sys.stderr.write(UNAVAILABLE_MESSAGE)
+        sys.stderr.write(unavailable_message(op, args))
         return UNAVAILABLE
     return print_response(response)
 
@@ -667,7 +845,7 @@ def init_server_request(args):
                 render_progress=progress_output(server_args),
             )
     if response is None:
-        sys.stderr.write(UNAVAILABLE_MESSAGE)
+        sys.stderr.write(unavailable_message("init", args))
         return UNAVAILABLE
     if service:
         response = attach_init_service_result(response, service)

@@ -4,6 +4,7 @@ import io
 import json
 import os
 import pathlib
+import tempfile
 import unittest
 
 
@@ -21,10 +22,18 @@ def load_client():
 class ServerClientRoutingTest(unittest.TestCase):
     def setUp(self):
         self._env_snapshot = os.environ.copy()
+        self._cwd_snapshot = os.getcwd()
 
     def tearDown(self):
+        os.chdir(self._cwd_snapshot)
         os.environ.clear()
         os.environ.update(self._env_snapshot)
+
+    @contextlib.contextmanager
+    def temporary_cwd(self):
+        with tempfile.TemporaryDirectory() as root:
+            os.chdir(root)
+            yield pathlib.Path(root)
 
     def test_timeout_env_parsing_keeps_distinct_zero_semantics(self):
         client = load_client()
@@ -72,6 +81,128 @@ class ServerClientRoutingTest(unittest.TestCase):
                 ["agent-baseline", "benchmarks/historical-replay-full.edn"],
             ),
         )
+
+    def test_unavailable_message_points_to_existing_cwd_project_config(self):
+        client = load_client()
+
+        with self.temporary_cwd() as root:
+            os.environ.pop("YGG_PROJECT_ID", None)
+            os.environ["YGG_PROJECTS_FILE"] = str(root / "missing-registry.edn")
+            (root / "project.edn").write_text("{:id \"demo\" :repos []}\n", encoding="utf-8")
+
+            message = client.unavailable_message("status", [])
+
+        self.assertIn("Yggdrasil server is not reachable at 127.0.0.1:62121.", message)
+        self.assertIn("Project config exists at `project.edn`.", message)
+        self.assertIn("Run `ygg start`, then retry `ygg status`.", message)
+
+    def test_unavailable_message_points_to_repo_local_project_ref(self):
+        client = load_client()
+
+        with self.temporary_cwd() as root:
+            os.environ.pop("YGG_PROJECT_ID", None)
+            os.environ["YGG_PROJECTS_FILE"] = str(root / "missing-registry.edn")
+            ref_dir = root / ".ygg"
+            ref_dir.mkdir()
+            (ref_dir / "project.edn").write_text(
+                "{:schema \"ygg.project-ref/v1\" :project-id \"demo\"}\n",
+                encoding="utf-8",
+            )
+
+            message = client.unavailable_message("query", ["needle"])
+
+        self.assertIn("Repo-local project reference exists at `.ygg/project.edn`.", message)
+        self.assertIn("Run `ygg start`, then retry `ygg query`.", message)
+
+    def test_unavailable_message_uses_selected_project_id(self):
+        client = load_client()
+
+        with self.temporary_cwd() as root:
+            os.environ["YGG_PROJECT_ID"] = "env-demo"
+            os.environ["YGG_PROJECTS_FILE"] = str(root / "missing-registry.edn")
+
+            env_message = client.unavailable_message("status", [])
+            arg_message = client.unavailable_message("status", ["--project", "arg-demo"])
+
+        self.assertIn("Project `env-demo` was selected via `YGG_PROJECT_ID`.", env_message)
+        self.assertIn("Project `arg-demo` was selected via `--project`.", arg_message)
+
+    def test_unavailable_message_reports_requested_missing_config(self):
+        client = load_client()
+
+        with self.temporary_cwd() as root:
+            os.environ.pop("YGG_PROJECT_ID", None)
+            os.environ["YGG_PROJECTS_FILE"] = str(root / "missing-registry.edn")
+
+            message = client.unavailable_message("sync", ["missing.edn", "--check"])
+
+        self.assertIn("Project config `missing.edn` was requested but does not exist.", message)
+        self.assertIn(
+            "Create it with `ygg init <repo-root> --project <id> --out missing.edn`",
+            message,
+        )
+
+    def test_unavailable_message_without_local_state_recommends_init(self):
+        client = load_client()
+
+        with self.temporary_cwd() as root:
+            os.environ.pop("YGG_PROJECT_ID", None)
+            os.environ["YGG_PROJECTS_FILE"] = str(root / "missing-registry.edn")
+
+            message = client.unavailable_message("status", [])
+
+        self.assertIn("No project config or repo-local `.ygg/project.edn` was found", message)
+        self.assertIn("`ygg init <repo-root> --project <id> --sync`", message)
+
+    def test_server_request_writes_state_aware_unavailable_message(self):
+        client = load_client()
+
+        def unavailable_request(op, args, **kwargs):
+            return None
+
+        client.request = unavailable_request
+        with self.temporary_cwd() as root:
+            os.environ.pop("YGG_PROJECT_ID", None)
+            os.environ["YGG_PROJECTS_FILE"] = str(root / "missing-registry.edn")
+            (root / "project.edn").write_text("{:id \"demo\" :repos []}\n", encoding="utf-8")
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                exit_code = client.main(["ygg", "status"])
+
+        self.assertEqual(client.UNAVAILABLE, exit_code)
+        self.assertIn("Project config exists at `project.edn`.", err.getvalue())
+
+    def test_mcp_unavailable_json_hint_matches_state_aware_hint(self):
+        client = load_client()
+        old_stdin = client.sys.stdin
+
+        def unavailable_request(op, args, **kwargs):
+            return None
+
+        client.request = unavailable_request
+        with self.temporary_cwd() as root:
+            os.environ.pop("YGG_PROJECT_ID", None)
+            os.environ["YGG_PROJECTS_FILE"] = str(root / "missing-registry.edn")
+            client.sys.stdin = io.StringIO(
+                json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n"
+            )
+            try:
+                out = io.StringIO()
+                err = io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    exit_code = client.main(["ygg", "mcp"])
+            finally:
+                client.sys.stdin = old_stdin
+
+        self.assertEqual(client.UNAVAILABLE, exit_code)
+        body = json.loads(out.getvalue())
+        self.assertEqual("Yggdrasil server is not reachable.", body["error"]["message"])
+        self.assertIn(
+            "No project config or repo-local `.ygg/project.edn` was found",
+            body["error"]["data"]["hint"],
+        )
+        self.assertIn("No project config or repo-local `.ygg/project.edn` was found",
+                      err.getvalue())
 
     def test_server_command_routes_to_matching_server_op(self):
         client = load_client()
@@ -351,7 +482,8 @@ class ServerClientRoutingTest(unittest.TestCase):
             exit_code = client.main(["ygg", "init", "repo", "--no-start-server"])
 
         self.assertEqual(client.UNAVAILABLE, exit_code)
-        self.assertIn("Run `ygg init` first", err.getvalue())
+        self.assertIn("Server startup was disabled by `--no-start-server`", err.getvalue())
+        self.assertIn("Run `ygg start`, then retry `ygg init`.", err.getvalue())
         self.assertEqual(["repo"], calls[0][1])
 
     def test_service_start_at_login_status_reports_unsupported_off_macos(self):
