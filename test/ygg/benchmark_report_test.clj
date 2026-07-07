@@ -1852,6 +1852,19 @@
       (is (= ["ci" "doc"]
              (get-in report [:docsClaimReadiness :sourceKindKeys])))
       (is (= 4 (get-in report [:docsClaimReadiness :docSourceKindCases])))
+      (is (= {:fileRecallAt5 1.0
+              :fileRecallAt10 1.0
+              :fileRecallAt20 1.0
+              :meanReciprocalRankFile 1.0
+              :noiseRatioAt20 0.0
+              :evidenceCitationRate 1.0
+              :pathEvidenceCitationRate 1.0
+              :expectedEvidenceCitationRate 1.0
+              :changedFiles 4
+              :scoreableChangedFiles 4
+              :unsupportedGroundTruthFiles 0
+              :coverageExcludedGroundTruthFiles 0}
+             (get-in report [:docsClaimReadiness :docSourceKindScores])))
       (is (= 2
              (get-in report
                      [:docsClaimReadiness
@@ -1861,6 +1874,9 @@
               :nonSyntheticCases true
               :repoBreadth true
               :docSourceKindCoverage true
+              :docSourceKindFileRecallAt5Quality true
+              :docSourceKindFileRecallAt10Quality true
+              :docSourceKindMeanReciprocalRankQuality true
               :docsClaimSourceKindBreadth true
               :declaredSourceKindCoverage true
               :measuredDocsProblemClasses true
@@ -1876,6 +1892,69 @@
               :benchmarkPreflight true}
              (get-in report [:docsClaimReadiness :requirements])))
       (is (= [] (get-in report [:docsClaimReadiness :warnings]))))))
+
+(deftest agent-report-docs-claim-readiness-requires-doc-lane-quality
+  (let [out (temp-dir "ygg-agent-report-docs-claim-readiness-quality")
+        suite {:id "suite"
+               :cases [{:id "docs-a"
+                        :repo-id "repo-a"
+                        :coverage {:source-kinds [:doc]}
+                        :tags [:problem-docs-config-coupling
+                               :audit-scope-docs]}
+                       {:id "docs-b"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
+                        :tags [:problem-docs-config-coupling
+                               :audit-scope-docs]}
+                       {:id "docs-c"
+                        :repo-id "repo-b"
+                        :coverage {:source-kinds [:doc]}
+                        :tags [:problem-docs-config-coupling]}
+                       {:id "docs-d"
+                        :repo-id "repo-c"
+                        :coverage {:source-kinds [:doc]}
+                        :tags [:problem-docs-config-coupling]}
+                       {:id "docs-config-ci"
+                        :repo-id "repo-c"
+                        :coverage {:source-kinds [:ci]}
+                        :tags [:problem-docs-config-coupling]}]}]
+    (doseq [case (:cases suite)]
+      (write-broad-claim-score! out
+                                case
+                                {:recall (if (= "docs-d" (:id case))
+                                           0.0
+                                           1.0)}))
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})
+          readiness (:docsClaimReadiness report)]
+      (is (= "not-supported" (:status readiness)))
+      (is (= false (:docsHandlingClaimSupported readiness)))
+      (is (= {:fileRecallAt5 0.75
+              :fileRecallAt10 0.75
+              :fileRecallAt20 0.75
+              :meanReciprocalRankFile 0.75
+              :noiseRatioAt20 0.25
+              :evidenceCitationRate 1.0
+              :pathEvidenceCitationRate 1.0
+              :expectedEvidenceCitationRate 1.0
+              :changedFiles 4
+              :scoreableChangedFiles 4
+              :unsupportedGroundTruthFiles 0
+              :coverageExcludedGroundTruthFiles 0}
+             (:docSourceKindScores readiness)))
+      (is (= false
+             (get-in readiness
+                     [:requirements :docSourceKindFileRecallAt5Quality])))
+      (is (= false
+             (get-in readiness
+                     [:requirements :docSourceKindFileRecallAt10Quality])))
+      (is (= false
+             (get-in readiness
+                     [:requirements :docSourceKindMeanReciprocalRankQuality])))
+      (is (= ["Doc source-kind file-recall@5 0.75 is below the docs-handling claim floor 0.80."
+              "Doc source-kind file-recall@10 0.75 is below the docs-handling claim floor 0.90."
+              "Doc source-kind MRR 0.75 is below the docs-handling claim floor 0.80."]
+             (:warnings readiness))))))
 
 (deftest agent-report-claim-readiness-requires-repo-and-source-kind-breadth
   (let [out (temp-dir "ygg-agent-report-claim-readiness-breadth")

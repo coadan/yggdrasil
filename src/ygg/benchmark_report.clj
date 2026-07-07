@@ -59,6 +59,15 @@
 (def ^:private docs-claim-readiness-min-source-kind-groups
   2)
 
+(def ^:private docs-claim-readiness-min-doc-file-recall-at5
+  0.80)
+
+(def ^:private docs-claim-readiness-min-doc-file-recall-at10
+  0.90)
+
+(def ^:private docs-claim-readiness-min-doc-mrr
+  0.80)
+
 (def ^:private rank-blocker-limit
   5)
 
@@ -1353,6 +1362,19 @@
        (map #(long (or (:cases %) 0)))
        (reduce + 0)))
 
+(defn- scoreable-source-kind-result?
+  [source-kind result]
+  (contains? (set (get-in result [:coverage :scoreableSourceKinds]))
+             source-kind))
+
+(defn- source-kind-score-results
+  [report source-kind]
+  (filterv #(scoreable-source-kind-result? source-kind %) (:results report)))
+
+(defn- source-kind-score-summary
+  [report source-kind]
+  (aggregate-agent-scores (source-kind-score-results report source-kind)))
+
 (defn- report-claim-readiness
   [report]
   (let [problem-classes (:problemClasses report)
@@ -1586,9 +1608,19 @@
         repo-ids (diagnostic-values dataset-diagnostics :repos :repoId)
         source-kind-keys (diagnostic-values dataset-diagnostics :sourceKinds :kind)
         doc-source-kind-cases (scoreable-source-kind-cases report "doc")
+        doc-source-kind-scores (source-kind-score-summary report "doc")
         repo-breadth? (<= docs-claim-readiness-min-repos (count repo-ids))
         doc-source-kind-coverage? (<= docs-claim-readiness-min-doc-cases
                                       doc-source-kind-cases)
+        doc-file-recall-at5-quality?
+        (<= docs-claim-readiness-min-doc-file-recall-at5
+            (double (or (:fileRecallAt5 doc-source-kind-scores) 0.0)))
+        doc-file-recall-at10-quality?
+        (<= docs-claim-readiness-min-doc-file-recall-at10
+            (double (or (:fileRecallAt10 doc-source-kind-scores) 0.0)))
+        doc-mrr-quality?
+        (<= docs-claim-readiness-min-doc-mrr
+            (double (or (:meanReciprocalRankFile doc-source-kind-scores) 0.0)))
         source-kind-breadth? (<= docs-claim-readiness-min-source-kind-groups
                                  (count source-kind-keys))
         requirements {:completedCases completed?
@@ -1596,6 +1628,12 @@
                       :nonSyntheticCases non-synthetic-cases?
                       :repoBreadth repo-breadth?
                       :docSourceKindCoverage doc-source-kind-coverage?
+                      :docSourceKindFileRecallAt5Quality
+                      doc-file-recall-at5-quality?
+                      :docSourceKindFileRecallAt10Quality
+                      doc-file-recall-at10-quality?
+                      :docSourceKindMeanReciprocalRankQuality
+                      doc-mrr-quality?
                       :docsClaimSourceKindBreadth source-kind-breadth?
                       :declaredSourceKindCoverage declared-source-kind-coverage?
                       :measuredDocsProblemClasses
@@ -1625,8 +1663,15 @@
      :repoIds repo-ids
      :sourceKindKeys source-kind-keys
      :docSourceKindCases doc-source-kind-cases
+     :docSourceKindScores doc-source-kind-scores
      :minimumReposForDocsClaim docs-claim-readiness-min-repos
      :minimumDocSourceKindCases docs-claim-readiness-min-doc-cases
+     :minimumDocFileRecallAt5ForDocsClaim
+     docs-claim-readiness-min-doc-file-recall-at5
+     :minimumDocFileRecallAt10ForDocsClaim
+     docs-claim-readiness-min-doc-file-recall-at10
+     :minimumDocMeanReciprocalRankForDocsClaim
+     docs-claim-readiness-min-doc-mrr
      :minimumSourceKindGroupsForDocsClaim
      docs-claim-readiness-min-source-kind-groups
      :minimumExpectedEvidenceCitationRateForClaim
@@ -1654,6 +1699,30 @@
                  (conj (str "Only " doc-source-kind-cases
                             " completed scoreable doc case(s); docs-handling claims require at least "
                             docs-claim-readiness-min-doc-cases
+                            "."))
+
+                 (not doc-file-recall-at5-quality?)
+                 (conj (str "Doc source-kind file-recall@5 "
+                            (formatted-rate (:fileRecallAt5 doc-source-kind-scores))
+                            " is below the docs-handling claim floor "
+                            (formatted-rate
+                             docs-claim-readiness-min-doc-file-recall-at5)
+                            "."))
+
+                 (not doc-file-recall-at10-quality?)
+                 (conj (str "Doc source-kind file-recall@10 "
+                            (formatted-rate (:fileRecallAt10 doc-source-kind-scores))
+                            " is below the docs-handling claim floor "
+                            (formatted-rate
+                             docs-claim-readiness-min-doc-file-recall-at10)
+                            "."))
+
+                 (not doc-mrr-quality?)
+                 (conj (str "Doc source-kind MRR "
+                            (formatted-rate (:meanReciprocalRankFile
+                                             doc-source-kind-scores))
+                            " is below the docs-handling claim floor "
+                            (formatted-rate docs-claim-readiness-min-doc-mrr)
                             "."))
 
                  (not source-kind-breadth?)
