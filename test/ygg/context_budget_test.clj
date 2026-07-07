@@ -229,6 +229,42 @@
         compact (context-budget/compact-snippets-in-packet packet)]
     (is (= 4 (count (:snippets compact))))
     (is (every? #(= 2 (count (:items %))) (:snippets compact)))))
+
+(deftest packet-trimming-preserves-context-timings
+  (let [trim context-budget/trim-optional-context-metadata
+        timings {:search 12
+                 :source-candidates 47
+                 :context-chunks 5
+                 :total 80}
+        packet {:schema context/schema
+                :query "timed query"
+                :graph {:basis {}
+                        :counts {:nodes 0
+                                 :edges 0
+                                 :clusters 0}}
+                :budget {:requested 1}
+                :entities []
+                :edges []
+                :activity []
+                :candidateFiles []
+                :docs []
+                :warnings []
+                :drilldowns []
+                :search {:instrumentation {:search-docs 1
+                                           :context-chunks (vec (range 100))
+                                           :context-timings-ms timings}}}
+        compacted (update-in packet
+                             [:search :instrumentation]
+                             dissoc
+                             :context-chunks)
+        budget (context/estimate-tokens compacted)
+        trimmed (trim packet budget)]
+    (is (> (context/estimate-tokens packet) budget))
+    (is (nil? (get-in trimmed [:search :instrumentation :context-chunks])))
+    (is (= timings
+           (get-in trimmed [:search :instrumentation :context-timings-ms])))
+    (is (<= (context/estimate-tokens trimmed) budget))))
+
 (deftest packet-trimming-keeps-architecture-summary-and-compact-evidence-before-dropping-section
   (let [trim context-budget/trim-optional-context-metadata
         summary {:counts {:acceptedSystems 12

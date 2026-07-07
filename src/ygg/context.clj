@@ -4453,17 +4453,14 @@
                                                  :degradation degradation})
                              (seq (compact-query-input query-input))
                              (assoc :input query-input)))
+        timings (assoc timings :total (elapsed-ms context-started))
         packet (update-in packet
                           [:search :instrumentation]
                           assoc
                           :context-timings-ms
                           timings)
         packet (if (= :compact output-mode)
-                 (update-in packet
-                            [:search :instrumentation :context-timings-ms]
-                            assoc
-                            :total
-                            (elapsed-ms context-started))
+                 packet
                  (fit-budget packet docs budget))]
     (packet-output packet
                    query-text

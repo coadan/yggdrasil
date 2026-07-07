@@ -13,8 +13,7 @@
   (update-in packet
              [:search :instrumentation]
              dissoc
-             :context-chunks
-             :context-timings-ms))
+             :context-chunks))
 
 (defn- add-warning-with-budget
   [packet warning budget]
