@@ -37,6 +37,10 @@
                  [:min-decision-f1 :minDecisionF1]
                  [:min-decision-evidence-citation-rate
                   :minDecisionEvidenceCitationRate]
+                 [:min-patch-file-recall :minPatchFileRecall]
+                 [:min-patch-file-f1 :minPatchFileF1]
+                 [:min-patch-verifier-pass-rate
+                  :minPatchVerifierPassRate]
                  [:max-total-tokens :maxTotalTokens]
                  [:max-input-tokens :maxInputTokens]
                  [:max-output-tokens :maxOutputTokens]
@@ -51,6 +55,10 @@
                  [:min-case-expected-evidence-citation-rate
                   :minCaseExpectedEvidenceCitationRate]
                  [:min-case-decision-f1 :minCaseDecisionF1]
+                 [:min-case-patch-file-recall :minCasePatchFileRecall]
+                 [:min-case-patch-file-f1 :minCasePatchFileF1]
+                 [:min-case-patch-verifier-pass-rate
+                  :minCasePatchVerifierPassRate]
                  [:max-case-total-tokens :maxCaseTotalTokens]
                  [:max-case-input-tokens :maxCaseInputTokens]
                  [:max-case-output-tokens :maxCaseOutputTokens]
@@ -302,7 +310,16 @@
                  "case.expectedEvidenceCitationRate"]
                 [:minCaseDecisionF1
                  :decisionF1
-                 "case.decisionF1"]])
+                 "case.decisionF1"]
+                [:minCasePatchFileRecall
+                 :patchFileRecall
+                 "case.patchFileRecall"]
+                [:minCasePatchFileF1
+                 :patchFileF1
+                 "case.patchFileF1"]
+                [:minCasePatchVerifierPassRate
+                 :patchVerifierPassRate
+                 "case.patchVerifierPassRate"]])
          (keep (fn [[threshold-key metric-key metric-label]]
                  (case-max-failure check result threshold-key metric-key metric-label))
                [[:maxCaseNoiseRatioAt20 :noiseRatioAt20 "case.noiseRatioAt20"]])
@@ -1007,7 +1024,16 @@
                            "decisionF1"]
                           [:minDecisionEvidenceCitationRate
                            :decisionEvidenceCitationRate
-                           "decisionEvidenceCitationRate"]])
+                           "decisionEvidenceCitationRate"]
+                          [:minPatchFileRecall
+                           :patchFileRecall
+                           "patchFileRecall"]
+                          [:minPatchFileF1
+                           :patchFileF1
+                           "patchFileF1"]
+                          [:minPatchVerifierPassRate
+                           :patchVerifierPassRate
+                           "patchVerifierPassRate"]])
                    (keep (fn [[threshold-key metric-path metric-label]]
                            (max-failure check-base
                                         threshold-key

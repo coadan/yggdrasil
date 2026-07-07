@@ -170,6 +170,10 @@ bb bench agent-report benchmarks/oss-issue-patch-replay.edn \
 bb bench agent-compare benchmarks/oss-issue-patch-replay.edn \
   --baseline-report .dev/ygg/agent-efficiency/oss-issue-patch-replay/shell-only/agent-report.json \
   --candidate-report .dev/ygg/agent-efficiency/oss-issue-patch-replay/ygg/agent-report.json
+
+bb bench:patch-claim \
+  --out .dev/ygg/agent-efficiency/oss-issue-patch-replay/ygg \
+  --agent ygg-agent
 ```
 
 Use the full lane as the authoritative non-synthetic claim lane, including the

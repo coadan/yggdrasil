@@ -214,6 +214,21 @@
                                                                           (parse-optional-double
                                                                            args
                                                                            "--min-decision-evidence-citation-rate"))
+    (parse-optional-double args "--min-patch-file-recall") (assoc
+                                                            :min-patch-file-recall
+                                                            (parse-optional-double
+                                                             args
+                                                             "--min-patch-file-recall"))
+    (parse-optional-double args "--min-patch-file-f1") (assoc
+                                                        :min-patch-file-f1
+                                                        (parse-optional-double
+                                                         args
+                                                         "--min-patch-file-f1"))
+    (parse-optional-double args "--min-patch-verifier-pass-rate") (assoc
+                                                                   :min-patch-verifier-pass-rate
+                                                                   (parse-optional-double
+                                                                    args
+                                                                    "--min-patch-verifier-pass-rate"))
     (parse-optional-double args "--max-total-tokens") (assoc
                                                        :max-total-tokens
                                                        (parse-optional-double
@@ -273,6 +288,21 @@
                                                            (parse-optional-double
                                                             args
                                                             "--min-case-decision-f1"))
+    (parse-optional-double args "--min-case-patch-file-recall") (assoc
+                                                                 :min-case-patch-file-recall
+                                                                 (parse-optional-double
+                                                                  args
+                                                                  "--min-case-patch-file-recall"))
+    (parse-optional-double args "--min-case-patch-file-f1") (assoc
+                                                             :min-case-patch-file-f1
+                                                             (parse-optional-double
+                                                              args
+                                                              "--min-case-patch-file-f1"))
+    (parse-optional-double args "--min-case-patch-verifier-pass-rate") (assoc
+                                                                        :min-case-patch-verifier-pass-rate
+                                                                        (parse-optional-double
+                                                                         args
+                                                                         "--min-case-patch-verifier-pass-rate"))
     (parse-optional-double args "--max-case-total-tokens") (assoc
                                                             :max-case-total-tokens
                                                             (parse-optional-double
@@ -818,6 +848,13 @@
                (format "%.2f" (double (get-in result [:scores :evidenceCitationRate] 0.0))))
       (when-some [rate (get-in result [:scores :expectedEvidenceCitationRate])]
         (println "- expected-evidence-citation"
+                 (format "%.2f" (double rate))))
+      (when-some [rate (get-in result [:scores :patchFileRecall])]
+        (println "- patch-file-recall" (format "%.2f" (double rate))))
+      (when-some [rate (get-in result [:scores :patchFileF1])]
+        (println "- patch-file-f1" (format "%.2f" (double rate))))
+      (when-some [rate (get-in result [:scores :patchVerifierPassRate])]
+        (println "- patch-verifier-pass-rate"
                  (format "%.2f" (double rate))))
       (print-parser-worker-summary (:parserWorkers result))
       (print-source-kind-score-summary (:sourceKindScores result))

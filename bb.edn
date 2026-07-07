@@ -76,6 +76,14 @@
                                                       *command-line-args*)]
                             (System/exit exit))}
 
+  bench:patch-claim {:doc "Check existing real OSS patch replay artifacts. Usage: bb bench:patch-claim [--out DIR] [--mode ygg|shell-only] [--agent ID] [--setup-check] [--case ID|--cases IDS] [--dry-run]"
+                     :task (let [{:keys [exit]} (apply shell
+                                                       {:continue true}
+                                                       "bash"
+                                                       "scripts/patch-claim-gate.sh"
+                                                       *command-line-args*)]
+                             (System/exit exit))}
+
   prompt-token-gate {:doc "Validate prompt-token reduction from a prompt-token measure report. Usage: bb prompt-token-gate REPORT [--min-shared-cases N] [--out PATH]"
                      :task (let [{:keys [exit]} (apply shell
                                                        {:continue true}

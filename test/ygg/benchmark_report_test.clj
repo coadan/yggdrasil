@@ -3233,6 +3233,64 @@
                 first
                 :case-ids)))))
 
+(deftest checks-agent-report-patch-thresholds
+  (let [report {:schema benchmark/agent-report-schema
+                :suite-id "oss-issue-patch-replay"
+                :cases 2
+                :completed 2
+                :runs 2
+                :missing []
+                :scores {:patchFileRecall 0.5
+                         :patchFileF1 0.4
+                         :patchVerifierPassRate 0.5}
+                :results [{:case-id "case-1"
+                           :agent {:agentId "codex"
+                                   :mode "ygg"}
+                           :scores {:patchFileRecall 1.0
+                                    :patchFileF1 0.8
+                                    :patchVerifierPassRate 1.0}}
+                          {:case-id "case-2"
+                           :agent {:agentId "codex"
+                                   :mode "ygg"}
+                           :scores {:patchFileRecall 0.0
+                                    :patchFileF1 0.0
+                                    :patchVerifierPassRate 0.0}}]}
+        failed (benchmark/check-agent-report
+                report
+                {:min-patch-file-recall 0.75
+                 :min-patch-file-f1 0.75
+                 :min-patch-verifier-pass-rate 1.0
+                 :min-case-patch-file-recall 0.5
+                 :min-case-patch-file-f1 0.5
+                 :min-case-patch-verifier-pass-rate 1.0})]
+    (is (= "failed" (:status failed)))
+    (is (= #{"patchFileRecall"
+             "patchFileF1"
+             "patchVerifierPassRate"
+             "case.patchFileRecall"
+             "case.patchFileF1"
+             "case.patchVerifierPassRate"}
+           (set (map :metric (:failures failed)))))
+    (is (= {:case-id "case-2"
+            :agentId "codex"
+            :mode "ygg"}
+           (select-keys (first (filter #(= "case.patchFileF1" (:metric %))
+                                       (:failures failed)))
+                        [:case-id :agentId :mode])))
+    (is (= {:minPatchFileRecall 0.75
+            :minPatchFileF1 0.75
+            :minPatchVerifierPassRate 1.0
+            :minCasePatchFileRecall 0.5
+            :minCasePatchFileF1 0.5
+            :minCasePatchVerifierPassRate 1.0}
+           (select-keys (:thresholds failed)
+                        [:minPatchFileRecall
+                         :minPatchFileF1
+                         :minPatchVerifierPassRate
+                         :minCasePatchFileRecall
+                         :minCasePatchFileF1
+                         :minCasePatchVerifierPassRate])))))
+
 (deftest checks-agent-report-token-thresholds
   (let [report {:schema benchmark/agent-report-schema
                 :suite-id "suite"

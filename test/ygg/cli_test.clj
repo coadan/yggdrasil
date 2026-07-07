@@ -1389,6 +1389,24 @@
            out
            "- source-kind-scores doc:cases=4,runs=4,r10=1.00,mrr=0.88; terraform:cases=1,runs=1,r10=1.00,mrr=0.13")))))
 
+(deftest benchmark-summary-prints-patch-scores
+  (let [out (with-out-str
+              (cli-bench/print-benchmark-summary
+               {:schema benchmark/agent-report-schema
+                :suite-id "oss-issue-patch-replay"
+                :cases 2
+                :completed 2
+                :runs 2
+                :scores {:fileRecallAt10 1.0
+                         :meanReciprocalRankFile 0.75
+                         :evidenceCitationRate 1.0
+                         :patchFileRecall 0.5
+                         :patchFileF1 0.4
+                         :patchVerifierPassRate 1.0}}))]
+    (is (str/includes? out "- patch-file-recall 0.50"))
+    (is (str/includes? out "- patch-file-f1 0.40"))
+    (is (str/includes? out "- patch-verifier-pass-rate 1.00"))))
+
 (deftest benchmark-summary-prints-agent-diagnostics
   (let [diagnostics {:missingPredictedFileRuns 1
                      :missingPredictedFileCaseIds ["case-1"]
@@ -2342,6 +2360,9 @@
                                  "--min-expected-evidence-citation-rate" "0.7"
                                  "--min-decision-f1" "0.75"
                                  "--min-decision-evidence-citation-rate" "0.65"
+                                 "--min-patch-file-recall" "0.6"
+                                 "--min-patch-file-f1" "0.55"
+                                 "--min-patch-verifier-pass-rate" "1.0"
                                  "--max-total-tokens" "10000"
                                  "--max-input-tokens" "8000"
                                  "--max-output-tokens" "2500"
@@ -2352,6 +2373,9 @@
                                  "--min-case-path-evidence-citation-rate" "0.55"
                                  "--min-case-expected-evidence-citation-rate" "0.45"
                                  "--min-case-decision-f1" "0.5"
+                                 "--min-case-patch-file-recall" "0.25"
+                                 "--min-case-patch-file-f1" "0.2"
+                                 "--min-case-patch-verifier-pass-rate" "1.0"
                                  "--max-case-total-tokens" "4000"
                                  "--max-case-input-tokens" "3200"
                                  "--max-case-output-tokens" "1000"
@@ -2411,6 +2435,9 @@
                   :min-expected-evidence-citation-rate 0.7
                   :min-decision-f1 0.75
                   :min-decision-evidence-citation-rate 0.65
+                  :min-patch-file-recall 0.6
+                  :min-patch-file-f1 0.55
+                  :min-patch-verifier-pass-rate 1.0
                   :max-total-tokens 10000.0
                   :max-input-tokens 8000.0
                   :max-output-tokens 2500.0
@@ -2421,6 +2448,9 @@
                   :min-case-path-evidence-citation-rate 0.55
                   :min-case-expected-evidence-citation-rate 0.45
                   :min-case-decision-f1 0.5
+                  :min-case-patch-file-recall 0.25
+                  :min-case-patch-file-f1 0.2
+                  :min-case-patch-verifier-pass-rate 1.0
                   :max-case-total-tokens 4000.0
                   :max-case-input-tokens 3200.0
                   :max-case-output-tokens 1000.0

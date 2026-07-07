@@ -21,6 +21,10 @@
   [& args]
   (apply shell/sh "bash" "scripts/docs-claim-gate.sh" args))
 
+(defn- run-patch-claim-gate
+  [& args]
+  (apply shell/sh "bash" "scripts/patch-claim-gate.sh" args))
+
 (defn- output-lines
   [result]
   (->> (:out result)
@@ -523,6 +527,77 @@
                        "--require-docs-claim-readiness"))
     (is (not (str/includes? (:out result)
                             "--require-broad-claim-readiness")))))
+
+(deftest patch-claim-dry-run-checks-existing-patch-artifacts
+  (let [result (run-patch-claim-gate "--dry-run"
+                                     "--out" ".dev/ygg/patch-current"
+                                     "--agent" "codex-patch"
+                                     "--min-patch-file-recall" "0.75"
+                                     "--min-patch-file-f1" "0.70")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 2 (count lines)))
+    (is (str/includes? (nth lines 0)
+                       "clojure -M:run -m ygg.cli-bench repos check --manifest benchmarks/repos.edn --suite benchmarks/oss-issue-patch-replay.edn"))
+    (is (str/includes? (nth lines 1)
+                       "clojure -M:run -m ygg.cli-bench agent-check benchmarks/oss-issue-patch-replay.edn"))
+    (is (str/includes? (nth lines 1)
+                       "--mode ygg"))
+    (is (str/includes? (nth lines 1)
+                       "--agent codex-patch"))
+    (is (str/includes? (nth lines 1)
+                       "--min-cases 8"))
+    (is (str/includes? (nth lines 1)
+                       "--min-runs 8"))
+    (is (str/includes? (nth lines 1)
+                       "--min-repos 6"))
+    (is (str/includes? (nth lines 1)
+                       "--min-patch-file-recall 0.75"))
+    (is (str/includes? (nth lines 1)
+                       "--min-patch-file-f1 0.70"))
+    (is (str/includes? (nth lines 1)
+                       "--min-patch-verifier-pass-rate 1.00"))
+    (is (str/includes? (nth lines 1)
+                       "--max-unverified-score-runs 0"))
+    (doseq [source-kind-minimum ["--min-source-kind-cases dotnet=1"
+                                 "--min-source-kind-cases java=1"
+                                 "--min-source-kind-cases javascript=1"
+                                 "--min-source-kind-cases manifest=1"
+                                 "--min-source-kind-cases python=2"
+                                 "--min-source-kind-cases terraform=1"
+                                 "--min-source-kind-cases sql=1"
+                                 "--min-source-kind-cases text=1"]]
+      (is (str/includes? (nth lines 1) source-kind-minimum)))
+    (is (str/includes? (nth lines 1)
+                       "--out .dev/ygg/patch-current"))))
+
+(deftest patch-claim-setup-check-only-runs-preflight
+  (let [result (run-patch-claim-gate "--dry-run" "--setup-check")
+        lines (output-lines result)]
+    (is (= 0 (:exit result)))
+    (is (= 1 (count lines)))
+    (is (str/includes? (first lines)
+                       "clojure -M:run -m ygg.cli-bench repos check --manifest benchmarks/repos.edn --suite benchmarks/oss-issue-patch-replay.edn"))
+    (is (not (str/includes? (first lines)
+                            "agent-check")))))
+
+(deftest patch-claim-help-documents-defaults
+  (let [result (run-patch-claim-gate "--help")]
+    (is (= 0 (:exit result)))
+    (is (str/includes? (:out result)
+                       "benchmarks/oss-issue-patch-replay.edn"))
+    (is (str/includes? (:out result)
+                       "--min-cases 8"))
+    (is (str/includes? (:out result)
+                       "--min-repos 6"))
+    (is (str/includes? (:out result)
+                       "--min-patch-file-recall 0.50"))
+    (is (str/includes? (:out result)
+                       "--min-patch-file-f1 0.50"))
+    (is (str/includes? (:out result)
+                       "--min-patch-verifier-pass-rate 1.00"))
+    (is (str/includes? (:out result)
+                       "does not run a deterministic baseline"))))
 
 (deftest dry-run-runs-stage-time-gate-when-threshold-is-set
   (let [result (run-gate "--dry-run"
