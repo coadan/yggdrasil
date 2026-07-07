@@ -794,6 +794,10 @@
            "YGG_BENCH_REPO_ID" (:repo-id packet)
            "YGG_BENCH_PROJECT_ID" (:project-id packet)
            "YGG_BENCH_MODE" (:mode packet)
+           "YGG_BENCH_RESULT_SCOPE" (or (some-> (get-in packet
+                                                        [:task :resultScope])
+                                                name)
+                                        "edit-files")
            "YGG_BENCH_AGENT_ID" (:agent-id opts)
            "YGG_BENCH_PACKET" (get-in packet [:artifacts :packetPath])
            "YGG_BENCH_PROMPT" prompt-path

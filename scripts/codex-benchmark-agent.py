@@ -111,6 +111,12 @@ def token_usage_from_jsonl(text: str) -> dict[str, Any] | None:
     return best
 
 
+def default_codex_sandbox() -> str:
+    if env("YGG_BENCH_RESULT_SCOPE") == "patch":
+        return "workspace-write"
+    return "read-only"
+
+
 def write_token_usage(stdout: str) -> None:
     usage_path = env("YGG_BENCH_TOKEN_USAGE")
     if not usage_path:
@@ -134,7 +140,7 @@ def codex_command() -> list[str]:
         "exec",
         "--json",
         "--sandbox",
-        env("YGG_CODEX_SANDBOX", "read-only") or "read-only",
+        env("YGG_CODEX_SANDBOX", default_codex_sandbox()) or default_codex_sandbox(),
     ]
     if env("YGG_CODEX_MODEL"):
         command.extend(["--model", env("YGG_CODEX_MODEL") or ""])

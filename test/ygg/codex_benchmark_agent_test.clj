@@ -12,6 +12,10 @@
       .toFile
       .getCanonicalFile))
 
+(defn- option-value
+  [args option]
+  (second (drop-while #(not= option %) args)))
+
 (deftest codex-benchmark-agent-writes-token-usage-sidecar
   (let [root (temp-dir "ygg-codex-agent-wrapper")
         prompt (io/file root "prompt.txt")
@@ -47,3 +51,47 @@
               :model "gpt-test"
               :provider "openai"}
              (json/read-json (slurp usage) :key-fn keyword))))))
+
+(defn- captured-codex-argv
+  [root {:keys [result-scope sandbox]}]
+  (let [label (or result-scope "default")
+        prompt (io/file root (str "prompt-" label ".txt"))
+        result (io/file root (str "result-" label ".json"))
+        argv-path (io/file root (str "argv-" label ".json"))
+        mock (io/file root (str "mock-codex-" label ".py"))]
+    (spit prompt "benchmark prompt")
+    (spit mock
+          (str/join
+           "\n"
+           ["#!/usr/bin/env python3"
+            "import json, os, sys"
+            "assert sys.stdin.read() == 'benchmark prompt'"
+            "with open(os.environ['YGG_CODEX_ARGV'], 'w') as f:"
+            "    json.dump(sys.argv[1:], f)"
+            "if '-o' in sys.argv:"
+            "    with open(sys.argv[sys.argv.index('-o') + 1], 'w') as f:"
+            "        json.dump({'schema':'ygg.benchmark.agent-result/v2','suspectedFiles':[]}, f)"
+            "print(json.dumps({'type':'turn_complete','usage':{'input_tokens':1,'output_tokens':1,'total_tokens':2}}))"]))
+    (.setExecutable mock true)
+    (let [run (shell/sh "python3"
+                        "scripts/codex-benchmark-agent.py"
+                        :env (cond-> {"YGG_BENCH_PROMPT" (.getPath prompt)
+                                      "YGG_BENCH_RESULT" (.getPath result)
+                                      "YGG_BENCH_WORKTREE" (.getPath root)
+                                      "YGG_CODEX_ARGV" (.getPath argv-path)
+                                      "YGG_CODEX_BIN" (.getPath mock)
+                                      "YGG_CODEX_SANDBOX" (or sandbox "")}
+                               result-scope
+                               (assoc "YGG_BENCH_RESULT_SCOPE" result-scope)))]
+      (is (= 0 (:exit run)))
+      (json/read-json (slurp argv-path)))))
+
+(deftest codex-benchmark-agent-defaults-patch-runs-to-writable-sandbox
+  (let [root (temp-dir "ygg-codex-agent-sandbox")
+        patch-argv (captured-codex-argv root {:result-scope "patch"})
+        localization-argv (captured-codex-argv root {})
+        override-argv (captured-codex-argv root {:result-scope "patch"
+                                                 :sandbox "read-only"})]
+    (is (= "workspace-write" (option-value patch-argv "--sandbox")))
+    (is (= "read-only" (option-value localization-argv "--sandbox")))
+    (is (= "read-only" (option-value override-argv "--sandbox")))))

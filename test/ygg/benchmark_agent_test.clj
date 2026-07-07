@@ -608,6 +608,25 @@
               :parser-worker "dotnet"})]
     (is (= "dotnet" (get env "YGG_BENCH_PARSER_WORKER")))
     (is (= "dotnet" (get env "YGG_PARSER_WORKER")))))
+
+(deftest agent-run-env-carries-result-scope
+  (let [env (#'benchmark/agent-run-env
+             {:suite-id "suite"
+              :case-id "case-1"
+              :repo-id "repo"
+              :project-id "project"
+              :mode "shell-only"
+              :task {:resultScope "patch"}
+              :worktreeRoot "/tmp/worktree"
+              :artifacts {:packetPath "/tmp/packet.json"
+                          :projectConfig "/tmp/project.edn"
+                          :xtdbPath "/tmp/xtdb"}}
+             "/tmp/result.json"
+             "/tmp/prompt.txt"
+             "/tmp/schema.json"
+             {:agent-id "agent"})]
+    (is (= "patch" (get env "YGG_BENCH_RESULT_SCOPE")))))
+
 (deftest ygg-agent-run-prompt-points-agents-at-architecture-hints
   (let [root (temp-dir "ygg-bench-agent-prompt")
         result-path (.getPath (io/file root "result.json"))
