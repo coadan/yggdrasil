@@ -115,6 +115,92 @@
                             :command "ygg sync project.edn --check"}]}]
            (:blockingValidationGaps sync-check)))))
 
+(deftest benchmark-preflight-allows-patch-result-freshness-diff
+  (let [preflight (benchmark-preflight/benchmark-preflight
+                   {:index-summary {:status "completed"}
+                    :system-summary {:status "completed"}
+                    :graph-expectations {:status "passed"}
+                    :hints {:architecture {:validationGaps []}}
+                    :allow-patch-freshness? true
+                    :sync-inspect {:freshness {:status :stale
+                                               :counts {:indexed 2
+                                                        :current 2
+                                                        :changed 1
+                                                        :missing 0
+                                                        :unindexed 0
+                                                        :upstream-stale 0}
+                                               :repos [{:repo-id "app"
+                                                        :status :stale
+                                                        :samples {:changed [{:repo-id "app"
+                                                                             :path "src/app.clj"}]}}]}
+                                   :families [{:family :dependencies
+                                               :status :available
+                                               :counts {:packages 1
+                                                        :unresolved-imports 0}}
+                                              {:family :activity
+                                               :status :available
+                                               :counts {:activity-items 1
+                                                        :activity-events 1}}
+                                              {:family :validation-history
+                                               :status :available
+                                               :counts {:validation-events 1}}]
+                                   :nextActions [{:kind :freshness
+                                                  :command "ygg sync project.edn --check"}]}})
+        sync-check (get-in preflight [:checks :syncCheck])]
+    (is (= "passed" (:status preflight)))
+    (is (= "passed" (:status sync-check)))
+    (is (= true (:patchFreshnessAllowed sync-check)))
+    (is (= [] (:blockingValidationGaps sync-check)))
+    (is (= [{:plane "freshness"
+             :status "stale"
+             :counts {:indexed 2
+                      :current 2
+                      :changed 1
+                      :missing 0
+                      :unindexed 0
+                      :upstream-stale 0}
+             :repos [{:repo-id "app"
+                      :status :stale
+                      :samples {:changed [{:repo-id "app"
+                                           :path "src/app.clj"}]}}]
+             :nextActions [{:kind :freshness
+                            :command "ygg sync project.edn --check"}]}]
+           (:allowedValidationGaps sync-check)))))
+
+(deftest benchmark-preflight-keeps-blocking-families-when-patch-freshness-is-allowed
+  (let [preflight (benchmark-preflight/benchmark-preflight
+                   {:index-summary {:status "completed"}
+                    :system-summary {:status "completed"}
+                    :graph-expectations {:status "passed"}
+                    :hints {:architecture {:validationGaps []}}
+                    :allow-patch-freshness? true
+                    :sync-inspect {:freshness {:status :stale
+                                               :counts {:indexed 2
+                                                        :current 2
+                                                        :changed 1
+                                                        :missing 0
+                                                        :unindexed 0
+                                                        :upstream-stale 0}}
+                                   :families [{:family :dependencies
+                                               :status :weak
+                                               :counts {:packages 1
+                                                        :unresolved-imports 1}}]
+                                   :nextActions [{:kind :dependency-review
+                                                  :command "ygg packages --json"}
+                                                 {:kind :freshness
+                                                  :command "ygg sync project.edn --check"}]}})
+        sync-check (get-in preflight [:checks :syncCheck])]
+    (is (= "failed" (:status preflight)))
+    (is (= "failed" (:status sync-check)))
+    (is (= true (:patchFreshnessAllowed sync-check)))
+    (is (= [{:plane "dependencies"
+             :status "weak"
+             :counts {:packages 1
+                      :unresolved-imports 1}
+             :nextActions [{:kind :dependency-review
+                            :command "ygg packages --json"}]}]
+           (:blockingValidationGaps sync-check)))))
+
 (deftest claim-readiness-requires-passed-benchmark-preflight
   (is (true? (benchmark-preflight/claim-ready? {:status "passed"})))
   (doseq [status ["failed" "not-run" "not-configured" nil]]

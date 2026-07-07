@@ -109,6 +109,12 @@
          (take 2)
          vec)))
 
+(defn- count-value
+  [counts k]
+  (long (or (get counts k)
+            (get counts (name k))
+            0)))
+
 (defn- family-validation-gap
   [sync-inspect {:keys [family status counts diagnostics]}]
   (let [actions (matching-family-actions sync-inspect family)]
@@ -118,39 +124,62 @@
       (seq diagnostics) (assoc :diagnostics diagnostics)
       (seq actions) (assoc :nextActions actions))))
 
-(defn- sync-inspect-validation-gaps
+(defn- freshness-validation-gap
   [sync-inspect]
+  (let [freshness (:freshness sync-inspect)]
+    (when (and (blocking-sync-plane? :freshness)
+               (blocking-sync-status? (:status freshness)))
+      (cond-> {:plane "freshness"
+               :status (normalized-name (:status freshness))}
+        (:counts freshness) (assoc :counts (:counts freshness))
+        (seq (:repos freshness)) (assoc :repos (:repos freshness))
+        (seq (matching-family-actions sync-inspect :freshness))
+        (assoc :nextActions
+               (matching-family-actions sync-inspect :freshness))))))
+
+(defn- patch-change-freshness?
+  [freshness]
+  (let [counts (:counts freshness)]
+    (and (= "stale" (normalized-name (:status freshness)))
+         (pos? (count-value counts :changed))
+         (zero? (count-value counts :missing))
+         (zero? (count-value counts :unindexed))
+         (zero? (count-value counts :upstream-stale)))))
+
+(defn- sync-inspect-validation-gaps
+  [sync-inspect {:keys [allow-patch-freshness?]}]
   (let [family-gaps (->> (:families sync-inspect)
                          (filter #(and (blocking-sync-plane? (:family %))
                                        (blocking-sync-status? (:status %))))
                          (mapv #(family-validation-gap sync-inspect %)))
         freshness (:freshness sync-inspect)
-        freshness-gap (when (and (blocking-sync-plane? :freshness)
-                                 (blocking-sync-status? (:status freshness)))
-                        (cond-> {:plane "freshness"
-                                 :status (normalized-name (:status freshness))}
-                          (:counts freshness) (assoc :counts (:counts freshness))
-                          (seq (:repos freshness)) (assoc :repos (:repos freshness))
-                          (seq (matching-family-actions sync-inspect :freshness))
-                          (assoc :nextActions
-                                 (matching-family-actions sync-inspect :freshness))))]
+        freshness-gap (freshness-validation-gap sync-inspect)
+        allowed-freshness? (and allow-patch-freshness?
+                                (patch-change-freshness? freshness))]
     (cond-> family-gaps
-      freshness-gap (conj freshness-gap))))
+      (and freshness-gap (not allowed-freshness?)) (conj freshness-gap))))
 
 (defn- sync-check-from-inspect
-  [sync-inspect]
-  (let [blocking-gaps (sync-inspect-validation-gaps sync-inspect)]
+  [sync-inspect opts]
+  (let [blocking-gaps (sync-inspect-validation-gaps sync-inspect opts)
+        freshness-gap (freshness-validation-gap sync-inspect)
+        patch-freshness-allowed? (and (:allow-patch-freshness? opts)
+                                      (patch-change-freshness?
+                                       (:freshness sync-inspect)))]
     (check (if (seq blocking-gaps) "failed" "passed")
-           {:source "sync-inspect"
-            :freshness (:freshness sync-inspect)
-            :families (->> (:families sync-inspect)
-                           (filter #(blocking-sync-plane? (:family %)))
-                           (mapv #(select-keys % [:family
-                                                  :status
-                                                  :counts
-                                                  :diagnostics])))
-            :validationGaps blocking-gaps
-            :blockingValidationGaps blocking-gaps})))
+           (cond-> {:source "sync-inspect"
+                    :freshness (:freshness sync-inspect)
+                    :families (->> (:families sync-inspect)
+                                   (filter #(blocking-sync-plane? (:family %)))
+                                   (mapv #(select-keys % [:family
+                                                          :status
+                                                          :counts
+                                                          :diagnostics])))
+                    :validationGaps blocking-gaps
+                    :blockingValidationGaps blocking-gaps}
+             patch-freshness-allowed?
+             (assoc :patchFreshnessAllowed true
+                    :allowedValidationGaps [freshness-gap])))))
 
 (defn- sync-check-from-hints
   [hints]
@@ -164,7 +193,7 @@
               :blockingValidationGaps blocking-gaps}))))
 
 (defn- sync-check
-  [hints sync-inspect]
+  [hints sync-inspect opts]
   (cond
     (= "failed" (normalized-name (:status sync-inspect)))
     (check "failed" (cond-> {:source "sync-inspect"
@@ -174,7 +203,7 @@
 
     (or (seq (:families sync-inspect))
         (:freshness sync-inspect))
-    (sync-check-from-inspect sync-inspect)
+    (sync-check-from-inspect sync-inspect opts)
 
     :else
     (sync-check-from-hints hints)))
@@ -195,13 +224,17 @@
       :else "passed")))
 
 (defn benchmark-preflight
-  [{:keys [index-summary system-summary graph-expectations expectations hints sync-inspect]}]
+  [{:keys [index-summary system-summary graph-expectations expectations hints sync-inspect
+           allow-patch-freshness?]}]
   (let [checks {:index (completed-summary-check index-summary)
                 :infer (completed-summary-check system-summary)
                 :graphExpectations (graph-expectation-check graph-expectations
                                                             expectations)
                 :hintDiagnostics (hint-diagnostic-check hints)
-                :syncCheck (sync-check hints sync-inspect)}]
+                :syncCheck (sync-check hints
+                                       sync-inspect
+                                       {:allow-patch-freshness?
+                                        allow-patch-freshness?})}]
     {:schema benchmark-preflight-schema
      :status (overall-status checks)
      :checks checks}))

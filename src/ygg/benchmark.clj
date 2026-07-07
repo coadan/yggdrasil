@@ -1720,7 +1720,9 @@
                                   :graph-expectations graph-expectations
                                   :expectations (:expectations prepared)
                                   :hints hints
-                                  :sync-inspect sync-inspect}))
+                                  :sync-inspect sync-inspect
+                                  :allow-patch-freshness?
+                                  (patch-configured? prepared)}))
           benchmark-preflight (richer-existing-preflight existing-score
                                                          benchmark-preflight)]
       (-> (cond-> scored
@@ -1858,7 +1860,9 @@
                                 :graph-expectations (:graphExpectations ygg-summary)
                                 :expectations (:expectations prepared)
                                 :hints hints
-                                :sync-inspect sync-inspect}))
+                                :sync-inspect sync-inspect
+                                :allow-patch-freshness?
+                                (patch-configured? prepared)}))
         scored (benchmark-progress/progress-stage!
                 suite
                 case

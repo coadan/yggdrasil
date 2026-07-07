@@ -865,6 +865,17 @@
   [result]
   (= "ygg" (str (get-in result [:agent :mode]))))
 
+(defn- positive-score?
+  [result score-key]
+  (pos? (double (or (get-in result [:scores score-key]) 0))))
+
+(defn- patch-result?
+  [result]
+  (boolean
+   (or (true? (get-in result [:patchScoring :configured]))
+       (positive-score? result :patchRequired)
+       (seq (get-in result [:agent :patchOutcome :changedFiles])))))
+
 (defn- read-json-artifact
   [file]
   (when (and file (.isFile (io/file file)))
@@ -902,22 +913,30 @@
   (or (sibling-agent-hints result)
       (:yggHints result)))
 
+(defn- rebuild-result-benchmark-preflight
+  [result]
+  (when (ygg-result? result)
+    (let [agent-run (sibling-agent-run result)]
+      (benchmark-preflight/benchmark-preflight
+       {:index-summary (or (get-in result [:ygg :indexSummary])
+                           (get-in agent-run [:ygg :indexSummary]))
+        :system-summary (or (get-in result [:ygg :systemSummary])
+                            (get-in agent-run [:ygg :systemSummary]))
+        :graph-expectations (:graphExpectations result)
+        :expectations (:expectations result)
+        :hints (result-hints result)
+        :sync-inspect (or (:syncInspect result)
+                          (:syncInspect agent-run)
+                          (get-in agent-run [:ygg :syncInspect]))
+        :allow-patch-freshness? (patch-result? result)}))))
+
 (defn- result-benchmark-preflight
   [result]
-  (or (:benchmarkPreflight result)
-      (when (ygg-result? result)
-        (let [agent-run (sibling-agent-run result)]
-          (benchmark-preflight/benchmark-preflight
-           {:index-summary (or (get-in result [:ygg :indexSummary])
-                               (get-in agent-run [:ygg :indexSummary]))
-            :system-summary (or (get-in result [:ygg :systemSummary])
-                                (get-in agent-run [:ygg :systemSummary]))
-            :graph-expectations (:graphExpectations result)
-            :expectations (:expectations result)
-            :hints (result-hints result)
-            :sync-inspect (or (:syncInspect result)
-                              (:syncInspect agent-run)
-                              (get-in agent-run [:ygg :syncInspect]))})))))
+  (if (patch-result? result)
+    (or (rebuild-result-benchmark-preflight result)
+        (:benchmarkPreflight result))
+    (or (:benchmarkPreflight result)
+        (rebuild-result-benchmark-preflight result))))
 
 (defn- preflight-status
   [preflight]
