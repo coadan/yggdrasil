@@ -1619,6 +1619,15 @@
               :measuredArchitectureClassTags []
               :repoIds ["repo-a" "repo-b"]
               :sourceKindKeys ["doc" "javascript"]
+              :sourceKindQuality {:minimumCasesForSourceKindQuality 2
+                                  :minimumMeasuredSourceKindQualityGroupsForBroadClaim 2
+                                  :minimumSourceKindFileRecallAt10ForBroadClaim 0.8
+                                  :minimumSourceKindMeanReciprocalRankForBroadClaim 0.5
+                                  :measuredSourceKindKeys []
+                                  :underpoweredSourceKindKeys []
+                                  :lowQualitySourceKindKeys []
+                                  :lowQualitySourceKinds []
+                                  :rows []}
               :minimumReposForBroadClaim 6
               :minimumSourceKindsForBroadClaim 7
               :minimumMeasuredProblemClassesForBroadClaim 3
@@ -1630,6 +1639,8 @@
                              :nonSyntheticCases true
                              :repoBreadth false
                              :sourceKindBreadth false
+                             :measuredSourceKindQuality true
+                             :sourceKindLocalizationQuality true
                              :declaredSourceKindCoverage true
                              :measuredProblemClasses false
                              :measuredNonSyntheticProblemClasses false
@@ -1749,8 +1760,59 @@
              (get-in report
                      [:claimReadiness
                       :minimumMeasuredArchitectureClassesForBroadClaim])))
+      (is (= true
+             (get-in report
+                     [:claimReadiness
+                      :requirements
+                      :measuredSourceKindQuality])))
+      (is (= true
+             (get-in report
+                     [:claimReadiness
+                      :requirements
+                      :sourceKindLocalizationQuality])))
+      (is (= ["doc" "javascript"]
+             (get-in report
+                     [:claimReadiness
+                      :sourceKindQuality
+                      :measuredSourceKindKeys])))
+      (is (= []
+             (get-in report
+                     [:claimReadiness
+                      :sourceKindQuality
+                      :lowQualitySourceKindKeys])))
       (is (= []
              (get-in report [:claimReadiness :warnings]))))))
+
+(deftest agent-report-claim-readiness-requires-source-kind-quality
+  (let [out (temp-dir "ygg-agent-report-claim-readiness-source-kind-quality")
+        suite {:id "suite"
+               :cases broad-claim-readiness-cases}]
+    (doseq [case (:cases suite)]
+      (write-broad-claim-score!
+       out
+       case
+       {:recall (if (#{"arch-deps-1" "arch-deps-2"} (:id case))
+                  0.25
+                  1.0)}))
+    (let [report (benchmark/report-agent-suite suite {:out out
+                                                      :allow-unverified-scores? true})
+          readiness (:claimReadiness report)]
+      (is (= "not-supported" (:status readiness)))
+      (is (= false (:broadArchitectureClaimSupported readiness)))
+      (is (= true
+             (get-in readiness
+                     [:requirements :measuredSourceKindQuality])))
+      (is (= false
+             (get-in readiness
+                     [:requirements :sourceKindLocalizationQuality])))
+      (is (= ["doc" "javascript"]
+             (get-in readiness
+                     [:sourceKindQuality :measuredSourceKindKeys])))
+      (is (= ["javascript"]
+             (get-in readiness
+                     [:sourceKindQuality :lowQualitySourceKindKeys])))
+      (is (= ["Source-kind localization quality is below broad real-world claim floors (file-recall@10 0.80, MRR 0.50): javascript r10 0.25 mrr 0.25."]
+             (:warnings readiness))))))
 
 (deftest agent-report-docs-claim-readiness-supports-docs-lane
   (let [out (temp-dir "ygg-agent-report-docs-claim-readiness")

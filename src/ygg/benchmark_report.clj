@@ -50,6 +50,18 @@
 (def ^:private claim-readiness-min-case-expected-evidence-citation-rate
   0.50)
 
+(def ^:private claim-readiness-min-source-kind-quality-cases
+  2)
+
+(def ^:private claim-readiness-min-source-kind-quality-groups
+  2)
+
+(def ^:private claim-readiness-min-source-kind-file-recall-at10
+  0.80)
+
+(def ^:private claim-readiness-min-source-kind-mrr
+  0.50)
+
 (def ^:private docs-claim-readiness-min-repos
   3)
 
@@ -1402,6 +1414,55 @@
             (:sourceKindScores report))
       (aggregate-agent-scores (source-kind-score-results report source-kind))))
 
+(defn- source-kind-quality-row
+  [row]
+  (let [scores (:scores row)
+        cases (long (or (:cases row) 0))
+        file-recall-at10 (double (or (:fileRecallAt10 scores) 0.0))
+        mrr (double (or (:meanReciprocalRankFile scores) 0.0))
+        enough-cases? (<= claim-readiness-min-source-kind-quality-cases cases)
+        meets-floor? (and (<= claim-readiness-min-source-kind-file-recall-at10
+                              file-recall-at10)
+                          (<= claim-readiness-min-source-kind-mrr mrr))]
+    {:kind (:kind row)
+     :runs (long (or (:runs row) 0))
+     :cases cases
+     :caseIds (:caseIds row)
+     :fileRecallAt10 file-recall-at10
+     :meanReciprocalRankFile mrr
+     :status (cond
+               (not enough-cases?) "insufficient-cases"
+               meets-floor? "meets-floor"
+               :else "below-floor")}))
+
+(defn- source-kind-quality-summary
+  [report]
+  (let [rows (mapv source-kind-quality-row (:sourceKindScores report))
+        measured-rows (filterv #(not= "insufficient-cases" (:status %)) rows)
+        underpowered-rows (filterv #(= "insufficient-cases" (:status %)) rows)
+        low-quality-rows (filterv #(= "below-floor" (:status %)) measured-rows)]
+    {:minimumCasesForSourceKindQuality
+     claim-readiness-min-source-kind-quality-cases
+     :minimumMeasuredSourceKindQualityGroupsForBroadClaim
+     claim-readiness-min-source-kind-quality-groups
+     :minimumSourceKindFileRecallAt10ForBroadClaim
+     claim-readiness-min-source-kind-file-recall-at10
+     :minimumSourceKindMeanReciprocalRankForBroadClaim
+     claim-readiness-min-source-kind-mrr
+     :measuredSourceKindKeys (mapv :kind measured-rows)
+     :underpoweredSourceKindKeys (mapv :kind underpowered-rows)
+     :lowQualitySourceKindKeys (mapv :kind low-quality-rows)
+     :lowQualitySourceKinds low-quality-rows
+     :rows rows}))
+
+(defn- source-kind-quality-warning-label
+  [row]
+  (str (:kind row)
+       " r10 "
+       (formatted-rate (:fileRecallAt10 row))
+       " mrr "
+       (formatted-rate (:meanReciprocalRankFile row))))
+
 (defn- report-claim-readiness
   [report]
   (let [problem-classes (:problemClasses report)
@@ -1446,11 +1507,24 @@
         repo-breadth? (<= claim-readiness-min-repos (count repo-ids))
         source-kind-breadth? (<= claim-readiness-min-source-kinds
                                  (count source-kind-keys))
+        source-kind-quality (source-kind-quality-summary report)
+        source-kind-quality-required? (and source-kind-breadth?
+                                           declared-source-kind-coverage?)
+        source-kind-quality-breadth? (or (not source-kind-quality-required?)
+                                         (<= claim-readiness-min-source-kind-quality-groups
+                                             (count (:measuredSourceKindKeys
+                                                     source-kind-quality))))
+        source-kind-localization-quality? (or (not source-kind-quality-required?)
+                                              (empty? (:lowQualitySourceKinds
+                                                       source-kind-quality)))
         requirements {:completedCases completed?
                       :hasRuns has-runs?
                       :nonSyntheticCases non-synthetic-cases?
                       :repoBreadth repo-breadth?
                       :sourceKindBreadth source-kind-breadth?
+                      :measuredSourceKindQuality source-kind-quality-breadth?
+                      :sourceKindLocalizationQuality
+                      source-kind-localization-quality?
                       :declaredSourceKindCoverage declared-source-kind-coverage?
                       :measuredProblemClasses measured-problem-class-breadth?
                       :measuredNonSyntheticProblemClasses
@@ -1476,6 +1550,7 @@
      :measuredArchitectureClassTags measured-architecture-tags
      :repoIds repo-ids
      :sourceKindKeys source-kind-keys
+     :sourceKindQuality source-kind-quality
      :minimumReposForBroadClaim claim-readiness-min-repos
      :minimumSourceKindsForBroadClaim claim-readiness-min-source-kinds
      :minimumMeasuredProblemClassesForBroadClaim
@@ -1507,6 +1582,32 @@
                  (conj (str "Only " (count source-kind-keys)
                             " declared source-kind group(s); broad real-world claims require at least "
                             claim-readiness-min-source-kinds
+                            "."))
+
+                 (and source-kind-quality-required?
+                      (not source-kind-quality-breadth?))
+                 (conj (str "Only "
+                            (count (:measuredSourceKindKeys
+                                    source-kind-quality))
+                            " source-kind group(s) have at least "
+                            claim-readiness-min-source-kind-quality-cases
+                            " scoreable cases; broad real-world claims require at least "
+                            claim-readiness-min-source-kind-quality-groups
+                            " measured source-kind quality groups."))
+
+                 (and source-kind-quality-required?
+                      (not source-kind-localization-quality?))
+                 (conj (str "Source-kind localization quality is below broad real-world claim floors "
+                            "(file-recall@10 "
+                            (formatted-rate
+                             claim-readiness-min-source-kind-file-recall-at10)
+                            ", MRR "
+                            (formatted-rate claim-readiness-min-source-kind-mrr)
+                            "): "
+                            (str/join "; "
+                                      (map source-kind-quality-warning-label
+                                           (:lowQualitySourceKinds
+                                            source-kind-quality)))
                             "."))
 
                  (not declared-source-kind-coverage?)

@@ -82,8 +82,11 @@ cost or intentionally replacing context artifacts.
 Agent reports also carry generic claim-readiness requirements. A report must
 include at least six benchmark repos, seven declared source-kind groups, and no
 missing declared source-kind coverage runs before it can support broad
-real-world claims. It also needs at least three measured problem-class groups
-and three measured architecture-class groups in non-synthetic replay cases, and
+real-world claims. Once source-kind breadth and declared coverage are complete,
+at least two source-kind groups must have two or more scoreable cases, and those
+measured source-kind lanes must meet `file-recall@10 >= 0.80` and
+`MRR >= 0.50`. It also needs at least three measured problem-class groups and
+three measured architecture-class groups in non-synthetic replay cases, and
 expected-evidence citation quality must meet the aggregate `0.80` and per-case
 `0.50` floors; wrapper gates such as `bb bench:claim-quick` also reject blocking
 hint diagnostics and add suite-specific per-source-kind floors.
@@ -142,9 +145,10 @@ bb agent-efficiency all \
 
 `bb bench:claim-full` is the strict deterministic full-lane gate. It requires
 all 16 historical replay cases, ten repos, the full tracked source-kind mix,
-expected-evidence citation quality, three measured problem-class groups, three
-measured architecture-class groups, and supported broad claim readiness. Use it
-before treating full-lane artifacts as broad real-world evidence.
+measured source-kind localization quality, expected-evidence citation quality,
+three measured problem-class groups, three measured architecture-class groups,
+and supported broad claim readiness. Use it before treating full-lane artifacts
+as broad real-world evidence.
 
 The deterministic gate runs the same preflight before doing benchmark work. Its
 default suite is synthetic architecture coverage, so it is useful as a
