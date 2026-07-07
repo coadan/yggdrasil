@@ -475,6 +475,23 @@
   (when (seq profiles)
     (println "- parser-workers"
              (str/join ", " (map parser-worker-summary-label profiles)))))
+
+(defn- source-kind-score-label
+  [row]
+  (let [scores (:scores row)]
+    (format "%s:cases=%d,runs=%d,r10=%.2f,mrr=%.2f"
+            (:kind row)
+            (long (or (:cases row) 0))
+            (long (or (:runs row) 0))
+            (double (or (:fileRecallAt10 scores) 0.0))
+            (double (or (:meanReciprocalRankFile scores) 0.0)))))
+
+(defn- print-source-kind-score-summary
+  [source-kind-scores]
+  (when (seq source-kind-scores)
+    (println "- source-kind-scores"
+             (str/join "; " (map source-kind-score-label source-kind-scores)))))
+
 (defn- print-agent-diagnostic-count
   [diagnostics label count-key case-ids-key & {:keys [extra-key extra-label]}]
   (let [count-value (long (or (get diagnostics count-key) 0))]
@@ -758,6 +775,7 @@
         (println "- expected-evidence-citation"
                  (format "%.2f" (double rate))))
       (print-parser-worker-summary (:parserWorkers result))
+      (print-source-kind-score-summary (:sourceKindScores result))
       (print-agent-diagnostics-summary (:agentDiagnostics result))
       (print-decision-diagnostics-summary (:decisionDiagnostics result))
       (print-artifact-diagnostics-summary (:artifactDiagnostics result))
@@ -852,6 +870,7 @@
         (println "- expected-evidence-citation"
                  (format "%.2f" (double rate))))
       (print-parser-worker-summary (get-in result [:report :parserWorkers]))
+      (print-source-kind-score-summary (get-in result [:report :sourceKindScores]))
       (print-agent-diagnostics-summary (get-in result [:report :agentDiagnostics]))
       (print-decision-diagnostics-summary (get-in result [:report :decisionDiagnostics]))
       (print-artifact-diagnostics-summary (get-in result [:report :artifactDiagnostics]))

@@ -1348,6 +1348,47 @@
                                  :runs 1}]}))]
     (is (str/includes? out "- parser-workers all/option:1, unknown/missing:1"))))
 
+(deftest benchmark-summary-prints-source-kind-scores
+  (let [source-kind-scores [{:kind "doc"
+                             :runs 4
+                             :cases 4
+                             :scores {:fileRecallAt10 1.0
+                                      :meanReciprocalRankFile 0.875}}
+                            {:kind "terraform"
+                             :runs 1
+                             :cases 1
+                             :scores {:fileRecallAt10 1.0
+                                      :meanReciprocalRankFile 0.125}}]
+        report-out (with-out-str
+                     (cli-bench/print-benchmark-summary
+                      {:schema benchmark/agent-report-schema
+                       :suite-id "suite"
+                       :cases 2
+                       :completed 2
+                       :runs 2
+                       :scores {:fileRecallAt10 1.0
+                                :meanReciprocalRankFile 0.5
+                                :evidenceCitationRate 1.0}
+                       :sourceKindScores source-kind-scores}))
+        check-out (with-out-str
+                    (cli-bench/print-benchmark-summary
+                     {:schema benchmark/agent-check-schema
+                      :suite-id "suite"
+                      :status "passed"
+                      :report {:cases 2
+                               :completed 2
+                               :runs 2
+                               :scores {:fileRecallAt10 1.0
+                                        :meanReciprocalRankFile 0.5
+                                        :evidenceCitationRate 1.0
+                                        :noiseRatioAt20 0.0}
+                               :sourceKindScores source-kind-scores}
+                      :failures []}))]
+    (doseq [out [report-out check-out]]
+      (is (str/includes?
+           out
+           "- source-kind-scores doc:cases=4,runs=4,r10=1.00,mrr=0.88; terraform:cases=1,runs=1,r10=1.00,mrr=0.13")))))
+
 (deftest benchmark-summary-prints-agent-diagnostics
   (let [diagnostics {:missingPredictedFileRuns 1
                      :missingPredictedFileCaseIds ["case-1"]
