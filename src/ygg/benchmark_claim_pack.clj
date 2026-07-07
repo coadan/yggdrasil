@@ -41,20 +41,31 @@
                                     sort
                                     vec)}))
 
+(defn- report-source-kind-quality
+  [report]
+  (or (:sourceKindQuality report)
+      (get-in report [:claimReadiness :sourceKindQuality])))
+
 (defn- report-lane-summary
   [report]
-  {:schema (:schema report)
-   :suiteId (:suite-id report)
-   :cases (:cases report)
-   :completed (:completed report)
-   :runs (:runs report)
-   :missing (:missing report)
-   :claimReadiness (:claimReadiness report)
-   :scores (:scores report)
-   :tokenTelemetry (token-telemetry-status report)
-   :contextArtifactTelemetry (get-in report
-                                     [:agentDiagnostics
-                                      :contextArtifactTelemetry])})
+  (cond-> {:schema (:schema report)
+           :suiteId (:suite-id report)
+           :cases (:cases report)
+           :completed (:completed report)
+           :runs (:runs report)
+           :missing (:missing report)
+           :claimReadiness (:claimReadiness report)
+           :docsClaimReadiness (:docsClaimReadiness report)
+           :scores (:scores report)
+           :tokenTelemetry (token-telemetry-status report)
+           :contextArtifactTelemetry (get-in report
+                                             [:agentDiagnostics
+                                              :contextArtifactTelemetry])}
+    (:sourceKindScores report)
+    (assoc :sourceKindScores (:sourceKindScores report))
+
+    (report-source-kind-quality report)
+    (assoc :sourceKindQuality (report-source-kind-quality report))))
 
 (defn- artifact-paths
   [suite opts]
@@ -79,7 +90,7 @@
                                   opts))})
 
 (defn- claim-pack-summary
-  [comparison system-improvement]
+  [comparison system-improvement lanes]
   (let [claim-readiness (:claimReadiness comparison)
         measured-slice-claim (:measuredSliceClaim comparison)]
     {:verdict (get-in comparison [:compactSummary :verdict])
@@ -94,8 +105,25 @@
                               :sharedCases
                               :minSharedCases
                               :requirements
+                              :laneClaimReadiness
                               :warnings
                               :notes])
+     :sourceKindQualityByLane (not-empty
+                               (into {}
+                                     (keep (fn [[lane summary]]
+                                             (when-let [quality
+                                                        (:sourceKindQuality
+                                                         summary)]
+                                               [lane quality])))
+                                     lanes))
+     :docsClaimReadinessByLane (not-empty
+                                (into {}
+                                      (keep (fn [[lane summary]]
+                                              (when-let [readiness
+                                                         (:docsClaimReadiness
+                                                          summary)]
+                                                [lane readiness])))
+                                      lanes))
      :measuredSliceClaim (select-keys
                           measured-slice-claim
                           [:status
@@ -138,6 +166,35 @@
   [[label path]]
   (str "- " (name label) ": " path))
 
+(defn- list-part
+  [label values]
+  (str label " " (if (seq values)
+                   (str/join "," values)
+                   "none")))
+
+(defn- source-kind-quality-line
+  [label quality]
+  (str "- " label " source-kind quality: "
+       "min-cases " (:minimumCasesForSourceKindQuality quality)
+       ", min-measured "
+       (:minimumMeasuredSourceKindQualityGroupsForBroadClaim quality)
+       ", "
+       (list-part "measured" (:measuredSourceKindKeys quality))
+       ", "
+       (list-part "underpowered" (:underpoweredSourceKindKeys quality))
+       ", "
+       (list-part "below-floor" (:lowQualitySourceKindKeys quality))))
+
+(defn- docs-claim-readiness-line
+  [label readiness]
+  (str "- " label " docs claim readiness: " (:status readiness)
+       ", supported " (:docsHandlingClaimSupported readiness)
+       ", doc cases " (:docSourceKindCases readiness)
+       ", source kinds "
+       (if (seq (:sourceKindKeys readiness))
+         (str/join "," (:sourceKindKeys readiness))
+         "none")))
+
 (defn markdown-report
   "Return a compact Markdown summary for a benchmark claim pack."
   [claim-pack]
@@ -174,6 +231,22 @@
          "## Failed Requirements"
          ""
          (str "- " (str/join ", " (map name failed)))])
+      (when (seq (:sourceKindQualityByLane summary))
+        (concat
+         [""
+          "## Source-Kind Quality"
+          ""]
+         (map (fn [[lane quality]]
+                (source-kind-quality-line (name lane) quality))
+              (:sourceKindQualityByLane summary))))
+      (when (seq (:docsClaimReadinessByLane summary))
+        (concat
+         [""
+          "## Docs Claim Readiness"
+          ""]
+         (map (fn [[lane readiness]]
+                (docs-claim-readiness-line (name lane) readiness))
+              (:docsClaimReadinessByLane summary))))
       (when-let [warnings (seq (get-in summary
                                        [:claimReadinessDetails :warnings]))]
         (concat
@@ -220,15 +293,17 @@
         system-improvement (benchmark-system-improvement/system-improvement-report
                             ygg-report)
         artifacts (artifact-paths suite opts)
+        lanes {:shellOnly (report-lane-summary shell-report)
+               :ygg (report-lane-summary ygg-report)}
         claim-pack {:schema claim-pack-schema
                     :suiteId (:id suite)
                     :inputs {:shellReport shell-report-path
                              :yggReport ygg-report-path}
                     :artifacts artifacts
                     :summary (claim-pack-summary comparison
-                                                 system-improvement)
-                    :lanes {:shellOnly (report-lane-summary shell-report)
-                            :ygg (report-lane-summary ygg-report)}
+                                                 system-improvement
+                                                 lanes)
+                    :lanes lanes
                     :efficiency comparison
                     :systemImprovement system-improvement}]
     (benchmark-io/write-json-file! (:efficiencySummaryPath artifacts)

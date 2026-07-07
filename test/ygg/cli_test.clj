@@ -1592,6 +1592,47 @@
       (is (str/includes? out "## Broad Claim Readiness Warnings"))
       (is (str/includes? out "- No measured architecture-class groups.")))))
 
+(deftest benchmark-summary-prints-claim-pack-docs-evidence
+  (let [out (with-out-str
+              (cli-bench/print-benchmark-summary
+               {:schema benchmark/claim-pack-schema
+                :suiteId "suite"
+                :summary {:verdict "helped"
+                          :claimReadiness "supported"
+                          :qualityCostTradeoff
+                          {:status "better-quality-lower-token-cost"}
+                          :sourceKindQualityByLane
+                          {:shellOnly
+                           {:minimumCasesForSourceKindQuality 2
+                            :minimumMeasuredSourceKindQualityGroupsForBroadClaim 2
+                            :measuredSourceKindKeys ["doc"]
+                            :underpoweredSourceKindKeys ["ci"]
+                            :lowQualitySourceKindKeys []}
+                           :ygg
+                           {:minimumCasesForSourceKindQuality 2
+                            :minimumMeasuredSourceKindQualityGroupsForBroadClaim 2
+                            :measuredSourceKindKeys ["doc" "javascript"]
+                            :underpoweredSourceKindKeys []
+                            :lowQualitySourceKindKeys []}}
+                          :docsClaimReadinessByLane
+                          {:shellOnly {:status "not-supported"
+                                       :docsHandlingClaimSupported false}
+                           :ygg {:status "supported"
+                                 :docsHandlingClaimSupported true}}}
+                :artifacts {:claimPackPath "claim-pack.json"
+                            :claimPackMarkdownPath "CLAIM-PACK.md"}}))]
+    (is (str/includes? out "- verdict helped"))
+    (is (str/includes?
+         out
+         "- shellOnly-source-kind-quality min-cases 2 min-measured 2 measured doc underpowered ci below-floor none"))
+    (is (str/includes?
+         out
+         "- ygg-source-kind-quality min-cases 2 min-measured 2 measured doc,javascript underpowered none below-floor none"))
+    (is (str/includes? out "- shellOnly-docs-claim-readiness not-supported"))
+    (is (str/includes? out "- shellOnly-docs-handling-claim-supported false"))
+    (is (str/includes? out "- ygg-docs-claim-readiness supported"))
+    (is (str/includes? out "- ygg-docs-handling-claim-supported true"))))
+
 (deftest benchmark-summary-prints-benchmark-preflight
   (let [preflight {:status "failed"
                    :requiredForClaim true

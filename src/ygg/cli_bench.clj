@@ -613,23 +613,42 @@
                    "none")))
 
 (defn- print-source-kind-quality-summary
-  [source-kind-quality]
-  (when source-kind-quality
-    (println "- source-kind-quality"
-             "min-cases"
-             (:minimumCasesForSourceKindQuality source-kind-quality)
-             "min-measured"
-             (:minimumMeasuredSourceKindQualityGroupsForBroadClaim
-              source-kind-quality)
-             (source-kind-quality-part
-              "measured"
-              (:measuredSourceKindKeys source-kind-quality))
-             (source-kind-quality-part
-              "underpowered"
-              (:underpoweredSourceKindKeys source-kind-quality))
-             (source-kind-quality-part
-              "below-floor"
-              (:lowQualitySourceKindKeys source-kind-quality)))))
+  ([source-kind-quality]
+   (print-source-kind-quality-summary "source-kind-quality"
+                                      source-kind-quality))
+  ([label source-kind-quality]
+   (when source-kind-quality
+     (println "-" label
+              "min-cases"
+              (:minimumCasesForSourceKindQuality source-kind-quality)
+              "min-measured"
+              (:minimumMeasuredSourceKindQualityGroupsForBroadClaim
+               source-kind-quality)
+              (source-kind-quality-part
+               "measured"
+               (:measuredSourceKindKeys source-kind-quality))
+              (source-kind-quality-part
+               "underpowered"
+               (:underpoweredSourceKindKeys source-kind-quality))
+              (source-kind-quality-part
+               "below-floor"
+               (:lowQualitySourceKindKeys source-kind-quality))))))
+
+(defn- print-claim-pack-source-kind-quality
+  [quality-by-lane]
+  (doseq [[lane quality] quality-by-lane]
+    (print-source-kind-quality-summary
+     (str (name lane) "-source-kind-quality")
+     quality)))
+
+(defn- print-claim-pack-docs-readiness
+  [readiness-by-lane]
+  (doseq [[lane readiness] readiness-by-lane]
+    (println "-" (str (name lane) "-docs-claim-readiness")
+             (:status readiness))
+    (when (contains? readiness :docsHandlingClaimSupported)
+      (println "-" (str (name lane) "-docs-handling-claim-supported")
+               (:docsHandlingClaimSupported readiness)))))
 
 (defn- print-claim-readiness
   [claim-readiness]
@@ -855,6 +874,10 @@
                (or (get-in result
                            [:summary :qualityCostTradeoff :status])
                    "unavailable"))
+      (print-claim-pack-source-kind-quality
+       (get-in result [:summary :sourceKindQualityByLane]))
+      (print-claim-pack-docs-readiness
+       (get-in result [:summary :docsClaimReadinessByLane]))
       (println "- claim-pack" (get-in result [:artifacts :claimPackPath]))
       (println "- markdown" (get-in result
                                     [:artifacts :claimPackMarkdownPath])))
