@@ -1000,6 +1000,7 @@
              :suite-id (:suite-id prepared)
              :case-id (:case-id prepared)
              :repo-id (:repo-id prepared)
+             :repoIds (:repoIds prepared)
              :project-id (:project-id prepared)
              :caseFingerprint (:caseFingerprint prepared)
              :agentInputFingerprint (:agentInputFingerprint prepared)

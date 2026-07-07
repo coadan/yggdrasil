@@ -12,6 +12,7 @@
                               :architecture-dependency-flow
                               :audit-scope-dependencies]}
                       {:id "case-2"
+                       :repo-id "repo-a"
                        :repos [{:repo-id "repo-a"}
                                {:repo-id "repo-b"}]
                        :coverage {:source-kinds [:go]}

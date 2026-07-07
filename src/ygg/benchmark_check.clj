@@ -140,7 +140,11 @@
 (defn- result-repo-ids
   [check]
   (->> (get-in check [:report :results])
-       (keep :repo-id)
+       (mapcat (fn [result]
+                 (if (seq (:repoIds result))
+                   (:repoIds result)
+                   [(:repo-id result)])))
+       (remove nil?)
        distinct
        sort
        vec))

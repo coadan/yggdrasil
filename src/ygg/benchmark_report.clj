@@ -2409,6 +2409,7 @@
                              :byTag (group-agent-scores-by-tag report-context results)
                              :results (mapv #(assoc (select-keys % [:case-id
                                                                     :repo-id
+                                                                    :repoIds
                                                                     :baseSha
                                                                     :fixSha
                                                                     :caseFingerprint

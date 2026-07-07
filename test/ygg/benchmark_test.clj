@@ -1988,6 +1988,7 @@
                   :project-id "suite-case-1"
                   :caseFingerprint "sha256:test-case"
                   :agentInputFingerprint "sha256:test-input"
+                  :repoIds ["repo"]
                   :baseSha "base"
                   :fixSha "fix"
                   :worktreeRoot root
@@ -2023,6 +2024,7 @@
     (is (= benchmark/agent-score-schema (:schema scored)))
     (is (= "sha256:test-case" (:caseFingerprint scored)))
     (is (= "sha256:test-input" (:agentInputFingerprint scored)))
+    (is (= ["repo"] (:repoIds scored)))
     (is (= 1.0 (get-in scored [:scores :fileRecallAt5])))
     (is (= 0.5 (get-in scored [:scores :meanReciprocalRankFile])))
     (is (= 0.5 (get-in scored [:scores :expectedEvidenceCitationRate])))

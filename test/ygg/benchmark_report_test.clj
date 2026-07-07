@@ -287,6 +287,7 @@
                  :suite-id "suite"
                  :case-id "case-1"
                  :repo-id "repo"
+                 :repoIds ["repo" "repo-plugin"]
                  :tags ["runtime-config"]
                  :parserWorker {:mode "all"
                                 :source "option"}
@@ -493,6 +494,8 @@
              (get-in ygg-mode [:agentPreparation])))
       (is (= "reused"
              (get-in report [:results 0 :agentPreparation :status])))
+      (is (= ["repo" "repo-plugin"]
+             (get-in report [:results 0 :repoIds])))
       (is (= {:inputHintedRuns 1
               :inputHintedCases 1
               :inputHintedCaseIds ["case-1"]}
@@ -2749,15 +2752,16 @@
                           {:case-id "case-2"
                            :repo-id "repo-b"}
                           {:case-id "case-3"
-                           :repo-id "repo-b"}]}
+                           :repo-id "repo-b"
+                           :repoIds ["repo-b" "repo-c"]}]}
         failed (benchmark/check-agent-report
                 report
-                {:min-repos 3
+                {:min-repos 4
                  :min-source-kind-cases {"doc" 3
                                          "sql" 1}})
         passed (benchmark/check-agent-report
                 report
-                {:min-repos 2
+                {:min-repos 3
                  :min-source-kind-cases {"code" 1
                                          "doc" 2}})]
     (is (= "failed" (:status failed)))
@@ -2765,9 +2769,9 @@
            (set (map :metric (:failures failed)))))
     (is (= {:metric "repos"
             :operator ">="
-            :expected 3.0
-            :actual 2.0
-            :repoIds ["repo-a" "repo-b"]}
+            :expected 4.0
+            :actual 3.0
+            :repoIds ["repo-a" "repo-b" "repo-c"]}
            (select-keys (first (filter #(= "repos" (:metric %))
                                        (:failures failed)))
                         [:metric :operator :expected :actual :repoIds])))

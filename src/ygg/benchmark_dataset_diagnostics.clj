@@ -17,11 +17,11 @@
   (vec
    (distinct
     (cond
-      (:repo-id case)
-      [(:repo-id case)]
-
       (seq (:repos case))
       (keep :repo-id (:repos case))
+
+      (:repo-id case)
+      [(:repo-id case)]
 
       :else
       []))))
