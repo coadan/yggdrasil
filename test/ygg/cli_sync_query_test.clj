@@ -35,6 +35,10 @@
   [prefix]
   (.getPath (io/file (temp-dir prefix) "project.sqlite")))
 
+(defn- canonical-path
+  [path]
+  (.getCanonicalPath (io/file path)))
+
 (defn- read-json-output
   [s]
   (json/read-json s :key-fn keyword))
@@ -78,6 +82,7 @@
 (deftest init-command-can-run-sync-with-corrections-overlay
   (let [root (temp-dir "ygg-cli-init")
         config-path (.getPath (io/file root "project.edn"))
+        canonical-config-path (canonical-path config-path)
         calls (atom [])]
     (with-redefs [project/read-project (fn [path]
                                          (swap! calls conj [:read path])
@@ -112,7 +117,8 @@
         (is (= init/schema (:schema parsed)))
         (is (= "fixture" (:project-id parsed)))
         (is (str/includes? (:sync-output parsed) "# Sync"))
-        (is (= [[:read config-path]
+        (is (= [[:read canonical-config-path]
+                [:read canonical-config-path]
                 [:index :xtdb "fixture" {:dry-run? false
                                          :index-profile :graph
                                          :correction-overlay {:schema "ygg.correction-overlay/v1"
@@ -142,7 +148,10 @@
                              (update 3 dissoc :progress-fn))
                          call))
                      @calls))))
-      (is (fn? (-> @calls second (get 3) :progress-fn)))
+      (is (fn? (->> @calls
+                    (filter #(= :index (first %)))
+                    first
+                    (#(get-in % [3 :progress-fn])))))
       (is (= {:schema "ygg.correction-overlay/v1"
               :project "fixture"
               :systems []
@@ -154,7 +163,8 @@
                  (get-in [3 :correction-overlay])
                  (select-keys [:schema :project :systems :reject :edges :docs])))))))
 (deftest sync-runs-index-infer-and-optional-check
-  (let [calls (atom [])]
+  (let [config-path (canonical-path "project.edn")
+        calls (atom [])]
     (with-redefs [project/read-project (fn [path]
                                          (swap! calls conj [:read path])
                                          project-fixture)
@@ -179,7 +189,7 @@
                                               :decision-queue []})]
       (with-out-str
         (cli/dispatch "sync" ["project.edn" "--check" "--json"])))
-    (is (= [[:read "project.edn"]
+    (is (= [[:read config-path]
             [:index :xtdb "fixture" {:dry-run? false
                                      :index-profile :graph
                                      :correction-overlay nil}]
@@ -188,7 +198,8 @@
                                      :correction-overlay nil}]]
            @calls))))
 (deftest sync-without-maintenance-uses-query-index
-  (let [calls (atom [])]
+  (let [config-path (canonical-path "project.edn")
+        calls (atom [])]
     (with-redefs [project/read-project (fn [path]
                                          (swap! calls conj [:read path])
                                          project-fixture)
@@ -207,7 +218,7 @@
                                             :system-edges 3})]
       (with-out-str
         (cli/dispatch "sync" ["project.edn" "--json"])))
-    (is (= [[:read "project.edn"]
+    (is (= [[:read config-path]
             [:index :xtdb "fixture" {:dry-run? false
                                      :index-profile :query
                                      :correction-overlay nil}]
@@ -841,7 +852,8 @@
         (finally
           (System/setProperty "user.dir" previous-dir))))))
 (deftest sync-activity-routes-through-project-config
-  (let [calls (atom [])]
+  (let [config-path (canonical-path "project.edn")
+        calls (atom [])]
     (with-redefs [project/read-project (fn [path]
                                          (swap! calls conj [:read path])
                                          project-fixture)
@@ -882,9 +894,9 @@
         (is (str/includes? plain-out "## Result Schema Mismatches"))
         (is (str/includes? plain-out
                            "- queue:abc expected expected/v1 actual actual/v1 status done item activity-item:abc"))
-        (is (= [[:read "project.edn"]
+        (is (= [[:read config-path]
                 [:activity :xtdb "fixture" {:queue-db ".dev/test-project.sqlite"}]
-                [:read "project.edn"]
+                [:read config-path]
                 [:activity :xtdb "fixture" {:queue-db ".dev/test-project.sqlite"}]]
                @calls))))))
 (deftest bench-run-dispatches-to-benchmark-runner

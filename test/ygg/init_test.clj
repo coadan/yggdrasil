@@ -33,14 +33,21 @@
     (with-redefs [registry/registry-path (constantly registry-path)]
       (let [result (init/init! root {:out out
                                      :project-id "demo"
-                                     :name "Demo"})]
+                                     :name "Demo"})
+            registered (registry/read-project "demo")]
         (is (= init/schema (:schema result)))
         (is (= "demo" (:project-id result)))
+        (is (= true (:registered result)))
         (is (= 1 (:repos result)))
         (is (= true (:first-init result)))
         (is (= 1 (:init-count result)))
         (is (= registry-path (:registry result)))
         (is (= [(:project-ref result)] (:project-refs result)))
+        (is (= out (:config result)))
+        (is (= (fs/canonical-path out)
+               (get-in (registry/read-registry) [:projects "demo" :config-path])))
+        (is (= "demo" (:id registered)))
+        (is (= canonical-root (get-in registered [:repos 0 :root])))
         (let [raw (edn/read-string (slurp out))
               project (project/read-project out)]
           (is (= {:id "demo"
@@ -147,7 +154,9 @@
                                      :force? true})]
         (is (= false (:first-init result)))
         (is (= 2 (:init-count result))))
-      (is (= "second" (:id (edn/read-string (slurp out))))))))
+      (is (= "second" (:id (edn/read-string (slurp out)))))
+      (is (= #{"second"} (set (keys (:projects (registry/read-registry))))))
+      (is (= "second" (:id (registry/read-project "second")))))))
 
 (deftest init-records-first-run-once
   (let [root (temp-dir "ygg-init-first-run")

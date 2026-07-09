@@ -141,14 +141,12 @@
                      {:project-id project-id
                       :registry (registry-path)})))))
 
-(defn upsert-project!
-  "Insert or replace a project definition in the user registry."
-  [project-config]
+(defn- upsert-project-in-registry!
+  [registry project-config]
   (let [project-id (str (:id project-config))]
     (when (str/blank? project-id)
       (throw (ex-info "Cannot register project without :id." {:project project-config})))
-    (let [registry (read-registry)
-          stored (assoc project-config :id project-id)
+    (let [stored (assoc project-config :id project-id)
           updated (assoc-in registry [:projects project-id] stored)]
       (write-registry! updated)
       {:schema "ygg.project.registry.upsert/v1"
@@ -156,17 +154,42 @@
        :registry (registry-path)
        :project (read-project updated project-id)})))
 
+(defn upsert-project!
+  "Insert or replace a project definition in the user registry."
+  [project-config]
+  (upsert-project-in-registry! (read-registry) project-config))
+
+(defn- remove-config-path-registrations
+  [registry config-path project-id]
+  (update registry :projects
+          (fn [projects]
+            (into {}
+                  (remove (fn [[id data]]
+                            (and (not= (str id) (str project-id))
+                                 (= config-path
+                                    (some-> (:config-path data)
+                                            fs/canonical-path)))))
+                  projects))))
+
 (defn register-project-config!
   "Register an existing project config by reference and return a summary."
   [config-path]
   (let [config-path (fs/canonical-path config-path)
         project (project/read-project config-path)
         project-id (:id project)
-        result (upsert-project! {:id project-id
-                                 :config-path config-path})]
-    (assoc result
-           :schema "ygg.project.registry.register/v1"
-           :config-path config-path)))
+        registry (remove-config-path-registrations
+                  (read-registry)
+                  config-path
+                  project-id)
+        stored {:id project-id
+                :config-path config-path}
+        updated (assoc-in registry [:projects project-id] stored)]
+    (write-registry! updated)
+    {:schema "ygg.project.registry.register/v1"
+     :project-id project-id
+     :registry (registry-path)
+     :project project
+     :config-path config-path}))
 
 (defn remove-project!
   "Remove project id from registry and return a compact summary."

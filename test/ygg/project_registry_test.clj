@@ -156,6 +156,29 @@
                                 :role :application}]}))
         (is (= "Renamed" (:name (registry/read-project "demo"))))))))
 
+(deftest registry-register-replaces-stale-project-id-for-same-config
+  (let [root (temp-dir "ygg-registry-config-replace")
+        config-path (.getPath (io/file root "project.edn"))
+        registry-path (.getPath (io/file root ".config" "projects.edn"))]
+    (with-redefs [registry/registry-path (constantly registry-path)]
+      (spit config-path
+            (pr-str {:id "first"
+                     :repos [{:id "app"
+                              :root (fs/canonical-path root)
+                              :role :application}]}))
+      (registry/register-project-config! config-path)
+      (spit config-path
+            (pr-str {:id "second"
+                     :repos [{:id "app"
+                              :root (fs/canonical-path root)
+                              :role :application}]}))
+      (let [result (registry/register-project-config! config-path)
+            projects (:projects (registry/read-registry))]
+        (is (= "second" (:project-id result)))
+        (is (= #{"second"} (set (keys projects))))
+        (is (= (fs/canonical-path config-path)
+               (get-in projects ["second" :config-path])))))))
+
 (deftest registry-project-option-wins-over-cwd
   (let [left (temp-dir "ygg-registry-left")
         right (temp-dir "ygg-registry-right")

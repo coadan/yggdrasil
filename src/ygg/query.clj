@@ -1954,6 +1954,24 @@
    {}
    source-maps))
 
+(defn- facet-key
+  [value]
+  (cond
+    (nil? value) "none"
+    (keyword? value) (name value)
+    :else (str value)))
+
+(defn- facet-key-compare
+  [left right]
+  (let [order (compare (facet-key left) (facet-key right))]
+    (if (zero? order)
+      (compare (pr-str left) (pr-str right))
+      order)))
+
+(defn- facet-map
+  []
+  (sorted-map-by facet-key-compare))
+
 (defn- candidate-facets
   [docs candidates memberships]
   (let [candidate? (set candidates)]
@@ -1969,13 +1987,13 @@
                        (fn [by-source]
                          (reduce (fn [by-source source]
                                    (update by-source source (fnil inc 0)))
-                                 (or by-source (sorted-map))
+                                 (or by-source (facet-map))
                                  (get memberships target-id #{}))))))
          facets))
-     {:by-target-kind (sorted-map)
-      :by-repo (sorted-map)
-      :by-file-kind (sorted-map)
-      :by-source (sorted-map)}
+     {:by-target-kind (facet-map)
+      :by-repo (facet-map)
+      :by-file-kind (facet-map)
+      :by-source (facet-map)}
      docs)))
 
 (defn- ranked-result-sort-key

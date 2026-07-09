@@ -323,15 +323,15 @@
       true (maybe-assoc-maintenance opts))))
 
 (defn init!
-  "Register a project or write a portable project config when :out is provided."
+  "Write a project config when requested and register the project for lookup."
   [root {:keys [out force? workbench?] :as opts}]
   (let [config (if workbench?
                  (workbench-config root opts)
                  (plain-config root opts))
-        registry-mode? (nil? out)
         config-path (when out
                       (write-edn! out config force?))
-        registry-result (when registry-mode?
+        registry-result (if config-path
+                          (registry/register-project-config! config-path)
                           (registry/upsert-project! config))
         init-record (registry/record-init!)
         project-id (:id config)
@@ -369,5 +369,5 @@
              :next (next-commands actions)
              :nextActions actions}
       config-path (assoc :config config-path)
-      registry-mode? (assoc :registry (:registry registry-result)
-                            :registered true))))
+      true (assoc :registry (:registry registry-result)
+                  :registered true))))

@@ -1077,6 +1077,31 @@
                      :rank-ms
                      :search-total-ms]))))))
 
+(deftest candidate-facets-sort-mixed-key-types
+  (let [facets (#'query/candidate-facets
+                [{:target-id "node:auth"
+                  :target-kind :node
+                  :repo-id "app"
+                  :kind :code}
+                 {:target-id "memory:auth"
+                  :target-kind "memory"
+                  :kind "memory"}]
+                ["node:auth" "memory:auth"]
+                {"node:auth" #{:lexical "memory"}
+                 "memory:auth" #{"memory" :lexical}})]
+    (is (= {"memory" 1
+            :node 1}
+           (:by-target-kind facets)))
+    (is (= {"app" 1
+            :none 1}
+           (:by-repo facets)))
+    (is (= {:code 1
+            "memory" 1}
+           (:by-file-kind facets)))
+    (is (= {:lexical 2
+            "memory" 2}
+           (:by-source facets)))))
+
 (deftest ranked-candidates-supports-rrf-fusion-ablation
   (let [docs [{:target-id "target:a"
                :target-kind :node

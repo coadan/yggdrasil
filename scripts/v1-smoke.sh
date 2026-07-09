@@ -57,6 +57,7 @@ trap cleanup EXIT
 install_wrappers() {
   export YGG_SERVER_PORT="${YGG_SERVER_PORT:-$((62122 + ($$ % 1000)))}"
   export YGG_XTDB_PATH="$WORK_DIR/xtdb"
+  export YGG_STORAGE_ROOT="$WORK_DIR/storage"
   export YGG_SERVER_LOG="$WORK_DIR/server.log"
   mkdir -p "$PREFIX/bin"
   ln -sfn "$REPO_DIR/bin/ygg" "$PREFIX/bin/ygg"
@@ -72,6 +73,7 @@ test -x "$PREFIX/bin/ygg"
 test -x "$PREFIX/bin/ygg-mcp"
 
 cp -R "$REPO_DIR/test/fixtures/project-repo" "$FIXTURE_REPO"
+git -C "$FIXTURE_REPO" init -q
 printf '\n[dependencies]\nserde = "1"\n' >> "$FIXTURE_REPO/services/api/Cargo.toml"
 mkdir -p "$FIXTURE_REPO/config"
 printf 'GOOGLE_APPLICATION_CREDENTIALS=/var/run/secrets/google.json\nSERVICE_ACCT=checkout-runtime-secret\n' > "$FIXTURE_REPO/config/runtime.env"
@@ -127,33 +129,70 @@ if pull.get("status") == "empty":
     raise AssertionError("dependency-review work queue was empty")
 item = pull["item"]
 packet = item["payload"]
-unresolved = packet["facts"]["unresolvedImport"]
-packages = packet["facts"]["packages"]
-evidence = packet["facts"]["evidence"]
-package = next((row for row in packages
-                if row.get("ecosystem") == "pypi"
-                and row.get("package-name") == "google-cloud-storage"), None)
-if package is None:
-    raise AssertionError("dependency-review packet missing google-cloud-storage package")
-if unresolved.get("import") != "google.cloud":
-    raise AssertionError(f"unexpected unresolved import {unresolved.get('import')!r}")
-if not evidence:
-    raise AssertionError("dependency-review packet missing evidence")
-result = {
-    "schema": "ygg.dependency.review-result/v1",
-    "reviewId": packet["reviewId"],
-    "recommendation": "add-package-import",
-    "confidence": 0.95,
-    "reason": "The import prefix is provided by the declared PyPI package.",
-    "correctionPatch": [{
-        "op": "add-package-import",
-        "import": "google.cloud",
-        "ecosystem": "pypi",
-        "package": "google-cloud-storage",
-        "evidence": [evidence[0]["id"]],
-        "reason": "The package exposes the reviewed google.cloud import prefix."
-    }]
-}
+schema = packet.get("schema")
+if schema == "ygg.dependency.review-packet/v1":
+    items = [packet]
+elif schema == "ygg.dependency.review-batch-packet/v1":
+    items = packet.get("items", [])
+else:
+    raise AssertionError(f"unexpected dependency-review packet schema {schema!r}")
+if not items:
+    raise AssertionError("dependency-review packet had no review items")
+
+results = []
+matched = False
+for review in items:
+    facts = review["facts"]
+    unresolved = facts["unresolvedImport"]
+    packages = facts.get("packages", [])
+    evidence = facts.get("evidence", [])
+    package = next((row for row in packages
+                    if row.get("ecosystem") == "pypi"
+                    and row.get("package-name") == "google-cloud-storage"), None)
+    if unresolved.get("import") == "google.cloud":
+        if package is None:
+            raise AssertionError("google.cloud review missing google-cloud-storage package")
+        if not evidence:
+            raise AssertionError("google.cloud review missing evidence")
+        matched = True
+        results.append({
+            "schema": "ygg.dependency.review-result/v1",
+            "reviewId": review["reviewId"],
+            "recommendation": "add-package-import",
+            "confidence": 0.95,
+            "reason": "The import prefix is provided by the declared PyPI package.",
+            "correctionPatch": [{
+                "op": "add-package-import",
+                "import": "google.cloud",
+                "ecosystem": "pypi",
+                "package": "google-cloud-storage",
+                "evidence": [evidence[0]["id"]],
+                "reason": "The package exposes the reviewed google.cloud import prefix."
+            }],
+            "findings": []
+        })
+    else:
+        results.append({
+            "schema": "ygg.dependency.review-result/v1",
+            "reviewId": review["reviewId"],
+            "recommendation": "no-change",
+            "confidence": 0.5,
+            "reason": "The smoke only accepts the explicit google.cloud package-import correction.",
+            "correctionPatch": [],
+            "findings": []
+        })
+
+if not matched:
+    raise AssertionError("dependency-review batch missing google.cloud unresolved import")
+
+if schema == "ygg.dependency.review-batch-packet/v1":
+    result = {
+        "schema": "ygg.dependency.review-batch-result/v1",
+        "batchId": packet["batchId"],
+        "results": results
+    }
+else:
+    result = results[0]
 (work_dir / "work-result.json").write_text(json.dumps(result, indent=2) + "\n")
 print(item["id"])
 PY
@@ -246,6 +285,7 @@ require_mcp_tools(mcp_tools_cli, "ygg mcp")
 require(start.get("schema") == "ygg.init/v1", "init schema mismatch")
 require(start.get("project-id") == "v1-smoke", "init project id mismatch")
 require(start.get("config") == str(repo / "project.edn"), "init config path mismatch")
+require(start.get("registered") is True, "init --out did not register project")
 start_actions = {action.get("kind"): action.get("command")
                  for action in start.get("nextActions", [])}
 require(start_actions.get("sync") == f"ygg sync {repo / 'project.edn'} --check",
@@ -281,7 +321,15 @@ require(any(item.get("kind") == "dependency-review" for item in enqueued),
 require(work_pull.get("schema") == "ygg.queue.summary/v1", "work pull schema mismatch")
 require(work_pull.get("kind") == "dependency-review", "pulled work is not dependency-review")
 require(work_pull.get("status") == "claimed", "pulled work was not claimed")
-require(work_pull.get("expected-result-schema") == "ygg.dependency.review-result/v1",
+require(work_pull.get("payload-schema") in {
+            "ygg.dependency.review-packet/v1",
+            "ygg.dependency.review-batch-packet/v1",
+        },
+        "dependency-review work did not use a supported packet schema")
+require(work_pull.get("expected-result-schema") in {
+            "ygg.dependency.review-result/v1",
+            "ygg.dependency.review-batch-result/v1",
+        },
         "dependency-review work did not advertise expected result schema")
 require(work_complete.get("status") == "done", "work complete did not mark item done")
 require(work_validate.get("schema") == "ygg.sync.work.validation/v1",
