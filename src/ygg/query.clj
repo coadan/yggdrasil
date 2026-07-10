@@ -581,7 +581,7 @@
                         (fn [[_ {:keys [last-used]}]] last-used)
                         entries)))))
 
-(declare normalize-grep-token grep-doc-structured-tokens)
+(declare compact-path-identity-token grep-doc-structured-tokens normalize-grep-token path-tail)
 
 (defn- search-corpus-stats
   [docs]
@@ -590,7 +590,12 @@
      (let [tokens (->> (:tokens doc)
                        (keep normalize-grep-token)
                        set)
-           structured-tokens (grep-doc-structured-tokens doc)]
+           structured-tokens (grep-doc-structured-tokens doc)
+           path-tokens (set (text/tokenize (:path doc)))
+           label-tokens (set (text/tokenize (:label doc)))
+           identity-tokens (set (keep compact-path-identity-token
+                                      [(path-tail (:path doc))
+                                       (path-tail (:label doc))]))]
        (-> stats
            (update :grep-token-frequencies
                    (fn [frequencies]
@@ -599,9 +604,15 @@
                    (fn [frequencies]
                      (reduce #(update %1 %2 (fnil inc 0))
                              frequencies
-                             structured-tokens))))))
+                             structured-tokens)))
+           (assoc-in [:rank-doc-data (:xt/id doc)]
+                     {:path-tokens path-tokens
+                      :label-tokens label-tokens
+                      :identity-tokens identity-tokens
+                      :label-lower (str/lower-case (str (:label doc)))}))))
    {:grep-token-frequencies {}
-    :grep-structured-token-frequencies {}}
+    :grep-structured-token-frequencies {}
+    :rank-doc-data {}}
    docs))
 
 (defn- emit-progress!
@@ -1806,6 +1817,17 @@
         #{}
         (text/tokenize text))))))
 
+(defn- matching-query-token-set-count
+  [query-token-set value-token-set]
+  (if (or (empty? query-token-set) (empty? value-token-set))
+    0
+    (reduce (fn [n token]
+              (if (contains? query-token-set token)
+                (inc n)
+                n))
+            0
+            value-token-set)))
+
 (defn- path-tail
   [path]
   (let [value (str path)
@@ -1828,12 +1850,15 @@
       identity)))
 
 (defn- path-token-identity-match?
-  [query-token-set doc]
-  (boolean
-   (some #(contains? query-token-set %)
-         (keep compact-path-identity-token
-               [(path-tail (:path doc))
-                (path-tail (:label doc))]))))
+  ([query-token-set doc]
+   (path-token-identity-match? query-token-set doc nil))
+  ([query-token-set doc doc-data]
+   (boolean
+    (some #(contains? query-token-set %)
+          (or (:identity-tokens doc-data)
+              (keep compact-path-identity-token
+                    [(path-tail (:path doc))
+                     (path-tail (:label doc))]))))))
 
 (defn- path-token-sort-key
   [candidate]
@@ -1850,40 +1875,49 @@
       (vec (take n (sort-by path-token-sort-key candidates))))))
 
 (defn- path-token-candidate-data
-  [query-token-set docs n]
-  (if (empty? query-token-set)
-    {:match-counts {}
-     :candidate-ids []}
-    (let [{:keys [match-counts candidates]} (reduce
-                                             (fn [state doc]
-                                               (let [match-count (long (matching-query-token-count
-                                                                        query-token-set
-                                                                        (:path doc)))]
-                                                 (if (pos? match-count)
-                                                   (let [candidate {:target-id (:target-id doc)
-                                                                    :matches match-count
-                                                                    :identity-match?
-                                                                    (path-token-identity-match?
-                                                                     query-token-set
-                                                                     doc)
-                                                                    :path (:path doc)
-                                                                    :label (:label doc)}]
-                                                     (cond-> (assoc-in state
-                                                                       [:match-counts (:target-id doc)]
-                                                                       match-count)
-                                                       (pos? n)
-                                                       (update :candidates
-                                                               bounded-path-token-candidates
-                                                               candidate
-                                                               n)))
-                                                   state)))
-                                             {:match-counts {}
-                                              :candidates []}
-                                             docs)]
-      {:match-counts match-counts
-       :candidate-ids (->> candidates
-                           (sort-by path-token-sort-key)
-                           (mapv :target-id))})))
+  ([query-token-set docs n]
+   (path-token-candidate-data query-token-set docs n nil))
+  ([query-token-set docs n rank-doc-data]
+   (if (empty? query-token-set)
+     {:match-counts {}
+      :candidate-ids []}
+     (let [{:keys [match-counts candidates]} (reduce
+                                              (fn [state doc]
+                                                (let [doc-data (get rank-doc-data (:xt/id doc))
+                                                      match-count (long
+                                                                   (if doc-data
+                                                                     (matching-query-token-set-count
+                                                                      query-token-set
+                                                                      (:path-tokens doc-data))
+                                                                     (matching-query-token-count
+                                                                      query-token-set
+                                                                      (:path doc))))]
+                                                  (if (pos? match-count)
+                                                    (let [candidate {:target-id (:target-id doc)
+                                                                     :matches match-count
+                                                                     :identity-match?
+                                                                     (path-token-identity-match?
+                                                                      query-token-set
+                                                                      doc
+                                                                      doc-data)
+                                                                     :path (:path doc)
+                                                                     :label (:label doc)}]
+                                                      (cond-> (assoc-in state
+                                                                        [:match-counts (:target-id doc)]
+                                                                        match-count)
+                                                        (pos? n)
+                                                        (update :candidates
+                                                                bounded-path-token-candidates
+                                                                candidate
+                                                                n)))
+                                                    state)))
+                                              {:match-counts {}
+                                               :candidates []}
+                                              docs)]
+       {:match-counts match-counts
+        :candidate-ids (->> candidates
+                            (sort-by path-token-sort-key)
+                            (mapv :target-id))}))))
 
 (def relation-graph-weights
   {:references 1.0
@@ -1982,35 +2016,54 @@
            :doc-scores doc-scores})))))
 
 (defn- exact-match-boost
-  [query query-token-set query-path-shaped? path-token-match-counts doc]
-  (let [path-token-matches (long (or (get path-token-match-counts
-                                          (:target-id doc))
-                                     0))
-        label (str/lower-case (:label doc))
-        path-token-boost (min 0.15
-                              (* 0.05 (double path-token-matches)))]
-    (cond
-      (and query-path-shaped?
-           (exact-path-mentioned? query (:path doc))) 2.0
+  ([query query-token-set query-path-shaped? path-token-match-counts doc]
+   (exact-match-boost query
+                      query-token-set
+                      query-path-shaped?
+                      path-token-match-counts
+                      doc
+                      nil))
+  ([query query-token-set query-path-shaped? path-token-match-counts doc doc-data]
+   (let [path-token-matches (long (or (get path-token-match-counts
+                                           (:target-id doc))
+                                      0))
+         label (or (:label-lower doc-data) (str/lower-case (:label doc)))
+         label-token-matches (if doc-data
+                               (matching-query-token-set-count query-token-set
+                                                               (:label-tokens doc-data))
+                               (matching-query-token-count query-token-set (:label doc)))
+         path-token-boost (min 0.15
+                               (* 0.05 (double path-token-matches)))]
+     (cond
+       (and query-path-shaped?
+            (exact-path-mentioned? query (:path doc))) 2.0
 
-      (and (not (str/blank? query)) (= query label)) 0.25
-      (and (not (str/blank? query)) (str/includes? label query)) 0.15
-      (path-token-identity-match? query-token-set doc) (+ 0.35 path-token-boost)
-      (pos? (matching-query-token-count query-token-set (:label doc))) (+ 0.05 path-token-boost)
-      :else path-token-boost)))
+       (and (not (str/blank? query)) (= query label)) 0.25
+       (and (not (str/blank? query)) (str/includes? label query)) 0.15
+       (path-token-identity-match? query-token-set doc doc-data) (+ 0.35 path-token-boost)
+       (pos? label-token-matches) (+ 0.05 path-token-boost)
+       :else path-token-boost))))
 
 (defn- exact-score-map
-  [query query-token-set query-path-shaped? path-token-match-counts docs]
-  (into {}
-        (keep (fn [doc]
-                (let [score (exact-match-boost query
-                                               query-token-set
-                                               query-path-shaped?
-                                               path-token-match-counts
-                                               doc)]
-                  (when (pos? score)
-                    [(:target-id doc) score]))))
-        docs))
+  ([query query-token-set query-path-shaped? path-token-match-counts docs]
+   (exact-score-map query
+                    query-token-set
+                    query-path-shaped?
+                    path-token-match-counts
+                    docs
+                    nil))
+  ([query query-token-set query-path-shaped? path-token-match-counts docs rank-doc-data]
+   (into {}
+         (keep (fn [doc]
+                 (let [score (exact-match-boost query
+                                                query-token-set
+                                                query-path-shaped?
+                                                path-token-match-counts
+                                                doc
+                                                (get rank-doc-data (:xt/id doc)))]
+                   (when (pos? score)
+                     [(:target-id doc) score]))))
+         docs)))
 
 (defn- normalized-fusion-strategy
   [strategy]
@@ -2345,24 +2398,32 @@
                      (conj out row)))))))))
 
 (defn- ranked-candidates
-  [{:keys [query-text query-tokens docs lexical semantic semantic-role-scores fts grep neighbor-scores same-label-scores
+  [{:keys [query-text query-tokens docs rank-doc-data lexical semantic semantic-role-scores fts grep neighbor-scores same-label-scores
            retriever limit fusion-strategy fusion-k diversity-rerank-limit fts-weight]}]
   (let [query (str/lower-case (str/trim query-text))
         query-path-shaped? (path-shaped-query? query)
         query-token-set (set query-tokens)
-        path-token-data (path-token-candidate-data query-token-set
-                                                   docs
-                                                   default-path-token-candidates)
+        [path-token-data rank-timings] (timed {}
+                                              :rank-path-token-candidates-ms
+                                              #(path-token-candidate-data
+                                                query-token-set
+                                                docs
+                                                default-path-token-candidates
+                                                rank-doc-data))
         path-token-match-counts (:match-counts path-token-data)
-        exact (exact-score-map query
-                               query-token-set
-                               query-path-shaped?
-                               path-token-match-counts
-                               docs)
+        [exact rank-timings] (timed rank-timings
+                                    :rank-exact-scores-ms
+                                    #(exact-score-map query
+                                                      query-token-set
+                                                      query-path-shaped?
+                                                      path-token-match-counts
+                                                      docs
+                                                      rank-doc-data))
         fts (or fts {})
         grep (or grep {})
         neighbor-scores (or neighbor-scores {})
         same-label-scores (or same-label-scores {})
+        candidate-selection-started (now-ns)
         semantic-candidates (if (not= :lexical retriever)
                               (into (set (top-ids semantic default-semantic-candidates))
                                     (top-ids-by-kind semantic
@@ -2389,6 +2450,10 @@
                                                         docs)
         path-token-candidates (:candidate-ids path-token-data)
         same-label-candidates (set (keys same-label-scores))
+        rank-timings (assoc rank-timings
+                            :rank-retrieval-candidates-ms
+                            (elapsed-ms candidate-selection-started))
+        fusion-started (now-ns)
         source-maps (source-maps-for-retriever
                      retriever
                      {:semantic semantic
@@ -2406,6 +2471,9 @@
                                       weights
                                       fusion-k)
         memberships (source-memberships source-maps)
+        rank-timings (assoc rank-timings
+                            :rank-fusion-ms
+                            (elapsed-ms fusion-started))
         candidates (case retriever
                      :semantic (-> semantic-candidates
                                    (into exact-path-candidates)
@@ -2427,61 +2495,67 @@
                          (into (keys neighbor-scores))
                          (into same-label-candidates)))
         rank-limit (long (or limit Long/MAX_VALUE))
-        rank-data (reduce
-                   (fn [rank-data doc]
-                     (if (contains? candidates (:target-id doc))
-                       (let [rank-data (-> rank-data
-                                           (update :candidate-doc-count inc)
-                                           (update :candidates-by-kind
-                                                   update-rows-by-kind-counts
-                                                   doc))
-                             semantic-score (double (get semantic (:target-id doc) 0.0))
-                             lexical-score (double (get lexical (:target-id doc) 0.0))
-                             fts-score (double (get fts (:target-id doc) 0.0))
-                             grep-score (double (get grep (:target-id doc) 0.0))
-                             graph-score (double (get neighbor-scores (:target-id doc) 0.0))
-                             same-label-score (double (get same-label-scores (:target-id doc) 0.0))
-                             exact-score (double (get exact (:target-id doc) 0.0))
-                             total (double (get fused-scores (:target-id doc) 0.0))
-                             components (cond-> {:semantic semantic-score
-                                                 :lexical lexical-score
-                                                 :fts fts-score
-                                                 :grep grep-score
-                                                 :graph graph-score
-                                                 :sameLabel same-label-score
-                                                 :exact exact-score}
-                                          (seq (get semantic-role-scores (:target-id doc)))
-                                          (assoc :semanticRoles
-                                                 (get semantic-role-scores (:target-id doc))))]
-                         (if (pos? total)
-                           (add-ranked-result
-                            rank-data
-                            (-> doc
-                                (assoc :result-kind (:target-kind doc)
-                                       :score total
-                                       :score-components components
-                                       :retrieval-sources (vec (sort (get memberships (:target-id doc) #{})))
-                                       :reason (cond
-                                                 (pos? semantic-score) "embedding match"
-                                                 (pos? lexical-score) "lexical match"
-                                                 (pos? fts-score) "sqlite fts match"
-                                                 (pos? grep-score) "literal grep match"
-                                                 (pos? graph-score) "graph neighbor"
-                                                 (pos? same-label-score) "same-label candidate"
-                                                 :else "candidate")))
-                            rank-limit)
-                           rank-data))
-                       rank-data))
-                   {:ranked []
-                    :ranked-count 0
-                    :candidate-doc-count 0
-                    :candidates-by-kind (sorted-map)}
-                   docs)
+        [rank-data rank-timings]
+        (timed rank-timings
+               :rank-candidate-docs-ms
+               #(reduce
+                 (fn [rank-data doc]
+                   (if (contains? candidates (:target-id doc))
+                     (let [rank-data (-> rank-data
+                                         (update :candidate-doc-count inc)
+                                         (update :candidates-by-kind
+                                                 update-rows-by-kind-counts
+                                                 doc))
+                           semantic-score (double (get semantic (:target-id doc) 0.0))
+                           lexical-score (double (get lexical (:target-id doc) 0.0))
+                           fts-score (double (get fts (:target-id doc) 0.0))
+                           grep-score (double (get grep (:target-id doc) 0.0))
+                           graph-score (double (get neighbor-scores (:target-id doc) 0.0))
+                           same-label-score (double (get same-label-scores (:target-id doc) 0.0))
+                           exact-score (double (get exact (:target-id doc) 0.0))
+                           total (double (get fused-scores (:target-id doc) 0.0))
+                           components (cond-> {:semantic semantic-score
+                                               :lexical lexical-score
+                                               :fts fts-score
+                                               :grep grep-score
+                                               :graph graph-score
+                                               :sameLabel same-label-score
+                                               :exact exact-score}
+                                        (seq (get semantic-role-scores (:target-id doc)))
+                                        (assoc :semanticRoles
+                                               (get semantic-role-scores (:target-id doc))))]
+                       (if (pos? total)
+                         (add-ranked-result
+                          rank-data
+                          (-> doc
+                              (assoc :result-kind (:target-kind doc)
+                                     :score total
+                                     :score-components components
+                                     :retrieval-sources (vec (sort (get memberships (:target-id doc) #{})))
+                                     :reason (cond
+                                               (pos? semantic-score) "embedding match"
+                                               (pos? lexical-score) "lexical match"
+                                               (pos? fts-score) "sqlite fts match"
+                                               (pos? grep-score) "literal grep match"
+                                               (pos? graph-score) "graph neighbor"
+                                               (pos? same-label-score) "same-label candidate"
+                                               :else "candidate")))
+                          rank-limit)
+                         rank-data))
+                     rank-data))
+                 {:ranked []
+                  :ranked-count 0
+                  :candidate-doc-count 0
+                  :candidates-by-kind (sorted-map)}
+                 docs))
         selected-ranked (select-ranked-results (:ranked rank-data) rank-limit)
         diversity-limit (long (or diversity-rerank-limit default-diversity-rerank-limit))
         ranked (if (pos? diversity-limit)
                  (diversity-rerank-results selected-ranked diversity-limit)
-                 selected-ranked)]
+                 selected-ranked)
+        [facets rank-timings] (timed rank-timings
+                                     :rank-candidate-facets-ms
+                                     #(candidate-facets docs candidates memberships))]
     {:semantic-candidates semantic-candidates
      :lexical-candidates lexical-candidates
      :fts-candidates fts-candidates
@@ -2496,7 +2570,8 @@
      :fusion-source-weights weights
      :fts-weight (:fts weights)
      :fusion-k (when (= :rrf fusion-strategy) fusion-k)
-     :candidate-facets (candidate-facets docs candidates memberships)
+     :candidate-facets facets
+     :timings rank-timings
      :candidate-doc-count (:candidate-doc-count rank-data)
      :candidates-by-kind (:candidates-by-kind rank-data)
      :ranked-count (:ranked-count rank-data)
@@ -2521,6 +2596,30 @@
     :auto (if embedding-client :hybrid :lexical)
     requested))
 
+(defn- semantic-score-data-for-query
+  [xtdb docs scope opts embedding-client query-text initial-retriever]
+  (if embedding-client
+    (vector-store/semantic-score-data
+     xtdb
+     docs
+     (assoc scope
+            :provider (:provider embedding-client)
+            :model (:model embedding-client)
+            :candidate-limit default-semantic-candidates
+            :mode (:vector-store opts)
+            :vector-index-path (:vector-index-path opts)
+            :sqlite-vec-extension (:sqlite-vec-extension opts)
+            :embedding-role (:embedding-role opts)
+            :embedding-roles (:embedding-roles opts)
+            :target-kind (:target-kind opts)
+            :target-kinds (:target-kinds opts)
+            :file-kind (:file-kind opts)
+            :file-kinds (:file-kinds opts)
+            :vector-overfetch-factors (:vector-overfetch-factors opts)
+            :embed-query #(query-vector embedding-client query-text)))
+    (throw (ex-info "Semantic retrieval requires an embedding client."
+                    {:retriever initial-retriever}))))
+
 (defn search-report
   "Return search results and deterministic instrumentation for query-text.
 
@@ -2542,6 +2641,31 @@
                                      #(cached-search-docs xtdb scope progress-fn))
         base-docs (:docs corpus-data)
         [query-tokens timings] (timed timings :tokenize-ms #(text/tokenize query-text))
+        auto-semantic-eligible? (and (= :auto requested-retriever)
+                                     embedding-client
+                                     (#{:hybrid :semantic} initial-retriever))
+        [auto-short-circuit-reason timings]
+        (if auto-semantic-eligible?
+          (timed timings
+                 :exact-path-detection-ms
+                 #(auto-lexical-short-circuit-reason query-text base-docs))
+          [nil (assoc timings :exact-path-detection-ms 0)])
+        auto-short-circuit? (boolean auto-short-circuit-reason)
+        semantic-retriever? (and (#{:hybrid :semantic} initial-retriever)
+                                 (not auto-short-circuit?))
+        _ (when semantic-retriever?
+            (emit-progress! progress-fn
+                            (merge (select-keys scope [:project-id :repo-id])
+                                   {:phase :semantic-search-start})))
+        semantic-task (when semantic-retriever?
+                        (future
+                          (semantic-score-data-for-query xtdb
+                                                         base-docs
+                                                         scope
+                                                         opts
+                                                         embedding-client
+                                                         query-text
+                                                         initial-retriever)))
         [initial-grep-data timings] (timed timings
                                            :grep-search-ms
                                            #(literal-grep-data xtdb
@@ -2589,47 +2713,9 @@
         fts (:scores fts-data)
         grep-data (rescore-grep-data initial-grep-data docs)
         grep (:scores grep-data)
-        auto-semantic-eligible? (and (= :auto requested-retriever)
-                                     embedding-client
-                                     (#{:hybrid :semantic} initial-retriever))
-        [auto-short-circuit-reason timings]
-        (if auto-semantic-eligible?
-          (timed timings
-                 :exact-path-detection-ms
-                 #(auto-lexical-short-circuit-reason query-text docs))
-          [nil (assoc timings :exact-path-detection-ms 0)])
-        auto-short-circuit? (boolean auto-short-circuit-reason)
-        semantic-retriever? (and (#{:hybrid :semantic} initial-retriever)
-                                 (not auto-short-circuit?))
-        _ (when semantic-retriever?
-            (emit-progress! progress-fn
-                            (merge (select-keys scope [:project-id :repo-id])
-                                   {:phase :semantic-search-start})))
-        [semantic-data timings] (if semantic-retriever?
-                                  (if embedding-client
-                                    (let [data (vector-store/semantic-score-data
-                                                xtdb
-                                                docs
-                                                (assoc scope
-                                                       :provider (:provider embedding-client)
-                                                       :model (:model embedding-client)
-                                                       :candidate-limit default-semantic-candidates
-                                                       :mode (:vector-store opts)
-                                                       :vector-index-path (:vector-index-path opts)
-                                                       :sqlite-vec-extension (:sqlite-vec-extension opts)
-                                                       :embedding-role (:embedding-role opts)
-                                                       :embedding-roles (:embedding-roles opts)
-                                                       :target-kind (:target-kind opts)
-                                                       :target-kinds (:target-kinds opts)
-                                                       :file-kind (:file-kind opts)
-                                                       :file-kinds (:file-kinds opts)
-                                                       :vector-overfetch-factors (:vector-overfetch-factors opts)
-                                                       :embed-query #(query-vector
-                                                                      embedding-client
-                                                                      query-text)))]
-                                      [data (merge timings (:timings data))])
-                                    (throw (ex-info "Semantic retrieval requires an embedding client."
-                                                    {:retriever initial-retriever})))
+        [semantic-data timings] (if semantic-task
+                                  (let [data @semantic-task]
+                                    [data (merge timings (:timings data))])
                                   [{:scores {}
                                     :empty? true
                                     :instrumentation {:vector-store :none
@@ -2686,6 +2772,9 @@
                                      #(ranked-candidates {:query-text query-text
                                                           :query-tokens query-tokens
                                                           :docs docs
+                                                          :rank-doc-data (get-in corpus-data
+                                                                                 [:stats
+                                                                                  :rank-doc-data])
                                                           :lexical lexical
                                                           :semantic semantic
                                                           :semantic-role-scores semantic-role-scores
@@ -2706,6 +2795,7 @@
                          (:instrumentation transient-file-data)
                          (:instrumentation fts-data)
                          (:instrumentation semantic-data)
+                         (:timings ranked-data)
                          (adjacency-query-plan xtdb
                                                (:seed-ids seed-data)
                                                edges

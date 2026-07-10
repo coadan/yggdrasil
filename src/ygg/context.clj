@@ -4336,17 +4336,15 @@
                                          {:project-id project-id
                                           :repo-id repo-id
                                           :read-context read-context}))
-        [source-declarations timings] (timed-context-step
-                                       timings
-                                       :source-declarations
-                                       #(source-graph-declarations
-                                         xtdb
-                                         query-tokens
-                                         source-candidates
-                                         candidate-file-rows
-                                         {:project-id project-id
-                                          :repo-id repo-id
-                                          :read-context read-context}))
+        source-declaration-task (timed-context-task
+                                 #(source-graph-declarations
+                                   xtdb
+                                   query-tokens
+                                   source-candidates
+                                   candidate-file-rows
+                                   {:project-id project-id
+                                    :repo-id repo-id
+                                    :read-context read-context}))
         [graph-data timings] (await-context-task timings
                                                  :system-graph
                                                  graph-task)
@@ -4362,48 +4360,46 @@
         targets (set/union (selected-targets entities edges)
                            (system-targets accepted-systems))
         attachments (attachment-docs-for-targets overlay targets)
-        [chunks timings] (timed-context-step
-                          timings
-                          :context-chunks
-                          #(context-chunks xtdb
-                                           results
-                                           attachments
-                                           candidate-inputs
-                                           {:project-id project-id
-                                            :repo-id repo-id
-                                            :read-context read-context}))
-        [activity timings] (timed-context-step
-                            timings
-                            :activity
-                            #(activity/select-activity xtdb
-                                                       query-text
-                                                       {:project-id project-id
-                                                        :read-context read-context
-                                                        :target-ids targets}))
-        [memories timings] (timed-context-step
-                            timings
-                            :memories
-                            #(memory/context-memories xtdb
-                                                      query-text
-                                                      {:project-id project-id
-                                                       :repo-id repo-id
-                                                       :read-context read-context
-                                                       :target-ids targets
-                                                       :owner memory-owner
-                                                       :exclude-private?
-                                                       exclude-private-memory?}))
         selected-system-ids (concat (map :id entities)
                                     (map :id accepted-systems))
-        [system-evidence timings] (timed-context-step
-                                   timings
-                                   :system-evidence
-                                   #(selected-system-evidence
-                                     xtdb
-                                     selected-system-ids
-                                     candidate-inputs
-                                     {:project-id project-id
-                                      :repo-id repo-id
-                                      :read-context read-context}))
+        chunks-task (timed-context-task
+                     #(context-chunks xtdb
+                                      results
+                                      attachments
+                                      candidate-inputs
+                                      {:project-id project-id
+                                       :repo-id repo-id
+                                       :read-context read-context}))
+        activity-task (timed-context-task
+                       #(activity/select-activity xtdb
+                                                  query-text
+                                                  {:project-id project-id
+                                                   :read-context read-context
+                                                   :target-ids targets}))
+        memory-task (timed-context-task
+                     #(memory/context-memories xtdb
+                                               query-text
+                                               {:project-id project-id
+                                                :repo-id repo-id
+                                                :read-context read-context
+                                                :target-ids targets
+                                                :owner memory-owner
+                                                :exclude-private?
+                                                exclude-private-memory?}))
+        system-evidence-task (timed-context-task
+                              #(selected-system-evidence
+                                xtdb
+                                selected-system-ids
+                                candidate-inputs
+                                {:project-id project-id
+                                 :repo-id repo-id
+                                 :read-context read-context}))
+        [chunks timings] (await-context-task timings :context-chunks chunks-task)
+        [activity timings] (await-context-task timings :activity activity-task)
+        [memories timings] (await-context-task timings :memories memory-task)
+        [system-evidence timings] (await-context-task timings
+                                                      :system-evidence
+                                                      system-evidence-task)
         [dependency-report timings] (await-context-task timings
                                                         :package-report
                                                         dependency-task)
@@ -4503,6 +4499,9 @@
         [source-coverage timings] (await-context-task timings
                                                       :source-coverage
                                                       coverage-task)
+        [source-declarations timings] (await-context-task timings
+                                                          :source-declarations
+                                                          source-declaration-task)
         [architecture timings] (timed-context-step
                                 timings
                                 :architecture
