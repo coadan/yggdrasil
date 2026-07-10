@@ -4936,6 +4936,9 @@
                            :source-candidate-seeds
                            :source-candidate-node-seeds
                            :source-candidate-file-seeds])))
+      (is (= [:system-graph :package-report :source-coverage]
+             (get-in packet
+                     [:search :instrumentation :parallel-context-steps])))
       (is (= ["evidence:source-runtime"]
              (mapv :id (get-in packet [:architecture :runtimeEvidence])))))))
 

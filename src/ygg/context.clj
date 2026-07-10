@@ -66,6 +66,24 @@
         value (f)]
     [value (assoc timings stage (elapsed-ms started))]))
 
+(defn- timed-context-task
+  [f]
+  (future
+    (let [started (now-ns)]
+      (try
+        {:value (f)
+         :elapsed-ms (elapsed-ms started)}
+        (catch Throwable error
+          {:error error
+           :elapsed-ms (elapsed-ms started)})))))
+
+(defn- await-context-task
+  [timings stage task]
+  (let [{:keys [value error elapsed-ms]} @task]
+    (when error
+      (throw error))
+    [value (assoc timings stage elapsed-ms)]))
+
 (def ^:private compact-grep-result-reserve-limit
   4)
 
@@ -4168,6 +4186,25 @@
   (let [context-started (now-ns)
         overlay (resolve-correction-overlay xtdb nil correction-overlay project-id)
         query-tokens (text/tokenize query-text)
+        graph-task (timed-context-task
+                    #(graph/system-graph xtdb
+                                         project-id
+                                         {:limit graph/default-node-limit
+                                          :min-confidence min-confidence
+                                          :correction-overlay correction-overlay
+                                          :read-context read-context}))
+        dependency-task (timed-context-task
+                         #(dependency/package-report
+                           xtdb
+                           {:project-id project-id
+                            :repo-id repo-id}
+                           {:correction-overlay overlay}))
+        coverage-task (timed-context-task
+                       #(coverage/context-summary
+                         xtdb
+                         {:project-id project-id
+                          :repo-id repo-id
+                          :read-context read-context}))
         [search-report timings] (timed-context-step
                                  {}
                                  :search
@@ -4233,15 +4270,9 @@
                                          {:project-id project-id
                                           :repo-id repo-id
                                           :read-context read-context}))
-        [graph-data timings] (timed-context-step
-                              timings
-                              :system-graph
-                              #(graph/system-graph xtdb
-                                                   project-id
-                                                   {:limit graph/default-node-limit
-                                                    :min-confidence min-confidence
-                                                    :correction-overlay correction-overlay
-                                                    :read-context read-context}))
+        [graph-data timings] (await-context-task timings
+                                                 :system-graph
+                                                 graph-task)
         entities (select-entities query-tokens results graph-data entity-limit)
         edges (select-edges query-tokens entities graph-data edge-limit)
         accepted-systems (selected-accepted-systems overlay entities results)
@@ -4290,13 +4321,9 @@
                                      {:project-id project-id
                                       :repo-id repo-id
                                       :read-context read-context}))
-        [dependency-report timings] (timed-context-step
-                                     timings
-                                     :package-report
-                                     #(dependency/package-report xtdb
-                                                                 {:project-id project-id
-                                                                  :repo-id repo-id}
-                                                                 {:correction-overlay overlay}))
+        [dependency-report timings] (await-context-task timings
+                                                        :package-report
+                                                        dependency-task)
         runtime-evidence (select-system-evidence query-tokens
                                                  selected-system-ids
                                                  candidate-inputs
@@ -4333,6 +4360,10 @@
                            (update :instrumentation
                                    merge
                                    {:context-chunks (count chunks)
+                                    :parallel-context-steps
+                                    [:system-graph
+                                     :package-report
+                                     :source-coverage]
                                     :source-candidate-strategy
                                     (:strategy source-candidate-data)
                                     :source-candidate-search-results
@@ -4384,13 +4415,9 @@
                                                                                (:event-kind event)))
                                                                           (:events item)))
                                                                   activity))}))
-        [source-coverage timings] (timed-context-step
-                                   timings
-                                   :source-coverage
-                                   #(coverage/context-summary xtdb
-                                                              {:project-id project-id
-                                                               :repo-id repo-id
-                                                               :read-context read-context}))
+        [source-coverage timings] (await-context-task timings
+                                                      :source-coverage
+                                                      coverage-task)
         [architecture timings] (timed-context-step
                                 timings
                                 :architecture
