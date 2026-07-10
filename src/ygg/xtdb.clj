@@ -91,7 +91,10 @@
   ([] (start-node (storage-path)))
   ([path]
    {:node (xtn/start-node (node-opts path))
-    :path path}))
+    :path path
+    :search-corpus-cache (atom {:generation 0
+                                :clock 0
+                                :entries {}})}))
 
 (defn stop-node!
   "Close a node handle."
@@ -1407,11 +1410,34 @@
       id]
      [:delete-docs table id])))
 
+(defn- tx-op-table
+  [op]
+  (let [target (second op)]
+    (if (map? target)
+      (or (:into target) (:from target))
+      target)))
+
+(defn- search-docs-tx?
+  [ops]
+  (some #(= (:search-docs tables) (tx-op-table %)) ops))
+
+(defn- invalidate-search-corpus-cache!
+  [xtdb]
+  (when-let [cache (:search-corpus-cache xtdb)]
+    (swap! cache
+           (fn [{:keys [generation clock]}]
+             {:generation (inc (long (or generation 0)))
+              :clock (long (or clock 0))
+              :entries {}}))))
+
 (defn execute-tx!
   "Execute XTDB transaction ops and return the XTDB transaction key."
   [xtdb ops]
   (when (seq ops)
-    (xt/execute-tx (:node xtdb) (vec ops))))
+    (let [tx-key (xt/execute-tx (:node xtdb) (vec ops))]
+      (when (search-docs-tx? ops)
+        (invalidate-search-corpus-cache! xtdb))
+      tx-key)))
 
 (defn- compact-doc-ops
   "Collapse same-table XTDB document ops into multi-row ops."
@@ -1844,7 +1870,7 @@
   "Replace graph rows for one file."
   [xtdb file-row extraction]
   (let [{:keys [ops counts]} (file-tx xtdb file-row extraction)]
-    (xt/execute-tx (:node xtdb) (compact-doc-ops ops))
+    (execute-tx! xtdb (compact-doc-ops ops))
     counts))
 
 (defn commit-files!
@@ -1896,7 +1922,7 @@
                             :search-docs 0}
                            (map :counts txs))]
         (when (seq ops)
-          (xt/execute-tx (:node xtdb) ops))
+          (execute-tx! xtdb ops))
         (merge-counts summary counts)))
     {:nodes 0
      :edges 0
@@ -1973,7 +1999,7 @@
   (let [validated (map validate-embedding-row rows)
         ops (mapv #(put-op (:embeddings tables) %) validated)]
     (when (seq ops)
-      (xt/execute-tx (:node xtdb) (compact-doc-ops ops)))
+      (execute-tx! xtdb (compact-doc-ops ops)))
     {:embeddings (count validated)}))
 
 (defn commit-project!
@@ -1982,7 +2008,7 @@
   (let [ops (into [(put-op (:projects tables) (validate-project-row project-row))]
                   (map #(put-op (:repos tables) (validate-repo-row %))
                        repo-rows))]
-    (xt/execute-tx (:node xtdb) (compact-doc-ops ops))
+    (execute-tx! xtdb (compact-doc-ops ops))
     {:project project-row
      :repos (count repo-rows)}))
 
@@ -2034,7 +2060,7 @@
               (map #(put-op (:system-edges tables) %) edges)
               (map #(put-op (:search-docs tables) %) search-docs)))]
     (when (seq ops)
-      (xt/execute-tx (:node xtdb) (compact-doc-ops ops)))
+      (execute-tx! xtdb (compact-doc-ops ops)))
     {:system-evidence (count evidence)
      :system-nodes (count nodes)
      :system-edges (count edges)
@@ -2043,11 +2069,11 @@
 (defn commit-run!
   "Persist run row."
   [xtdb run-row]
-  (xt/execute-tx (:node xtdb) [(put-op (:runs tables) run-row)])
+  (execute-tx! xtdb [(put-op (:runs tables) run-row)])
   run-row)
 
 (defn commit-query-run!
   "Persist query run row."
   [xtdb row]
-  (xt/execute-tx (:node xtdb) [(put-op (:query-runs tables) row)])
+  (execute-tx! xtdb [(put-op (:query-runs tables) row)])
   row)

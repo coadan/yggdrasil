@@ -561,6 +561,63 @@
                                    :read-context (read-context opts)})]
      (filter-scope rows opts))))
 
+(def ^:private max-search-corpus-cache-entries
+  32)
+
+(def ^:private temporal-read-context-keys
+  [:valid-at :known-at :snapshot-token :current-time])
+
+(defn- current-search-corpus-cache-key
+  [{:keys [project-id repo-id read-context]}]
+  (when-not (some #(get read-context %) temporal-read-context-keys)
+    [project-id repo-id]))
+
+(defn- evict-search-corpus-entry
+  [entries]
+  (if (<= (count entries) max-search-corpus-cache-entries)
+    entries
+    (dissoc entries
+            (key (apply min-key
+                        (fn [[_ {:keys [last-used]}]] last-used)
+                        entries)))))
+
+(defn- cached-search-docs
+  [xtdb scope]
+  (let [cache (:search-corpus-cache xtdb)
+        cache-key (current-search-corpus-cache-key scope)]
+    (if (and cache cache-key)
+      (locking cache
+        (let [{:keys [generation clock entries]} @cache
+              next-clock (inc (long clock))]
+          (if-let [entry (get entries cache-key)]
+            (do
+              (swap! cache assoc
+                     :clock next-clock
+                     :entries (assoc entries cache-key (assoc entry :last-used next-clock)))
+              {:docs (:docs entry)
+               :cache-status :hit
+               :cache-generation generation})
+            (let [docs (vec (all-search-docs xtdb scope))
+                  loaded-generation (:generation @cache)]
+              (when (= generation loaded-generation)
+                (swap! cache
+                       (fn [state]
+                         (if (= generation (:generation state))
+                           (assoc state
+                                  :clock next-clock
+                                  :entries (evict-search-corpus-entry
+                                            (assoc (:entries state)
+                                                   cache-key
+                                                   {:docs docs
+                                                    :last-used next-clock})))
+                           state))))
+              {:docs docs
+               :cache-status :miss
+               :cache-generation loaded-generation}))))
+      {:docs (vec (all-search-docs xtdb scope))
+       :cache-status :bypass
+       :cache-generation nil})))
+
 (defn all-embeddings
   ([xtdb] (all-embeddings xtdb {}))
   ([xtdb opts]
@@ -2419,7 +2476,8 @@
         scope {:project-id project-id
                :repo-id repo-id
                :read-context (read-context opts)}
-        [base-docs timings] (timed {} :load-search-docs-ms #(vec (all-search-docs xtdb scope)))
+        [corpus-data timings] (timed {} :load-search-docs-ms #(cached-search-docs xtdb scope))
+        base-docs (:docs corpus-data)
         [query-tokens timings] (timed timings :tokenize-ms #(text/tokenize query-text))
         [initial-grep-data timings] (timed timings
                                            :grep-search-ms
@@ -2582,6 +2640,8 @@
                                                edges
                                                (:load-edges-ms timings))
                          {:search-total-ms (elapsed-ms started)
+                          :search-corpus-cache (:cache-status corpus-data)
+                          :search-corpus-generation (:cache-generation corpus-data)
                           :search-docs (count docs)
                           :durable-search-docs (count base-docs)
                           :search-docs-by-kind (rows-by-kind docs)

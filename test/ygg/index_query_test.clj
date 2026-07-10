@@ -1077,6 +1077,67 @@
                      :rank-ms
                      :search-total-ms]))))))
 
+(deftest search-corpus-cache-reuses-current-reads-and-invalidates-on-write
+  (store/with-node (temp-dir "ygg-query-corpus-cache-xtdb")
+    (fn [xtdb]
+      (let [search-doc (fn [id text]
+                         {:xt/id (str "search-doc:" id)
+                          :target-id (str "node:" id)
+                          :target-kind :node
+                          :file-id (str "file:" id)
+                          :path (str "src/" id ".clj")
+                          :kind :var
+                          :label id
+                          :text text
+                          :tokens (text/tokenize text)
+                          :input-sha id
+                          :source-line 1
+                          :active? true
+                          :run-id "run"})]
+        (store/execute-tx!
+         xtdb
+         [(store/put-op (store/table-ref :search-docs)
+                        (search-doc "auth" "auth login"))])
+        (let [first-report (query/search-report xtdb "auth" {:retriever :lexical})
+              second-report (query/search-report xtdb "auth" {:retriever :lexical})]
+          (is (= :miss (get-in first-report [:instrumentation :search-corpus-cache])))
+          (is (= :hit (get-in second-report [:instrumentation :search-corpus-cache])))
+          (is (= (get-in first-report [:instrumentation :search-corpus-generation])
+                 (get-in second-report [:instrumentation :search-corpus-generation]))))
+        (store/execute-tx!
+         xtdb
+         [(store/put-op (store/table-ref :search-docs)
+                        (search-doc "session" "session token"))])
+        (let [report (query/search-report xtdb "session" {:retriever :lexical})]
+          (is (= :miss (get-in report [:instrumentation :search-corpus-cache])))
+          (is (= ["node:session"] (mapv :target-id (:results report)))))))))
+
+(deftest search-corpus-cache-bypasses-temporal-reads
+  (store/with-node (temp-dir "ygg-query-corpus-cache-temporal-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (store/table-ref :search-docs)
+                      {:xt/id "search-doc:auth"
+                       :target-id "node:auth"
+                       :target-kind :node
+                       :file-id "file:auth"
+                       :path "src/auth.clj"
+                       :kind :var
+                       :label "auth"
+                       :text "auth login"
+                       :tokens ["auth" "login"]
+                       :input-sha "auth"
+                       :source-line 1
+                       :active? true
+                       :run-id "run"})])
+      (let [report (query/search-report xtdb
+                                        "auth"
+                                        {:retriever :lexical
+                                         :read-context {:known-at "2025-01-01T00:00:00Z"}})]
+        (is (= :bypass (get-in report [:instrumentation :search-corpus-cache])))
+        (is (nil? (get-in report [:instrumentation :search-corpus-generation])))))))
+
 (deftest candidate-facets-sort-mixed-key-types
   (let [facets (#'query/candidate-facets
                 [{:target-id "node:auth"
