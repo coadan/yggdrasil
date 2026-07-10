@@ -3801,6 +3801,51 @@
                :cmd "rg -n --fixed-strings -e demo/caller -e caller -- src/caller.clj"}]
              (:actions packet))))))
 
+(defn- mocked-source-search-results
+  [xtdb query-tokens {:keys [project-id repo-id read-context]}]
+  (let [match-tokens (#'context/source-graph-query-tokens query-tokens)
+        constraints (cond-> {:project-id project-id}
+                      repo-id (assoc :repo-id repo-id))
+        result-rows (fn [target-kind rows]
+                      (map #(assoc %
+                                   :target-id (:xt/id %)
+                                   :target-kind target-kind)
+                           rows))]
+    (concat
+     (result-rows :node
+                  (store/rows-matching-any-token
+                   xtdb
+                   :ygg/nodes
+                   [:path :label :name :kind]
+                   match-tokens
+                   constraints
+                   read-context))
+     (result-rows :file
+                  (store/rows-matching-any-token
+                   xtdb
+                   :ygg/files
+                   [:path :kind]
+                   match-tokens
+                   (assoc constraints :active? true)
+                   read-context))
+     (result-rows :file-fact
+                  (store/rows-matching-any-token
+                   xtdb
+                   :ygg/file-facts
+                   [:path :file-kind :kind :label :normalized-value]
+                   match-tokens
+                   (assoc constraints :active? true)
+                   read-context)))))
+
+(defn- source-graph-candidates-from-mocked-search
+  [xtdb query-tokens scope]
+  (:candidates
+   (#'context/source-graph-candidates
+    xtdb
+    query-tokens
+    (mocked-source-search-results xtdb query-tokens scope)
+    scope)))
+
 (deftest source-graph-candidates-surface-query-matched-source-rows
   (with-redefs [store/xtdb-handle? (constantly true)
                 store/rows-matching-any-token
@@ -3858,7 +3903,7 @@
                              constraints))
                       [])))
                 query/edges-touching-node-ids (fn [& _] [])]
-    (let [rows (#'context/source-graph-candidates
+    (let [rows (source-graph-candidates-from-mocked-search
                 :xtdb
                 (text/tokenize-all "Astro config bootstrap")
                 {:project-id "fixture"
@@ -3902,7 +3947,7 @@
                                     :repo])
                    (:file by-kind)))))))
 
-(deftest source-graph-candidates-surface-query-matched-file-facts
+(deftest source-graph-candidates-surface-ranked-file-fact-results
   (with-redefs [store/xtdb-handle? (constantly true)
                 store/rows-matching-any-token
                 (fn [_ table fields tokens constraints ctx]
@@ -3951,7 +3996,7 @@
                         :source-line 15
                         :active? true}])))
                 query/edges-touching-node-ids (fn [& _] [])]
-    (let [rows (#'context/source-graph-candidates
+    (let [rows (source-graph-candidates-from-mocked-search
                 :xtdb
                 (text/tokenize-all "reference package dependency dapper")
                 {:project-id "fixture"
@@ -4053,7 +4098,7 @@
                                constraints))
                         [])))
                   query/edges-touching-node-ids (fn [& _] [])]
-      (let [rows (#'context/source-graph-candidates
+      (let [rows (source-graph-candidates-from-mocked-search
                   :xtdb
                   (text/tokenize-all
                    "autoescape selection case insensitive flask python framework runtime file behavior")
@@ -4161,7 +4206,7 @@
                     :label "/docs/{version}/examples"
                     :source-line 1
                     :active? true}])]
-    (let [rows (#'context/source-graph-candidates
+    (let [rows (source-graph-candidates-from-mocked-search
                 :xtdb
                 (text/tokenize-all "theme docs route")
                 {:project-id "fixture"
@@ -4269,7 +4314,7 @@
                     :label "aws_iam_role.vpc_flow_log_cloudwatch"
                     :source-line 79
                     :active? true}])]
-    (let [rows (#'context/source-graph-candidates
+    (let [rows (source-graph-candidates-from-mocked-search
                 :xtdb
                 (text/tokenize-all "flow log resource")
                 {:project-id "fixture"
@@ -4472,7 +4517,7 @@
                                                     (doc-neighbor idx)]))
                                             (range doc-count))]
                       (keep nodes-by-id ids)))]
-      (let [rows (#'context/source-graph-candidates
+      (let [rows (source-graph-candidates-from-mocked-search
                   :xtdb
                   (text/tokenize-all "theme docs route")
                   {:project-id "fixture"
@@ -4537,7 +4582,7 @@
                     :ygg/file-facts
                     []))
                 query/edges-touching-node-ids (fn [& _] [])]
-    (let [rows (#'context/source-graph-candidates
+    (let [rows (source-graph-candidates-from-mocked-search
                 :xtdb
                 (text/tokenize-all "http adapter")
                 {:project-id "fixture"
@@ -4566,7 +4611,7 @@
                     :ygg/file-facts
                     []))
                 query/edges-touching-node-ids (fn [& _] [])]
-    (let [rows (#'context/source-graph-candidates
+    (let [rows (source-graph-candidates-from-mocked-search
                 :xtdb
                 (text/tokenize-all "http adapter")
                 {:project-id "fixture"
@@ -4580,22 +4625,16 @@
                 query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema
                                        :query-run-id "query:test"
-                                       :instrumentation {:search-docs 0
-                                                         :returned-count 0}
-                                       :results []})
-                store/rows-matching-any-token
-                (fn [_ table _ _ _ _]
-                  (case table
-                    :ygg/nodes []
-                    :ygg/files
-                    [{:xt/id "file:contract"
-                      :project-id "fixture"
-                      :repo-id "app"
-                      :path "src/contract.go"
-                      :kind :go
-                      :active? true}]
-                    :ygg/file-facts
-                    []))
+                                       :instrumentation {:search-docs 1
+                                                         :returned-count 1}
+                                       :results [{:target-id "file:contract"
+                                                  :target-kind :file
+                                                  :repo-id "app"
+                                                  :path "src/contract.go"
+                                                  :kind :go
+                                                  :label "src/contract.go"
+                                                  :score 0.4}]})
+                store/rows-matching-any-token (fn [& _] [])
                 query/edges-touching-node-ids (fn [& _] [])
                 graph/system-graph (fn [_ project-id _]
                                      {:basis {:project-id project-id}
@@ -4790,26 +4829,22 @@
                 query/search-report (fn [_ _ _]
                                       {:schema query/search-report-schema
                                        :query-run-id "query:test"
-                                       :instrumentation {:search-docs 1
-                                                         :returned-count 1}
+                                       :instrumentation {:search-docs 2
+                                                         :returned-count 2}
                                        :results [{:path "site/src/pages/docs/index.astro"
                                                   :score 0.4
                                                   :target-kind :node
                                                   :target-id "node:docs"
-                                                  :label "site.src.pages.docs.index"}]})
-                store/rows-matching-any-token
-                (fn [_ table _ _ _ _]
-                  (case table
-                    :ygg/nodes
-                    [{:xt/id "node:config"
-                      :project-id "fixture"
-                      :repo-id "app"
-                      :path "site/runtime/a.ts"
-                      :kind :web-framework-plugin
-                      :label "bootstrap setup"
-                      :source-line 12}]
-                    :ygg/files []
-                    :ygg/file-facts []))
+                                                  :label "site.src.pages.docs.index"}
+                                                 {:path "site/runtime/a.ts"
+                                                  :score 0.1
+                                                  :target-kind :node
+                                                  :target-id "node:config"
+                                                  :repo-id "app"
+                                                  :kind :web-framework-plugin
+                                                  :label "bootstrap setup"
+                                                  :source-line 12}]})
+                store/rows-matching-any-token (fn [& _] [])
                 query/edges-touching-node-ids (fn [& _] [])
                 graph/system-graph (fn [_ project-id _]
                                      {:basis {:project-id project-id}
@@ -4890,6 +4925,17 @@
                                     :repo
                                     :repoId])
                    (:sourceDeclarations packet))))
+      (is (= {:source-candidate-strategy :ranked-search-results
+              :source-candidate-search-results 2
+              :source-candidate-seeds 2
+              :source-candidate-node-seeds 2
+              :source-candidate-file-seeds 0}
+             (select-keys (get-in packet [:search :instrumentation])
+                          [:source-candidate-strategy
+                           :source-candidate-search-results
+                           :source-candidate-seeds
+                           :source-candidate-node-seeds
+                           :source-candidate-file-seeds])))
       (is (= ["evidence:source-runtime"]
              (mapv :id (get-in packet [:architecture :runtimeEvidence])))))))
 

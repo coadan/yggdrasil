@@ -96,9 +96,6 @@
 (def ^:private source-graph-file-candidate-limit
   80)
 
-(def ^:private source-graph-file-fact-candidate-limit
-  80)
-
 (def ^:private candidate-file-sibling-query-limit
   32)
 
@@ -1848,26 +1845,24 @@
                  (map-indexed #(assoc %2 :rank (inc %1)))
                  vec)))))))
 
-(def ^:private source-graph-node-token-fields
-  [:path :label :name :kind])
-
-(def ^:private source-graph-file-token-fields
-  [:path :kind])
-
-(def ^:private source-graph-file-fact-token-fields
-  [:path :file-kind :kind :label :normalized-value])
-
 (defn- source-graph-scope-constraints
   [project-id repo-id]
   (cond-> {:project-id project-id}
     repo-id (assoc :repo-id repo-id)))
 
-(defn- source-graph-file-fact-candidate-row
+(defn- search-result-source-row
   [row]
-  (assoc row
-         ::source-graph-target-kind :file-fact
-         ::source-graph-result-kind :file
-         ::source-graph-reason "query-matched file fact"))
+  (let [target-kind (:target-kind row)]
+    (when (#{:file :file-fact :node} target-kind)
+      (assoc row
+             :xt/id (:target-id row)
+             ::source-graph-target-kind target-kind
+             ::source-graph-result-kind (if (= :file-fact target-kind)
+                                          :file
+                                          target-kind)
+             ::source-graph-reason (if (= :file-fact target-kind)
+                                     "query-matched file fact"
+                                     "query-matched source row")))))
 
 (defn- source-graph-dirname
   [path]
@@ -2033,20 +2028,23 @@
              vec)))))
 
 (defn- source-graph-candidates
-  [xtdb query-tokens {:keys [project-id repo-id read-context]}]
+  [xtdb query-tokens search-results {:keys [project-id repo-id read-context]}]
   (if-not (store/xtdb-handle? xtdb)
-    []
-    (let [match-tokens (source-graph-query-tokens query-tokens)
-          constraints (source-graph-scope-constraints project-id repo-id)
+    {:strategy :ranked-search-results
+     :search-result-count (count search-results)
+     :seed-count 0
+     :node-seed-count 0
+     :file-seed-count 0
+     :candidates []}
+    (let [source-rows (keep search-result-source-row search-results)
+          node-rows (filter #(= :node (::source-graph-target-kind %))
+                            source-rows)
+          file-rows (filter #(#{:file :file-fact}
+                              (::source-graph-target-kind %))
+                            source-rows)
           matched-node-candidates (ranked-source-graph-candidates
                                    query-tokens
-                                   (store/rows-matching-any-token
-                                    xtdb
-                                    (:nodes store/tables)
-                                    source-graph-node-token-fields
-                                    match-tokens
-                                    constraints
-                                    read-context)
+                                   node-rows
                                    source-graph-neighbor-scan-limit)
           node-candidates (vec (take source-graph-candidate-limit
                                      matched-node-candidates))
@@ -2056,40 +2054,31 @@
           neighbor-candidates (source-graph-neighbor-candidates
                                xtdb
                                matched-node-candidates
-                               scope)]
-      (vec
-       (concat
-        node-candidates
-        neighbor-candidates
-        (source-graph-second-hop-neighbor-candidates
-         xtdb
-         query-tokens
-         matched-node-candidates
-         neighbor-candidates
-         scope)
-        (source-graph-local-importer-candidates xtdb
-                                                matched-node-candidates
-                                                scope)
-        (ranked-source-graph-candidates query-tokens
-                                        (store/rows-matching-any-token
-                                         xtdb
-                                         (:files store/tables)
-                                         source-graph-file-token-fields
-                                         match-tokens
-                                         (assoc constraints :active? true)
-                                         read-context)
-                                        source-graph-file-candidate-limit)
-        (ranked-source-graph-candidates
-         query-tokens
-         (map source-graph-file-fact-candidate-row
-              (store/rows-matching-any-token
-               xtdb
-               (:file-facts store/tables)
-               source-graph-file-fact-token-fields
-               match-tokens
-               (assoc constraints :active? true)
-               read-context))
-         source-graph-file-fact-candidate-limit))))))
+                               scope)
+          candidates (vec
+                      (concat
+                       node-candidates
+                       neighbor-candidates
+                       (source-graph-second-hop-neighbor-candidates
+                        xtdb
+                        query-tokens
+                        matched-node-candidates
+                        neighbor-candidates
+                        scope)
+                       (source-graph-local-importer-candidates
+                        xtdb
+                        matched-node-candidates
+                        scope)
+                       (ranked-source-graph-candidates
+                        query-tokens
+                        file-rows
+                        source-graph-file-candidate-limit)))]
+      {:strategy :ranked-search-results
+       :search-result-count (count search-results)
+       :seed-count (count source-rows)
+       :node-seed-count (count node-rows)
+       :file-seed-count (count file-rows)
+       :candidates candidates})))
 
 (defn- candidate-file-name
   [path]
@@ -4198,15 +4187,17 @@
                                                         :embedding-role embedding-role
                                                         :embedding-roles embedding-roles}))
         results (:results search-report)
-        [source-candidates timings] (timed-context-step
-                                     timings
-                                     :source-candidates
-                                     #(source-graph-candidates
-                                       xtdb
-                                       query-tokens
-                                       {:project-id project-id
-                                        :repo-id repo-id
-                                        :read-context read-context}))
+        [source-candidate-data timings] (timed-context-step
+                                         timings
+                                         :source-candidates
+                                         #(source-graph-candidates
+                                           xtdb
+                                           query-tokens
+                                           results
+                                           {:project-id project-id
+                                            :repo-id repo-id
+                                            :read-context read-context}))
+        source-candidates (:candidates source-candidate-data)
         candidate-inputs (ranked-candidate-inputs query-tokens
                                                   results
                                                   source-candidates)
@@ -4339,8 +4330,19 @@
                                          :retriever-requested
                                          :retriever-effective
                                          :instrumentation])
-                           (update :instrumentation assoc
-                                   :context-chunks (count chunks)))
+                           (update :instrumentation
+                                   merge
+                                   {:context-chunks (count chunks)
+                                    :source-candidate-strategy
+                                    (:strategy source-candidate-data)
+                                    :source-candidate-search-results
+                                    (:search-result-count source-candidate-data)
+                                    :source-candidate-seeds
+                                    (:seed-count source-candidate-data)
+                                    :source-candidate-node-seeds
+                                    (:node-seed-count source-candidate-data)
+                                    :source-candidate-file-seeds
+                                    (:file-seed-count source-candidate-data)}))
         [evidence timings] (timed-context-step
                             timings
                             :evidence
