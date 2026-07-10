@@ -734,6 +734,37 @@
   (persist-project! xtdb project)
   (system/infer-project! xtdb project))
 
+(defn- repo-index-change-count
+  [repo]
+  (when-let [stats (:stats repo)]
+    (+ (long (or (:files-indexed stats) 0))
+       (long (or (:files-deleted stats) 0)))))
+
+(defn index-summary-unchanged?
+  "Return true when every indexed repo reports no changed or deleted files."
+  [index-summary]
+  (let [counts (mapv repo-index-change-count (:repos index-summary))]
+    (and (seq counts)
+         (every? some? counts)
+         (every? zero? counts))))
+
+(defn- existing-system-graph?
+  [xtdb project-id]
+  (or (not (store/xtdb-handle? xtdb))
+      (pos? (store/active-row-count xtdb
+                                    (:system-nodes store/tables)
+                                    {:project-id project-id}))))
+
+(defn infer-project-after-index!
+  "Infer the system graph unless an unchanged index already has derived rows."
+  [xtdb project index-summary]
+  (if (and (index-summary-unchanged? index-summary)
+           (existing-system-graph? xtdb (:id project)))
+    {:project-id (:id project)
+     :status :skipped
+     :reason "no-index-changes"}
+    (infer-project! xtdb project)))
+
 (defn maintain-project
   "Return read-only maintenance findings for project."
   [xtdb project opts]

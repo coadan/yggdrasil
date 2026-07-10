@@ -471,25 +471,6 @@
   (and (seq (:enqueued result))
        (get-in project [:maintenance :worker])))
 
-(defn- repo-index-change-count
-  [repo]
-  (when-let [stats (:stats repo)]
-    (+ (long (or (:files-indexed stats) 0))
-       (long (or (:files-deleted stats) 0)))))
-
-(defn- index-summary-unchanged?
-  [index-summary]
-  (let [counts (mapv repo-index-change-count (:repos index-summary))]
-    (and (seq counts)
-         (every? some? counts)
-         (every? zero? counts))))
-
-(defn- skipped-system-summary
-  [project-id]
-  {:project-id project-id
-   :status :skipped
-   :reason "no-index-changes"})
-
 (defn run-sync!
   "Run a regular project sync inside the server JVM and return the result map.
 
@@ -515,9 +496,9 @@
          :repo-id repo-id
          :index-summary index-summary})
       (let [index-summary (run-index! xtdb)
-            system-summary (if (index-summary-unchanged? index-summary)
-                             (skipped-system-summary (:id project))
-                             (project/infer-project! xtdb project))
+            system-summary (project/infer-project-after-index! xtdb
+                                                               project
+                                                               index-summary)
             report (when check?
                      (cli-sync/maintenance-report
                       xtdb

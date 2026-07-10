@@ -709,7 +709,9 @@
                                   case
                                   opts
                                   :infer-project
-                                  #(project/infer-project! xtdb bench-project)
+                                  #(project/infer-project-after-index! xtdb
+                                                                       bench-project
+                                                                       index-summary)
                                   #(select-keys % [:systems :candidates :edges]))
                   graph-expectations (benchmark-expectations/evaluate-graph-expectations xtdb prepared)
                   packet (benchmark-progress/progress-stage!

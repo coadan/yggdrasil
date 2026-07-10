@@ -307,7 +307,9 @@
                               #(project/index-project! xtdb
                                                        bench-project
                                                        (benchmark-index-options opts)))
-              system-summary (project/infer-project! xtdb bench-project)
+              system-summary (project/infer-project-after-index! xtdb
+                                                                 bench-project
+                                                                 index-summary)
               graph-expectations (evaluate-graph-expectations xtdb prepared)
               ranked (run-query! xtdb prepared opts)
               result-base
@@ -1411,7 +1413,9 @@
                                 case
                                 opts
                                 :infer-project
-                                #(project/infer-project! xtdb bench-project)
+                                #(project/infer-project-after-index! xtdb
+                                                                     bench-project
+                                                                     index-summary)
                                 #(select-keys % [:systems :candidates :edges]))
                 summary {:indexSummary index-summary
                          :systemSummary system-summary

@@ -177,6 +177,58 @@
    :active? true
    :run-id "system-run:test"})
 
+(def unchanged-index-summary
+  {:repos [{:repo-id "app"
+            :stats {:files-indexed 0
+                    :files-deleted 0}}]})
+
+(deftest infer-project-after-index-reuses-existing-system-graph
+  (store/with-node (temp-dir "ygg-system-reuse-xtdb")
+    (fn [xtdb]
+      (store/execute-tx!
+       xtdb
+       [(store/put-op (:system-nodes store/tables)
+                      (test-system-node "system:fixture:app" "app" :candidate-system))])
+      (with-redefs [project/infer-project!
+                    (fn [& _]
+                      (throw (ex-info "unchanged system graph should be reused" {})))]
+        (is (= {:project-id "noise"
+                :status :skipped
+                :reason "no-index-changes"}
+               (project/infer-project-after-index!
+                xtdb
+                {:id "noise"}
+                unchanged-index-summary)))))))
+
+(deftest infer-project-after-index-rebuilds-missing-or-changed-system-graph
+  (store/with-node (temp-dir "ygg-system-rebuild-xtdb")
+    (fn [xtdb]
+      (let [calls (atom [])
+            result {:project-id "fixture" :status :completed}]
+        (with-redefs [project/infer-project!
+                      (fn [actual-xtdb actual-project]
+                        (swap! calls conj [actual-xtdb actual-project])
+                        result)]
+          (is (= result
+                 (project/infer-project-after-index!
+                  xtdb
+                  {:id "fixture"}
+                  unchanged-index-summary)))
+          (store/execute-tx!
+           xtdb
+           [(store/put-op (:system-nodes store/tables)
+                          (test-system-node "system:fixture:app"
+                                            "app"
+                                            :candidate-system))])
+          (is (= result
+                 (project/infer-project-after-index!
+                  xtdb
+                  {:id "fixture"}
+                  {:repos [{:repo-id "app"
+                            :stats {:files-indexed 1
+                                    :files-deleted 0}}]})))
+          (is (= 2 (count @calls))))))))
+
 (deftest path-system-returns-neutral-structural-candidates
   (is (= {:system-key "path/bases/flows-api"
           :label "bases/flows-api"

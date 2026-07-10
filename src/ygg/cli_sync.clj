@@ -472,7 +472,9 @@
       (store/with-node (store/storage-path (:id project))
         (fn [xtdb]
           (let [index-summary (sync-index-project! xtdb project args)
-                system-summary (project/infer-project! xtdb project)
+                system-summary (project/infer-project-after-index! xtdb
+                                                                   project
+                                                                   index-summary)
                 report (when check?
                          (maintenance-report xtdb project args))
                 enqueued (when (and report (enqueue-output? args))
