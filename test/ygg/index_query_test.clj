@@ -597,7 +597,7 @@
             (is (= :ok (:grep-status instrumentation)))
             (is (= 1 (:grep-repos instrumentation)))
             (is (= 3 (:grep-patterns instrumentation)))
-            (is (= 1 (:grep-searches instrumentation)))
+            (is (= 3 (:grep-searches instrumentation)))
             (is (= 3 (:grep-raw-matches instrumentation)))
             (is (= 1 (:grep-indexed-paths instrumentation)))
             (is (= 1 (:grep-candidates instrumentation)))))))))

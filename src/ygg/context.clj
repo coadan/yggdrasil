@@ -202,7 +202,7 @@
 (def ^:private candidate-input-retrieval-prefix-limit
   12)
 
-(def ^:private candidate-input-source-declaration-prefix-limit
+(def ^:private candidate-input-query-source-prefix-limit
   4)
 
 (def ^:private candidate-input-supported-source-prefix-limit
@@ -1608,7 +1608,6 @@
          (reserve-query-matched-path-self-identity query-token-set)
          (take limit)
          (map-indexed #(assoc %2 :rank (inc %1)))
-         (map #(dissoc % ::source-graph-raw-score))
          vec)))
 
 (defn- source-graph-neighbor-id
@@ -2045,10 +2044,32 @@
              (map-indexed #(assoc %2 :rank (inc %1)))
              vec)))))
 
+(defn expanded-source-graph-candidates
+  "Return opt-in multi-hop source candidates for graph retrieval ablations."
+  [xtdb query-tokens seed-candidates scope]
+  (let [query-tokens (source-graph-query-tokens query-tokens)
+        neighbor-candidates (source-graph-neighbor-candidates
+                             xtdb
+                             seed-candidates
+                             scope)]
+    (vec
+     (concat
+      neighbor-candidates
+      (source-graph-second-hop-neighbor-candidates
+       xtdb
+       query-tokens
+       seed-candidates
+       neighbor-candidates
+       scope)
+      (source-graph-local-importer-candidates xtdb
+                                              seed-candidates
+                                              scope)))))
+
 (defn- source-graph-candidates
-  [xtdb query-tokens search-results {:keys [project-id repo-id read-context]}]
+  [xtdb query-tokens search-results _scope]
   (if-not (store/xtdb-handle? xtdb)
     {:strategy :ranked-search-results
+     :graph-expansion :search-report
      :search-result-count (count search-results)
      :seed-count 0
      :node-seed-count 0
@@ -2066,32 +2087,15 @@
                                    source-graph-neighbor-scan-limit)
           node-candidates (vec (take source-graph-candidate-limit
                                      matched-node-candidates))
-          scope {:project-id project-id
-                 :repo-id repo-id
-                 :read-context read-context}
-          neighbor-candidates (source-graph-neighbor-candidates
-                               xtdb
-                               matched-node-candidates
-                               scope)
           candidates (vec
                       (concat
                        node-candidates
-                       neighbor-candidates
-                       (source-graph-second-hop-neighbor-candidates
-                        xtdb
-                        query-tokens
-                        matched-node-candidates
-                        neighbor-candidates
-                        scope)
-                       (source-graph-local-importer-candidates
-                        xtdb
-                        matched-node-candidates
-                        scope)
                        (ranked-source-graph-candidates
                         query-tokens
                         file-rows
                         source-graph-file-candidate-limit)))]
       {:strategy :ranked-search-results
+       :graph-expansion :search-report
        :search-result-count (count search-results)
        :seed-count (count source-rows)
        :node-seed-count (count node-rows)
@@ -2482,7 +2486,9 @@
 
 (defn- candidate-input-score
   [row]
-  (double (or (:score row) 0.0)))
+  (double (or (::source-graph-raw-score row)
+              (:score row)
+              0.0)))
 
 (defn- candidate-input-path-key
   [row]
@@ -2515,28 +2521,30 @@
          (not (contains? source-graph-non-declaration-kinds kind))
          (not= label path))))
 
-(defn- source-graph-structural-declaration-row?
-  [row]
-  (when (source-graph-declaration-row? row)
-    (let [kind-name (some-> (:kind row) name)]
-      (boolean
-       (and kind-name
-            (or (str/ends-with? kind-name "-import")
-                (str/ends-with? kind-name "-route")
-                (str/ends-with? kind-name "-plugin")))))))
+(defn- query-source-prefix-sort-key
+  [query-tokens row]
+  [(- (source-graph-row-query-token-count query-tokens row))
+   (- (candidate-input-score row))
+   (or (:repo-id row) (:repo row) "")
+   (or (:path row) "")
+   (or (:label row) "")])
 
-(defn- source-declaration-prefix-candidate-inputs
-  [source-candidates]
-  (loop [remaining (seq source-candidates)
+(defn- query-source-prefix-candidate-inputs
+  [query-tokens source-candidates]
+  (loop [remaining (seq (sort-by #(query-source-prefix-sort-key
+                                   query-tokens
+                                   %)
+                                 source-candidates))
          seen #{}
          selected []]
     (if (or (nil? remaining)
-            (<= candidate-input-source-declaration-prefix-limit
+            (<= candidate-input-query-source-prefix-limit
                 (count selected)))
       selected
       (let [row (first remaining)
             k (candidate-input-path-key row)]
-        (if (and (source-graph-structural-declaration-row? row)
+        (if (and (source-graph-declaration-row? row)
+                 (pos? (source-graph-row-query-token-count query-tokens row))
                  (not (contains? seen k)))
           (recur (next remaining) (conj seen k) (conj selected row))
           (recur (next remaining) seen selected))))))
@@ -2633,7 +2641,8 @@
                                                (+ (count results) idx)))
                                       source-candidates)
            prefix (retrieval-prefix-candidate-inputs indexed-results)
-           source-prefix (source-declaration-prefix-candidate-inputs
+           source-prefix (query-source-prefix-candidate-inputs
+                          query-tokens
                           indexed-source-candidates)
            supported-source-prefix
            (supported-source-graph-prefix-candidate-inputs
@@ -4366,6 +4375,8 @@
                                      :source-coverage]
                                     :source-candidate-strategy
                                     (:strategy source-candidate-data)
+                                    :source-candidate-graph-expansion
+                                    (:graph-expansion source-candidate-data)
                                     :source-candidate-search-results
                                     (:search-result-count source-candidate-data)
                                     :source-candidate-seeds

@@ -3839,12 +3839,41 @@
 
 (defn- source-graph-candidates-from-mocked-search
   [xtdb query-tokens scope]
-  (:candidates
-   (#'context/source-graph-candidates
-    xtdb
-    query-tokens
-    (mocked-source-search-results xtdb query-tokens scope)
-    scope)))
+  (let [candidate-data (#'context/source-graph-candidates
+                        xtdb
+                        query-tokens
+                        (mocked-source-search-results xtdb query-tokens scope)
+                        scope)
+        candidates (:candidates candidate-data)]
+    (concat candidates
+            (context/expanded-source-graph-candidates xtdb
+                                                      query-tokens
+                                                      candidates
+                                                      scope))))
+
+(deftest query-source-prefix-prefers-mechanical-query-evidence
+  (let [rows [{:path "docs/extensions.rst"
+               :score 0.6
+               ::context/source-graph-raw-score 8.0
+               :target-kind :node
+               :result-kind :node
+               :kind :docs-route
+               :label "extensions"
+               :source-line 1}
+              {:path "src/flask/sansio/app.py"
+               :score 0.6
+               ::context/source-graph-raw-score 10.0
+               :target-kind :node
+               :result-kind :node
+               :kind :method
+               :label "flask.sansio.app/App.select_jinja_autoescape"
+               :source-line 533}]
+        prefix (#'context/query-source-prefix-candidate-inputs
+                (text/tokenize-all
+                 "Flask autoescape selection runtime file behavior")
+                rows)]
+    (is (= ["src/flask/sansio/app.py"]
+           (mapv :path prefix)))))
 
 (deftest source-graph-candidates-surface-query-matched-source-rows
   (with-redefs [store/xtdb-handle? (constantly true)
@@ -4740,10 +4769,11 @@
               "tests/third.js"]
              (mapv :path ranked))))))
 
-(deftest candidate-input-ranking-reserves-source-graph-declaration-paths
+(deftest candidate-input-ranking-reserves-query-matched-source-paths
   (with-redefs [context/candidate-input-retrieval-prefix-limit 2
-                context/candidate-input-source-declaration-prefix-limit 3]
+                context/candidate-input-query-source-prefix-limit 3]
     (let [ranked (#'context/ranked-candidate-inputs
+                  (text/tokenize-all "themes layouts partials astro")
                   [{:path "site/src/components/home/Themes.astro"
                     :score 3.0
                     :label "site.src.components.home.Themes"}
@@ -4771,13 +4801,12 @@
                     :kind :web-framework-import
                     :label "@layouts/partials/BsThemes.astro"
                     :source-line 4}])]
-      (is (= ["site/src/pages/index.astro"
-              "site/src/pages/docs/[version]/examples/index.astro"
+      (is (= ["site/src/pages/docs/[version]/examples/index.astro"
               "site/src/components/home/Themes.astro"
-              "site/src/components/header/Navigation.astro"]
+              "site/src/pages/index.astro"]
              (->> ranked
                   (map :path)
-                  (take 4)
+                  (take 3)
                   vec))))))
 
 (deftest candidate-input-ranking-does-not-bury-source-graph-after-long-prefix
@@ -4926,12 +4955,14 @@
                                     :repoId])
                    (:sourceDeclarations packet))))
       (is (= {:source-candidate-strategy :ranked-search-results
+              :source-candidate-graph-expansion :search-report
               :source-candidate-search-results 2
               :source-candidate-seeds 2
               :source-candidate-node-seeds 2
               :source-candidate-file-seeds 0}
              (select-keys (get-in packet [:search :instrumentation])
                           [:source-candidate-strategy
+                           :source-candidate-graph-expansion
                            :source-candidate-search-results
                            :source-candidate-seeds
                            :source-candidate-node-seeds
