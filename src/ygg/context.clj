@@ -3599,11 +3599,71 @@
      (memory-counts xtdb scope opts)
      (overlay-counts overlay))))
 
-(defn- capability-counts
+(def ^:private max-capability-count-cache-entries
+  32)
+
+(def ^:private capability-temporal-keys
+  [:valid-at :known-at :snapshot-token :current-time])
+
+(defn- capability-count-cache-key
+  [overlay {:keys [project-id repo-id read-context]}]
+  (when-not (some #(some? (get read-context %)) capability-temporal-keys)
+    [:capability-counts
+     project-id
+     repo-id
+     (hash (dissoc overlay :updated-at-ms))]))
+
+(defn- evict-capability-count-cache-entry
+  [entries]
+  (if (<= (count entries) max-capability-count-cache-entries)
+    entries
+    (dissoc entries
+            (key (apply min-key
+                        (fn [[_ {:keys [last-used]}]] last-used)
+                        entries)))))
+
+(defn- uncached-capability-counts
   [xtdb overlay opts]
   (if (store/xtdb-handle? xtdb)
     (xtdb-capability-counts xtdb overlay opts)
     (fallback-capability-counts xtdb overlay opts)))
+
+(defn- capability-count-data
+  [xtdb overlay opts]
+  (let [cache (:read-model-cache xtdb)
+        cache-key (capability-count-cache-key overlay opts)]
+    (if (and cache cache-key)
+      (locking cache
+        (let [{:keys [generation clock entries]} @cache
+              next-clock (inc (long clock))]
+          (if-let [entry (get entries cache-key)]
+            (do
+              (swap! cache assoc
+                     :clock next-clock
+                     :entries (assoc entries cache-key (assoc entry :last-used next-clock)))
+              {:counts (:counts entry)
+               :cache-status :hit
+               :cache-generation generation})
+            (let [counts (uncached-capability-counts xtdb overlay opts)
+                  loaded-generation (:generation @cache)]
+              (when (= generation loaded-generation)
+                (swap! cache
+                       (fn [state]
+                         (if (= generation (:generation state))
+                           (assoc state
+                                  :clock next-clock
+                                  :entries (evict-capability-count-cache-entry
+                                            (assoc (:entries state)
+                                                   cache-key
+                                                   {:counts counts
+                                                    :last-used next-clock})))
+                           state))))
+              {:counts counts
+               :cache-status :miss
+               :cache-generation loaded-generation}))))
+      {:counts (uncached-capability-counts xtdb overlay opts)
+       :cache-status :bypass
+       :cache-generation nil})))
 
 (defn- validation-history-count
   [counts]
@@ -4138,7 +4198,8 @@
 
 (defn- query-evidence
   [xtdb overlay opts match-counts]
-  (let [counts (capability-counts xtdb overlay opts)
+  (let [capability-data (capability-count-data xtdb overlay opts)
+        counts (:counts capability-data)
         retrieval (retrieval-summary opts)
         missing (missing-planes counts)
         weak (weak-planes counts match-counts)
@@ -4164,6 +4225,8 @@
              :unsupported unsupported-planes
              :planes planes
              :counts counts
+             :countsCache (:cache-status capability-data)
+             :countsCacheGeneration (:cache-generation capability-data)
              :retrieval retrieval
              :warnings (evidence-warnings counts retrieval weak freshness degradation)
              :nextActions actions}

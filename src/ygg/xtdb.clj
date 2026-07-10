@@ -94,7 +94,10 @@
     :path path
     :search-corpus-cache (atom {:generation 0
                                 :clock 0
-                                :entries {}})}))
+                                :entries {}})
+    :read-model-cache (atom {:generation 0
+                             :clock 0
+                             :entries {}})}))
 
 (defn stop-node!
   "Close a node handle."
@@ -1430,6 +1433,19 @@
               :clock (long (or clock 0))
               :entries {}}))))
 
+(defn- invalidate-read-model-cache!
+  [xtdb]
+  (when-let [cache (:read-model-cache xtdb)]
+    (swap! cache
+           (fn [{:keys [generation clock]}]
+             {:generation (inc (long (or generation 0)))
+              :clock (long (or clock 0))
+              :entries {}}))))
+
+(defn- query-run-telemetry-tx?
+  [ops]
+  (every? #(= (:query-runs tables) (tx-op-table %)) ops))
+
 (defn execute-tx!
   "Execute XTDB transaction ops and return the XTDB transaction key."
   [xtdb ops]
@@ -1437,6 +1453,8 @@
     (let [tx-key (xt/execute-tx (:node xtdb) (vec ops))]
       (when (search-docs-tx? ops)
         (invalidate-search-corpus-cache! xtdb))
+      (when-not (query-run-telemetry-tx? ops)
+        (invalidate-read-model-cache! xtdb))
       tx-key)))
 
 (defn- compact-doc-ops

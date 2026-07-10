@@ -13,6 +13,13 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is]]))
 
+(defn- temp-dir
+  [prefix]
+  (let [path (java.nio.file.Files/createTempDirectory
+              prefix
+              (make-array java.nio.file.attribute.FileAttribute 0))]
+    (.getPath (.toFile path))))
+
 (defn- empty-dependency-report
   []
   {:schema "ygg.dependency.report/v1"
@@ -1551,6 +1558,39 @@
                  :sourceLine 12
                  :endLine 18}]
                (:candidateFiles packet)))))))
+
+(deftest capability-count-cache-reuses-current-reads-and-invalidates-on-graph-write
+  (store/with-node (temp-dir "ygg-context-capability-cache-xtdb")
+    (fn [xtdb]
+      (let [calls (atom 0)
+            opts {:project-id "fixture"
+                  :repo-id "app"}]
+        (with-redefs [context/xtdb-capability-counts
+                      (fn [& _]
+                        {:files (swap! calls inc)})]
+          (let [first-data (#'context/capability-count-data xtdb nil opts)
+                second-data (#'context/capability-count-data xtdb nil opts)]
+            (is (= :miss (:cache-status first-data)))
+            (is (= :hit (:cache-status second-data)))
+            (is (= 1 @calls)))
+          (store/commit-query-run! xtdb {:xt/id "query:test"})
+          (is (= :hit
+                 (:cache-status (#'context/capability-count-data xtdb nil opts))))
+          (is (= 1 @calls))
+          (store/execute-tx!
+           xtdb
+           [(store/put-op (store/table-ref :activity-items)
+                          {:xt/id "activity:test"})])
+          (is (= :miss
+                 (:cache-status (#'context/capability-count-data xtdb nil opts))))
+          (is (= 2 @calls))
+          (is (= :bypass
+                 (:cache-status
+                  (#'context/capability-count-data
+                   xtdb
+                   nil
+                   (assoc opts :read-context {:known-at "2025-01-01T00:00:00Z"})))))
+          (is (= 3 @calls)))))))
 
 (deftest context-packet-includes-architecture-section-for-selected-systems
   (with-redefs [query/search-report (fn [_ query-text opts]
