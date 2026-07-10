@@ -164,6 +164,23 @@
       (when-let [frame (sync-progress-frame event)]
         ((:emit-frame! ctx) frame)))))
 
+(defn- query-progress-frame
+  [operation event]
+  (when-let [message (progress/query-progress-message event)]
+    {:schema server-frame-schema
+     :type "progress"
+     :operation operation
+     :message message
+     :event event}))
+
+(defn- query-server-progress-fn
+  [ctx args operation]
+  (when (and (:emit-frame! ctx)
+             (not (some #{"--no-progress"} args)))
+    (fn [event]
+      (when-let [frame (query-progress-frame operation event)]
+        ((:emit-frame! ctx) frame)))))
+
 (defn- error-response
   [^Exception e]
   (let [data (ex-data e)]
@@ -1251,7 +1268,11 @@
   (let [args (absolutize-path-options (:cwd request) (vec (:args request)))
         cli-args (into [command] args)
         active-indexing (active-indexing-operation-for-query ctx cli-args)
+        progress-fn (query-server-progress-fn ctx args command)
         query-deps (cond-> (cli/query-deps)
+                     progress-fn
+                     (assoc :progress-fn progress-fn)
+
                      active-indexing
                      (assoc :active-indexing active-indexing)
 

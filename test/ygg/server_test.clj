@@ -1330,6 +1330,32 @@
       (finally
         (.unlock lock)))))
 
+(deftest query-request-emits-server-progress-frames-when-streaming
+  (let [frames (atom [])]
+    (with-redefs [cli/query-deps (constantly {})
+                  cli-query/query-with-node!
+                  (fn [_ _]
+                    ((:progress-fn cli-query/*deps*)
+                     {:phase :search-corpus-load-start
+                      :project-id "demo"
+                      :cache-status :miss}))]
+      (let [response (server/handle-request {:xtdb :xtdb
+                                             :token "token"
+                                             :running (atom true)
+                                             :emit-frame! #(swap! frames conj %)}
+                                            {:op "query"
+                                             :token "token"
+                                             :args ["needle" "--project" "demo"]})]
+        (is (true? (:ok response)))
+        (is (= [{:schema server/server-frame-schema
+                 :type "progress"
+                 :operation "query"
+                 :message "demo loading search corpus (cold cache)"
+                 :event {:phase :search-corpus-load-start
+                         :project-id "demo"
+                         :cache-status :miss}}]
+               @frames))))))
+
 (deftest locked-command-request-returns-busy-without-waiting
   (let [lock (java.util.concurrent.locks.ReentrantLock.)
         locked (promise)

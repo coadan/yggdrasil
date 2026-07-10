@@ -4178,7 +4178,7 @@
                            output proof-commands? query-input memory-owner
                            fusion-strategy sqlite-fts? diversity-rerank-limit
                            fts-candidate-limit fts-weight embedding-role embedding-roles
-                           exclude-private-memory? active-indexing]
+                           exclude-private-memory? active-indexing progress-fn]
                     :or {budget default-budget
                          entity-limit default-entity-limit
                          edge-limit default-edge-limit
@@ -4193,6 +4193,10 @@
   (when (str/blank? (str project-id))
     (throw (ex-info "Context query requires --project." {})))
   (let [context-started (now-ns)
+        _ (when progress-fn
+            (progress-fn {:phase :context-start
+                          :project-id project-id
+                          :repo-id repo-id}))
         overlay (resolve-correction-overlay xtdb nil correction-overlay project-id)
         query-tokens (text/tokenize query-text)
         graph-task (timed-context-task
@@ -4231,7 +4235,8 @@
                                                         :fts-candidate-limit fts-candidate-limit
                                                         :fts-weight fts-weight
                                                         :embedding-role embedding-role
-                                                        :embedding-roles embedding-roles}))
+                                                        :embedding-roles embedding-roles
+                                                        :progress-fn progress-fn}))
         results (:results search-report)
         [source-candidate-data timings] (timed-context-step
                                          timings
@@ -4284,6 +4289,12 @@
                                                  graph-task)
         entities (select-entities query-tokens results graph-data entity-limit)
         edges (select-edges query-tokens entities graph-data edge-limit)
+        _ (when progress-fn
+            (progress-fn {:phase :context-graph-complete
+                          :project-id project-id
+                          :repo-id repo-id
+                          :entity-count (count entities)
+                          :edge-count (count edges)}))
         accepted-systems (selected-accepted-systems overlay entities results)
         targets (set/union (selected-targets entities edges)
                            (system-targets accepted-systems))
@@ -4501,11 +4512,17 @@
                           timings)
         packet (if (= :compact output-mode)
                  packet
-                 (fit-budget packet docs budget))]
-    (packet-output packet
-                   query-text
-                   output-mode
-                   proof-commands?)))
+                 (fit-budget packet docs budget))
+        output-packet (packet-output packet
+                                     query-text
+                                     output-mode
+                                     proof-commands?)]
+    (when progress-fn
+      (progress-fn {:phase :context-complete
+                    :project-id project-id
+                    :repo-id repo-id
+                    :elapsed-ms (:total timings)}))
+    output-packet))
 
 (defn doc-candidates
   "Return compact doc candidates for a graph target."

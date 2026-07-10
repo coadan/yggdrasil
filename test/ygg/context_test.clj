@@ -1369,7 +1369,8 @@
                 (:nextActions evidence))))))
 
 (deftest context-packet-includes-search-instrumentation
-  (let [search-opts (atom nil)]
+  (let [search-opts (atom nil)
+        progress-events (atom [])]
     (with-redefs [query/search-report (fn [_ query-text opts]
                                         (reset! search-opts opts)
                                         {:schema query/search-report-schema
@@ -1443,6 +1444,7 @@
                                             :fts-candidate-limit 80
                                             :fts-weight 0.1
                                             :embedding-role :content
+                                            :progress-fn #(swap! progress-events conj %)
                                             :plugins {:packages [plugin-package-fixture]}
                                             :freshness {:status :current
                                                         :counts {:indexed 1
@@ -1461,7 +1463,9 @@
                 :fts-weight 0.1
                 :embedding-role :content
                 :embedding-roles nil}
-               (dissoc @search-opts :embedding-client)))
+               (dissoc @search-opts :embedding-client :progress-fn)))
+        (is (= [:context-start :context-graph-complete :context-complete]
+               (mapv :phase @progress-events)))
         (is (= :lexical (get-in packet [:search :retriever-effective])))
         (is (= 1 (get-in packet [:search :instrumentation :search-docs])))
         (is (= 0 (get-in packet [:search :instrumentation :context-chunks])))

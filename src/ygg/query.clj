@@ -581,8 +581,13 @@
                         (fn [[_ {:keys [last-used]}]] last-used)
                         entries)))))
 
+(defn- emit-progress!
+  [progress-fn event]
+  (when progress-fn
+    (progress-fn event)))
+
 (defn- cached-search-docs
-  [xtdb scope]
+  [xtdb scope progress-fn]
   (let [cache (:search-corpus-cache xtdb)
         cache-key (current-search-corpus-cache-key scope)]
     (if (and cache cache-key)
@@ -597,8 +602,19 @@
               {:docs (:docs entry)
                :cache-status :hit
                :cache-generation generation})
-            (let [docs (vec (all-search-docs xtdb scope))
+            (let [load-started (now-ns)
+                  _ (emit-progress! progress-fn
+                                    (merge (select-keys scope [:project-id :repo-id])
+                                           {:phase :search-corpus-load-start
+                                            :cache-status :miss}))
+                  docs (vec (all-search-docs xtdb scope))
                   loaded-generation (:generation @cache)]
+              (emit-progress! progress-fn
+                              (merge (select-keys scope [:project-id :repo-id])
+                                     {:phase :search-corpus-load-complete
+                                      :cache-status :miss
+                                      :search-docs (count docs)
+                                      :elapsed-ms (elapsed-ms load-started)}))
               (when (= generation loaded-generation)
                 (swap! cache
                        (fn [state]
@@ -614,9 +630,21 @@
               {:docs docs
                :cache-status :miss
                :cache-generation loaded-generation}))))
-      {:docs (vec (all-search-docs xtdb scope))
-       :cache-status :bypass
-       :cache-generation nil})))
+      (let [load-started (now-ns)
+            _ (emit-progress! progress-fn
+                              (merge (select-keys scope [:project-id :repo-id])
+                                     {:phase :search-corpus-load-start
+                                      :cache-status :bypass}))
+            docs (vec (all-search-docs xtdb scope))]
+        (emit-progress! progress-fn
+                        (merge (select-keys scope [:project-id :repo-id])
+                               {:phase :search-corpus-load-complete
+                                :cache-status :bypass
+                                :search-docs (count docs)
+                                :elapsed-ms (elapsed-ms load-started)}))
+        {:docs docs
+         :cache-status :bypass
+         :cache-generation nil}))))
 
 (defn all-embeddings
   ([xtdb] (all-embeddings xtdb {}))
@@ -2476,7 +2504,10 @@
         scope {:project-id project-id
                :repo-id repo-id
                :read-context (read-context opts)}
-        [corpus-data timings] (timed {} :load-search-docs-ms #(cached-search-docs xtdb scope))
+        progress-fn (:progress-fn opts)
+        [corpus-data timings] (timed {}
+                                     :load-search-docs-ms
+                                     #(cached-search-docs xtdb scope progress-fn))
         base-docs (:docs corpus-data)
         [query-tokens timings] (timed timings :tokenize-ms #(text/tokenize query-text))
         [initial-grep-data timings] (timed timings
@@ -2517,7 +2548,9 @@
                                          (:file-kinds opts)
                                          (assoc :file-kinds (:file-kinds opts))
                                          (:fts-candidate-limit opts)
-                                         (assoc :fts-candidate-limit (:fts-candidate-limit opts))))]
+                                         (assoc :fts-candidate-limit (:fts-candidate-limit opts))
+                                         progress-fn
+                                         (assoc :progress-fn progress-fn)))]
                              [data (merge timings (:timings data))])
         fts (:scores fts-data)
         grep-data (rescore-grep-data initial-grep-data docs)
@@ -2534,6 +2567,10 @@
         auto-short-circuit? (boolean auto-short-circuit-reason)
         semantic-retriever? (and (#{:hybrid :semantic} initial-retriever)
                                  (not auto-short-circuit?))
+        _ (when semantic-retriever?
+            (emit-progress! progress-fn
+                            (merge (select-keys scope [:project-id :repo-id])
+                                   {:phase :semantic-search-start})))
         [semantic-data timings] (if semantic-retriever?
                                   (if embedding-client
                                     (let [data (vector-store/semantic-score-data
@@ -2723,6 +2760,12 @@
                 :repo-id repo-id
                 :instrumentation instrumentation
                 :results ranked}]
+    (emit-progress! progress-fn
+                    (merge (select-keys scope [:project-id :repo-id])
+                           {:phase :search-complete
+                            :cache-status (:cache-status corpus-data)
+                            :result-count (count ranked)
+                            :elapsed-ms (:search-total-ms instrumentation)}))
     (store/commit-query-run! xtdb query-row)
     report))
 

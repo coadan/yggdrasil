@@ -84,3 +84,51 @@
   [event]
   (when-let [message (sync-progress-message event)]
     (str "- " message)))
+
+(defn- query-scope-text
+  [{:keys [project-id repo-id]}]
+  (str (or project-id "project")
+       (when repo-id
+         (str "/" repo-id))))
+
+(defn query-progress-message
+  "Render a query or context progress event as a transport-neutral message."
+  [{:keys [phase cache-status search-docs elapsed-ms result-count entity-count] :as event}]
+  (let [scope (query-scope-text event)]
+    (case phase
+      :context-start
+      (str scope " preparing context")
+
+      :search-corpus-load-start
+      (str scope " loading "
+           (if (= :bypass cache-status) "temporal " "")
+           "search corpus"
+           (when (= :miss cache-status) " (cold cache)"))
+
+      :search-corpus-load-complete
+      (str scope " loaded " (count-text search-docs "search doc" "search docs")
+           (when elapsed-ms (str " in " elapsed-ms "ms")))
+
+      :fts-index-start
+      (str scope " checking SQLite search index")
+
+      :semantic-search-start
+      (str scope " running semantic retrieval")
+
+      :search-complete
+      (str scope " search complete " (count-text result-count "result" "results")
+           (when elapsed-ms (str " in " elapsed-ms "ms")))
+
+      :context-graph-complete
+      (str scope " graph context ready " (count-text entity-count "entity" "entities"))
+
+      :context-complete
+      (str scope " context ready"
+           (when elapsed-ms (str " in " elapsed-ms "ms")))
+
+      nil)))
+
+(defn query-progress-line
+  [event]
+  (when-let [message (query-progress-message event)]
+    (str "- " message)))

@@ -366,12 +366,17 @@ def progress_output(args):
     return "--json" not in args and "--no-progress" not in args
 
 
+def query_progress_output(args):
+    return "--no-progress" not in args
+
+
 def render_progress_frame(frame, printed_header):
     message = frame.get("message")
     if not message:
         return printed_header
     if not printed_header:
-        sys.stderr.write("# Sync Progress\n")
+        operation = str(frame.get("operation") or "operation").title()
+        sys.stderr.write(f"# {operation} Progress\n")
         printed_header = True
     sys.stderr.write(f"- {message}\n")
     sys.stderr.flush()
@@ -997,6 +1002,9 @@ def main(argv):
     if command == "sync":
         args = argv[2:]
         return server_request("sync", args, stream=True, render_progress=progress_output(args))
+    if command == "query":
+        args = argv[2:]
+        return server_request("query", args, stream=True, render_progress=query_progress_output(args))
     return server_request(command, argv[2:])
 
 

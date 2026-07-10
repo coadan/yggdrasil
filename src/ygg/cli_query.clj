@@ -15,6 +15,7 @@
             [ygg.llm.openai-compatible :as llm]
             [ygg.project :as project]
             [ygg.project-registry :as registry]
+            [ygg.progress :as progress]
             [ygg.query :as query]
             [ygg.report :as report]
             [ygg.xtdb :as store]
@@ -32,6 +33,18 @@
 (defn- print-json [data] (call-dep :print-json data))
 (defn- temporal-options [args] (call-dep :temporal-options args))
 (defn- context-packet-options [xtdb args opts] (call-dep :context-packet-options xtdb args opts))
+
+(defn- query-progress-fn
+  [args]
+  (when-not (some #{"--no-progress"} args)
+    (let [printed-header? (atom false)]
+      (fn [event]
+        (when-let [line (progress/query-progress-line event)]
+          (binding [*out* *err*]
+            (when (compare-and-set! printed-header? false true)
+              (println "# Query Progress"))
+            (println line)
+            (flush)))))))
 
 (defn print-query-result
   [result]
@@ -87,7 +100,7 @@
         (when (pos? extra-next)
           (println "Next:" extra-next "more commands in --json output."))))))
 (defn- print-query-no-results
-  [xtdb query-text {:keys [project-id repo-id retriever embedding-client temporal args]}]
+  [xtdb query-text {:keys [project-id repo-id retriever embedding-client temporal args progress-fn]}]
   (if (str/blank? (str project-id))
     (binding [*out* *err*]
       (println "No query results.")
@@ -101,7 +114,8 @@
                                                              :repo-id repo-id
                                                              :retriever retriever
                                                              :embedding-client embedding-client
-                                                             :read-context temporal})
+                                                             :read-context temporal
+                                                             :progress-fn progress-fn})
                                     :output :full)))))
 
 (defn- active-indexing
@@ -498,7 +512,8 @@
   (let [query-text (str/join " " (positional-args args))
         {:keys [retriever embedding-client semantic-status fts-weight]} (retrieval-options args)
         {:keys [project-id repo-id]} (project-scope args)
-        temporal (temporal-options args)]
+        temporal (temporal-options args)
+        progress-fn (or (:progress-fn *deps*) (query-progress-fn args))]
     (when (str/blank? query-text)
       (throw (ex-info "Missing query text." {:usage (usage)})))
     (if (json-output? args)
@@ -513,7 +528,8 @@
                                                         :embedding-client embedding-client
                                                         :semantic-status semantic-status
                                                         :fts-weight fts-weight
-                                                        :read-context temporal})))
+                                                        :read-context temporal
+                                                        :progress-fn progress-fn})))
       (let [results (query/semantic-query xtdb
                                           query-text
                                           {:limit (or (parse-limit args) 10)
@@ -523,7 +539,8 @@
                                            :fts-weight fts-weight
                                            :project-id project-id
                                            :repo-id repo-id
-                                           :read-context temporal})]
+                                           :read-context temporal
+                                           :progress-fn progress-fn})]
         (if (seq results)
           (do
             (print-active-indexing-warning)
@@ -538,7 +555,8 @@
                                    :semantic-status semantic-status
                                    :fts-weight fts-weight
                                    :temporal temporal
-                                   :args args}))))))
+                                   :args args
+                                   :progress-fn progress-fn}))))))
 
 (defn- args-with-project
   [args]

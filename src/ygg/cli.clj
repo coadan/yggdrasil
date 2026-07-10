@@ -132,7 +132,7 @@
 
 (defn- context-packet-options
   [xtdb args {:keys [project-id repo-id retriever embedding-client semantic-status
-                     read-context active-indexing fts-weight]}]
+                     read-context active-indexing fts-weight progress-fn]}]
   (let [project-info (matching-context-project args project-id)
         freshness (context-packet-freshness xtdb project-info)
         plugins (not-empty (get-in project-info [:project :plugins]))]
@@ -169,6 +169,9 @@
 
       active-indexing
       (assoc :active-indexing active-indexing)
+
+      progress-fn
+      (assoc :progress-fn progress-fn)
 
       plugins
       (assoc :plugins plugins))))
@@ -1079,7 +1082,7 @@
     "  memory attach <memory-id> <target-id> --reason TEXT [--project ID]"
     ""
     "Query:"
-    "  query <text> [--project ID] [--repo ID] [--config project.edn] [--limit N] [--json] [--retriever auto|hybrid|lexical|semantic] [--provider local|openrouter|openai] [--model MODEL] [--fts-weight N] [--valid-at INSTANT]"
+    "  query <text> [--project ID] [--repo ID] [--config project.edn] [--limit N] [--json] [--no-progress] [--retriever auto|hybrid|lexical|semantic] [--provider local|openrouter|openai] [--model MODEL] [--fts-weight N] [--valid-at INSTANT]"
     "  affected <project.edn> [--files PATH,PATH | --since REV] [--repo ID] [--tests] [--json]"
     ""
     "View and report:"

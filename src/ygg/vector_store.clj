@@ -1048,6 +1048,10 @@
           index-path (or vector-index-path
                          (:index-path opts)
                          (configured-index-path project-id))]
+      (when-let [progress-fn (:progress-fn opts)]
+        (progress-fn (merge (select-keys opts [:project-id :repo-id])
+                            {:phase :fts-index-start
+                             :search-docs (count docs)})))
       (try
         (with-open [conn (sqlite-base-connection {:index-path index-path})]
           (ensure-fts-schema! conn)

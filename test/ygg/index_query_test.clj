@@ -1080,7 +1080,10 @@
 (deftest search-corpus-cache-reuses-current-reads-and-invalidates-on-write
   (store/with-node (temp-dir "ygg-query-corpus-cache-xtdb")
     (fn [xtdb]
-      (let [search-doc (fn [id text]
+      (let [events (atom [])
+            query-opts {:retriever :lexical
+                        :progress-fn #(swap! events conj %)}
+            search-doc (fn [id text]
                          {:xt/id (str "search-doc:" id)
                           :target-id (str "node:" id)
                           :target-kind :node
@@ -1098,17 +1101,24 @@
          xtdb
          [(store/put-op (store/table-ref :search-docs)
                         (search-doc "auth" "auth login"))])
-        (let [first-report (query/search-report xtdb "auth" {:retriever :lexical})
-              second-report (query/search-report xtdb "auth" {:retriever :lexical})]
+        (let [first-report (query/search-report xtdb "auth" query-opts)
+              second-report (query/search-report xtdb "auth" query-opts)]
           (is (= :miss (get-in first-report [:instrumentation :search-corpus-cache])))
           (is (= :hit (get-in second-report [:instrumentation :search-corpus-cache])))
           (is (= (get-in first-report [:instrumentation :search-corpus-generation])
                  (get-in second-report [:instrumentation :search-corpus-generation]))))
+        (is (= [:search-corpus-load-start
+                :search-corpus-load-complete
+                :search-complete
+                :search-complete]
+               (mapv :phase @events)))
+        (is (= :miss (:cache-status (first @events))))
+        (is (= 1 (:search-docs (second @events))))
         (store/execute-tx!
          xtdb
          [(store/put-op (store/table-ref :search-docs)
                         (search-doc "session" "session token"))])
-        (let [report (query/search-report xtdb "session" {:retriever :lexical})]
+        (let [report (query/search-report xtdb "session" query-opts)]
           (is (= :miss (get-in report [:instrumentation :search-corpus-cache])))
           (is (= ["node:session"] (mapv :target-id (:results report)))))))))
 

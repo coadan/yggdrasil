@@ -207,12 +207,15 @@ class ServerClientRoutingTest(unittest.TestCase):
     def test_server_command_routes_to_matching_server_op(self):
         client = load_client()
         cases = [
-            (["ygg", "status", "--json"], ("status", ["--json"])),
-            (["ygg", "query", "needle"], ("query", ["needle"])),
-            (["ygg", "graph"], ("graph", [])),
+            (["ygg", "status", "--json"], ("status", ["--json"]),
+             {"stream": False, "render_progress": False}),
+            (["ygg", "query", "needle"], ("query", ["needle"]),
+             {"stream": True, "render_progress": True}),
+            (["ygg", "graph"], ("graph", []),
+             {"stream": False, "render_progress": False}),
         ]
 
-        for argv, expected_request in cases:
+        for argv, expected_request, expected_options in cases:
             with self.subTest(argv=argv):
                 requests = []
 
@@ -228,8 +231,32 @@ class ServerClientRoutingTest(unittest.TestCase):
                 self.assertEqual(0, exit_code)
                 self.assertEqual("ok\n", out.getvalue())
                 self.assertEqual([(expected_request[0], expected_request[1],
-                                   {"stream": False, "render_progress": False})],
+                                   expected_options)],
                                  requests)
+
+    def test_query_json_streams_progress_unless_explicitly_suppressed(self):
+        client = load_client()
+        cases = [
+            (["needle", "--json"], True),
+            (["needle", "--json", "--no-progress"], False),
+        ]
+
+        for args, expected_render_progress in cases:
+            with self.subTest(args=args):
+                requests = []
+
+                def capture_request(op, request_args, **kwargs):
+                    requests.append((op, request_args, kwargs))
+                    return {"exit": 0, "out": "{}\n", "err": ""}
+
+                client.request = capture_request
+                with contextlib.redirect_stdout(io.StringIO()):
+                    exit_code = client.main(["ygg", "query", *args])
+
+                self.assertEqual(0, exit_code)
+                self.assertTrue(requests[0][2]["stream"])
+                self.assertEqual(expected_render_progress,
+                                 requests[0][2]["render_progress"])
 
     def test_request_retries_starting_health_response(self):
         client = load_client()
@@ -306,6 +333,7 @@ class ServerClientRoutingTest(unittest.TestCase):
             json.dumps({
                 "schema": client.SERVER_FRAME_SCHEMA,
                 "type": "progress",
+                "operation": "sync",
                 "message": "app scanned 2 files",
             }) + "\n" +
             json.dumps(final_response) + "\n"
@@ -317,6 +345,26 @@ class ServerClientRoutingTest(unittest.TestCase):
 
         self.assertEqual(final_response, response)
         self.assertEqual("# Sync Progress\n- app scanned 2 files\n", err.getvalue())
+
+    def test_query_progress_frames_use_query_header(self):
+        client = load_client()
+        final_response = {"exit": 0, "out": "{}\n", "err": ""}
+        stream = io.StringIO(
+            json.dumps({
+                "schema": client.SERVER_FRAME_SCHEMA,
+                "type": "progress",
+                "operation": "query",
+                "message": "demo preparing context",
+            }) + "\n" +
+            json.dumps(final_response) + "\n"
+        )
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            response = client.read_server_response(stream, render_progress=True)
+
+        self.assertEqual(final_response, response)
+        self.assertEqual("# Query Progress\n- demo preparing context\n", err.getvalue())
 
     def test_streaming_progress_frames_can_be_ignored(self):
         client = load_client()

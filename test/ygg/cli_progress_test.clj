@@ -1,5 +1,6 @@
 (ns ygg.cli-progress-test
   (:require [ygg.cli-project :as cli-project]
+            [ygg.cli-query :as cli-query]
             [ygg.cli-sync :as cli]
             [ygg.progress :as progress]
             [clojure.string :as str]
@@ -48,6 +49,23 @@
     (let [out (str writer)]
       (is (str/includes? out "# Sync Progress"))
       (is (str/includes? out "- app scanned 2 files")))))
+
+(deftest query-progress-renders-for-json-and-honors-explicit-suppression
+  (is (nil? (#'cli-query/query-progress-fn ["--no-progress"])))
+  (let [progress-fn (#'cli-query/query-progress-fn ["--json"])
+        writer (java.io.StringWriter.)]
+    (binding [*err* writer]
+      (progress-fn {:phase :search-corpus-load-start
+                    :project-id "demo"
+                    :cache-status :miss})
+      (progress-fn {:phase :search-corpus-load-complete
+                    :project-id "demo"
+                    :search-docs 12
+                    :elapsed-ms 25}))
+    (is (= (str "# Query Progress\n"
+                "- demo loading search corpus (cold cache)\n"
+                "- demo loaded 12 search docs in 25ms\n")
+           (str writer)))))
 
 (deftest sync-summaries-render-reused-unchanged-files
   (let [summary {:project-id "fixture"
