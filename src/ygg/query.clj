@@ -581,6 +581,29 @@
                         (fn [[_ {:keys [last-used]}]] last-used)
                         entries)))))
 
+(declare normalize-grep-token grep-doc-structured-tokens)
+
+(defn- search-corpus-stats
+  [docs]
+  (reduce
+   (fn [stats doc]
+     (let [tokens (->> (:tokens doc)
+                       (keep normalize-grep-token)
+                       set)
+           structured-tokens (grep-doc-structured-tokens doc)]
+       (-> stats
+           (update :grep-token-frequencies
+                   (fn [frequencies]
+                     (reduce #(update %1 %2 (fnil inc 0)) frequencies tokens)))
+           (update :grep-structured-token-frequencies
+                   (fn [frequencies]
+                     (reduce #(update %1 %2 (fnil inc 0))
+                             frequencies
+                             structured-tokens))))))
+   {:grep-token-frequencies {}
+    :grep-structured-token-frequencies {}}
+   docs))
+
 (defn- emit-progress!
   [progress-fn event]
   (when progress-fn
@@ -600,6 +623,7 @@
                      :clock next-clock
                      :entries (assoc entries cache-key (assoc entry :last-used next-clock)))
               {:docs (:docs entry)
+               :stats (:stats entry)
                :cache-status :hit
                :cache-generation generation})
             (let [load-started (now-ns)
@@ -608,6 +632,7 @@
                                            {:phase :search-corpus-load-start
                                             :cache-status :miss}))
                   docs (vec (all-search-docs xtdb scope))
+                  stats (search-corpus-stats docs)
                   loaded-generation (:generation @cache)]
               (emit-progress! progress-fn
                               (merge (select-keys scope [:project-id :repo-id])
@@ -625,9 +650,11 @@
                                             (assoc (:entries state)
                                                    cache-key
                                                    {:docs docs
+                                                    :stats stats
                                                     :last-used next-clock})))
                            state))))
               {:docs docs
+               :stats stats
                :cache-status :miss
                :cache-generation loaded-generation}))))
       (let [load-started (now-ns)
@@ -635,7 +662,8 @@
                               (merge (select-keys scope [:project-id :repo-id])
                                      {:phase :search-corpus-load-start
                                       :cache-status :bypass}))
-            docs (vec (all-search-docs xtdb scope))]
+            docs (vec (all-search-docs xtdb scope))
+            stats (search-corpus-stats docs)]
         (emit-progress! progress-fn
                         (merge (select-keys scope [:project-id :repo-id])
                                {:phase :search-corpus-load-complete
@@ -643,6 +671,7 @@
                                 :search-docs (count docs)
                                 :elapsed-ms (elapsed-ms load-started)}))
         {:docs docs
+         :stats stats
          :cache-status :bypass
          :cache-generation nil}))))
 
@@ -1262,10 +1291,13 @@
          specific-limit (long (or (:specific-grep-pattern-limit opts)
                                   default-specific-grep-patterns))
          candidates (grep-token-candidates query-tokens)
-         doc-frequencies (grep-doc-token-frequencies (map :token candidates) docs)
-         structured-frequencies (grep-doc-structured-token-frequencies
-                                 (map :token candidates)
-                                 docs)
+         corpus-stats (:search-corpus-stats opts)
+         doc-frequencies (or (:grep-token-frequencies corpus-stats)
+                             (grep-doc-token-frequencies (map :token candidates) docs))
+         structured-frequencies (or (:grep-structured-token-frequencies corpus-stats)
+                                    (grep-doc-structured-token-frequencies
+                                     (map :token candidates)
+                                     docs))
          doc-count (count docs)
          corpus-backed (->> candidates
                             (filter #(pos? (long (get doc-frequencies (:token %) 0))))
@@ -2516,7 +2548,9 @@
                                                                query-tokens
                                                                base-docs
                                                                scope
-                                                               opts
+                                                               (assoc opts
+                                                                      :search-corpus-stats
+                                                                      (:stats corpus-data))
                                                                initial-retriever))
         [transient-file-data timings] (timed timings
                                              :transient-file-candidates-ms

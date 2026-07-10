@@ -648,6 +648,24 @@
                     "edit"}
                   (take 5 dapper-patterns)))))
 
+(deftest grep-patterns-use-precomputed-corpus-frequencies
+  (with-redefs [query/grep-doc-token-frequencies
+                (fn [& _]
+                  (throw (ex-info "unexpected content token scan" {})))
+                query/grep-doc-structured-token-frequencies
+                (fn [& _]
+                  (throw (ex-info "unexpected structured token scan" {})))]
+    (is (= ["adapter" "proxy"]
+           (#'query/grep-patterns
+            ["adapter" "proxy"]
+            [{:tokens ["ignored"]}]
+            {:grep-pattern-limit 2
+             :search-corpus-stats
+             {:grep-token-frequencies {"adapter" 8
+                                       "proxy" 5}
+              :grep-structured-token-frequencies {"adapter" 4
+                                                  "proxy" 2}}})))))
+
 (deftest lexical-query-grep-patterns-prefer-specific-late-tokens
   (let [repo-root (temp-dir "ygg-query-specific-grep-repo")]
     (spit-file! repo-root
