@@ -1227,51 +1227,29 @@
     (:grep-bin opts)
     (assoc :bin (:grep-bin opts))))
 
-(defn- grep-pattern-weight
-  [pattern]
-  (let [pattern (str pattern)
-        alnum-count (count (re-seq #"[A-Za-z0-9]" pattern))
-        shaped? (boolean (re-find #"[._/-]" pattern))]
-    (+ 1.0
-       (min 3.0 (/ (double alnum-count) 8.0))
-       (if shaped? 3.0 0.0))))
-
 (defn- grep-search-results
   [repo-roots repo-ids patterns opts]
   (let [search-opts (grep-search-opts opts)]
     (vec
      (for [repo-id repo-ids
            :let [root (get repo-roots repo-id)
-                 pattern-results (mapv (fn [pattern]
-                                         (let [weight (grep-pattern-weight pattern)]
-                                           (assoc (ripgrep/search-counts-many
-                                                   root
-                                                   [pattern]
-                                                   []
-                                                   search-opts)
-                                                  :pattern pattern
-                                                  :pattern-weight weight)))
-                                       patterns)
-                 matches-by-path (->> pattern-results
-                                      (mapcat (fn [{:keys [pattern-weight matches]}]
-                                                (map #(assoc %
-                                                             :weighted-count
-                                                             (* (double pattern-weight)
-                                                                (Math/log1p
-                                                                 (double (or (:count %) 1)))))
-                                                     matches)))
-                                      (group-by :path)
-                                      (mapv (fn [[path matches]]
-                                              {:path path
-                                               :count (reduce + 0 (map :count matches))
-                                               :weighted-count (reduce + 0.0 (map :weighted-count matches))})))]]
+                 search-result (ripgrep/search-counts-many root
+                                                           patterns
+                                                           []
+                                                           search-opts)
+                 matches-by-path (mapv (fn [{:keys [count] :as match}]
+                                         (assoc match
+                                                :weighted-count
+                                                (Math/log1p
+                                                 (double (or count 1)))))
+                                       (:matches search-result))]]
        {:repo-id repo-id
         :matches matches-by-path
-        :match-count (reduce + 0 (map :match-count pattern-results))
+        :match-count (:match-count search-result)
         :file-count (count matches-by-path)
-        :elapsed-ms (reduce + 0 (map :elapsed-ms pattern-results))
-        :search-count (count pattern-results)
-        :diagnostics (mapcat :diagnostics pattern-results)}))))
+        :elapsed-ms (:elapsed-ms search-result)
+        :search-count 1
+        :diagnostics (:diagnostics search-result)}))))
 
 (defn- grep-match-counts
   [search-results]
@@ -2388,9 +2366,11 @@
      :ranked ranked}))
 
 (defn- auto-lexical-short-circuit-reason
-  [ranked-data]
-  (when (pos? (count (:exact-path-candidates ranked-data)))
-    :exact-path-candidates))
+  [query-text docs]
+  (let [query (str/lower-case (str/trim query-text))]
+    (when (and (path-shaped-query? query)
+               (some #(exact-path-mentioned? query (:path %)) docs))
+      :exact-path-candidates)))
 
 (defn- query-vector
   [embedding-client query-text]
@@ -2465,29 +2445,12 @@
         auto-semantic-eligible? (and (= :auto requested-retriever)
                                      embedding-client
                                      (#{:hybrid :semantic} initial-retriever))
-        [auto-cheap-rank-data timings] (if auto-semantic-eligible?
-                                         (timed timings
-                                                :auto-cheap-rank-ms
-                                                #(ranked-candidates
-                                                  {:query-text query-text
-                                                   :query-tokens query-tokens
-                                                   :docs docs
-                                                   :lexical lexical
-                                                   :semantic {}
-                                                   :semantic-role-scores {}
-                                                   :fts fts
-                                                   :grep grep
-                                                   :neighbor-scores {}
-                                                   :same-label-scores {}
-                                                   :retriever :lexical
-                                                   :fusion-strategy default-fusion-strategy
-                                                   :fts-weight (:fts-weight opts)
-                                                   :diversity-rerank-limit 0
-                                                   :limit limit}))
-                                         [{} (assoc timings :auto-cheap-rank-ms 0)])
-        auto-short-circuit-reason (when auto-semantic-eligible?
-                                    (auto-lexical-short-circuit-reason
-                                     auto-cheap-rank-data))
+        [auto-short-circuit-reason timings]
+        (if auto-semantic-eligible?
+          (timed timings
+                 :exact-path-detection-ms
+                 #(auto-lexical-short-circuit-reason query-text docs))
+          [nil (assoc timings :exact-path-detection-ms 0)])
         auto-short-circuit? (boolean auto-short-circuit-reason)
         semantic-retriever? (and (#{:hybrid :semantic} initial-retriever)
                                  (not auto-short-circuit?))
