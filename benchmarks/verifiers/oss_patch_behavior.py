@@ -117,6 +117,8 @@ def verify_dapper_enum_handler() -> None:
                 """\
                 using System;
                 using System.Data;
+                using System.Linq;
+                using System.Reflection;
                 using Dapper;
 
                 enum Status { Ready }
@@ -129,11 +131,20 @@ def verify_dapper_enum_handler() -> None:
                     static int Main() {
                         SqlMapper.Settings.SetDefaults();
                         SqlMapper.AddTypeHandler(new Handler());
-                        SqlMapper.Settings.PreferTypeHandlersForEnums = true;
-                        var dbType = SqlMapper.LookupDbType(typeof(Status), "status", true, out var handler);
-                        if (dbType != DbType.Object || handler is not Handler) return 1;
+                        PropertyInfo? enablingSetting = null;
+                        foreach (var setting in typeof(SqlMapper.Settings).GetProperties(BindingFlags.Public | BindingFlags.Static)
+                                     .Where(property => property.PropertyType == typeof(bool) && property.CanWrite)) {
+                            SqlMapper.Settings.SetDefaults();
+                            setting.SetValue(null, true);
+                            var dbType = SqlMapper.LookupDbType(typeof(Status), "status", true, out var handler);
+                            if (dbType == DbType.Object && handler is Handler) {
+                                enablingSetting = setting;
+                                break;
+                            }
+                        }
+                        if (enablingSetting is null) return 1;
                         SqlMapper.Settings.SetDefaults();
-                        return SqlMapper.Settings.PreferTypeHandlersForEnums ? 2 : 0;
+                        return (bool)enablingSetting.GetValue(null)! ? 2 : 0;
                     }
                 }
                 """

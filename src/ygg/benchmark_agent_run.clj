@@ -619,9 +619,11 @@
   [packet]
   ["## Yggdrasil Mode"
    (if (ygg-mode? packet)
-     (str "Prepared and warm. Start with the ranked evidence above, inspect only "
-          "exact paths needed for the patch, and avoid broad search. Read the full "
-          "hint/context artifacts only when the prepared evidence leaves a concrete gap.")
+     (str "Prepared and warm. Start with the ranked evidence above and avoid broad "
+          "search before localization. For patch tasks, ranked paths are not a completion "
+          "boundary: follow project-native validation and any mechanically coupled files "
+          "it identifies. Read the full hint/context artifacts only when the prepared "
+          "evidence leaves a concrete gap.")
      "No Yggdrasil: use local shell inspection only.")
    ""])
 (defn agent-run-prompt
