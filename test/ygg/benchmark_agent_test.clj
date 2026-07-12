@@ -650,6 +650,9 @@
                        :repoId "core"
                        :confidence 0.91
                        :evidence ["context-doc:src/context.clj lines 10-20 provenance=retrieved-doc"]}]
+                     :readPlan
+                     {:snippets [{:path "src/connector.clj"
+                                  :command "sed -n '40,70p' 'src/connector.clj'"}]}
                      :relatedFiles
                      [{:rank 1
                        :path "src/consumer.clj"
@@ -698,85 +701,30 @@
     (is (not (str/includes? prompt
                             "Use at most 8 local shell commands")))
     (is (str/includes? prompt
-                       "run only the listed minimal proof commands"))
-    (is (str/includes? prompt
-                       "do not run `rg` on file-only candidates without declaration labels"))
-    (is (str/includes? prompt
-                       "`suspectedSymbols` may be empty; include at most 3 symbols"))
+                       "Inspect at most 5 exact files or snippets"))
     (is (str/includes? prompt
                        "at most 2 evidence strings per file"))
-    (is (str/includes? prompt
-                       "summary, reasons, and evidence to short single sentences"))
-    (is (str/includes? prompt
-                       "Do not emit provisional JSON before local inspection"))
-    (is (str/includes? prompt
-                       "primary package contract file as the suspectedFile"))
-    (is (str/includes? prompt
-                       "related graph files from import-package edges"))
-    (is (str/includes? prompt
-                       "Context-ranked files from compact Yggdrasil topFiles"))
+    (is (str/includes? prompt "## Prepared Yggdrasil Evidence"))
+    (is (str/includes? prompt "Mechanically ranked starter evidence"))
+    (is (str/includes? prompt "src/connector.clj"))
+    (is (str/includes? prompt "connector/contract clj-var:42"))
+    (is (str/includes? prompt "Additional context-ranked files"))
     (is (str/includes? prompt "src/context.clj"))
     (is (str/includes? prompt "repo core"))
     (is (str/includes? prompt
                        "context-doc:src/context.clj lines 10-20"))
-    (is (str/includes? prompt
-                       "Do not read the same file twice in fast Yggdrasil mode"))
-    (is (str/includes? prompt
-                       "single-file documentation or wording tasks"))
-    (is (str/includes? prompt
-                       "zero-command answers"))
-    (is (str/includes? prompt
-                       "issue-text inference alone is not enough"))
-    (is (str/includes? prompt
-                       "Related graph files from prepared import edges"))
+    (is (str/includes? prompt "Related files from explicit import edges"))
     (is (str/includes? prompt "src/consumer.clj"))
     (is (str/includes? prompt
                        "source-graph: src/connector.clj imports src/consumer line 7"))
     (is (not (str/includes? prompt "src/ignored-helper.clj")))
     (is (not (str/includes? prompt "Yggdrasil hints JSON: /tmp/hints.json")))
     (is (not (str/includes? prompt "Yggdrasil context JSON: /tmp/context.json")))
-    (is (str/includes? prompt "Yggdrasil is prepared and warm"))
-    (is (str/includes? prompt "## Prepared Yggdrasil Summary"))
-    (is (str/includes? prompt "src/connector.clj"))
-    (is (str/includes? prompt "connector/contract clj-var:42"))
-    (is (str/includes? prompt "not an edit list"))
+    (is (str/includes? prompt "Prepared and warm"))
+    (is (str/includes? prompt "avoid broad search"))
     (is (str/includes? prompt
-                       "Do not run a first-step `jq` projection over `YGG_BENCH_YGG_HINTS`"))
-    (is (str/includes? prompt
-                       "Do not grep Yggdrasil hint/context artifacts for extra citations"))
-    (is (not (str/includes? prompt
-                            "`jq '{selection,topFiles:[((.topFiles//[])[:8])[]|{rank,path}]")))
-    (is (not (str/includes? prompt
-                            "preparedLocalization:{candidates:[((.preparedLocalization.candidates//[])[:12])[]")))
-    (is (str/includes? prompt
-                       "do not print entire Yggdrasil JSON artifacts"))
-    (is (str/includes? prompt
-                       "as the first ranked audit surface"))
-    (is (str/includes? prompt
-                       "avoid rediscovering them with `rg`"))
-    (is (str/includes? prompt
-                       "exact candidate paths"))
-    (is (str/includes? prompt "Avoid broad `rg`"))
-    (is (str/includes? prompt
-                       "do not pass directories to `rg`"))
-    (is (str/includes? prompt
-                       "keep each `sed` window at 90 lines or fewer"))
-    (is (str/includes? prompt
-                       "Do not run directory-wide `rg` just to reconfirm prepared top-file"))
-    (is (str/includes? prompt
-                       "Do not invent extra `rg` commands for prepared candidates"))
-    (is (str/includes? prompt "narrow `sed` windows"))
-    (is (str/includes? prompt
-                       "Use full hints or context only when the prepared summary and focused"))
-    (is (str/includes? prompt
-                       "against `YGG_BENCH_YGG_HINTS` or `YGG_BENCH_YGG_CONTEXT` just to add graph citations"))
-    (is (str/includes? prompt "file reads can satisfy evidence"))
-    (is (str/includes? prompt
-                       "`sourceCoverage` and `diagnostics`"))
-    (is (str/includes? prompt
-                       "run listed commands"))
-    (is (str/includes? prompt
-                       "validation-gap next actions"))
+                       "full hint/context artifacts only when the prepared evidence leaves a concrete gap"))
+    (is (str/includes? prompt "Suggested focused proof commands"))
     (is (str/includes? prompt
                        "use `YGG_BENCH_OUTPUT_SCHEMA` for fields"))
     (is (not (str/includes? prompt "\"tokenUsage\": null")))
@@ -789,7 +737,9 @@
     (is (str/includes? prompt "do not run env, printenv, jq, or packet reads solely"))
     (is (str/includes? prompt "- Case fingerprint: sha256:case"))
     (is (str/includes? prompt "- Agent input fingerprint: sha256:input"))
-    (is (str/includes? prompt "do not carry over stale graph-health text"))))
+    (is (str/includes? prompt "do not carry over stale graph-health text"))
+    (is (= 1 (count (re-seq #"coverageSourceKinds" prompt))))
+    (is (< (count prompt) 10000))))
 
 (deftest ygg-agent-proof-commands-collapse-declaration-greps
   (let [hints {:readPlan
@@ -814,8 +764,8 @@
                     {:rank 8
                      :path "main.tf"
                      :declarations []}]]
-    (is (= ["rg -n --fixed-strings -e 'variable \"vpc_flow_log_iam_role_name\"' -e 'variable \"vpc_flow_log_iam_role_path\"' -e 'variable \"flow_log_destination_type\"' -e 'resource \"aws_iam_role\" \"vpc_flow_log_cloudwatch\"' -e 'data \"aws_iam_policy_document\" \"flow_log_cloudwatch_assume_role\"' 'variables.tf' 'vpc-flow-logs.tf'"
-            "sed -n '14,46p' 'vpc-flow-logs.tf'"
+    (is (= ["sed -n '1582,1614p' 'variables.tf'"
+            "rg -n --fixed-strings -e 'variable \"vpc_flow_log_iam_role_name\"' -e 'variable \"vpc_flow_log_iam_role_path\"' -e 'variable \"flow_log_destination_type\"' -e 'resource \"aws_iam_role\" \"vpc_flow_log_cloudwatch\"' -e 'data \"aws_iam_policy_document\" \"flow_log_cloudwatch_assume_role\"' 'variables.tf' 'vpc-flow-logs.tf'"
             "sed -n '1,80p' 'main.tf'"]
            (#'benchmark-agent-run/proof-commands hints candidates)))))
 

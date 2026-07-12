@@ -344,14 +344,34 @@
                  first))
           path-order)))
 
+(defn- prepared-localization-read-plan-rows
+  [hints limits]
+  (->> (get-in hints [:preparedLocalization :candidates])
+       (keep (fn [candidate]
+               (when-let [declaration (first (:declarations candidate))]
+                 (let [source-line (or (:sourceLine declaration)
+                                       (:source-line declaration))]
+                   (cond-> (merge declaration
+                                  (select-keys candidate [:rank :reason]))
+                     (and source-line
+                          (nil? (:endLine declaration))
+                          (nil? (:end-line declaration)))
+                     (assoc :endLine (+ (long source-line)
+                                        (long (:snippet-after-lines limits)))))))))
+       path-diverse-declaration-rows))
+
 (defn- compact-read-plan
   [hints opts limits]
-  (let [top-files (:topFiles hints)
-        top-paths (set (keep :path top-files))
+  (let [prepared-rows (prepared-localization-read-plan-rows hints limits)
+        prepared-paths (set (keep :path prepared-rows))
+        top-files (remove #(contains? prepared-paths (:path %))
+                          (:topFiles hints))
+        top-paths (into prepared-paths (keep :path top-files))
         declaration-rows (->> (:topDeclarations hints)
                               (remove #(contains? top-paths (:path %)))
                               path-diverse-declaration-rows)
-        read-plan-rows (->> (concat top-files
+        read-plan-rows (->> (concat prepared-rows
+                                    top-files
                                     declaration-rows
                                     (:relatedFiles hints))
                             (remove (fn [row]

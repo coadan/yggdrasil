@@ -300,3 +300,52 @@
              (get-in snippets [2 :lines])))
       (is (str/includes? (get-in snippets [2 :snippet])
                          "20: (defn earlier [] :a)")))))
+
+(deftest compact-read-plan-starts-with-prepared-declaration-block
+  (let [root (str (java.nio.file.Files/createTempDirectory
+                   "ygg-bench-prepared-read-plan"
+                   (make-array java.nio.file.attribute.FileAttribute 0)))
+        target-file (io/file root "modules/vpc-endpoints/main.tf")
+        root-file (io/file root "main.tf")
+        write-lines! (fn [file marker-line marker]
+                       (.mkdirs (.getParentFile file))
+                       (spit file
+                             (str/join
+                              "\n"
+                              (map (fn [line-no]
+                                     (if (= marker-line line-no)
+                                       marker
+                                       (str "# filler " line-no)))
+                                   (range 1 81)))))]
+    (write-lines! target-file 32 "resource \"aws_vpc_endpoint\" \"this\" {")
+    (write-lines! root-file 4 "resource \"aws_vpc\" \"this\" {")
+    (let [compact (progressive/compact-agent-hints
+                   {:schema "ygg.benchmark.agent-hints/v1"
+                    :preparedLocalization
+                    {:candidates [{:rank 1
+                                   :path "modules/vpc-endpoints/main.tf"
+                                   :reason "compound identifier match"
+                                   :declarations [{:rank 7
+                                                   :path "modules/vpc-endpoints/main.tf"
+                                                   :label "aws_vpc_endpoint.this"
+                                                   :kind "terraform-resource"
+                                                   :sourceLine 32}]}]}
+                    :topFiles [{:rank 1
+                                :path "main.tf"
+                                :sourceLine 4}
+                               {:rank 2
+                                :path "modules/vpc-endpoints/main.tf"
+                                :sourceLine 1}]}
+                   {:root root
+                    :limits {:read-plan-files 2
+                             :snippet-before-lines 2
+                             :snippet-after-lines 3
+                             :snippet-max-chars 1000}})
+          snippets (get-in compact [:readPlan :snippets])]
+      (is (= ["modules/vpc-endpoints/main.tf" "main.tf"]
+             (mapv :path snippets)))
+      (is (= {:start 30
+              :end 38}
+             (get-in snippets [0 :lines])))
+      (is (str/includes? (get-in snippets [0 :snippet])
+                         "32: resource \"aws_vpc_endpoint\" \"this\" {")))))
