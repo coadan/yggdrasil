@@ -20,6 +20,8 @@
           :dir "axios"
           :required-shas ["e64bcf9c5af231d6f37d8389b1e57ded314fff86"
                           "20ce9c412ebd88823d1a4a47000cb133a8f79440"
+                          "c30252f685e8f4326722de84923fcbc8cf557f06"
+                          "e9c9f3392b4a31e24b2bcb8399639de624a24386"
                           "30499d6af0961ec38619792013a534d1933b08a9"
                           "1792eda11aff8fe0f8c8a6e5ae6ff305740a6460"
                           "3cf6917576417961de6c96a99844690b5cc41451"
@@ -59,6 +61,8 @@
           :url "https://github.com/junit-team/junit-framework.git"
           :dir "junit-framework"
           :required-shas ["b040e97f4890dc914f41d86ee2caddb2df6b1f68"
+                          "b451122115c398b29e8d97363bf47725484a7bac"
+                          "8f45eeab5662706facaa327902dd02639ffe02e7"
                           "c8168b7c79a0591f421ef37dbbd20eb1f34cafef"
                           "5bc7cb12f5bc4492011bdcf278fde44ac45166d5"]}
          {:id "graphify"

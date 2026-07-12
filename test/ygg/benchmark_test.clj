@@ -340,9 +340,15 @@
     (is (= 8 (count cases)))
     (is (every? #(= "patch" (:result-scope %)) cases))
     (is (every? #(true? (get-in % [:patch :required?])) cases))
-    (is (every? #(= [{:id "git-diff-check"
-                      :command "git diff --check"}]
-                    (get-in % [:patch :verifiers]))
+    (is (every? #(= {:id "git-diff-check"
+                     :command "git diff --check"}
+                    (first (get-in % [:patch :verifiers])))
+                cases))
+    (is (every? #(= {:id "hidden-behavior"
+                     :visibility :hidden
+                     :kind :behavioral}
+                    (select-keys (second (get-in % [:patch :verifiers]))
+                                 [:id :visibility :kind]))
                 cases))
     (is (every? #(contains? % "ygg-should-win")
                 (vals tags-by-case)))

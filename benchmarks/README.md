@@ -136,13 +136,14 @@ Use the OSS patch replay lane when the claim is about actual coding-agent patch
 outcomes instead of localization. This lane is deliberately small and curated:
 each case starts from a real OSS base SHA, hides the fixing diff from the agent,
 requires an uncommitted worktree patch, and scores the measured git diff against
-the real fix commit's changed files. The default verifier is
-`git diff --check`; add focused language or project test verifiers only when
-they are stable enough to replay cheaply.
+the real fix commit's changed files. Public structural checks remain visible to
+the agent. Hidden behavioral verifiers are withheld from the packet and prompt,
+run only after the agent exits, and must fail on the base SHA while passing on
+the fix SHA.
 
 Run both shell-only and default Yggdrasil auto/hybrid agents, then compare patch
 metrics such as `patchAttemptRate`, `patchFileRecall`, `patchFileF1`, and
-`patchVerifierPassRate`:
+`patchBehavioralVerifierPassRate`:
 
 ```sh
 bb bench repos check --suite benchmarks/oss-issue-patch-replay.edn

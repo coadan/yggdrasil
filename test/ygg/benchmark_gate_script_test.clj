@@ -562,6 +562,10 @@
     (is (str/includes? (nth lines 1)
                        "--min-patch-verifier-pass-rate 1.00"))
     (is (str/includes? (nth lines 1)
+                       "--min-patch-behavioral-verifier-pass-rate 1.00"))
+    (is (str/includes? (nth lines 1)
+                       "--min-case-patch-behavioral-verifier-pass-rate 1.00"))
+    (is (str/includes? (nth lines 1)
                        "--max-unverified-score-runs 0"))
     (doseq [source-kind-minimum ["--min-source-kind-cases dotnet=1"
                                  "--min-source-kind-cases java=1"
@@ -604,6 +608,8 @@
                        "--min-case-patch-attempted 1.00"))
     (is (str/includes? (:out result)
                        "--min-patch-verifier-pass-rate 1.00"))
+    (is (str/includes? (:out result)
+                       "--min-patch-behavioral-verifier-pass-rate 1.00"))
     (is (str/includes? (:out result)
                        "does not run a deterministic baseline"))))
 

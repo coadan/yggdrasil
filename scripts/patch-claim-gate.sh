@@ -20,6 +20,7 @@ Checks existing OSS issue-to-patch replay artifacts:
   --min-patch-attempt-rate 1.00
   --min-case-patch-attempted 1.00
   --min-patch-verifier-pass-rate 1.00
+  --min-patch-behavioral-verifier-pass-rate 1.00
 
 Run `bench agent-run` and `bench agent-report` for the same suite/out/agent
 before this gate. This script does not run a deterministic baseline because
@@ -42,6 +43,7 @@ min_patch_file_f1="0.50"
 min_patch_attempt_rate="1.00"
 min_case_patch_attempted="1.00"
 min_patch_verifier_pass_rate="1.00"
+min_patch_behavioral_verifier_pass_rate="1.00"
 min_source_kind_cases=(
   "dotnet=1"
   "java=1"
@@ -136,6 +138,10 @@ while [[ $# -gt 0 ]]; do
       min_patch_verifier_pass_rate="$2"
       shift 2
       ;;
+    --min-patch-behavioral-verifier-pass-rate)
+      min_patch_behavioral_verifier_pass_rate="$2"
+      shift 2
+      ;;
     --setup-check)
       setup_check_only=true
       shift
@@ -175,6 +181,8 @@ agent_check_args=(
   --min-patch-attempt-rate "$min_patch_attempt_rate"
   --min-case-patch-attempted "$min_case_patch_attempted"
   --min-patch-verifier-pass-rate "$min_patch_verifier_pass_rate"
+  --min-patch-behavioral-verifier-pass-rate "$min_patch_behavioral_verifier_pass_rate"
+  --min-case-patch-behavioral-verifier-pass-rate "$min_patch_behavioral_verifier_pass_rate"
   --max-unverified-score-runs 0
   --out "$out"
 )

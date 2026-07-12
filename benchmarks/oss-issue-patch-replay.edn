@@ -45,7 +45,12 @@
           :fix-sha "2a8faab235c21892fb4c9a4529510d030516d691"
           :patch {:required? true
                   :verifiers [{:id "git-diff-check"
-                               :command "git diff --check"}]}
+                               :command "git diff --check"}
+                              {:id "hidden-behavior"
+                               :command "python3 \"$YGG_BENCH_SUITE_DIR/verifiers/oss_patch_behavior.py\" --case \"$YGG_BENCH_CASE_ID\""
+                               :visibility :hidden
+                               :kind :behavioral
+                               :timeout-ms 600000}]}
           :ground-truth {:localization-files ["Dapper/SqlMapper.Settings.cs"
                                               "Dapper/SqlMapper.cs"]}
           :expectations {:citation-evidence [{:kind :dotnet-type-handler
@@ -57,7 +62,7 @@
                   :title "Fix/prefer typehandlers for enums"
                   :body "Real OSS patch replay of Dapper commit 2a8faab235c21892fb4c9a4529510d030516d691. Fix enum handling so registered enum TypeHandlers can be preferred before default enum boxing, including the setting/API surface and focused regression coverage. Use only the base checkout and issue text; do not inspect the fixing diff."}}
 
-         {:id "oss-patch-junit-system-properties-extension-backup"
+         {:id "oss-patch-junit-repeatable-field-meta-annotations"
           :repo-id "junit-framework"
           :result-scope :patch
           :coverage {:source-kinds [:java]}
@@ -76,11 +81,16 @@
                  :recall-semantic
                  :java
                  :junit]
-          :base-sha "c8168b7c79a0591f421ef37dbbd20eb1f34cafef"
-          :fix-sha "5bc7cb12f5bc4492011bdcf278fde44ac45166d5"
+          :base-sha "b451122115c398b29e8d97363bf47725484a7bac"
+          :fix-sha "8f45eeab5662706facaa327902dd02639ffe02e7"
           :patch {:required? true
                   :verifiers [{:id "git-diff-check"
-                               :command "git diff --check"}]}
+                               :command "git diff --check"}
+                              {:id "hidden-behavior"
+                               :command "python3 \"$YGG_BENCH_SUITE_DIR/verifiers/oss_patch_behavior.py\" --case \"$YGG_BENCH_CASE_ID\""
+                               :visibility :hidden
+                               :kind :behavioral
+                               :timeout-ms 900000}]}
           :correction-overlay {:package-imports [{:repo "junit-framework"
                                                   :import "kotlinx.coroutines"
                                                   :ecosystem :maven
@@ -101,21 +111,18 @@
                                                   :ecosystem :maven
                                                   :package "de.skuzzle.test:snapshot-tests-junit5"
                                                   :reason "Benchmark fixture review: remaining Snapshot Tests imports are covered by the declared snapshot-tests-junit5 package."}]}
-          :ground-truth {:localization-files ["junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesExtension.java"
-                                              "junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesModification.java"
-                                              "jupiter-tests/src/test/java/org/junit/jupiter/api/util/SystemPropertiesExtensionTests.java"]}
-          :expectations {:citation-evidence [{:kind :system-properties-extension
-                                              :path "junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesExtension.java"}
-                                             {:kind :system-properties-modification
-                                              :path "junit-jupiter-api/src/main/java/org/junit/jupiter/api/util/SystemPropertiesModification.java"}
-                                             {:kind :system-properties-extension-test
-                                              :path "jupiter-tests/src/test/java/org/junit/jupiter/api/util/SystemPropertiesExtensionTests.java"}]}
-          :issue {:id "junit-framework-5764"
-                  :url "https://github.com/junit-team/junit-framework/pull/5764"
-                  :title "Store one partial backup for each SystemPropertiesExtension context"
-                  :body "Real OSS patch replay of JUnit commit 5bc7cb12f5bc4492011bdcf278fde44ac45166d5. Fix SystemPropertiesExtension lifecycle backup behavior so each context keeps the right partial backup, including any helper type and regression tests. Use only the base checkout and issue text; do not inspect the fixing diff."}}
+          :ground-truth {:localization-files ["junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/descriptor/ExtensionUtils.java"
+                                              "jupiter-tests/src/test/java/org/junit/jupiter/engine/descriptor/ExtensionsUtilsTests.java"]}
+          :expectations {:citation-evidence [{:kind :extension-field-registration
+                                              :path "junit-jupiter-engine/src/main/java/org/junit/jupiter/engine/descriptor/ExtensionUtils.java"}
+                                             {:kind :extension-field-registration-test
+                                              :path "jupiter-tests/src/test/java/org/junit/jupiter/engine/descriptor/ExtensionsUtilsTests.java"}]}
+          :issue {:id "junit-framework-repeatable-extend-with-fields"
+                  :url "https://github.com/junit-team/junit-framework/commit/8f45eeab5662706facaa327902dd02639ffe02e7"
+                  :title "Find repeatable @ExtendWith meta-annotations on fields again"
+                  :body "Real OSS patch replay of JUnit commit 8f45eeab5662706facaa327902dd02639ffe02e7. Fix field extension discovery so repeatable @ExtendWith annotations declared through a meta-annotation register every extension for static and instance fields, while retaining @RegisterExtension behavior. Use only the base checkout and issue text; do not inspect the fixing diff."}}
 
-         {:id "oss-patch-axios-max-body-length-follow-redirects"
+         {:id "oss-patch-axios-unlimited-follow-redirect-body"
           :repo-id "axios"
           :result-scope :patch
           :coverage {:source-kinds [:javascript]}
@@ -134,18 +141,23 @@
                  :recall-lexical
                  :recall-semantic
                  :javascript]
-          :base-sha "30499d6af0961ec38619792013a534d1933b08a9"
-          :fix-sha "1792eda11aff8fe0f8c8a6e5ae6ff305740a6460"
+          :base-sha "c30252f685e8f4326722de84923fcbc8cf557f06"
+          :fix-sha "e9c9f3392b4a31e24b2bcb8399639de624a24386"
           :patch {:required? true
                   :verifiers [{:id "git-diff-check"
-                               :command "git diff --check"}]}
+                               :command "git diff --check"}
+                              {:id "hidden-behavior"
+                               :command "python3 \"$YGG_BENCH_SUITE_DIR/verifiers/oss_patch_behavior.py\" --case \"$YGG_BENCH_CASE_ID\""
+                               :visibility :hidden
+                               :kind :behavioral
+                               :timeout-ms 600000}]}
           :ground-truth {:localization-files ["lib/adapters/http.js"]}
           :expectations {:citation-evidence [{:kind :http-adapter-follow-redirects-boundary
                                               :path "lib/adapters/http.js"}]}
-          :issue {:id "axios-10993"
-                  :url "https://github.com/axios/axios/pull/10993"
-                  :title "fix: ensure maxBodyLength is explicitly passed to follow-redirects"
-                  :body "Real OSS patch replay of Axios commit 1792eda11aff8fe0f8c8a6e5ae6ff305740a6460. Fix the HTTP adapter so maxBodyLength is explicitly passed into the follow-redirects boundary. Use only the base checkout and issue text; do not inspect the fixing diff."}}
+          :issue {:id "axios-4263"
+                  :url "https://github.com/axios/axios/pull/4731"
+                  :title "Match default maxBodyLength values between axios and follow-redirects"
+                  :body "Real OSS patch replay of Axios commit e9c9f3392b4a31e24b2bcb8399639de624a24386. Axios treats the default maxBodyLength value -1 as unlimited, but follow-redirects applies its own 10 MB default when no override is passed. Preserve unlimited request bodies across that transport boundary. Use only the base checkout and issue text; do not inspect the fixing diff."}}
 
          {:id "oss-patch-dapper-reference-trimmer-dependencies"
           :repo-id "dapper"
@@ -170,7 +182,11 @@
           :fix-sha "72a54c475f75e18cb93cba0809d00a5e6e49efd9"
           :patch {:required? true
                   :verifiers [{:id "git-diff-check"
-                               :command "git diff --check"}]}
+                               :command "git diff --check"}
+                              {:id "hidden-behavior"
+                               :command "python3 \"$YGG_BENCH_SUITE_DIR/verifiers/oss_patch_behavior.py\" --case \"$YGG_BENCH_CASE_ID\""
+                               :visibility :hidden
+                               :kind :behavioral}]}
           :ground-truth {:localization-files ["Dapper.SqlBuilder/Dapper.SqlBuilder.csproj"
                                               "Directory.Packages.props"
                                               "benchmarks/Dapper.Tests.Performance/Dapper.Tests.Performance.csproj"]}
@@ -208,7 +224,11 @@
           :fix-sha "9368fb3f3c52d74534d14c1bef03c79c103356cd"
           :patch {:required? true
                   :verifiers [{:id "git-diff-check"
-                               :command "git diff --check"}]}
+                               :command "git diff --check"}
+                              {:id "hidden-behavior"
+                               :command "python3 \"$YGG_BENCH_SUITE_DIR/verifiers/oss_patch_behavior.py\" --case \"$YGG_BENCH_CASE_ID\""
+                               :visibility :hidden
+                               :kind :behavioral}]}
           :ground-truth {:localization-files ["src/flask/sansio/app.py"]}
           :expectations {:citation-evidence [{:kind :flask-autoescape-runtime
                                               :path "src/flask/sansio/app.py"}]}
@@ -244,7 +264,11 @@
           :fix-sha "9b583a0dd51061db2f459d4c53a5fc6731bbfbe5"
           :patch {:required? true
                   :verifiers [{:id "git-diff-check"
-                               :command "git diff --check"}]}
+                               :command "git diff --check"}
+                              {:id "hidden-behavior"
+                               :command "python3 \"$YGG_BENCH_SUITE_DIR/verifiers/oss_patch_behavior.py\" --case \"$YGG_BENCH_CASE_ID\""
+                               :visibility :hidden
+                               :kind :behavioral}]}
           :ground-truth {:localization-files ["graphify/__main__.py"
                                               "tests/test_read_hook.py"]}
           :expectations {:citation-evidence [{:kind :read-glob-hook
@@ -280,7 +304,11 @@
           :fix-sha "7a28ce8ec6a17a8ca52710e47763f3a52c155110"
           :patch {:required? true
                   :verifiers [{:id "git-diff-check"
-                               :command "git diff --check"}]}
+                               :command "git diff --check"}
+                              {:id "hidden-behavior"
+                               :command "uv run --quiet --with python-hcl2 python \"$YGG_BENCH_SUITE_DIR/verifiers/oss_patch_behavior.py\" --case \"$YGG_BENCH_CASE_ID\""
+                               :visibility :hidden
+                               :kind :behavioral}]}
           :ground-truth {:localization-files ["modules/vpc-endpoints/main.tf"]}
           :expectations {:citation-evidence [{:kind :terraform-vpc-endpoint-config
                                               :path "modules/vpc-endpoints/main.tf"}]}
@@ -317,7 +345,11 @@
           :fix-sha "79837275296612c2d896dd90ee028e70024f8323"
           :patch {:required? true
                   :verifiers [{:id "git-diff-check"
-                               :command "git diff --check"}]}
+                               :command "git diff --check"}
+                              {:id "hidden-behavior"
+                               :command "uv run --quiet --with sqlglot python \"$YGG_BENCH_SUITE_DIR/verifiers/oss_patch_behavior.py\" --case \"$YGG_BENCH_CASE_ID\""
+                               :visibility :hidden
+                               :kind :behavioral}]}
           :ground-truth {:localization-files ["nix/tests/sql/evtrigs.sql"
                                               "nix/tests/expected/evtrigs.out"]}
           :expectations {:citation-evidence [{:kind :sql-event-trigger-test
