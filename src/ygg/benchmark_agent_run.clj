@@ -438,7 +438,7 @@
   (->> top-files
        (filter #(some-> (:path %) str not-empty))
        (remove #(contains? excluded-paths (:path %)))
-       (take 3)))
+       (take 5)))
 
 (defn- terraform-declaration-pattern
   [{:keys [kind label]}]
