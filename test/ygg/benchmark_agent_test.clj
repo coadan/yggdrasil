@@ -1461,6 +1461,7 @@
                                                      :command "git diff --check"}
                                                     {:id "hidden-behavior"
                                                      :command "sh \"$YGG_BENCH_SUITE_DIR/hidden-verifier.sh\""
+                                                     :inputs ["hidden-verifier.sh"]
                                                      :visibility :hidden
                                                      :kind :behavioral}]}
                                 :ground-truth {:localization-files ["src/app.clj"]}
@@ -1481,6 +1482,7 @@
                    "! grep -q 'hidden-verifier' \"$YGG_BENCH_PROMPT\"\n"
                    "! grep -q 'hidden-behavior' \"$YGG_BENCH_PACKET\"\n"
                    "! grep -q 'hidden-verifier' \"$YGG_BENCH_PACKET\"\n"
+                   "grep -q 'behavioral regression checks run only after your process exits' \"$YGG_BENCH_PROMPT\"\n"
                    "cat > src/app.clj <<'EOF'\n"
                    "(ns app)\n(defn broken [] :fixed)\n"
                    "EOF\n"

@@ -249,21 +249,41 @@ def verify_supabase_event_trigger_query() -> None:
 
     query_path = ROOT / "nix/tests/sql/evtrigs.sql"
     query = parse_one(query_path.read_text(encoding="utf-8"), dialect="postgres")
-    aliases = {projection.alias_or_name for projection in query.expressions}
-    require("evtfunction_schema" in aliases, "event trigger function schema is not projected")
+    schema_projection = next(
+        (
+            projection
+            for projection in query.expressions
+            if any(column.name == "nspname" for column in projection.find_all(exp.Column))
+        ),
+        None,
+    )
+    require(schema_projection is not None, "event trigger function schema is not projected")
+    schema_column = schema_projection.alias_or_name
+    require(schema_column, "event trigger function schema projection has no stable column name")
+    schema_reference = next(
+        column for column in schema_projection.find_all(exp.Column) if column.name == "nspname"
+    )
+    namespace_alias = schema_reference.table
     joins = list(query.find_all(exp.Join))
-    require(any(join.this.alias_or_name == "n_func" for join in joins), "pg_namespace is not joined")
+    require(
+        any(
+            join.this.name == "pg_namespace" and join.this.alias_or_name == namespace_alias
+            for join in joins
+        ),
+        "projected function schema does not come from pg_namespace",
+    )
     join_sql = " ".join(join.sql(dialect="postgres") for join in joins)
     require(
-        "p.pronamespace = n_func.oid" in join_sql or "n_func.oid = p.pronamespace" in join_sql,
+        f"p.pronamespace = {namespace_alias}.oid" in join_sql
+        or f"{namespace_alias}.oid = p.pronamespace" in join_sql,
         "function namespace join does not follow pg_proc.pronamespace",
     )
 
     expected = (ROOT / "nix/tests/expected/evtrigs.out").read_text(encoding="utf-8")
     header = next(line for line in expected.splitlines() if "evtname" in line and "|" in line)
     columns = [column.strip() for column in header.split("|")]
-    require("evtfunction_schema" in columns, "expected result omits function schema")
-    schema_index = columns.index("evtfunction_schema")
+    require(schema_column in columns, "expected result omits the projected function schema")
+    schema_index = columns.index(schema_column)
     rows = [
         [column.strip() for column in line.split("|")]
         for line in expected.splitlines()
@@ -271,7 +291,22 @@ def verify_supabase_event_trigger_query() -> None:
     ]
     rows = [row for row in rows if len(row) == len(columns) and row[0] and set(row[0]) != {"-"}]
     require(len(rows) == 12, f"expected 12 event trigger rows, found {len(rows)}")
-    require(all(row[schema_index] for row in rows), "an event trigger row has no function schema")
+    expected_schemas = {
+        "issue_pg_net_access": "extensions",
+        "issue_pg_graphql_access": "extensions",
+        "issue_graphql_placeholder": "extensions",
+        "pgrst_ddl_watch": "extensions",
+        "pgrst_drop_watch": "extensions",
+        "graphql_watch_ddl": "graphql",
+        "graphql_watch_drop": "graphql",
+        "issue_pg_cron_access": "extensions",
+        "pg_tle_event_trigger_for_drop_function": "pgtle",
+        "pgaudit_ddl_command_end": "public",
+        "pgaudit_sql_drop": "public",
+        "pgsodium_trg_mask_update": "pgsodium",
+    }
+    actual_schemas = {row[0]: row[schema_index] for row in rows}
+    require(actual_schemas == expected_schemas, "event trigger function schemas do not match runtime state")
 
 
 VERIFIERS = {

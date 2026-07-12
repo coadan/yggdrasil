@@ -160,6 +160,9 @@
 (defn- task-shape
   [prepared]
   (let [result-scope (or (:resultScope prepared) "edit-files")
+        hidden-behavioral? (some #(and (= "hidden" (:visibility %))
+                                       (= "behavioral" (:kind %)))
+                                 (get-in prepared [:patch :verifiers]))
         visible-patch (some-> (:patch prepared)
                               (update :verifiers (fn [verifiers]
                                                    (->> verifiers
@@ -173,6 +176,9 @@
              :rules (task-rules result-scope)
              :expectedResultSchema agent-result-schema
              :resultContract (benchmark-agent-run/agent-result-contract)}
+      hidden-behavioral?
+      (assoc :withheldBehavioralVerification true)
+
       visible-patch
       (assoc :patch visible-patch)
 

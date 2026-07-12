@@ -438,7 +438,7 @@
   (->> top-files
        (filter #(some-> (:path %) str not-empty))
        (remove #(contains? excluded-paths (:path %)))
-       (take 5)))
+       (take 8)))
 
 (defn- terraform-declaration-pattern
   [{:keys [kind label]}]
@@ -600,6 +600,10 @@
          "Leave the patch in the worktree; do not commit it."
          "Write the result JSON after editing. The benchmark adds measured patchOutcome data itself."
          ""]
+        (when (get-in packet [:task :withheldBehavioralVerification])
+          ["Additional behavioral regression checks run only after your process exits; their fixtures and commands are intentionally withheld."
+           "Before finishing, run the narrowest project-native test or build that exercises the change. Follow mechanically coupled artifacts such as manifests, public API declarations, and snapshots or expected outputs when repository conventions connect them to the edited code."
+           ""])
         (when (seq verifiers)
           (concat
            ["Configured patch verifier commands:"]

@@ -372,6 +372,35 @@
                                 "do not inspect the fixing diff")
                 cases))))
 
+(deftest hidden-verifier-inputs-affect-score-fingerprint-not-agent-input
+  (let [root (temp-dir "ygg-hidden-verifier-fingerprint")
+        suite-path (io/file root "benchmark.edn")
+        verifier-path (io/file root "hidden-check.py")]
+    (spit verifier-path "print('v1')\n")
+    (spit suite-path
+          (pr-str {:id "hidden-verifier-fingerprint"
+                   :repos [{:id "repo" :root root}]
+                   :cases [{:id "case"
+                            :repo-id "repo"
+                            :result-scope :patch
+                            :base-sha "base"
+                            :fix-sha "fix"
+                            :patch {:required? true
+                                    :verifiers [{:id "behavior"
+                                                 :command "python3 hidden-check.py"
+                                                 :inputs ["hidden-check.py"]
+                                                 :visibility :hidden
+                                                 :kind :behavioral}]}
+                            :ground-truth {:localization-files ["src/app.py"]}
+                            :issue {:title "fix behavior"}}]}))
+    (let [suite (benchmark/read-suite suite-path)
+          case (first (:cases suite))
+          score-before (benchmark-prepare/case-fingerprint suite case)
+          agent-before (benchmark-prepare/agent-input-fingerprint suite case)]
+      (spit verifier-path "print('v2')\n")
+      (is (not= score-before (benchmark-prepare/case-fingerprint suite case)))
+      (is (= agent-before (benchmark-prepare/agent-input-fingerprint suite case))))))
+
 (deftest should-win-tags-require-composed-recall-and-class-coverage
   (let [suite-paths ["benchmarks/feature-planning.edn"
                      "benchmarks/decision-quality-pilot.edn"
