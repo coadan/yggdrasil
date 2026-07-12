@@ -256,22 +256,48 @@
 
 (defn- top-files-by-path
   [rows]
-  (->> rows
-       (filter :path)
-       (group-by row-path-key)
-       (map (fn [[path-key path-rows]]
-              [path-key (first-by #(long (or (:rank %) Long/MAX_VALUE))
-                                  path-rows)]))
-       (into {})))
+  (let [best-by-key (->> rows
+                         (filter :path)
+                         (group-by row-path-key)
+                         (map (fn [[path-key path-rows]]
+                                [path-key
+                                 (first-by #(long (or (:rank %)
+                                                      Long/MAX_VALUE))
+                                           path-rows)]))
+                         (into {}))
+        unique-by-path (->> (vals best-by-key)
+                            (group-by :path)
+                            (keep (fn [[path path-rows]]
+                                    (when (= 1 (count path-rows))
+                                      [path (first path-rows)])))
+                            (into {}))]
+    {:best-by-key best-by-key
+     :unique-by-path unique-by-path}))
+
+(defn- top-file-for-path
+  [top-files path-key]
+  (or (get-in top-files [:best-by-key path-key])
+      (get-in top-files [:unique-by-path (second path-key)])))
 
 (defn- query-kind-token-count
-  [query-token-set row]
+  [query-token-set rows]
   (count (set/intersection query-token-set
-                           (set (text/tokenize (:kind row))))))
+                           (set (mapcat #(text/tokenize (:kind %)) rows)))))
+
+(defn- matched-query-compound-token-pairs
+  [query-compound-token-pairs row]
+  (->> (set/intersection query-compound-token-pairs
+                         (set (text/compound-token-pairs
+                               (declaration-text row))))
+       sort
+       vec))
 
 (defn- prepared-localization-declaration
-  [query-tokens row]
-  (let [matched-tokens (matched-query-tokens query-tokens row)]
+  [query-tokens query-compound-token-pairs row]
+  (let [matched-tokens (matched-query-tokens query-tokens row)
+        matched-compound-token-pairs (matched-query-compound-token-pairs
+                                      query-compound-token-pairs
+                                      row)]
     (cond-> (select-keys row [:rank
                               :path
                               :repoId
@@ -282,7 +308,8 @@
                               :endLine
                               :score])
       true
-      (assoc :matchedTokens matched-tokens)
+      (assoc :matchedTokens matched-tokens
+             :matchedCompoundTokenPairs matched-compound-token-pairs)
       (:source-line row)
       (assoc :sourceLine (:source-line row))
       (:end-line row)
@@ -324,44 +351,49 @@
                               (long (or (get-in candidate
                                                 [:metrics :matchedTokenCount])
                                         0)))
-        kind-token-count (reduce + 0
-                                 (map #(query-kind-token-count query-token-set %)
-                                      declarations))
+        kind-token-count (query-kind-token-count query-token-set declarations)
+        compound-token-pair-count (long (or (get-in candidate
+                                                    [:metrics
+                                                     :matchedCompoundTokenPairCount])
+                                            0))
         best-declaration-score (reduce max 0.0 (map #(double (or (:score %) 0.0))
                                                     declarations))
         best-declaration-rank (reduce min Long/MAX_VALUE
                                       (map #(long (or (:rank %) Long/MAX_VALUE))
                                            declarations))
         file-candidate-rank (some-> candidate :fileCandidate :rank long)
-        file-candidate-score (double (or (some-> candidate
-                                                 :fileCandidate
-                                                 :score)
-                                         0.0))
-        top-file-rank (some-> candidate :topFile :rank long)
-        depth (path-depth (:path candidate))]
+        top-file-rank (some-> candidate :topFile :rank long)]
     (+ (if (pos? declaration-count) 20.0 0.0)
        (* 3.0 (min 4 kind-token-count))
        (* 1.5 matched-token-count)
+       (* 8.0 (min 3 compound-token-pair-count))
        (* 1.2 (min 5 declaration-count))
        (min 10.0 best-declaration-score)
-       (min 6.0 file-candidate-score)
        (if file-candidate-rank (/ 6.0 file-candidate-rank) 0.0)
        (if top-file-rank (/ 3.0 top-file-rank) 0.0)
        (if (< best-declaration-rank Long/MAX_VALUE)
          (/ 4.0 best-declaration-rank)
-         0.0)
-       (- (* 1.5 (max 0 (dec depth)))))))
+         0.0))))
 
 (defn- prepared-localization-candidate
-  [query-tokens query-token-set top-file-by-path file-candidate-by-path path-key rows]
+  [query-tokens
+   query-compound-token-pairs
+   query-token-set
+   top-file-by-path
+   file-candidate-by-path
+   path-key
+   rows]
   (let [declarations (->> rows
-                          (map #(prepared-localization-declaration query-tokens %))
+                          (map #(prepared-localization-declaration
+                                 query-tokens
+                                 query-compound-token-pairs
+                                 %))
                           (sort-by (juxt #(long (or (:rank %) Long/MAX_VALUE))
                                          #(long (or (:sourceLine %) Long/MAX_VALUE))
                                          :label))
                           vec)
         [_ path] path-key
-        top-file (get top-file-by-path path-key)
+        top-file (top-file-for-path top-file-by-path path-key)
         file-candidate (get file-candidate-by-path path-key)
         candidate (cond-> {:path path
                            :declarations declarations
@@ -369,11 +401,12 @@
                                      :pathDepth (path-depth path)
                                      :matchedTokenCount (count (set (mapcat :matchedTokens
                                                                             declarations)))
-                                     :kindQueryTokenCount (reduce + 0
-                                                                  (map #(query-kind-token-count
-                                                                         query-token-set
-                                                                         %)
-                                                                       rows))}}
+                                     :matchedCompoundTokenPairCount
+                                     (count (set (mapcat :matchedCompoundTokenPairs
+                                                         declarations)))
+                                     :kindQueryTokenCount (query-kind-token-count
+                                                           query-token-set
+                                                           rows)}}
                     (row-repo-key (or top-file file-candidate (first rows)))
                     (assoc :repoId (row-repo-key (or top-file file-candidate (first rows))))
                     top-file
@@ -391,7 +424,7 @@
 (defn- file-only-prepared-localization-candidate
   [query-token-set top-file-by-path path-key file-candidate]
   (let [[_ path] path-key
-        top-file (get top-file-by-path path-key)
+        top-file (top-file-for-path top-file-by-path path-key)
         candidate (cond-> {:path path
                            :declarations []
                            :metrics {:declarationCount 0
@@ -467,6 +500,8 @@
   [packet agent-result]
   (let [query-tokens (text/tokenize-all (:query packet))
         query-token-set (set query-tokens)
+        query-compound-token-pairs (set (text/compound-token-pairs
+                                         (:query packet)))
         declaration-rows (->> (or (seq (:sourceDeclarations packet))
                                   (seq (:candidateFiles packet)))
                               (filter source-declaration-row?)
@@ -478,6 +513,7 @@
         declaration-candidates (map (fn [[path-key rows]]
                                       (prepared-localization-candidate
                                        query-tokens
+                                       query-compound-token-pairs
                                        query-token-set
                                        top-file-by-path
                                        file-candidate-by-path

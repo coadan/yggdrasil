@@ -2469,7 +2469,12 @@
                 :search {:instrumentation {:grep-searches 2
                                            :grep-search-ms 17
                                            :grep-raw-matches 11}}
-                :candidateFiles []
+                :candidateFiles [{:rank 28
+                                  :repo "repo"
+                                  :path "main.tf"
+                                  :targetKind "file"
+                                  :label "generic issue URL"
+                                  :score 9.95}]
                 :docs []
                 :entities []
                 :edges []
@@ -2479,6 +2484,61 @@
                               :grep-search-ms 17
                               :grep-raw-matches 11}}
            (:search hints)))))
+
+(deftest prepared-localization-prefers-specific-compound-identifier
+  (let [root (temp-dir "ygg-bench-prepared-compound")
+        _ (spit-file! root "main.tf" "resource \"aws_vpc\" \"this\" {}\n")
+        _ (spit-file! root
+                      "modules/vpc-endpoints/main.tf"
+                      "resource \"aws_vpc_endpoint\" \"this\" {}\n")
+        prepared {:suite-id "suite"
+                  :case-id "case-1"
+                  :repo-id "repo"
+                  :project-id "project"
+                  :worktreeRoot root
+                  :coverage {:declaredSourceKinds ["terraform"]}}
+        packet {:query "fix aws_vpc_endpoint dns_record_ip_type in terraform module"
+                :sourceDeclarations
+                [{:rank 1
+                  :repoId "repo"
+                  :path "main.tf"
+                  :label "aws_vpc_dhcp_options.this"
+                  :kind "terraform-resource"
+                  :sourceLine 1}
+                 {:rank 2
+                  :repoId "repo"
+                  :path "main.tf"
+                  :label "aws_vpc_dhcp_options_association.this"
+                  :kind "terraform-resource"
+                  :sourceLine 2}
+                 {:rank 3
+                  :repoId "repo"
+                  :path "main.tf"
+                  :label "aws_vpc.this"
+                  :kind "terraform-resource"
+                  :sourceLine 3}
+                 {:rank 4
+                  :repoId "repo"
+                  :path "modules/vpc-endpoints/main.tf"
+                  :label "aws_vpc_endpoint.this"
+                  :kind "terraform-resource"
+                  :sourceLine 1}]
+                :docs [{:source {:path "modules/vpc-endpoints/main.tf"
+                                 :heading "aws_vpc_endpoint.this"
+                                 :lines [1 1]}
+                        :score 1.0
+                        :snippet "resource aws_vpc_endpoint this"
+                        :provenance "retrieved-doc"}]
+                :candidateFiles []
+                :entities []
+                :edges []
+                :warnings []}
+        hints (benchmark/context-packet->agent-hints prepared packet {})
+        candidate (first (get-in hints [:preparedLocalization :candidates]))]
+    (is (= "modules/vpc-endpoints/main.tf" (:path candidate)))
+    (is (= 2 (get-in candidate [:metrics :matchedCompoundTokenPairCount])))
+    (is (= 1 (get-in candidate [:metrics :kindQueryTokenCount])))
+    (is (= 1 (get-in candidate [:topFile :rank])))))
 
 (deftest context-packet-agent-result-uses-scanned-kind-for-extensionless-files
   (let [root (temp-dir "ygg-bench-extensionless-coverage")
