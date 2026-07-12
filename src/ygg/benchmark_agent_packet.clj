@@ -159,7 +159,12 @@
             "Do not inspect the fixing diff, PR body, post-fix commits, or ground-truth artifacts."])))
 (defn- task-shape
   [prepared]
-  (let [result-scope (or (:resultScope prepared) "edit-files")]
+  (let [result-scope (or (:resultScope prepared) "edit-files")
+        visible-patch (some-> (:patch prepared)
+                              (update :verifiers (fn [verifiers]
+                                                   (->> verifiers
+                                                        (remove #(= "hidden" (:visibility %)))
+                                                        vec))))]
     (cond-> {:kind (if (= "patch" result-scope)
                      "issue-patch"
                      "issue-localization")
@@ -168,8 +173,8 @@
              :rules (task-rules result-scope)
              :expectedResultSchema agent-result-schema
              :resultContract (benchmark-agent-run/agent-result-contract)}
-      (:patch prepared)
-      (assoc :patch (:patch prepared))
+      visible-patch
+      (assoc :patch visible-patch)
 
       (seq (:decisionCandidates prepared))
       (assoc :decisionCandidates (:decisionCandidates prepared)

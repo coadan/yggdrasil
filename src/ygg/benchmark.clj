@@ -815,8 +815,10 @@
        vec))
 
 (defn- run-worktree-command
-  [root command timeout-ms]
-  (benchmark-agent-run/run-process! command root {} timeout-ms))
+  ([root command timeout-ms]
+   (run-worktree-command root command {} timeout-ms))
+  ([root command env timeout-ms]
+   (benchmark-agent-run/run-process! command root env timeout-ms)))
 
 (defn- patch-file-row
   [multi-repo? repo-id path]
@@ -871,16 +873,27 @@
   [prepared verifier]
   (let [root (patch-verifier-root prepared verifier)
         command (:command verifier)
+        hidden? (= "hidden" (:visibility verifier))
+        suite-dir (some-> (:suitePath prepared) io/file .getParentFile .getCanonicalPath)
+        env (cond-> {"YGG_BENCH_WORKTREE" (or root "")
+                     "YGG_BENCH_CASE_ID" (:case-id prepared)
+                     "YGG_BENCH_REPO_ID" (or (:repoId verifier)
+                                             (:repo-id prepared))}
+              suite-dir (assoc "YGG_BENCH_SUITE_DIR" suite-dir))
         timeout-ms (long (or (:timeoutMs verifier)
                              default-patch-verifier-timeout-ms))]
     (if (and root command)
-      (let [result (run-worktree-command root command timeout-ms)]
+      (let [result (run-worktree-command root command env timeout-ms)]
         (cond-> {:id (:id verifier)
-                 :command command
+                 :visibility (:visibility verifier)
+                 :kind (:kind verifier)
                  :status (if (zero? (:exit result)) "passed" "failed")
                  :exit (:exit result)
                  :timedOut (boolean (:timedOut result))
                  :durationMs (:durationMs result)}
+          (not hidden?)
+          (assoc :command command)
+
           (:repoId verifier)
           (assoc :repoId (:repoId verifier))
 
@@ -890,7 +903,8 @@
           (not (str/blank? (:stderr result)))
           (assoc :stderr (:stderr result))))
       {:id (:id verifier)
-       :command command
+       :visibility (:visibility verifier)
+       :kind (:kind verifier)
        :status "failed"
        :exit -1
        :timedOut false

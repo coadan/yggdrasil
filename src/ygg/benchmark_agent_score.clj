@@ -956,10 +956,14 @@
           expected (vec (or (get-in prepared [:groundTruth :changedFiles]) []))
           actual (patch-changed-files outcome)
           verifiers (patch-verifiers outcome)
+          behavioral-verifiers (filter #(= "behavioral" (token-name (:kind %)))
+                                       verifiers)
           matched (matching-changed-files expected actual)
           missing (missing-changed-files expected actual)
           unexpected (unexpected-changed-files expected actual)
           verifier-passed (count (filter patch-verifier-passed? verifiers))
+          behavioral-verifier-passed (count (filter patch-verifier-passed?
+                                                    behavioral-verifiers))
           precision (ratio (count matched) (count actual))
           recall (ratio (count matched) (count expected))]
       {:configured true
@@ -972,21 +976,27 @@
        :unexpectedChangedFiles unexpected
        :verifiers verifiers
        :warnings (patch-scoring-warnings required? outcome actual verifiers)
-       :scores {:patchRequired (if required? 1 0)
-                :patchAttempted (if (seq actual) 1 0)
-                :patchAttemptRate (if (seq actual) 1.0 0.0)
-                :patchChangedFiles (count actual)
-                :patchExpectedChangedFiles (count expected)
-                :patchMatchedChangedFiles (count matched)
-                :patchUnexpectedChangedFiles (count unexpected)
-                :patchMissingChangedFiles (count missing)
-                :patchFileRecall recall
-                :patchFilePrecision precision
-                :patchFileF1 (f1 precision recall)
-                :patchVerifierCount (count verifiers)
-                :patchVerifierPassed verifier-passed
-                :patchVerifierPassRate (ratio verifier-passed
-                                              (count verifiers))}})))
+       :scores (cond-> {:patchRequired (if required? 1 0)
+                        :patchAttempted (if (seq actual) 1 0)
+                        :patchAttemptRate (if (seq actual) 1.0 0.0)
+                        :patchChangedFiles (count actual)
+                        :patchExpectedChangedFiles (count expected)
+                        :patchMatchedChangedFiles (count matched)
+                        :patchUnexpectedChangedFiles (count unexpected)
+                        :patchMissingChangedFiles (count missing)
+                        :patchFileRecall recall
+                        :patchFilePrecision precision
+                        :patchFileF1 (f1 precision recall)
+                        :patchVerifierCount (count verifiers)
+                        :patchVerifierPassed verifier-passed
+                        :patchVerifierPassRate (ratio verifier-passed
+                                                      (count verifiers))}
+                 (seq behavioral-verifiers)
+                 (assoc :patchBehavioralVerifierCount (count behavioral-verifiers)
+                        :patchBehavioralVerifierPassed behavioral-verifier-passed
+                        :patchBehavioralVerifierPassRate
+                        (ratio behavioral-verifier-passed
+                               (count behavioral-verifiers))))})))
 (defn- score-decision
   [prepared agent-result]
   (when (decision-configured? prepared)

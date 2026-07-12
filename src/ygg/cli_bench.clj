@@ -234,6 +234,11 @@
                                                                    (parse-optional-double
                                                                     args
                                                                     "--min-patch-verifier-pass-rate"))
+    (parse-optional-double args "--min-patch-behavioral-verifier-pass-rate") (assoc
+                                                                              :min-patch-behavioral-verifier-pass-rate
+                                                                              (parse-optional-double
+                                                                               args
+                                                                               "--min-patch-behavioral-verifier-pass-rate"))
     (parse-optional-double args "--max-total-tokens") (assoc
                                                        :max-total-tokens
                                                        (parse-optional-double
@@ -313,6 +318,11 @@
                                                                         (parse-optional-double
                                                                          args
                                                                          "--min-case-patch-verifier-pass-rate"))
+    (parse-optional-double args "--min-case-patch-behavioral-verifier-pass-rate") (assoc
+                                                                                   :min-case-patch-behavioral-verifier-pass-rate
+                                                                                   (parse-optional-double
+                                                                                    args
+                                                                                    "--min-case-patch-behavioral-verifier-pass-rate"))
     (parse-optional-double args "--max-case-total-tokens") (assoc
                                                             :max-case-total-tokens
                                                             (parse-optional-double
@@ -867,6 +877,9 @@
         (println "- patch-attempt-rate" (format "%.2f" (double rate))))
       (when-some [rate (get-in result [:scores :patchVerifierPassRate])]
         (println "- patch-verifier-pass-rate"
+                 (format "%.2f" (double rate))))
+      (when-some [rate (get-in result [:scores :patchBehavioralVerifierPassRate])]
+        (println "- patch-behavioral-verifier-pass-rate"
                  (format "%.2f" (double rate))))
       (print-parser-worker-summary (:parserWorkers result))
       (print-source-kind-score-summary (:sourceKindScores result))

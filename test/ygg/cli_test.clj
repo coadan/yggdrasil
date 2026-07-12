@@ -2366,6 +2366,7 @@
                                  "--min-patch-file-f1" "0.55"
                                  "--min-patch-attempt-rate" "0.8"
                                  "--min-patch-verifier-pass-rate" "1.0"
+                                 "--min-patch-behavioral-verifier-pass-rate" "0.9"
                                  "--max-total-tokens" "10000"
                                  "--max-input-tokens" "8000"
                                  "--max-output-tokens" "2500"
@@ -2380,6 +2381,7 @@
                                  "--min-case-patch-file-f1" "0.2"
                                  "--min-case-patch-attempted" "1.0"
                                  "--min-case-patch-verifier-pass-rate" "1.0"
+                                 "--min-case-patch-behavioral-verifier-pass-rate" "0.8"
                                  "--max-case-total-tokens" "4000"
                                  "--max-case-input-tokens" "3200"
                                  "--max-case-output-tokens" "1000"
@@ -2443,6 +2445,7 @@
                   :min-patch-file-f1 0.55
                   :min-patch-attempt-rate 0.8
                   :min-patch-verifier-pass-rate 1.0
+                  :min-patch-behavioral-verifier-pass-rate 0.9
                   :max-total-tokens 10000.0
                   :max-input-tokens 8000.0
                   :max-output-tokens 2500.0
@@ -2457,6 +2460,7 @@
                   :min-case-patch-file-f1 0.2
                   :min-case-patch-attempted 1.0
                   :min-case-patch-verifier-pass-rate 1.0
+                  :min-case-patch-behavioral-verifier-pass-rate 0.8
                   :max-case-total-tokens 4000.0
                   :max-case-input-tokens 3200.0
                   :max-case-output-tokens 1000.0

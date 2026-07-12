@@ -91,15 +91,27 @@
 (defn- normalize-patch-verifier
   [verifier]
   (let [id (normalize-id (:id verifier))
-        command (some-> (:command verifier) str str/trim not-empty)]
+        command (some-> (:command verifier) str str/trim not-empty)
+        visibility (name (keyword (or (:visibility verifier) :public)))
+        kind (name (keyword (or (:kind verifier) :structural)))]
     (when (benchmark-util/blankish? id)
       (throw (ex-info "Patch verifier is missing :id."
                       {:verifier verifier})))
     (when-not command
       (throw (ex-info "Patch verifier is missing :command."
                       {:verifier verifier})))
+    (when-not (contains? #{"public" "hidden"} visibility)
+      (throw (ex-info "Patch verifier has unsupported :visibility."
+                      {:verifier verifier
+                       :supported ["public" "hidden"]})))
+    (when-not (contains? #{"structural" "behavioral"} kind)
+      (throw (ex-info "Patch verifier has unsupported :kind."
+                      {:verifier verifier
+                       :supported ["structural" "behavioral"]})))
     (cond-> {:id id
-             :command command}
+             :command command
+             :visibility visibility
+             :kind kind}
       (:repo-id verifier) (assoc :repoId (str (:repo-id verifier)))
       (:repoId verifier) (assoc :repoId (str (:repoId verifier)))
       (:timeout-ms verifier) (assoc :timeoutMs (long (:timeout-ms verifier)))
@@ -112,6 +124,14 @@
       (cond-> {:required (boolean (:required? patch))
                :verifiers verifiers}
         (:policy patch) (assoc :policy (name (:policy patch)))))))
+
+(defn- agent-visible-patch-config
+  [case]
+  (some-> (patch-config case)
+          (update :verifiers (fn [verifiers]
+                               (->> verifiers
+                                    (remove #(= "hidden" (:visibility %)))
+                                    vec)))))
 
 (defn run-git!
   [repo-root args]
@@ -539,7 +559,7 @@
    :result-scope (:result-scope case)
    :query-text (issue-text case)
    :decision-candidates (decision-candidates case)
-   :patch (patch-config case)
+   :patch (agent-visible-patch-config case)
    :coverage {:source-kinds (declared-source-kinds case)}})
 
 (defn- fingerprint
@@ -585,6 +605,7 @@
         truth (merge truth coverage-filter)]
     (cond-> {:schema prepared-case-schema
              :suite-id (:id suite)
+             :suitePath (:path suite)
              :case-id (:id case)
              :repo-id (:id repo)
              :repoIds (mapv :id repos)

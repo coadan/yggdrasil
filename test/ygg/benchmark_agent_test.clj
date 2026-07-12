@@ -1438,6 +1438,7 @@
         out (temp-dir "ygg-bench-agent-patch-out")
         suite-dir (temp-dir "ygg-bench-agent-patch-suite")
         suite-path (.getPath (io/file suite-dir "benchmark.edn"))
+        hidden-verifier-path (.getPath (io/file suite-dir "hidden-verifier.sh"))
         script-path (.getPath (io/file suite-dir "patch-agent.sh"))]
     (git! root "init")
     (git! root "config" "user.email" "ygg@example.test")
@@ -1457,16 +1458,29 @@
                                 :fix-sha fix-sha
                                 :patch {:required? true
                                         :verifiers [{:id "git-diff-check"
-                                                     :command "git diff --check"}]}
+                                                     :command "git diff --check"}
+                                                    {:id "hidden-behavior"
+                                                     :command "sh \"$YGG_BENCH_SUITE_DIR/hidden-verifier.sh\""
+                                                     :visibility :hidden
+                                                     :kind :behavioral}]}
                                 :ground-truth {:localization-files ["src/app.clj"]}
                                 :issue {:id 1
                                         :title "broken app"
                                         :body "The app returns the old value."}}]}))
+        (spit hidden-verifier-path
+              (str "set -e\n"
+                   "test \"$PWD\" = \"$YGG_BENCH_WORKTREE\"\n"
+                   "test \"$YGG_BENCH_CASE_ID\" = case-1\n"
+                   "grep -q ':fixed' src/app.clj\n"))
         (spit script-path
               (str "set -e\n"
                    "grep -q 'Issue Patch Benchmark' \"$YGG_BENCH_PROMPT\"\n"
                    "! grep -q 'Localization only. Do not patch files.' \"$YGG_BENCH_PROMPT\"\n"
                    "grep -q 'git diff --check' \"$YGG_BENCH_PROMPT\"\n"
+                   "! grep -q 'hidden-behavior' \"$YGG_BENCH_PROMPT\"\n"
+                   "! grep -q 'hidden-verifier' \"$YGG_BENCH_PROMPT\"\n"
+                   "! grep -q 'hidden-behavior' \"$YGG_BENCH_PACKET\"\n"
+                   "! grep -q 'hidden-verifier' \"$YGG_BENCH_PACKET\"\n"
                    "cat > src/app.clj <<'EOF'\n"
                    "(ns app)\n(defn broken [] :fixed)\n"
                    "EOF\n"
@@ -1507,11 +1521,21 @@
                  (get-in run [:patchOutcome :changedFiles])))
           (is (= "passed"
                  (get-in run [:patchOutcome :verifiers 0 :status])))
+          (is (= {:id "hidden-behavior"
+                  :visibility "hidden"
+                  :kind "behavioral"
+                  :status "passed"}
+                 (select-keys (get-in run [:patchOutcome :verifiers 1])
+                              [:id :visibility :kind :status])))
+          (is (not (contains? (get-in run [:patchOutcome :verifiers 1])
+                              :command)))
           (is (= "changed" (get-in agent-result [:patchOutcome :status])))
           (is (= 1.0 (get-in score [:scores :patchFileRecall])))
           (is (= 1.0 (get-in score [:scores :patchFilePrecision])))
           (is (= 1.0 (get-in score [:scores :patchAttemptRate])))
           (is (= 1.0 (get-in score [:scores :patchVerifierPassRate])))
+          (is (= 1 (get-in score [:scores :patchBehavioralVerifierCount])))
+          (is (= 1.0 (get-in score [:scores :patchBehavioralVerifierPassRate])))
           (is (= ["src/app.clj"]
                  (get-in score [:patchScoring :matchedChangedFiles])))
           (is (not (contains? (get-in output-schema [:properties])

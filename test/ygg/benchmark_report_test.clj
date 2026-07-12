@@ -397,6 +397,7 @@
                           :patchFilePrecision 1.0
                           :patchFileF1 1.0
                           :patchVerifierPassRate 1.0
+                          :patchBehavioralVerifierPassRate 1.0
                           :patchRequired 1
                           :patchAttempted 1
                           :patchChangedFiles 2
@@ -405,7 +406,9 @@
                           :patchUnexpectedChangedFiles 0
                           :patchMissingChangedFiles 0
                           :patchVerifierCount 1
-                          :patchVerifierPassed 1}})
+                          :patchVerifierPassed 1
+                          :patchBehavioralVerifierCount 1
+                          :patchBehavioralVerifierPassed 1}})
     (spit-json! out
                 "suite/cases/case-1/agent-scores/run-2.score.json"
                 {:schema benchmark/agent-score-schema
@@ -437,6 +440,7 @@
                           :patchFilePrecision 0.0
                           :patchFileF1 0.0
                           :patchVerifierPassRate 0.0
+                          :patchBehavioralVerifierPassRate 0.0
                           :patchRequired 1
                           :patchAttempted 0
                           :patchChangedFiles 0
@@ -445,7 +449,9 @@
                           :patchUnexpectedChangedFiles 0
                           :patchMissingChangedFiles 1
                           :patchVerifierCount 1
-                          :patchVerifierPassed 0}})
+                          :patchVerifierPassed 0
+                          :patchBehavioralVerifierCount 1
+                          :patchBehavioralVerifierPassed 0}})
     (spit-json! out
                 "suite/cases/case-1/progress.json"
                 {:schema "ygg.benchmark.case-progress/v1"
@@ -489,6 +495,7 @@
       (is (= 0.5 (get-in report [:scores :patchFileF1])))
       (is (= 0.5 (get-in report [:scores :patchAttemptRate])))
       (is (= 0.5 (get-in report [:scores :patchVerifierPassRate])))
+      (is (= 0.5 (get-in report [:scores :patchBehavioralVerifierPassRate])))
       (is (= 2 (get-in report [:scores :patchRequired])))
       (is (= 1 (get-in report [:scores :patchAttempted])))
       (is (= 2 (get-in report [:scores :patchChangedFiles])))
@@ -497,6 +504,8 @@
       (is (= 1 (get-in report [:scores :patchMissingChangedFiles])))
       (is (= 2 (get-in report [:scores :patchVerifierCount])))
       (is (= 1 (get-in report [:scores :patchVerifierPassed])))
+      (is (= 2 (get-in report [:scores :patchBehavioralVerifierCount])))
+      (is (= 1 (get-in report [:scores :patchBehavioralVerifierPassed])))
       (is (= [{:mode "all"
                :source "option"
                :runs 1
@@ -3244,40 +3253,47 @@
                 :scores {:patchFileRecall 0.5
                          :patchFileF1 0.4
                          :patchAttemptRate 0.5
-                         :patchVerifierPassRate 0.5}
+                         :patchVerifierPassRate 0.5
+                         :patchBehavioralVerifierPassRate 0.5}
                 :results [{:case-id "case-1"
                            :agent {:agentId "codex"
                                    :mode "ygg"}
                            :scores {:patchFileRecall 1.0
                                     :patchFileF1 0.8
                                     :patchAttempted 1
-                                    :patchVerifierPassRate 1.0}}
+                                    :patchVerifierPassRate 1.0
+                                    :patchBehavioralVerifierPassRate 1.0}}
                           {:case-id "case-2"
                            :agent {:agentId "codex"
                                    :mode "ygg"}
                            :scores {:patchFileRecall 0.0
                                     :patchFileF1 0.0
                                     :patchAttempted 0
-                                    :patchVerifierPassRate 0.0}}]}
+                                    :patchVerifierPassRate 0.0
+                                    :patchBehavioralVerifierPassRate 0.0}}]}
         failed (benchmark/check-agent-report
                 report
                 {:min-patch-file-recall 0.75
                  :min-patch-file-f1 0.75
                  :min-patch-attempt-rate 1.0
                  :min-patch-verifier-pass-rate 1.0
+                 :min-patch-behavioral-verifier-pass-rate 1.0
                  :min-case-patch-file-recall 0.5
                  :min-case-patch-file-f1 0.5
                  :min-case-patch-attempted 1.0
-                 :min-case-patch-verifier-pass-rate 1.0})]
+                 :min-case-patch-verifier-pass-rate 1.0
+                 :min-case-patch-behavioral-verifier-pass-rate 1.0})]
     (is (= "failed" (:status failed)))
     (is (= #{"patchFileRecall"
              "patchFileF1"
              "patchAttemptRate"
              "patchVerifierPassRate"
+             "patchBehavioralVerifierPassRate"
              "case.patchFileRecall"
              "case.patchFileF1"
              "case.patchAttempted"
-             "case.patchVerifierPassRate"}
+             "case.patchVerifierPassRate"
+             "case.patchBehavioralVerifierPassRate"}
            (set (map :metric (:failures failed)))))
     (is (= {:case-id "case-2"
             :agentId "codex"
@@ -3289,19 +3305,23 @@
             :minPatchFileF1 0.75
             :minPatchAttemptRate 1.0
             :minPatchVerifierPassRate 1.0
+            :minPatchBehavioralVerifierPassRate 1.0
             :minCasePatchFileRecall 0.5
             :minCasePatchFileF1 0.5
             :minCasePatchAttempted 1.0
-            :minCasePatchVerifierPassRate 1.0}
+            :minCasePatchVerifierPassRate 1.0
+            :minCasePatchBehavioralVerifierPassRate 1.0}
            (select-keys (:thresholds failed)
                         [:minPatchFileRecall
                          :minPatchFileF1
                          :minPatchAttemptRate
                          :minPatchVerifierPassRate
+                         :minPatchBehavioralVerifierPassRate
                          :minCasePatchFileRecall
                          :minCasePatchFileF1
                          :minCasePatchAttempted
-                         :minCasePatchVerifierPassRate])))))
+                         :minCasePatchVerifierPassRate
+                         :minCasePatchBehavioralVerifierPassRate])))))
 
 (deftest checks-agent-report-token-thresholds
   (let [report {:schema benchmark/agent-report-schema

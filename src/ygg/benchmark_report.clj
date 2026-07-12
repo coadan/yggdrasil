@@ -111,7 +111,8 @@
   [:patchFileRecall
    :patchFilePrecision
    :patchFileF1
-   :patchVerifierPassRate])
+   :patchVerifierPassRate
+   :patchBehavioralVerifierPassRate])
 
 (def ^:private aggregate-patch-count-score-keys
   [:patchRequired
@@ -122,7 +123,9 @@
    :patchUnexpectedChangedFiles
    :patchMissingChangedFiles
    :patchVerifierCount
-   :patchVerifierPassed])
+   :patchVerifierPassed
+   :patchBehavioralVerifierCount
+   :patchBehavioralVerifierPassed])
 
 (defn- average
   [values]

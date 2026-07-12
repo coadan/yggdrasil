@@ -42,6 +42,8 @@
                  [:min-patch-attempt-rate :minPatchAttemptRate]
                  [:min-patch-verifier-pass-rate
                   :minPatchVerifierPassRate]
+                 [:min-patch-behavioral-verifier-pass-rate
+                  :minPatchBehavioralVerifierPassRate]
                  [:max-total-tokens :maxTotalTokens]
                  [:max-input-tokens :maxInputTokens]
                  [:max-output-tokens :maxOutputTokens]
@@ -61,6 +63,8 @@
                  [:min-case-patch-attempted :minCasePatchAttempted]
                  [:min-case-patch-verifier-pass-rate
                   :minCasePatchVerifierPassRate]
+                 [:min-case-patch-behavioral-verifier-pass-rate
+                  :minCasePatchBehavioralVerifierPassRate]
                  [:max-case-total-tokens :maxCaseTotalTokens]
                  [:max-case-input-tokens :maxCaseInputTokens]
                  [:max-case-output-tokens :maxCaseOutputTokens]
@@ -324,7 +328,10 @@
                  "case.patchAttempted"]
                 [:minCasePatchVerifierPassRate
                  :patchVerifierPassRate
-                 "case.patchVerifierPassRate"]])
+                 "case.patchVerifierPassRate"]
+                [:minCasePatchBehavioralVerifierPassRate
+                 :patchBehavioralVerifierPassRate
+                 "case.patchBehavioralVerifierPassRate"]])
          (keep (fn [[threshold-key metric-key metric-label]]
                  (case-max-failure check result threshold-key metric-key metric-label))
                [[:maxCaseNoiseRatioAt20 :noiseRatioAt20 "case.noiseRatioAt20"]])
@@ -1041,7 +1048,10 @@
                            "patchAttemptRate"]
                           [:minPatchVerifierPassRate
                            :patchVerifierPassRate
-                           "patchVerifierPassRate"]])
+                           "patchVerifierPassRate"]
+                          [:minPatchBehavioralVerifierPassRate
+                           :patchBehavioralVerifierPassRate
+                           "patchBehavioralVerifierPassRate"]])
                    (keep (fn [[threshold-key metric-path metric-label]]
                            (max-failure check-base
                                         threshold-key
