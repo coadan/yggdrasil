@@ -35,6 +35,14 @@
     (is (str/includes? (:err response) "ygg start"))
     (is (str/includes? (:err response) "ygg-mcp"))))
 
+(deftest native-image-includes-shared-mcp-manifest
+  (let [config (json/read-json
+                (slurp (io/resource
+                        "META-INF/native-image/yggdrasil/ygg/resource-config.json"))
+                :key-fn keyword)
+        patterns (set (map :pattern (get-in config [:resources :includes])))]
+    (is (contains? patterns "ygg/mcp-manifest\\.json"))))
+
 (deftest server-context-uses-canonical-config-flag
   (is (= "project.edn"
          (:config-path (mcp/server-context ["--config" "project.edn"]))))

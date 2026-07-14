@@ -3,6 +3,9 @@
     "includes": [
       {
         "pattern": "ygg/report-ui/.*"
+      },
+      {
+        "pattern": "ygg/mcp-manifest\\.json"
       }
     ]
   }
