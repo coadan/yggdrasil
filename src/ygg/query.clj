@@ -1370,36 +1370,22 @@
     (vec
      (for [repo-id repo-ids
            :let [root (get repo-roots repo-id)
-                 pattern-results (mapv (fn [pattern]
-                                         (let [weight (grep-pattern-weight pattern)]
-                                           (assoc (ripgrep/search-counts-many
-                                                   root
-                                                   [pattern]
-                                                   []
-                                                   search-opts)
-                                                  :pattern pattern
-                                                  :pattern-weight weight)))
-                                       patterns)
-                 matches-by-path (->> pattern-results
-                                      (mapcat (fn [{:keys [pattern-weight matches]}]
-                                                (map #(assoc %
-                                                             :weighted-count
-                                                             (* (double pattern-weight)
-                                                                (Math/log1p
-                                                                 (double (or (:count %) 1)))))
-                                                     matches)))
-                                      (group-by :path)
-                                      (mapv (fn [[path matches]]
-                                              {:path path
-                                               :count (reduce + 0 (map :count matches))
-                                               :weighted-count (reduce + 0.0 (map :weighted-count matches))})))]]
+                 pattern-weight (reduce max 1.0 (map grep-pattern-weight patterns))
+                 result (ripgrep/search-counts-many root patterns [] search-opts)
+                 matches-by-path (mapv (fn [{:keys [path count]}]
+                                         {:path path
+                                          :count count
+                                          :weighted-count
+                                          (* (double pattern-weight)
+                                             (Math/log1p (double (or count 1))))})
+                                       (:matches result))]]
        {:repo-id repo-id
         :matches matches-by-path
-        :match-count (reduce + 0 (map :match-count pattern-results))
+        :match-count (:match-count result)
         :file-count (count matches-by-path)
-        :elapsed-ms (reduce + 0 (map :elapsed-ms pattern-results))
-        :search-count (count pattern-results)
-        :diagnostics (mapcat :diagnostics pattern-results)}))))
+        :elapsed-ms (:elapsed-ms result)
+        :search-count 1
+        :diagnostics (:diagnostics result)}))))
 
 (defn- grep-match-counts
   [search-results]
