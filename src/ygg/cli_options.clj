@@ -23,6 +23,28 @@
                  value)))
        vec))
 
+(defn- comma-keywords
+  [value]
+  (->> (str/split (str value) #",")
+       (map str/trim)
+       (remove str/blank?)
+       (map keyword)
+       vec))
+
+(defn query-input-options
+  "Return the canonical structured query input parsed from CLI arguments."
+  [args]
+  (cond-> {:task (keyword (or (option-value args "--task") "auto"))
+           :anchors (option-values args "--anchor")
+           :symbols (option-values args "--symbol")
+           :literals (option-values args "--literal")
+           :changed-only? (boolean (some #{"--changed-only"} args))}
+    (option-value args "--lanes")
+    (assoc :lanes (comma-keywords (option-value args "--lanes")))
+
+    (option-value args "--since")
+    (assoc :since (option-value args "--since"))))
+
 (defn parse-case-ids
   [args]
   (some->> (option-value args "--cases")

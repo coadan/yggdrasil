@@ -12,7 +12,8 @@
                                      parse-optional-double
                                      parse-optional-long
                                      positional-args
-                                     project-scope]]
+                                     project-scope
+                                     query-input-options]]
             [ygg.cli-query :as cli-query]
             [ygg.cli-start :as cli-start]
             [ygg.cli-sync :as cli-sync]
@@ -108,27 +109,6 @@
                                        :config-path config-path
                                        :summary? true})]
       (evidence/packet-freshness summary))))
-
-(defn- comma-keywords
-  [value]
-  (->> (str/split (str value) #",")
-       (map str/trim)
-       (remove str/blank?)
-       (map keyword)
-       vec))
-
-(defn- query-input-options
-  [args]
-  (cond-> {:task (keyword (or (option-value args "--task") "auto"))
-           :anchors (option-values args "--anchor")
-           :symbols (option-values args "--symbol")
-           :literals (option-values args "--literal")
-           :changed-only? (boolean (some #{"--changed-only"} args))}
-    (option-value args "--lanes")
-    (assoc :lanes (comma-keywords (option-value args "--lanes")))
-
-    (option-value args "--since")
-    (assoc :since (option-value args "--since"))))
 
 (defn- context-packet-options
   [xtdb args {:keys [project-id repo-id retriever embedding-client semantic-status

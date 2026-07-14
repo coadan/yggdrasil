@@ -7,9 +7,11 @@
                                      parse-optional-double
                                      positional-args
                                      project-scope
+                                     query-input-options
                                      remove-option]]
             [ygg.context :as context]
             [ygg.embedding-client :as embedding-client]
+            [ygg.filesystem-query :as filesystem-query]
             [ygg.graph :as graph]
             [ygg.hash :as hash]
             [ygg.llm.openai-compatible :as llm]
@@ -130,12 +132,6 @@
                            :startedAtMs
                            :elapsedMs])))
 
-(defn- print-active-indexing-warning
-  []
-  (when (active-indexing)
-    (binding [*out* *err*]
-      (println "Warning:" context/indexing-degradation-message))))
-
 (defn print-embed-summary
   [{:keys [provider model search-docs pending embedded skipped]}]
   (println "# Embeddings")
@@ -172,9 +168,18 @@
 (defn- resolved-project
   [args]
   (try
-    (:project (registry/resolve-project {:project-id (option-value args "--project")
-                                         :config-path (option-value args "--config")
-                                         :cwd (System/getProperty "user.dir")}))
+    (if-let [config-path (option-value args "--config")]
+      (let [resolved (project/read-project config-path)
+            requested-id (option-value args "--project")]
+        (when (and requested-id
+                   (not= (str requested-id) (str (:id resolved))))
+          (throw (ex-info "--config project id does not match --project."
+                          {:config config-path
+                           :config-project-id (:id resolved)
+                           :project-id requested-id})))
+        resolved)
+      (:project (registry/resolve-project {:project-id (option-value args "--project")
+                                           :cwd (System/getProperty "user.dir")})))
     (catch Exception e
       (when (explicit-config-selection? args)
         (throw e))
@@ -507,56 +512,120 @@
      :embedding-client embedding-client
      :semantic-status semantic-status
      :fts-weight (parse-optional-double args "--fts-weight")}))
+
+(defn- fallback-operation
+  [operation]
+  (not-empty (select-keys operation
+                          [:schema
+                           :op
+                           :projectId
+                           :lockKey
+                           :scheduleId
+                           :task
+                           :startedAtMs
+                           :elapsedMs])))
+
+(defn- active-fallback-status
+  [operation]
+  (if (= "embed" (str (:op operation)))
+    {:reason :active-embedding
+     :message (str "Embedding is active; search is using bounded filesystem evidence. "
+                   "Semantic and graph-enriched results will become available automatically.")}
+    {:reason :active-indexing
+     :message (str "Indexing is active; search is using bounded filesystem evidence. "
+                   "Graph-enriched results will become available automatically.")}))
+
+(defn- cwd-fallback-project
+  [project-id repo-id]
+  {:id (or project-id "workspace")
+   :repos [{:id (or repo-id "workspace")
+            :root (System/getProperty "user.dir")}]})
+
+(defn- active-filesystem-fallback
+  [args query-text project-id repo-id]
+  (when-let [operation (active-indexing)]
+    (let [{:keys [reason message]} (active-fallback-status operation)
+          input (query-input-options args)
+          project (or (resolved-project args)
+                      (cwd-fallback-project project-id repo-id))]
+      (filesystem-query/search-project
+       project
+       query-text
+       {:repo-id repo-id
+        :retriever (keyword (or (option-value args "--retriever") "auto"))
+        :query-input input
+        :literals (:literals input)
+        :symbols (:symbols input)
+        :limit (or (parse-limit args) query/default-limit)
+        :reason reason
+        :message message
+        :operation (fallback-operation operation)}))))
+
+(defn- print-filesystem-fallback
+  [{:keys [rows packet]}]
+  (binding [*out* *err*]
+    (println "Warning:" (get-in packet [:degradation :message])))
+  (if (seq rows)
+    (doseq [{:keys [score path count]} rows]
+      (println (format "%.2f  file  %s" score path))
+      (println "      " path)
+      (println "       " (str "filesystem fixed-string match (" count
+                              (if (= 1 count) " match)" " matches)"))))
+    (println "No filesystem query results.")))
+
 (defn query-with-node!
   [xtdb args]
   (let [query-text (str/join " " (positional-args args))
-        {:keys [retriever embedding-client semantic-status fts-weight]} (retrieval-options args)
-        {:keys [project-id repo-id]} (project-scope args)
-        temporal (temporal-options args)
-        progress-fn (or (:progress-fn *deps*) (query-progress-fn args))]
+        {:keys [project-id repo-id]} (project-scope args)]
     (when (str/blank? query-text)
       (throw (ex-info "Missing query text." {:usage (usage)})))
-    (if (json-output? args)
-      (print-json
-       (context/context-packet xtdb
-                               query-text
-                               (context-packet-options xtdb
-                                                       args
-                                                       {:project-id project-id
-                                                        :repo-id repo-id
-                                                        :retriever retriever
-                                                        :embedding-client embedding-client
-                                                        :semantic-status semantic-status
-                                                        :fts-weight fts-weight
-                                                        :read-context temporal
-                                                        :progress-fn progress-fn})))
-      (let [results (query/semantic-query xtdb
-                                          query-text
-                                          {:limit (or (parse-limit args) 10)
-                                           :retriever retriever
-                                           :embedding-client embedding-client
-                                           :semantic-status semantic-status
-                                           :fts-weight fts-weight
-                                           :project-id project-id
-                                           :repo-id repo-id
-                                           :read-context temporal
-                                           :progress-fn progress-fn})]
-        (if (seq results)
-          (do
-            (print-active-indexing-warning)
-            (doseq [result results]
-              (print-query-result result)))
-          (print-query-no-results xtdb
-                                  query-text
-                                  {:project-id project-id
-                                   :repo-id repo-id
-                                   :retriever retriever
-                                   :embedding-client embedding-client
-                                   :semantic-status semantic-status
-                                   :fts-weight fts-weight
-                                   :temporal temporal
-                                   :args args
-                                   :progress-fn progress-fn}))))))
+    (if-let [fallback (active-filesystem-fallback args query-text project-id repo-id)]
+      (if (json-output? args)
+        (print-json (:packet fallback))
+        (print-filesystem-fallback fallback))
+      (let [{:keys [retriever embedding-client semantic-status fts-weight]}
+            (retrieval-options args)
+            temporal (temporal-options args)
+            progress-fn (or (:progress-fn *deps*) (query-progress-fn args))]
+        (if (json-output? args)
+          (print-json
+           (context/context-packet xtdb
+                                   query-text
+                                   (context-packet-options xtdb
+                                                           args
+                                                           {:project-id project-id
+                                                            :repo-id repo-id
+                                                            :retriever retriever
+                                                            :embedding-client embedding-client
+                                                            :semantic-status semantic-status
+                                                            :fts-weight fts-weight
+                                                            :read-context temporal
+                                                            :progress-fn progress-fn})))
+          (let [results (query/semantic-query xtdb
+                                              query-text
+                                              {:limit (or (parse-limit args) 10)
+                                               :retriever retriever
+                                               :embedding-client embedding-client
+                                               :semantic-status semantic-status
+                                               :fts-weight fts-weight
+                                               :project-id project-id
+                                               :repo-id repo-id
+                                               :read-context temporal
+                                               :progress-fn progress-fn})]
+            (if (seq results)
+              (doseq [result results]
+                (print-query-result result))
+              (print-query-no-results xtdb
+                                      query-text
+                                      {:project-id project-id
+                                       :repo-id repo-id
+                                       :retriever retriever
+                                       :embedding-client embedding-client
+                                       :semantic-status semantic-status
+                                       :fts-weight fts-weight
+                                       :temporal temporal
+                                       :args args
+                                       :progress-fn progress-fn}))))))))
 
 (defn- args-with-project
   [args]

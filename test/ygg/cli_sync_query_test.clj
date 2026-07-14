@@ -9,6 +9,7 @@
             [ygg.coverage :as coverage]
             [ygg.dependency-review :as dependency-review]
             [ygg.evidence :as evidence]
+            [ygg.filesystem-query :as filesystem-query]
             [ygg.graph :as graph]
             [ygg.index-maintenance :as index-maintenance]
             [ygg.infra-review :as infra-review]
@@ -1596,15 +1597,19 @@
       (is (str/includes? out "lexical match"))
       (is (= "" (str err))))))
 
-(deftest query-plain-success-warns-when-indexing-is-active
+(deftest query-plain-routes-to-filesystem-while-indexing-is-active
   (with-redefs [store/with-node (fn [_ f] (f :xtdb))
-                query/semantic-query (fn [_ _ _]
-                                       [{:score 1.0
-                                         :result-kind :node
-                                         :label "Auth"
-                                         :path "src/auth.clj"
-                                         :source-line 7
-                                         :reason "lexical match"}])
+                filesystem-query/search-project
+                (fn [project query-text opts]
+                  (is (= "fixture" (:id project)))
+                  (is (= "auth" query-text))
+                  (is (= :active-indexing (:reason opts)))
+                  {:rows [{:score 1.0
+                           :path "src/auth.clj"
+                           :count 3}]
+                   :packet {:degradation {:message (:message opts)}}})
+                query/semantic-query (fn [& _]
+                                       (throw (ex-info "graph query should not run" {})))
                 context/context-packet (fn [& _]
                                          (throw (ex-info "unexpected context packet" {})))]
     (let [err (java.io.StringWriter.)
@@ -1625,9 +1630,49 @@
                    ["auth"
                     "--project" "fixture"
                     "--retriever" "lexical"])))]
-      (is (str/includes? out "Auth"))
-      (is (str/includes? out "lexical match"))
-      (is (str/includes? (str err) context/indexing-degradation-message)))))
+      (is (str/includes? out "src/auth.clj"))
+      (is (str/includes? out "filesystem fixed-string match (3 matches)"))
+      (is (str/includes? (str err) "Indexing is active")))))
+
+(deftest query-json-routes-to-filesystem-while-embedding-is-active
+  (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                filesystem-query/search-project
+                (fn [_ query-text opts]
+                  {:rows []
+                   :packet {:schema filesystem-query/schema
+                            :query query-text
+                            :retrieval {:requested (:retriever opts)
+                                        :effective :filesystem
+                                        :fallback? true
+                                        :reason (:reason opts)}
+                            :degradation {:reason (:reason opts)
+                                          :operation (:operation opts)}}})
+                context/context-packet (fn [& _]
+                                         (throw (ex-info "graph context should not run" {})))]
+    (let [out (with-out-str
+                (binding [cli-query/*deps* {:usage (fn [] "")
+                                            :print-json #(println
+                                                          (json/write-json-str %))
+                                            :temporal-options (fn [_] {})
+                                            :context-packet-options
+                                            (fn [_ _ opts] opts)
+                                            :active-indexing
+                                            {:schema
+                                             "ygg.server.active-operation/v1"
+                                             :op "embed"
+                                             :projectId "fixture"
+                                             :lockKey "project:fixture"}}]
+                  (cli-query/query!
+                   ["auth"
+                    "--project" "fixture"
+                    "--retriever" "auto"
+                    "--json"])))
+          packet (read-json-output out)]
+      (is (= filesystem-query/schema (:schema packet)))
+      (is (= "auth" (:query packet)))
+      (is (= "filesystem" (get-in packet [:retrieval :effective])))
+      (is (= "active-embedding" (get-in packet [:degradation :reason])))
+      (is (= "embed" (get-in packet [:degradation :operation :op]))))))
 (deftest view-json-writes-canonical-export
   (let [written (atom nil)]
     (with-redefs [store/with-node (fn [_ f] (f :xtdb))
