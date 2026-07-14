@@ -28,7 +28,8 @@ RUN chmod +x /opt/yggdrasil/bin/ygg /opt/yggdrasil/bin/ygg-mcp /opt/yggdrasil/do
     /opt/yggdrasil/scripts/ygg-maintenance-codex.sh \
     && clojure -P -M:run
 
-ENV YGG_XTDB_PATH=/data/xtdb
+ENV YGG_STORAGE_ROOT=/data
+ENV YGG_CONFIG_HOME=/data/config
 ENV PATH="/opt/yggdrasil/bin:${PATH}"
 
 VOLUME ["/data"]

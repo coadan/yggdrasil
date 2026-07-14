@@ -1,7 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-export YGG_XTDB_PATH="${YGG_XTDB_PATH:-/data/xtdb}"
+export YGG_STORAGE_ROOT="${YGG_STORAGE_ROOT:-/data}"
+export YGG_CONFIG_HOME="${YGG_CONFIG_HOME:-/data/config}"
 export YGG_SERVER_DIR="${YGG_SERVER_DIR:-/tmp/ygg-server}"
 
 if [ "$#" -eq 0 ]; then

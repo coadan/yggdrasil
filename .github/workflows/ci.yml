@@ -58,6 +58,9 @@ jobs:
             repo=$(mktemp -d)
             git -C "$repo" init -q
             ygg init "$repo" --project docker-smoke --sync --no-input
+            ygg query "docker smoke" --project docker-smoke --json --no-progress >/dev/null
             ygg status --json
+            test -f /data/config/projects.edn
+            test -d /data/projects/docker-smoke/xtdb
             ygg stop
           '
