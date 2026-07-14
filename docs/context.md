@@ -33,6 +33,13 @@ state is cold, absent, or changing.
 | Enriched query exceeds its response bound | Return filesystem evidence while the requested query continues in the local service. | degradation reason `query-timeout` |
 | Enrichment ready | Use normal `auto` retrieval and the available lexical, grep, semantic, and graph evidence. | normal retrieval and evidence fields |
 
+The persistent `ygg-mcp` transport applies the same contract. It handles MCP
+initialization, notifications, ping, and tool discovery locally, then routes
+`ygg_query` through the canonical bounded query protocol. A cold service
+therefore changes query richness, not MCP search availability. Other MCP tools
+can still return a service-unavailable JSON-RPC error, but that error does not
+close the transport or prevent a later `ygg_query`.
+
 An active-indexing handoff starts one fixed-string ripgrep process across all
 registered roots supplied by the server. Server-owned fallback starts at most
 one process per repository. Both paths apply one 1.5-second wall deadline to the
@@ -76,9 +83,11 @@ disable hedging. The underlying hard response bounds remain 1.5 seconds for
 compact output and 5 seconds for expanded output. Override those with
 `YGG_QUERY_FALLBACK_AFTER_MS`.
 
-After an unavailable-service fallback has produced its results, the client
-requests a background service start. Start requests are deduplicated for 15
-seconds, so concurrent cold queries do not launch a process each. Set
+The MCP proxy requests a background service start after writing its initialize
+response, so enrichment can warm before the first query without delaying the
+handshake. A cold CLI or MCP fallback also requests a start after writing its
+results. Start requests are deduplicated for 15 seconds, so concurrent clients
+do not launch a process each. Set
 `YGG_QUERY_AUTO_START=0` only when the service lifecycle is managed externally;
 filesystem fallback remains available either way. A storage-unavailable response
 does not restart the reachable service; queries keep using filesystem evidence
@@ -116,9 +125,12 @@ Here, degraded means the evidence is less rich; it is not a request failure.
 The command exits successfully even when the fallback finds no matches. If the
 service is unavailable, only the nearest repository root is mechanically known;
 a running service can search every registered root in a multi-repository
-project. Absolute latency cannot equal raw `rg` because the wrapper and packet
-format add overhead, so performance claims must compare the same query and
-scope and report that overhead rather than claiming a zero-cost abstraction.
+project. A fresh one-shot CLI process adds wrapper and packet overhead relative
+to raw `rg`. A persistent MCP process amortizes its startup and can approach raw
+p95 latency, but its handshake and per-query overhead remain separate measured
+costs. Performance claims must compare the same query and scope and report both
+parity flags and absolute overhead; see
+[Query Availability Latency](benchmarking.md#query-availability-latency).
 
 ```sh
 ygg query "where does the API gateway send requests" --project sample --json --budget 4000

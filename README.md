@@ -99,6 +99,11 @@ storage is locked or cannot be opened, acquisition fails immediately and the
 reachable service returns filesystem evidence until storage becomes available
 again.
 
+The persistent `ygg-mcp` entrypoint follows the same contract. It completes its
+handshake and exposes `ygg_query` without waiting for the local service, starts
+enrichment in the background, and returns the same explicit filesystem packet
+while the service is cold, indexing, embedding, or slow.
+
 If you need an explicit editable project config, keep it separate from the
 generated project reference:
 

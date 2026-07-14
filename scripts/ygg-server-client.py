@@ -1720,6 +1720,8 @@ def mcp_proxy(args):
         local_response = mcp_local_protocol_response(args, message, manifest)
         if local_response is not None:
             write_json_line(local_response)
+            if message.get("method") == "initialize":
+                schedule_server_start()
             continue
         if message.get("id") is None:
             continue
@@ -1727,7 +1729,7 @@ def mcp_proxy(args):
             result, start_server = mcp_query_response(args, message)
             write_json_line(result)
             if start_server:
-                start_server_in_background()
+                schedule_server_start()
             continue
         response = request("mcp", args, extra={"message": message})
         if response is None:
@@ -2011,6 +2013,10 @@ def start_server_in_background():
         return {"status": "error", "error": str(exc), "log": log_path}
     finally:
         log.close()
+
+
+def schedule_server_start():
+    _thread.start_new_thread(start_server_in_background, ())
 
 
 def start_server_for_init():

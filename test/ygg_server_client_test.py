@@ -371,6 +371,8 @@ class ServerClientRoutingTest(unittest.TestCase):
             self.fail(f"local MCP method requested server op {op}")
 
         client.request = unexpected_request
+        start_calls = []
+        client.schedule_server_start = lambda: start_calls.append(True)
         with self.temporary_cwd() as root:
             os.environ.pop("YGG_PROJECT_ID", None)
             os.environ["YGG_PROJECTS_FILE"] = str(root / "missing-registry.edn")
@@ -409,13 +411,14 @@ class ServerClientRoutingTest(unittest.TestCase):
             [tool["name"] for tool in listed["result"]["tools"]],
         )
         self.assertEqual("", err.getvalue())
+        self.assertEqual([True], start_calls)
 
     def test_mcp_cold_query_returns_filesystem_packet_and_stays_available(self):
         client = load_client()
         old_stdin = client.sys.stdin
         client.connect_socket = lambda *_args, **_kwargs: None
         start_calls = []
-        client.start_server_in_background = lambda: start_calls.append(True)
+        client.schedule_server_start = lambda: start_calls.append(True)
         client.filesystem_query_root = lambda: pathlib.Path("/workspace/demo")
         client.run_filesystem_search = lambda _root, _patterns: {
             "elapsed-ms": 3,
@@ -1178,6 +1181,20 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual(1, len(starts))
         self.assertEqual([str(client.YGG_BIN), "start"], list(starts[0][0][0]))
         self.assertTrue(starts[0][1]["start_new_session"])
+
+    def test_mcp_server_start_schedule_does_not_run_warmup_inline(self):
+        client = load_client()
+        scheduled = []
+
+        with mock.patch.object(
+            client._thread,
+            "start_new_thread",
+            side_effect=lambda function, args: scheduled.append((function, args)),
+        ):
+            result = client.schedule_server_start()
+
+        self.assertIsNone(result)
+        self.assertEqual([(client.start_server_in_background, ())], scheduled)
 
     def test_background_server_start_can_be_disabled_for_diagnostics(self):
         client = load_client()

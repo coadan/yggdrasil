@@ -92,10 +92,12 @@ The Docker build writes `target/native/ygg-server-linux`; it is a Linux
 verification binary and is intentionally separate from the host launcher path.
 Set `YGG_NATIVE_IMAGE_DOCKER_IMAGE` to use another GraalVM native-image image.
 
-`ygg-mcp` is the stdio MCP proxy for editor and agent integrations. It uses the
-local Yggdrasil server started by `ygg init` or `ygg start`, then lists the
-primary `ygg_query`, `ygg_node`, `ygg_status`, and
-`ygg_systems` tools by default. Use `--tools default,sync,work` or
+`ygg-mcp` is the persistent stdio MCP entrypoint for editor and agent
+integrations. It initializes and lists tools without waiting for the local
+service, starts enrichment in the background, and routes `ygg_query` to bounded
+filesystem evidence until graph retrieval is ready. It lists the primary
+`ygg_query`, `ygg_node`, `ygg_status`, and `ygg_systems` tools by default. Use
+`--tools default,sync,work` or
 `YGG_MCP_TOOLS=all` to list bounded advanced packet tools for sync
 inspection/checks and project queue handoff. Use the CLI for explicit
 correction-fact changes and applying validated work results.
