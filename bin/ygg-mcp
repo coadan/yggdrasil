@@ -2,8 +2,14 @@
 set -eu
 
 SOURCE=$0
+case "$SOURCE" in
+  */*) ;;
+  *) SOURCE=$(command -v "$SOURCE") ;;
+esac
 while [ -h "$SOURCE" ]; do
-  SOURCE_DIR=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
+  SOURCE_PARENT=${SOURCE%/*}
+  [ -n "$SOURCE_PARENT" ] || SOURCE_PARENT=/
+  SOURCE_DIR=$(CDPATH= cd -- "$SOURCE_PARENT" && pwd)
   SOURCE_LINK=$(readlink "$SOURCE")
   case "$SOURCE_LINK" in
     /*) SOURCE=$SOURCE_LINK ;;
@@ -11,8 +17,14 @@ while [ -h "$SOURCE" ]; do
   esac
 done
 
-SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$SOURCE")" && pwd)
-REPO_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+SOURCE_PARENT=${SOURCE%/*}
+[ -n "$SOURCE_PARENT" ] || SOURCE_PARENT=/
+case "$SOURCE_PARENT" in
+  /*) SCRIPT_DIR=$SOURCE_PARENT ;;
+  *) SCRIPT_DIR=$(CDPATH= cd -- "$SOURCE_PARENT" && pwd) ;;
+esac
+REPO_DIR=${SCRIPT_DIR%/*}
+[ -n "$REPO_DIR" ] || REPO_DIR=/
 export YGG_HOME=${YGG_HOME:-$REPO_DIR}
 
 if ! command -v python3 >/dev/null 2>&1; then

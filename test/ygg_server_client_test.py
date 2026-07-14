@@ -25,6 +25,7 @@ class ServerClientRoutingTest(unittest.TestCase):
     def setUp(self):
         self._env_snapshot = os.environ.copy()
         self._cwd_snapshot = os.getcwd()
+        os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "0"
 
     def tearDown(self):
         os.chdir(self._cwd_snapshot)
@@ -54,8 +55,99 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual(0.9, client.response_timeout_seconds("query", []))
         self.assertEqual(2500, client.connect_timeout_ms())
 
+    def test_numeric_server_address_uses_direct_socket_connection(self):
+        client = load_client()
+        calls = []
+
+        class ClosedPortSocket:
+            def settimeout(self, timeout):
+                calls.append(("timeout", timeout))
+
+            def connect(self, address):
+                calls.append(("connect", address))
+                raise ConnectionRefusedError()
+
+            def close(self):
+                calls.append(("close",))
+
+        with mock.patch.object(
+            client.socket,
+            "socket",
+            side_effect=lambda family, kind: (
+                calls.append(("socket", family, kind)) or ClosedPortSocket()
+            ),
+        ), mock.patch.object(
+            client.socket,
+            "getaddrinfo",
+            side_effect=lambda *_args, **_kwargs: self.fail(
+                "numeric addresses should not use hostname resolution"
+            ),
+        ):
+            self.assertIsNone(client.connect_socket("127.0.0.1", 62009, 0))
+        self.assertEqual(
+            [
+                ("socket", client.socket.AF_INET, client.socket.SOCK_STREAM),
+                ("timeout", 0.25),
+                ("connect", ("127.0.0.1", 62009)),
+                ("close",),
+            ],
+            calls,
+        )
+
+    def test_hostname_server_address_uses_resolved_socket_candidates(self):
+        client = load_client()
+        calls = []
+
+        class ConnectedSocket:
+            def settimeout(self, timeout):
+                calls.append(("timeout", timeout))
+
+            def connect(self, address):
+                calls.append(("connect", address))
+
+            def close(self):
+                calls.append(("close",))
+
+        with mock.patch.object(
+            client.socket,
+            "getaddrinfo",
+            return_value=[
+                (
+                    client.socket.AF_INET,
+                    client.socket.SOCK_STREAM,
+                    client.socket.IPPROTO_TCP,
+                    "",
+                    ("127.0.0.1", 62121),
+                )
+            ],
+        ), mock.patch.object(
+            client.socket,
+            "socket",
+            side_effect=lambda family, kind, protocol: (
+                calls.append(("socket", family, kind, protocol))
+                or ConnectedSocket()
+            ),
+        ):
+            connection = client.connect_address("localhost", 62121, 0.25)
+
+        self.assertIsInstance(connection, ConnectedSocket)
+        self.assertEqual(
+            [
+                (
+                    "socket",
+                    client.socket.AF_INET,
+                    client.socket.SOCK_STREAM,
+                    client.socket.IPPROTO_TCP,
+                ),
+                ("timeout", 0.25),
+                ("connect", ("127.0.0.1", 62121)),
+            ],
+            calls,
+        )
+
     def test_query_latency_bound_is_larger_for_expanded_output(self):
         client = load_client()
+        os.environ.pop("YGG_QUERY_HEDGE_AFTER_MS", None)
 
         self.assertEqual(
             client.DEFAULT_QUERY_FALLBACK_AFTER_MS,
@@ -304,6 +396,7 @@ class ServerClientRoutingTest(unittest.TestCase):
         request_started = threading.Event()
         fallback_reasons = []
         os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "10"
+        client.connect_socket = lambda *_args, **_kwargs: object()
 
         def slow_request(*_args, **_kwargs):
             request_started.set()
@@ -329,10 +422,25 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual(["query-hedge"], fallback_reasons)
         self.assertLess(client.time.monotonic() - started, 0.5)
 
+    def test_cold_hedged_query_skips_decoder_and_request_thread(self):
+        client = load_client()
+        os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "15"
+        client.connect_socket = lambda *_args, **_kwargs: None
+        client.start_pending_query_request = lambda *_args: self.fail(
+            "a cold query should not start a pending request"
+        )
+
+        response, pending = client.hedged_query_request(["needle"], True, False)
+
+        self.assertIsNone(response)
+        self.assertIsNone(pending)
+        self.assertIsNone(client._json_module)
+
     def test_early_hedge_uses_filesystem_scope_from_accepted_frame(self):
         client = load_client()
         release = threading.Event()
         os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "5"
+        client.connect_socket = lambda *_args, **_kwargs: object()
         with tempfile.TemporaryDirectory() as root:
             repo = pathlib.Path(root) / "repo"
             repo.mkdir()
@@ -393,6 +501,7 @@ class ServerClientRoutingTest(unittest.TestCase):
     def test_query_prefers_enriched_response_that_finishes_during_hedge_search(self):
         client = load_client()
         os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "5"
+        client.connect_socket = lambda *_args, **_kwargs: object()
 
         def nearly_ready_request(*_args, **_kwargs):
             client.time.sleep(0.02)
@@ -414,6 +523,7 @@ class ServerClientRoutingTest(unittest.TestCase):
     def test_fast_hedged_query_renders_buffered_server_progress(self):
         client = load_client()
         os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "100"
+        client.connect_socket = lambda *_args, **_kwargs: object()
 
         def ready_request(*_args, **kwargs):
             kwargs["on_frame"]({
@@ -441,6 +551,7 @@ class ServerClientRoutingTest(unittest.TestCase):
         client = load_client()
         os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "5"
         os.environ["YGG_QUERY_ACKNOWLEDGED_HEDGE_AFTER_MS"] = "100"
+        client.connect_socket = lambda *_args, **_kwargs: object()
 
         def acknowledged_request(*_args, **kwargs):
             kwargs["on_frame"]({"type": "accepted", "operation": "query"})
@@ -477,11 +588,7 @@ class ServerClientRoutingTest(unittest.TestCase):
         sent = []
 
         class ResponseSocket:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
+            response = b'{"exit":0,"out":"ok\\n","err":""}\n'
 
             def settimeout(self, _timeout):
                 return None
@@ -489,15 +596,41 @@ class ServerClientRoutingTest(unittest.TestCase):
             def sendall(self, payload):
                 sent.append(json.loads(payload))
 
-            def makefile(self, *_args, **_kwargs):
-                return iter(['{"exit":0,"out":"ok\\n","err":""}\n'])
+            def recv(self, _max_bytes):
+                response, self.response = self.response, b""
+                return response
 
-        client.connect_socket = lambda *_args, **_kwargs: ResponseSocket()
+            def close(self):
+                return None
 
-        response = client.request_once("query", ["needle"])
+        connection = ResponseSocket()
+        client.connect_socket = lambda *_args, **_kwargs: self.fail(
+            "a supplied query connection should be reused"
+        )
+
+        response = client.request_once(
+            "query",
+            ["needle"],
+            connected_socket=connection,
+        )
 
         self.assertEqual("ok\n", response["out"])
         self.assertEqual("client", sent[0]["filesystemFallbackOwner"])
+        self.assertIsNotNone(client._json_module)
+
+    def test_socket_response_lines_preserve_split_and_unterminated_frames(self):
+        client = load_client()
+
+        class ChunkedSocket:
+            chunks = [b'{"one":', b'1}\n{"two":2}\n{"three":3}', b""]
+
+            def recv(self, _max_bytes):
+                return self.chunks.pop(0)
+
+        self.assertEqual(
+            ['{"one":1}\n', '{"two":2}\n', '{"three":3}'],
+            list(client.socket_response_lines(ChunkedSocket())),
+        )
 
     def test_active_indexing_handoff_routes_registered_repositories_to_fallback(self):
         client = load_client()
@@ -542,21 +675,8 @@ class ServerClientRoutingTest(unittest.TestCase):
     def test_query_socket_timeout_returns_structured_fallback_reason(self):
         client = load_client()
 
-        class TimeoutReader:
-            def __iter__(self):
-                return self
-
-            def __next__(self):
-                raise client.socket.timeout()
-
         class TimeoutSocket:
             timeout = None
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *_args):
-                return False
 
             def settimeout(self, timeout):
                 self.timeout = timeout
@@ -564,8 +684,11 @@ class ServerClientRoutingTest(unittest.TestCase):
             def sendall(self, _payload):
                 return None
 
-            def makefile(self, *_args, **_kwargs):
-                return TimeoutReader()
+            def recv(self, _max_bytes):
+                raise client.socket.timeout()
+
+            def close(self):
+                return None
 
         sock = TimeoutSocket()
         client.connect_socket = lambda *_args, **_kwargs: sock
@@ -590,6 +713,25 @@ class ServerClientRoutingTest(unittest.TestCase):
             ["AUTH_URL", "AuthHandler", "src/auth_handler.clj", "handled", "where", "auth"],
             patterns,
         )
+
+    def test_filesystem_query_tokens_keep_only_the_bounded_ascii_shape(self):
+        client = load_client()
+
+        self.assertEqual(
+            ["alpha", "src/auth_handler.clj", "caf", "beta:gamma", "delta"],
+            client.filesystem_query_tokens(
+                "alpha src/auth_handler.clj café beta:gamma@delta"
+            ),
+        )
+
+    def test_standard_json_prefetch_publishes_one_shared_module(self):
+        client = load_client()
+
+        client.prefetch_standard_json()
+        module = client.standard_json()
+
+        self.assertIs(module, client._json_module)
+        self.assertEqual({"ready": True}, module.loads('{"ready":true}'))
 
     def test_filesystem_pipe_capture_drains_output_and_keeps_complete_rows(self):
         client = load_client()

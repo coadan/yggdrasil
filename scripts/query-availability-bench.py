@@ -18,7 +18,8 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLIENT_PATH = ROOT / "scripts" / "ygg-server-client.py"
-SCHEMA = "ygg.query-availability.benchmark/v7"
+CLI_PATH = ROOT / "bin" / "ygg"
+SCHEMA = "ygg.query-availability.benchmark/v8"
 
 
 def load_client():
@@ -192,9 +193,7 @@ def cold_ygg_sample(
             acknowledged_query_hedge_after_ms
         )
     argv = [
-        sys.executable,
-        "-S",
-        str(CLIENT_PATH),
+        str(CLI_PATH),
         "query",
         query,
         "--json",
@@ -391,11 +390,20 @@ def comparison(
         "coldYggP95OverheadMs": cold_p95 - raw_p95,
         "rawParitySupported": cold_p95 <= raw_p95,
     }
+    if raw.get("maxMs") is not None:
+        raw_max = raw["maxMs"]
+        result.update({
+            "filesystemLaneMaxOverheadMs": lane["maxMs"] - raw_max,
+            "coldYggMaxOverheadMs": cold["maxMs"] - raw_max,
+            "rawMaxParitySupported": cold["maxMs"] <= raw_max,
+        })
     if stalled:
         result.update({
             "stalledYggToRawP95Ratio": stalled["p95Ms"] / raw_p95 if raw_p95 else None,
             "stalledYggP95OverheadMs": stalled["p95Ms"] - raw_p95,
         })
+        if raw.get("maxMs") is not None:
+            result["stalledYggMaxOverheadMs"] = stalled["maxMs"] - raw["maxMs"]
     if acknowledged_stalled:
         result.update({
             "acknowledgedStalledYggToRawP95Ratio": (
@@ -405,6 +413,10 @@ def comparison(
                 acknowledged_stalled["p95Ms"] - raw_p95
             ),
         })
+        if raw.get("maxMs") is not None:
+            result["acknowledgedStalledYggMaxOverheadMs"] = (
+                acknowledged_stalled["maxMs"] - raw["maxMs"]
+            )
     if active_handoff:
         result.update({
             "activeIndexingHandoffYggToRawP95Ratio": (
@@ -414,6 +426,10 @@ def comparison(
                 active_handoff["p95Ms"] - raw_p95
             ),
         })
+        if raw.get("maxMs") is not None:
+            result["activeIndexingHandoffYggMaxOverheadMs"] = (
+                active_handoff["maxMs"] - raw["maxMs"]
+            )
     return result
 
 
@@ -429,6 +445,7 @@ def availability_contract(
     acknowledged_stalled = lanes["acknowledgedStalledYgg"]
     active_handoff = lanes["activeIndexingHandoffYgg"]
     cold = lanes["coldYgg"]
+    cold_max_ms = cold.get("maxMs", cold["p95Ms"])
     return {
         "sameRipgrepArgv": same_ripgrep_argv,
         "oneFilesystemProcessPerFallback": all(
@@ -486,6 +503,10 @@ def availability_contract(
                 + stalled_bound_tolerance_ms
             )
         ),
+        "stalledMaxWithinBound": (
+            stalled.get("maxMs", stalled["p95Ms"])
+            <= query_hedge_after_ms + cold_max_ms + stalled_bound_tolerance_ms
+        ),
         "acknowledgedStalledP95WithinBound": (
             acknowledged_stalled["p95Ms"]
             <= (
@@ -494,9 +515,21 @@ def availability_contract(
                 + stalled_bound_tolerance_ms
             )
         ),
+        "acknowledgedStalledMaxWithinBound": (
+            acknowledged_stalled.get("maxMs", acknowledged_stalled["p95Ms"])
+            <= (
+                acknowledged_query_hedge_after_ms
+                + cold_max_ms
+                + stalled_bound_tolerance_ms
+            )
+        ),
         "activeIndexingHandoffP95WithinBound": (
             active_handoff["p95Ms"]
             <= cold["p95Ms"] + stalled_bound_tolerance_ms
+        ),
+        "activeIndexingHandoffMaxWithinBound": (
+            active_handoff.get("maxMs", active_handoff["p95Ms"])
+            <= cold_max_ms + stalled_bound_tolerance_ms
         ),
     }
 
@@ -645,6 +678,7 @@ def run(args):
         "iterations": args.iterations,
         "warmup": args.warmup,
         "timeoutMs": args.timeout_ms,
+        "clientEntrypoint": str(CLI_PATH),
         "clientPythonArgs": ["-S"],
         "queryFallbackAfterMs": query_fallback_after_ms,
         "clientDefaultQueryFallbackAfterMs": client.DEFAULT_QUERY_FALLBACK_AFTER_MS,

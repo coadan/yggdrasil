@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 import _thread
-import json
+import _socket as socket
 import os
-import re
-import selectors
-import signal
-import socket
+import select
 import sys
 import time
 
@@ -135,6 +132,26 @@ FILESYSTEM_QUERY_IGNORED_DIRECTORIES = [
     ".idea",
     "ygg-out",
 ]
+FILESYSTEM_PATTERN_PUNCTUATION = frozenset("_./:+?!<>=-")
+FILESYSTEM_SHAPED_PATTERN_PUNCTUATION = frozenset("._/:-")
+_json_module = None
+_json_import_lock = _thread.allocate_lock()
+
+
+def standard_json():
+    global _json_module
+    if _json_module is None:
+        with _json_import_lock:
+            if _json_module is None:
+                import json
+                _json_module = json
+    return _json_module
+
+
+def prefetch_standard_json():
+    if _json_module is None:
+        _thread.start_new_thread(standard_json, ())
+
 
 def server_host():
     return os.environ.get("YGG_SERVER_HOST", DEFAULT_SERVER_HOST).strip() or DEFAULT_SERVER_HOST
@@ -273,12 +290,45 @@ def starting_retry_timeout_ms():
     )
 
 
+def connect_address(host, port, timeout_seconds):
+    for family in (socket.AF_INET, socket.AF_INET6):
+        try:
+            socket.inet_pton(family, host)
+        except OSError:
+            continue
+        connection = socket.socket(family, socket.SOCK_STREAM)
+        connection.settimeout(timeout_seconds)
+        try:
+            connection.connect((host, port))
+            return connection
+        except OSError:
+            connection.close()
+            raise
+    last_error = None
+    for family, kind, protocol, _canonical_name, address in socket.getaddrinfo(
+        host,
+        port,
+        type=socket.SOCK_STREAM,
+    ):
+        connection = socket.socket(family, kind, protocol)
+        connection.settimeout(timeout_seconds)
+        try:
+            connection.connect(address)
+            return connection
+        except OSError as exc:
+            last_error = exc
+            connection.close()
+    if last_error is not None:
+        raise last_error
+    raise OSError(f"No socket address found for {host}:{port}")
+
+
 def connect_socket(host, port, timeout_ms=None):
     timeout_ms = connect_timeout_ms() if timeout_ms is None else max(timeout_ms, 0)
     deadline = time.monotonic() + (timeout_ms / 1000.0)
     while True:
         try:
-            return socket.create_connection((host, port), timeout=0.25)
+            return connect_address(host, port, 0.25)
         except OSError:
             if timeout_ms <= 0 or time.monotonic() >= deadline:
                 return None
@@ -352,12 +402,37 @@ def query_input_options(args):
     return value
 
 
+def ascii_alnum(character):
+    return (
+        "A" <= character <= "Z"
+        or "a" <= character <= "z"
+        or "0" <= character <= "9"
+    )
+
+
 def alnum_count(value):
-    return len(re.findall(r"[A-Za-z0-9]", str(value)))
+    return sum(1 for character in str(value) if ascii_alnum(character))
 
 
 def shaped_pattern(value):
-    return re.search(r"[._/:-]", str(value)) is not None
+    return any(
+        character in FILESYSTEM_SHAPED_PATTERN_PUNCTUATION
+        for character in str(value)
+    )
+
+
+def filesystem_query_tokens(query_text):
+    tokens = []
+    token = []
+    for character in query_text:
+        if ascii_alnum(character) or character in FILESYSTEM_PATTERN_PUNCTUATION:
+            token.append(character)
+        elif token:
+            tokens.append("".join(token))
+            token = []
+    if token:
+        tokens.append("".join(token))
+    return tokens
 
 
 def filesystem_query_patterns(query_text, args):
@@ -370,9 +445,7 @@ def filesystem_query_patterns(query_text, args):
         if value and value.strip()
     ]
     tokens = []
-    for index, value in enumerate(
-        re.split(r"[^A-Za-z0-9_./:+?!<>=-]+", query_text)
-    ):
+    for index, value in enumerate(filesystem_query_tokens(query_text)):
         value = value.strip()
         if value and alnum_count(value) >= 3:
             tokens.append((index, value))
@@ -471,28 +544,37 @@ def bounded_capture_text(capture, max_bytes):
     return data.decode("utf-8", errors="replace"), truncated
 
 
-def close_registered_streams(selector):
-    for key in list(selector.get_map().values()):
-        try:
-            selector.unregister(key.fileobj)
-        except KeyError:
-            pass
-        key.fileobj.close()
+def close_capture_streams(streams):
+    for stream, _name, _max_bytes in list(streams.values()):
+        stream.close()
+    streams.clear()
 
 
-def drain_ready_stream(selector, key, captures):
-    name, max_bytes = key.data
+def drain_ready_stream(streams, descriptor, captures):
+    stream, name, max_bytes = streams[descriptor]
     while True:
         try:
-            chunk = os.read(key.fd, 65536)
+            chunk = os.read(descriptor, 65536)
         except BlockingIOError:
             return
         if chunk:
             append_bounded_bytes(captures[name], chunk, max_bytes)
         else:
-            selector.unregister(key.fileobj)
-            key.fileobj.close()
+            streams.pop(descriptor)
+            stream.close()
             return
+
+
+def ready_capture_streams(streams, timeout_seconds):
+    if not streams:
+        return []
+    ready, _write, _error = select.select(
+        list(streams),
+        [],
+        [],
+        timeout_seconds,
+    )
+    return ready
 
 
 def spawn_captured_child(argv):
@@ -555,6 +637,7 @@ def wait_child(child, deadline=None):
 def kill_child(child):
     if poll_child(child) is not None:
         return child["returncode"]
+    import signal
     try:
         os.kill(child["pid"], signal.SIGKILL)
     except ProcessLookupError:
@@ -562,13 +645,13 @@ def kill_child(child):
     return wait_child(child)
 
 
-def drain_remaining_streams(selector, captures):
-    while selector.get_map():
-        events = selector.select(0.05)
-        if not events:
+def drain_remaining_streams(streams, captures):
+    while streams:
+        descriptors = ready_capture_streams(streams, 0.05)
+        if not descriptors:
             return
-        for key, _mask in events:
-            drain_ready_stream(selector, key, captures)
+        for descriptor in descriptors:
+            drain_ready_stream(streams, descriptor, captures)
 
 
 def run_captured_process(argv, timeout_ms, max_stdout_bytes, max_stderr_bytes):
@@ -577,26 +660,27 @@ def run_captured_process(argv, timeout_ms, max_stdout_bytes, max_stderr_bytes):
         "stdout": {"data": bytearray(), "overflow": False},
         "stderr": {"data": bytearray(), "overflow": False},
     }
-    selector = selectors.DefaultSelector()
+    streams = {}
     deadline = None if timeout_ms <= 0 else time.monotonic() + timeout_ms / 1000.0
     timed_out = False
     try:
-        streams = ((child["stdout"], "stdout", max_stdout_bytes),
-                   (child["stderr"], "stderr", max_stderr_bytes))
-        for stream, name, max_bytes in streams:
+        for stream, name, max_bytes in (
+            (child["stdout"], "stdout", max_stdout_bytes),
+            (child["stderr"], "stderr", max_stderr_bytes),
+        ):
             os.set_blocking(stream.fileno(), False)
-            selector.register(stream, selectors.EVENT_READ, (name, max_bytes))
-        while selector.get_map():
+            streams[stream.fileno()] = (stream, name, max_bytes)
+        while streams:
             remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
-            events = selector.select(remaining)
-            if not events:
+            descriptors = ready_capture_streams(streams, remaining)
+            if not descriptors:
                 timed_out = deadline is not None and time.monotonic() >= deadline
                 if timed_out:
                     kill_child(child)
                     break
                 continue
-            for key, _mask in events:
-                drain_ready_stream(selector, key, captures)
+            for descriptor in descriptors:
+                drain_ready_stream(streams, descriptor, captures)
             if (deadline is not None
                     and time.monotonic() >= deadline
                     and poll_child(child) is None):
@@ -608,12 +692,11 @@ def run_captured_process(argv, timeout_ms, max_stdout_bytes, max_stderr_bytes):
                 timed_out = True
                 kill_child(child)
         if timed_out:
-            drain_remaining_streams(selector, captures)
+            drain_remaining_streams(streams, captures)
     finally:
         if poll_child(child) is None:
             kill_child(child)
-        close_registered_streams(selector)
-        selector.close()
+        close_capture_streams(streams)
     stdout, stdout_truncated = bounded_capture_text(captures["stdout"], max_stdout_bytes)
     stderr, stderr_truncated = bounded_capture_text(
         captures["stderr"], max_stderr_bytes
@@ -957,9 +1040,16 @@ def filesystem_query_response(args, reason, repositories=None):
     query_text = " ".join(query_positional_args(args)).strip()
     if not query_text:
         return {"exit": 2, "out": "", "err": "Missing query text.\n"}
+    json_output = has_flag(args, "--json")
+    if json_output:
+        prefetch_standard_json()
     packet = filesystem_query_packet(args, reason, repositories)
-    if has_flag(args, "--json"):
-        return {"exit": 0, "out": json.dumps(packet, indent=2) + "\n", "err": ""}
+    if json_output:
+        return {
+            "exit": 0,
+            "out": standard_json().dumps(packet, separators=(",", ":")) + "\n",
+            "err": "",
+        }
     lines = []
     for result in packet["results"]:
         lines.extend([
@@ -1193,12 +1283,30 @@ def render_progress_frame(frame, printed_header):
     return printed_header
 
 
+def socket_response_lines(connection):
+    buffered = bytearray()
+    while True:
+        chunk = connection.recv(65536)
+        if not chunk:
+            if buffered:
+                yield bytes(buffered).decode("utf-8")
+            return
+        buffered.extend(chunk)
+        while True:
+            newline = buffered.find(b"\n")
+            if newline < 0:
+                break
+            line = bytes(buffered[:newline + 1]).decode("utf-8")
+            del buffered[:newline + 1]
+            yield line
+
+
 def read_server_response(response_file, render_progress=False, on_frame=None):
     printed_header = False
     for line in response_file:
         if not line:
             continue
-        response = json.loads(line)
+        response = standard_json().loads(line)
         if response.get("schema") == SERVER_FRAME_SCHEMA:
             if on_frame is not None:
                 on_frame(response)
@@ -1233,6 +1341,7 @@ def request_once(
     render_progress=False,
     connect_timeout_override_ms=None,
     on_frame=None,
+    connected_socket=None,
 ):
     payload = {
         "op": op,
@@ -1254,26 +1363,29 @@ def request_once(
         payload["stream"] = True
     if op == "query":
         payload["filesystemFallbackOwner"] = "client"
-    host = server_host()
-    port = server_port()
     timeout_seconds = response_timeout_seconds(op, args)
     start = time.monotonic()
-    sock = connect_socket(host, port, connect_timeout_override_ms)
+    sock = connected_socket
+    if sock is None:
+        sock = connect_socket(
+            server_host(),
+            server_port(),
+            connect_timeout_override_ms,
+        )
     if sock is None:
         return None
     try:
-        with sock:
-            sock.settimeout(timeout_seconds)
-            request_line = json.dumps(payload, separators=(",", ":")) + "\n"
-            sock.sendall(request_line.encode("utf-8"))
-            response = read_server_response(
-                sock.makefile("r", encoding="utf-8"),
-                render_progress=render_progress,
-                on_frame=on_frame,
-            )
-            if response is None:
-                return {"exit": 1, "out": "", "err": "Empty server response.\n"}
-            return response
+        sock.settimeout(timeout_seconds)
+        request_line = standard_json().dumps(payload, separators=(",", ":")) + "\n"
+        sock.sendall(request_line.encode("utf-8"))
+        response = read_server_response(
+            socket_response_lines(sock),
+            render_progress=render_progress,
+            on_frame=on_frame,
+        )
+        if response is None:
+            return {"exit": 1, "out": "", "err": "Empty server response.\n"}
+        return response
     except socket.timeout:
         elapsed_ms = int((time.monotonic() - start) * 1000)
         timeout_ms = None if timeout_seconds is None else int(timeout_seconds * 1000)
@@ -1294,13 +1406,15 @@ def request_once(
             "err": (
                 "Timed out waiting for Yggdrasil server response.\n"
                 f"op={op}\n"
-                f"args={json.dumps(args)}\n"
+                f"args={standard_json().dumps(args)}\n"
                 f"elapsedMs={elapsed_ms}\n"
                 f"timeoutMs={timeout_ms}\n"
             ),
         }
     except OSError:
         return None
+    finally:
+        sock.close()
 
 
 def request(
@@ -1311,11 +1425,13 @@ def request(
     render_progress=False,
     connect_timeout_override_ms=None,
     on_frame=None,
+    connected_socket=None,
 ):
     if op == "query" and connect_timeout_override_ms is None:
         connect_timeout_override_ms = 0
     timeout_ms = starting_retry_timeout_ms()
     deadline = time.monotonic() + (timeout_ms / 1000.0)
+    next_socket = connected_socket
     while True:
         response = request_once(
             op,
@@ -1325,7 +1441,9 @@ def request(
             render_progress=render_progress,
             connect_timeout_override_ms=connect_timeout_override_ms,
             on_frame=on_frame,
+            connected_socket=next_socket,
         )
+        next_socket = None
         if op == "query" or not server_starting_response(response):
             return response
         if timeout_ms <= 0 or time.monotonic() >= deadline:
@@ -1356,12 +1474,13 @@ def jsonrpc_error(message, request_message=None, code=-32000, data=None):
 
 
 def write_json_line(value):
-    sys.stdout.write(json.dumps(value, separators=(",", ":")) + "\n")
+    sys.stdout.write(standard_json().dumps(value, separators=(",", ":")) + "\n")
     sys.stdout.flush()
 
 
 def mcp_proxy(args):
     exit_code = 0
+    json = standard_json()
     for raw_line in sys.stdin:
         line = raw_line.strip()
         if not line:
@@ -1439,7 +1558,7 @@ def query_response_fallback_reason(response):
     return None
 
 
-def start_pending_query_request(args, stream, render_progress):
+def start_pending_query_request(args, stream, render_progress, connected_socket):
     completion = _thread.allocate_lock()
     completion.acquire()
     state = {}
@@ -1462,6 +1581,7 @@ def start_pending_query_request(args, stream, render_progress):
                 stream=stream,
                 render_progress=False,
                 on_frame=collect_frame,
+                connected_socket=connected_socket,
             )
         except Exception as exc:
             state["error"] = exc
@@ -1519,7 +1639,20 @@ def hedged_query_request(args, stream, render_progress):
             stream=stream,
             render_progress=render_progress,
         ), None
-    pending = start_pending_query_request(args, stream, render_progress)
+    connected_socket = connect_socket(server_host(), server_port(), 0)
+    if connected_socket is None:
+        return None, None
+    try:
+        standard_json()
+        pending = start_pending_query_request(
+            args,
+            stream,
+            render_progress,
+            connected_socket,
+        )
+    except Exception:
+        connected_socket.close()
+        raise
     if pending_query_ready(pending, hedge_after_ms / 1000.0):
         return completed_query_response(pending), None
     if pending["state"].get("acknowledged?"):
@@ -1924,6 +2057,7 @@ def init_server_request(args):
 
 def attach_json_out(response, key, value):
     out = response.get("out") or ""
+    json = standard_json()
     try:
         parsed = json.loads(out)
     except json.JSONDecodeError:
@@ -2040,7 +2174,7 @@ def start_at_login(args, emit=True):
 
 def write_local_result(result, json_output, exit_code=0):
     if json_output:
-        sys.stdout.write(json.dumps(result, indent=2) + "\n")
+        sys.stdout.write(standard_json().dumps(result, indent=2) + "\n")
     else:
         sys.stdout.write(f"{result.get('status')}\n")
         if result.get("path"):

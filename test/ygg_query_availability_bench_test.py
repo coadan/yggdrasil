@@ -41,12 +41,12 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         bench = load_bench()
 
         result = bench.comparison(
-            {"p95Ms": 10.0},
-            {"p95Ms": 12.0},
-            {"p95Ms": 35.0},
-            {"p95Ms": 140.0},
-            {"p95Ms": 180.0},
-            {"p95Ms": 50.0},
+            {"p95Ms": 10.0, "maxMs": 11.0},
+            {"p95Ms": 12.0, "maxMs": 13.0},
+            {"p95Ms": 35.0, "maxMs": 40.0},
+            {"p95Ms": 140.0, "maxMs": 150.0},
+            {"p95Ms": 180.0, "maxMs": 190.0},
+            {"p95Ms": 50.0, "maxMs": 55.0},
         )
 
         self.assertEqual(1.2, result["filesystemLaneToRawP95Ratio"])
@@ -61,7 +61,10 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
             40.0,
             result["activeIndexingHandoffYggP95OverheadMs"],
         )
+        self.assertEqual(29.0, result["coldYggMaxOverheadMs"])
+        self.assertEqual(44.0, result["activeIndexingHandoffYggMaxOverheadMs"])
         self.assertFalse(result["rawParitySupported"])
+        self.assertFalse(result["rawMaxParitySupported"])
 
     def test_contract_requires_bounded_filesystem_fallback_for_every_stall(self):
         bench = load_bench()
@@ -132,11 +135,14 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         lanes["coldYgg"]["filesystemProcessCounts"] = {"2": 3}
         contract = bench.availability_contract(lanes, 3, 200, 300)
         self.assertFalse(contract["stalledP95WithinBound"])
+        self.assertFalse(contract["stalledMaxWithinBound"])
         self.assertFalse(contract["stalledQueriesUsedFilesystem"])
         self.assertFalse(contract["acknowledgedStalledP95WithinBound"])
+        self.assertFalse(contract["acknowledgedStalledMaxWithinBound"])
         self.assertFalse(contract["acknowledgedStalledQueriesUsedFilesystem"])
         self.assertFalse(contract["acknowledgedStalledUsedAcceptedHandoff"])
         self.assertFalse(contract["activeIndexingHandoffP95WithinBound"])
+        self.assertFalse(contract["activeIndexingHandoffMaxWithinBound"])
         self.assertFalse(contract["activeIndexingHandoffUsedFilesystem"])
         self.assertFalse(contract["activeIndexingHandoffUsedOneProcess"])
         self.assertFalse(contract["activeIndexingHandoffUsedRequestedRepoScope"])
