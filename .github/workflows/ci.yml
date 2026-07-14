@@ -54,7 +54,7 @@ jobs:
           tags: ygg:test
       - name: Smoke CLI lifecycle
         run: |
-          docker run --rm ygg:test sh -lc '
+          docker run --rm ygg:test sh -c '
             repo=$(mktemp -d)
             git -C "$repo" init -q
             ygg init "$repo" --project docker-smoke --sync --no-input

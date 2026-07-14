@@ -120,7 +120,7 @@
         (is (= [[:read canonical-config-path]
                 [:read canonical-config-path]
                 [:index :xtdb "fixture" {:dry-run? false
-                                         :index-profile :graph
+                                         :index-profile :query
                                          :correction-overlay {:schema "ygg.correction-overlay/v1"
                                                               :project "fixture"
                                                               :systems []
