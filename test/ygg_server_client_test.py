@@ -4,8 +4,6 @@ import io
 import json
 import os
 import pathlib
-import subprocess
-import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -347,22 +345,52 @@ class ServerClientRoutingTest(unittest.TestCase):
             patterns,
         )
 
-    def test_bounded_process_wait_returns_immediately_or_kills_at_deadline(self):
+    def test_filesystem_pipe_capture_drains_output_and_keeps_complete_rows(self):
         client = load_client()
-        completed = subprocess.Popen(
-            [sys.executable, "-c", "pass"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        stalled = subprocess.Popen(
-            [sys.executable, "-c", "import time; time.sleep(1)"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+        with tempfile.TemporaryDirectory() as root:
+            fake_rg = pathlib.Path(root) / "fake-rg"
+            fake_rg.write_text(
+                "#!/usr/bin/env python3\n"
+                "for index in range(10000):\n"
+                "    print(f'file-{index}:1')\n",
+                encoding="utf-8",
+            )
+            fake_rg.chmod(0o755)
+            os.environ["YGG_RG_BIN"] = str(fake_rg)
+            os.environ["YGG_FILESYSTEM_QUERY_MAX_STDOUT_BYTES"] = "12"
+
+            result = client.run_filesystem_search(pathlib.Path(root), ["needle"])
+
+        self.assertEqual([{"path": "file-0", "count": 1}], result["matches"])
+        self.assertTrue(result["truncated?"])
+        self.assertFalse(result["timeout?"])
+        self.assertIn(
+            "stdout-truncated",
+            {diagnostic["kind"] for diagnostic in result["diagnostics"]},
         )
 
-        self.assertFalse(client.wait_process_bounded(completed, 1000))
-        self.assertTrue(client.wait_process_bounded(stalled, 10))
-        self.assertIsNotNone(stalled.returncode)
+    def test_filesystem_pipe_capture_kills_process_at_deadline(self):
+        client = load_client()
+        with tempfile.TemporaryDirectory() as root:
+            fake_rg = pathlib.Path(root) / "fake-rg"
+            fake_rg.write_text(
+                "#!/usr/bin/env python3\nimport time\ntime.sleep(1)\n",
+                encoding="utf-8",
+            )
+            fake_rg.chmod(0o755)
+            os.environ["YGG_RG_BIN"] = str(fake_rg)
+            os.environ["YGG_FILESYSTEM_QUERY_TIMEOUT_MS"] = "20"
+
+            started = client.time.monotonic()
+            result = client.run_filesystem_search(pathlib.Path(root), ["needle"])
+            elapsed = client.time.monotonic() - started
+
+        self.assertTrue(result["timeout?"])
+        self.assertLess(elapsed, 0.5)
+        self.assertIn(
+            "timeout",
+            {diagnostic["kind"] for diagnostic in result["diagnostics"]},
+        )
 
     def test_filesystem_query_packet_is_explicitly_degraded(self):
         client = load_client()

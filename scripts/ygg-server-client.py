@@ -4,11 +4,10 @@ import os
 import pathlib
 import platform
 import re
+import selectors
 import socket
 import subprocess
 import sys
-import tempfile
-import threading
 import time
 
 
@@ -417,12 +416,16 @@ def filesystem_query_argv(patterns):
     return argv
 
 
-def bounded_temp_text(file, max_bytes):
-    file.seek(0, os.SEEK_END)
-    size = file.tell()
-    file.seek(0)
-    data = file.read(max_bytes + 1)
-    truncated = size > max_bytes
+def append_bounded_bytes(capture, chunk, max_bytes):
+    remaining = max(0, max_bytes + 1 - len(capture["data"]))
+    capture["data"].extend(chunk[:remaining])
+    if len(chunk) > remaining:
+        capture["overflow"] = True
+
+
+def bounded_capture_text(capture, max_bytes):
+    data = bytes(capture["data"])
+    truncated = capture["overflow"] or len(data) > max_bytes
     if truncated:
         data = data[:max_bytes]
         newline = data.rfind(b"\n")
@@ -430,25 +433,99 @@ def bounded_temp_text(file, max_bytes):
     return data.decode("utf-8", errors="replace"), truncated
 
 
-def wait_process_bounded(process, timeout_ms):
-    if timeout_ms <= 0:
-        process.wait()
-        return False
-    timed_out = threading.Event()
+def close_registered_streams(selector):
+    for key in list(selector.get_map().values()):
+        try:
+            selector.unregister(key.fileobj)
+        except KeyError:
+            pass
+        key.fileobj.close()
 
-    def expire():
-        if process.poll() is None:
-            timed_out.set()
-            process.kill()
 
-    timer = threading.Timer(timeout_ms / 1000.0, expire)
-    timer.daemon = True
-    timer.start()
+def drain_ready_stream(selector, key, captures):
+    name, max_bytes = key.data
+    while True:
+        try:
+            chunk = os.read(key.fd, 65536)
+        except BlockingIOError:
+            return
+        if chunk:
+            append_bounded_bytes(captures[name], chunk, max_bytes)
+        else:
+            selector.unregister(key.fileobj)
+            key.fileobj.close()
+            return
+
+
+def run_captured_process(argv, cwd, timeout_ms, max_stdout_bytes, max_stderr_bytes):
+    process = subprocess.Popen(
+        argv,
+        cwd=str(cwd),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    captures = {
+        "stdout": {"data": bytearray(), "overflow": False},
+        "stderr": {"data": bytearray(), "overflow": False},
+    }
+    selector = selectors.DefaultSelector()
+    deadline = None if timeout_ms <= 0 else time.monotonic() + timeout_ms / 1000.0
+    timed_out = False
     try:
-        process.wait()
+        streams = ((process.stdout, "stdout", max_stdout_bytes),
+                   (process.stderr, "stderr", max_stderr_bytes))
+        for stream, name, max_bytes in streams:
+            os.set_blocking(stream.fileno(), False)
+            selector.register(stream, selectors.EVENT_READ, (name, max_bytes))
+        while selector.get_map():
+            remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+            events = selector.select(remaining)
+            if not events:
+                timed_out = deadline is not None and time.monotonic() >= deadline
+                if timed_out:
+                    process.kill()
+                    process.wait()
+                    break
+                continue
+            for key, _mask in events:
+                drain_ready_stream(selector, key, captures)
+            if (deadline is not None
+                    and time.monotonic() >= deadline
+                    and process.poll() is None):
+                timed_out = True
+                process.kill()
+                process.wait()
+                break
+        if not timed_out:
+            remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+            try:
+                process.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                process.kill()
+                process.wait()
+        if timed_out:
+            for key in list(selector.get_map().values()):
+                drain_ready_stream(selector, key, captures)
     finally:
-        timer.cancel()
-    return timed_out.is_set()
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        close_registered_streams(selector)
+        selector.close()
+    stdout, stdout_truncated = bounded_capture_text(captures["stdout"], max_stdout_bytes)
+    stderr, stderr_truncated = bounded_capture_text(
+        captures["stderr"], max_stderr_bytes
+    )
+    return {
+        "exit": process.returncode,
+        "stdout": stdout,
+        "stderr": stderr,
+        "timeout?": timed_out,
+        "stdout-truncated?": stdout_truncated,
+        "stderr-truncated?": stderr_truncated,
+    }
 
 
 def parse_filesystem_count_output(stdout):
@@ -467,48 +544,48 @@ def run_filesystem_search(root, patterns):
     timeout_ms = filesystem_query_timeout_ms()
     max_stdout_bytes = filesystem_query_max_stdout_bytes()
     diagnostics = []
-    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
-        try:
-            process = subprocess.Popen(
-                filesystem_query_argv(patterns),
-                cwd=str(root),
-                stdin=subprocess.DEVNULL,
-                stdout=stdout_file,
-                stderr=stderr_file,
-            )
-        except OSError as exc:
-            return {
-                "elapsed-ms": int((time.monotonic() - started) * 1000),
-                "matches": [],
-                "diagnostics": [{"kind": "unavailable", "message": str(exc)}],
-                "process-attempted?": False,
-                "timeout?": False,
-                "truncated?": False,
-            }
-        timed_out = wait_process_bounded(process, timeout_ms)
-        stdout, truncated = bounded_temp_text(stdout_file, max_stdout_bytes)
-        stderr, stderr_truncated = bounded_temp_text(stderr_file, 20000)
-        if timed_out:
-            diagnostics.append({"kind": "timeout"})
-        if truncated:
-            diagnostics.append({"kind": "stdout-truncated"})
-        if stderr_truncated:
-            diagnostics.append({"kind": "stderr-truncated"})
-        if process.returncode not in {0, 1} and not timed_out:
-            diagnostics.append({
-                "kind": "ripgrep-error",
-                "message": stderr.strip(),
-            })
-        elif stderr.strip():
-            diagnostics.append({"kind": "stderr", "message": stderr.strip()})
+    try:
+        captured = run_captured_process(
+            filesystem_query_argv(patterns),
+            root,
+            timeout_ms,
+            max_stdout_bytes,
+            20000,
+        )
+    except OSError as exc:
         return {
             "elapsed-ms": int((time.monotonic() - started) * 1000),
-            "matches": parse_filesystem_count_output(stdout),
-            "diagnostics": diagnostics,
-            "process-attempted?": True,
-            "timeout?": timed_out,
-            "truncated?": truncated,
+            "matches": [],
+            "diagnostics": [{"kind": "unavailable", "message": str(exc)}],
+            "process-attempted?": False,
+            "timeout?": False,
+            "truncated?": False,
         }
+    stdout = captured["stdout"]
+    stderr = captured["stderr"]
+    timed_out = captured["timeout?"]
+    truncated = captured["stdout-truncated?"]
+    if timed_out:
+        diagnostics.append({"kind": "timeout"})
+    if truncated:
+        diagnostics.append({"kind": "stdout-truncated"})
+    if captured["stderr-truncated?"]:
+        diagnostics.append({"kind": "stderr-truncated"})
+    if captured["exit"] not in {0, 1} and not timed_out:
+        diagnostics.append({
+            "kind": "ripgrep-error",
+            "message": stderr.strip(),
+        })
+    elif stderr.strip():
+        diagnostics.append({"kind": "stderr", "message": stderr.strip()})
+    return {
+        "elapsed-ms": int((time.monotonic() - started) * 1000),
+        "matches": parse_filesystem_count_output(stdout),
+        "diagnostics": diagnostics,
+        "process-attempted?": True,
+        "timeout?": timed_out,
+        "truncated?": truncated,
+    }
 
 
 def degradation_message(reason):
