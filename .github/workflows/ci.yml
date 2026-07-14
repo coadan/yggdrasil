@@ -18,6 +18,10 @@ jobs:
         with:
           cli: latest
           bb: latest
+      - name: Install system test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ripgrep
       - run: bb test
       - run: bb lint
       - run: bb format:check

@@ -335,12 +335,16 @@
                           :ground-truth {:localization-files ["src/app.clj"]}
                           :issue {:title "broken app"
                                   :body "Find the broken app function."}}]}
-          result (benchmark/agent-baselines! suite {:out out
-                                                    :now-ms 1000})
+          result (with-redefs [embedding-client/configured-query-client
+                               (constantly nil)]
+                   (benchmark/agent-baselines! suite {:out out
+                                                      :now-ms 1000}))
           baseline (first (:baselines result))
-          skipped-result (benchmark/agent-baselines! suite {:out out
-                                                            :now-ms 2000
-                                                            :skip-existing? true})
+          skipped-result (with-redefs [embedding-client/configured-query-client
+                                       (constantly nil)]
+                           (benchmark/agent-baselines! suite {:out out
+                                                              :now-ms 2000
+                                                              :skip-existing? true}))
           skipped-baseline (first (:baselines skipped-result))
           score (json/read-json (slurp (get-in baseline
                                                [:artifacts :agentScorePath]))
