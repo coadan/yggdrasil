@@ -4294,24 +4294,24 @@
                                  :search
                                  #(query/search-report xtdb
                                                        query-text
-                                                       {:limit retrieval-limit
-                                                        :retriever retriever
-                                                        :embedding-client embedding-client
-                                                        :project-id project-id
-                                                        :repo-id repo-id
-                                                        :read-context read-context
-                                                        :fusion-strategy fusion-strategy
-                                                        :sqlite-fts? sqlite-fts?
-                                                        :diversity-rerank-limit diversity-rerank-limit
-                                                        :fts-candidate-limit fts-candidate-limit
-                                                        :fts-weight fts-weight
-                                                        :embedding-role embedding-role
-                                                        :embedding-roles embedding-roles
-                                                        :persist-query-run?
-                                                        (if (nil? persist-query-run?)
-                                                          true
-                                                          persist-query-run?)
-                                                        :progress-fn progress-fn}))
+                                                       (cond->
+                                                        {:limit retrieval-limit
+                                                         :retriever retriever
+                                                         :embedding-client embedding-client
+                                                         :project-id project-id
+                                                         :repo-id repo-id
+                                                         :read-context read-context
+                                                         :fusion-strategy fusion-strategy
+                                                         :sqlite-fts? sqlite-fts?
+                                                         :diversity-rerank-limit diversity-rerank-limit
+                                                         :fts-candidate-limit fts-candidate-limit
+                                                         :fts-weight fts-weight
+                                                         :embedding-role embedding-role
+                                                         :embedding-roles embedding-roles
+                                                         :progress-fn progress-fn}
+                                                         (some? persist-query-run?)
+                                                         (assoc :persist-query-run?
+                                                                persist-query-run?))))
         results (:results search-report)
         [source-candidate-data timings] (timed-context-step
                                          timings
