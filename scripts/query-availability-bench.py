@@ -59,13 +59,24 @@ def summarize(samples):
 
 
 def wait_process(process, timeout_ms):
-    try:
-        process.wait(timeout=None if timeout_ms <= 0 else timeout_ms / 1000.0)
-        return False
-    except subprocess.TimeoutExpired:
-        process.kill()
+    if timeout_ms <= 0:
         process.wait()
-        return True
+        return False
+    timed_out = threading.Event()
+
+    def expire():
+        if process.poll() is None:
+            timed_out.set()
+            process.kill()
+
+    timer = threading.Timer(timeout_ms / 1000.0, expire)
+    timer.daemon = True
+    timer.start()
+    try:
+        process.wait()
+    finally:
+        timer.cancel()
+    return timed_out.is_set()
 
 
 def raw_ripgrep_sample(client, repo, patterns, timeout_ms, rg_bin):

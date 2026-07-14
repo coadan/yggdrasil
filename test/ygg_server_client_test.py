@@ -4,6 +4,8 @@ import io
 import json
 import os
 import pathlib
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -343,6 +345,23 @@ class ServerClientRoutingTest(unittest.TestCase):
             ["AUTH_URL", "AuthHandler", "src/auth_handler.clj", "handled", "where", "auth"],
             patterns,
         )
+
+    def test_bounded_process_wait_returns_immediately_or_kills_at_deadline(self):
+        client = load_client()
+        completed = subprocess.Popen(
+            [sys.executable, "-c", "pass"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        stalled = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(1)"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+
+        self.assertFalse(client.wait_process_bounded(completed, 1000))
+        self.assertTrue(client.wait_process_bounded(stalled, 10))
+        self.assertIsNotNone(stalled.returncode)
 
     def test_filesystem_query_packet_is_explicitly_degraded(self):
         client = load_client()

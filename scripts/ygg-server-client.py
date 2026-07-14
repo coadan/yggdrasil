@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 
@@ -405,6 +406,27 @@ def bounded_temp_text(file, max_bytes):
     return data.decode("utf-8", errors="replace"), truncated
 
 
+def wait_process_bounded(process, timeout_ms):
+    if timeout_ms <= 0:
+        process.wait()
+        return False
+    timed_out = threading.Event()
+
+    def expire():
+        if process.poll() is None:
+            timed_out.set()
+            process.kill()
+
+    timer = threading.Timer(timeout_ms / 1000.0, expire)
+    timer.daemon = True
+    timer.start()
+    try:
+        process.wait()
+    finally:
+        timer.cancel()
+    return timed_out.is_set()
+
+
 def parse_filesystem_count_output(stdout):
     matches = []
     for line in stdout.splitlines():
@@ -438,16 +460,7 @@ def run_filesystem_search(root, patterns):
                 "timeout?": False,
                 "truncated?": False,
             }
-        timed_out = False
-        try:
-            if timeout_ms > 0:
-                process.wait(timeout=timeout_ms / 1000.0)
-            else:
-                process.wait()
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            process.kill()
-            process.wait()
+        timed_out = wait_process_bounded(process, timeout_ms)
         stdout, truncated = bounded_temp_text(stdout_file, max_stdout_bytes)
         stderr, stderr_truncated = bounded_temp_text(stderr_file, 20000)
         if timed_out:
