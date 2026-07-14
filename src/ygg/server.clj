@@ -1322,7 +1322,8 @@
   (let [args (absolutize-path-options (:cwd request) (vec (:args request)))
         cli-args (into [command] args)
         active-indexing (active-indexing-operation-for-query ctx cli-args)
-        warmup-storage-path (when (and (:query-warmups ctx)
+        warmup-storage-path (when (and (not active-indexing)
+                                       (:query-warmups ctx)
                                        (:query-warmup-executor ctx))
                               (request-storage-path request cli-args nil))
         progress-fn (query-server-progress-fn ctx args command)
@@ -1350,13 +1351,19 @@
                               warmup-storage-path
                               %1
                               %2)))]
-    (captured-request-storage-response
-     ctx
-     request
-     cli-args
-     #(with-cli-operation ctx cli-args (request-operation request cli-args) %)
-     #(with-bindings {#'cli-query/*deps* query-deps}
-        (handler args)))))
+    (if (and (= "query" command) active-indexing)
+      (capture-response
+       #(with-user-dir (:cwd request)
+          (fn []
+            (with-bindings {#'cli-query/*deps* query-deps}
+              (cli-query/active-query-fallback! args)))))
+      (captured-request-storage-response
+       ctx
+       request
+       cli-args
+       #(with-cli-operation ctx cli-args (request-operation request cli-args) %)
+       #(with-bindings {#'cli-query/*deps* query-deps}
+          (handler args))))))
 
 (defn- sync-subcommand-response
   [ctx request subcommand args]

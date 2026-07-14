@@ -729,6 +729,17 @@
                                  :cwd (System/getProperty "user.dir")})]
       (conj args "--project" project-id))))
 
+(defn active-query-fallback!
+  "Run the active-work filesystem query path without opening graph storage.
+
+  The caller must bind `:active-indexing` in `*deps*`; this entrypoint exists so
+  the server can preserve query availability before a project node is ready."
+  [args]
+  (when-not (active-indexing)
+    (throw (ex-info "Active query fallback requires an active indexing operation."
+                    {})))
+  (query-with-node! nil args))
+
 (defn query!
   [args]
   (let [args (args-with-project args)

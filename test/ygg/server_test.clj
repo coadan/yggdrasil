@@ -1361,8 +1361,12 @@
       (with-redefs [cli/query-deps
                     (fn []
                       {:context-packet-options (fn [_ _ opts] opts)})
+                    store/storage-path
+                    (fn [& _]
+                      (throw (ex-info "active query should not resolve graph storage" {})))
                     cli-query/query-with-node!
                     (fn [xtdb args]
+                      (is (nil? xtdb))
                       (println
                        (json/write-json-str
                         ((:context-packet-options cli-query/*deps*)
