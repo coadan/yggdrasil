@@ -27,6 +27,10 @@
   [prefix]
   (.getPath (io/file (temp-dir prefix) "project.sqlite")))
 
+(defn- canonical-path
+  [path]
+  (.getCanonicalPath (io/file path)))
+
 (defn- read-json
   [path]
   (json/read-json (slurp (io/file path)) :key-fn keyword))
@@ -411,7 +415,7 @@
              :node-pool node-pool}]
     (with-redefs [project/read-project
                   (fn [path]
-                    (is (= "new-project.edn" path))
+                    (is (= (canonical-path "new-project.edn") path))
                     {:id "new-project"})
                   store/storage-path
                   (fn
@@ -579,15 +583,17 @@
 (deftest sync-request-runs-sync-inside-server
   (with-redefs [project/read-project
                 (fn [path]
-                  (is (= "project.edn" path))
+                  (is (= (canonical-path "project.edn") path))
                   {:id "demo"})
                 cli-sync/sync-index-project!
                 (fn [xtdb project args deps opts]
                   (is (= :xtdb xtdb))
                   (is (= {:id "demo"} project))
-                  (is (= ["project.edn" "--repo" "app" "--check" "--json"] args))
+                  (is (= [(canonical-path "project.edn")
+                          "--repo" "app" "--check" "--json"]
+                         args))
                   (is (map? deps))
-                  (is (= {:config-path "project.edn"
+                  (is (= {:config-path (canonical-path "project.edn")
                           :repo-id "app"
                           :check? true
                           :json? true}
@@ -605,7 +611,9 @@
                 (fn [xtdb project args deps]
                   (is (= :xtdb xtdb))
                   (is (= {:id "demo"} project))
-                  (is (= ["project.edn" "--repo" "app" "--check" "--json"] args))
+                  (is (= [(canonical-path "project.edn")
+                          "--repo" "app" "--check" "--json"]
+                         args))
                   (is (map? deps))
                   {:counts {:maintenance-decisions 3}})
                 cli/dispatch
@@ -630,13 +638,13 @@
   (let [frames (atom [])]
     (with-redefs [project/read-project
                   (fn [path]
-                    (is (= "project.edn" path))
+                    (is (= (canonical-path "project.edn") path))
                     {:id "demo"})
                   cli-sync/sync-index-project!
                   (fn [xtdb project args deps opts]
                     (is (= :xtdb xtdb))
                     (is (= {:id "demo"} project))
-                    (is (= ["project.edn"] args))
+                    (is (= [(canonical-path "project.edn")] args))
                     (is (map? deps))
                     (is (fn? (:progress-fn opts)))
                     ((:progress-fn opts) {:phase :scan-complete
@@ -676,15 +684,17 @@
 (deftest sync-with-check-runs-maintenance-inside-server
   (with-redefs [project/read-project
                 (fn [path]
-                  (is (= "project.edn" path))
+                  (is (= (canonical-path "project.edn") path))
                   {:id "demo"})
                 cli-sync/sync-index-project!
                 (fn [xtdb project args deps opts]
                   (is (= :xtdb xtdb))
                   (is (= {:id "demo"} project))
-                  (is (= ["project.edn" "--check" "--enqueue" "--json"] args))
+                  (is (= [(canonical-path "project.edn")
+                          "--check" "--enqueue" "--json"]
+                         args))
                   (is (map? deps))
-                  (is (= {:config-path "project.edn"
+                  (is (= {:config-path (canonical-path "project.edn")
                           :check? true
                           :enqueue? true
                           :json? true}
@@ -702,7 +712,9 @@
                 (fn [xtdb project args deps]
                   (is (= :xtdb xtdb))
                   (is (= {:id "demo"} project))
-                  (is (= ["project.edn" "--check" "--enqueue" "--json"] args))
+                  (is (= [(canonical-path "project.edn")
+                          "--check" "--enqueue" "--json"]
+                         args))
                   (is (map? deps))
                   {:project-id "demo"
                    :decision-queue [{:id "decision-1"
@@ -710,7 +722,9 @@
                                      :severity :medium}]})
                 cli-sync/enqueue-sync-work!
                 (fn [args report deps]
-                  (is (= ["project.edn" "--check" "--enqueue" "--json"] args))
+                  (is (= [(canonical-path "project.edn")
+                          "--check" "--enqueue" "--json"]
+                         args))
                   (is (= "demo" (:project-id report)))
                   (is (map? deps))
                   [{:id "work-1"
@@ -744,15 +758,16 @@
 (deftest sync-skips-system-inference-when-index-has-no-changes
   (with-redefs [project/read-project
                 (fn [path]
-                  (is (= "project.edn" path))
+                  (is (= (canonical-path "project.edn") path))
                   {:id "demo"})
                 cli-sync/sync-index-project!
                 (fn [xtdb project args deps opts]
                   (is (= :xtdb xtdb))
                   (is (= {:id "demo"} project))
-                  (is (= ["project.edn" "--check" "--json"] args))
+                  (is (= [(canonical-path "project.edn") "--check" "--json"]
+                         args))
                   (is (map? deps))
-                  (is (= {:config-path "project.edn"
+                  (is (= {:config-path (canonical-path "project.edn")
                           :check? true
                           :json? true}
                          (select-keys opts [:config-path :check? :json?])))
@@ -768,7 +783,8 @@
                 (fn [xtdb project args deps]
                   (is (= :xtdb xtdb))
                   (is (= {:id "demo"} project))
-                  (is (= ["project.edn" "--check" "--json"] args))
+                  (is (= [(canonical-path "project.edn") "--check" "--json"]
+                         args))
                   (is (map? deps))
                   {:project-id "demo"
                    :counts {:maintenance-decisions 0}})
