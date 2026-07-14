@@ -122,6 +122,29 @@ Fallbacks should be benchmarked and tested as lazy. If `ripgrep` succeeds,
 canonical `scan-files` rows against a forced fallback only in focused checks or
 benchmark harnesses, not in the normal sync path.
 
+## Query Availability Latency
+
+Use the query-availability benchmark to compare the same fixed-string patterns
+and repository scope across raw ripgrep, the in-process filesystem lane, and a
+cold end-to-end `ygg query` invocation:
+
+```sh
+bb bench:query-availability \
+  --repo . \
+  --query "filesystem query fallback" \
+  --iterations 20 \
+  --out .dev/reports/query-availability.json
+```
+
+The report records min, mean, p50, p95, maximum, completion, and timeout counts.
+`comparison.rawParitySupported` is deliberately strict: it is true only when
+cold Yggdrasil p95 is no slower than raw ripgrep p95. Expect wrapper and JSON
+packet overhead to make that false on small repositories; report the absolute
+overhead as well as the ratio. `contract.sameRipgrepArgv` and
+`oneFilesystemProcessPerRepo` distinguish orchestration overhead from an extra
+repository scan. This lane measures availability latency only; it does not
+support agent-effectiveness or architecture-quality claims.
+
 ## Headline Suite
 
 Use the tracked headline suite to compare shell-only and Yggdrasil-assisted agents
