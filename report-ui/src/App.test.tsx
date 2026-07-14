@@ -39,14 +39,14 @@ describe("App", () => {
     window.history.replaceState(
       null,
       "",
-      "/?mode=graph&refresh=0&reportDir=/Users/vegard/yggdrasil/.dev/reports/live"
+      "/?mode=graph&refresh=0&reportDir=/workspace/yggdrasil/.dev/reports/live"
     );
 
     render(<App />);
 
     await waitFor(() => {
       expect(vi.mocked(loadJson)).toHaveBeenCalledWith(
-        "/@fs/Users/vegard/yggdrasil/.dev/reports/live/graph.json"
+        "/@fs/workspace/yggdrasil/.dev/reports/live/graph.json"
       );
     });
     expect(await screen.findByText("Live Systems")).toBeInTheDocument();
@@ -56,14 +56,14 @@ describe("App", () => {
     window.history.replaceState(
       null,
       "",
-      "/?mode=report&refresh=0&reportDir=/Users/vegard/yggdrasil/.dev/reports/live"
+      "/?mode=report&refresh=0&reportDir=/workspace/yggdrasil/.dev/reports/live"
     );
 
     render(<App />);
 
     expect(screen.getByRole("link", { name: "Graph" })).toHaveAttribute(
       "href",
-      "?mode=graph&refresh=0&reportDir=%2FUsers%2Fvegard%2Fyggdrasil%2F.dev%2Freports%2Flive"
+      "?mode=graph&refresh=0&reportDir=%2Fworkspace%2Fyggdrasil%2F.dev%2Freports%2Flive"
     );
   });
 });

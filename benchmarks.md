@@ -552,8 +552,7 @@ Source artifacts:
 
 ## Codebase Memory Slice
 
-`codebase-memory-mcp` is installed on `PATH` at
-`/Users/vegard/.local/bin/codebase-memory-mcp` and the benchmark run used the
+`codebase-memory-mcp` was available on `PATH`, and the benchmark run used the
 repo-local copy at `.dev/tools/bin/codebase-memory-mcp` (`0.8.1`). It was
 installed as a binary-only tool with agent configuration skipped, then passed a
 direct repo-index smoke test and the full Codebase Memory headline lane.
