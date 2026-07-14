@@ -70,6 +70,8 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
             {"p95Ms": 11.0, "maxMs": 12.0},
             {"p95Ms": 12.0, "maxMs": 13.0},
             {"p95Ms": 13.0, "maxMs": 14.0},
+            {"p95Ms": 14.0, "maxMs": 15.0},
+            {"p95Ms": 15.0, "maxMs": 16.0},
         )
 
         self.assertEqual(1.2, result["filesystemLaneToRawP95Ratio"])
@@ -92,10 +94,64 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
             3.0,
             result["persistentMcpActiveEmbeddingP95OverheadMs"],
         )
+        self.assertEqual(
+            3.0,
+            result["persistentMcpOversizedRepeatedP95OverNormalMs"],
+        )
+        self.assertEqual(
+            4.0,
+            result["persistentMcpOversizedSingleP95OverNormalMs"],
+        )
         self.assertFalse(result["rawParitySupported"])
         self.assertFalse(result["rawMaxParitySupported"])
         self.assertFalse(result["persistentMcpRawParitySupported"])
         self.assertFalse(result["persistentMcpRawMaxParitySupported"])
+
+    def test_summary_tracks_persistent_query_bounds_and_process_identity(self):
+        bench = load_bench()
+        samples = [
+            {
+                "elapsedMs": 20.0,
+                "completed": True,
+                "timeout": False,
+                "clientProcessId": 101,
+                "filesystemQueryTruncated": True,
+                "filesystemQueryCharacters": 4096,
+                "filesystemDroppedPatternCount": 1,
+                "filesystemPatternMaxCharacters": 1024,
+            },
+            {
+                "elapsedMs": 21.0,
+                "completed": True,
+                "timeout": False,
+                "clientProcessId": 101,
+                "filesystemQueryTruncated": True,
+                "filesystemQueryCharacters": 4096,
+                "filesystemDroppedPatternCount": 1,
+                "filesystemPatternMaxCharacters": 1024,
+            },
+        ]
+
+        summary = bench.summarize(samples)
+
+        self.assertEqual(1, summary["clientProcessCount"])
+        self.assertEqual([101], summary["clientProcessIds"])
+        self.assertEqual(
+            {"true": 2},
+            summary["filesystemQueryTruncatedCounts"],
+        )
+        self.assertEqual(
+            {"4096": 2},
+            summary["filesystemQueryCharacterCounts"],
+        )
+        self.assertEqual(
+            {"1": 2},
+            summary["filesystemDroppedPatternCounts"],
+        )
+        self.assertEqual(
+            {"1024": 2},
+            summary["filesystemPatternMaxCharacterCounts"],
+        )
 
     def test_contract_requires_bounded_filesystem_fallback_for_every_stall(self):
         bench = load_bench()
@@ -149,6 +205,7 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
                 "filesystemProcessCounts": {"1": 3},
                 "filesystemLauncherCounts": {"posix-spawn": 3},
                 "clientProcessCount": 1,
+                "clientProcessIds": [101],
             },
             "persistentMcpActiveIndexingHandoff": {
                 "completed": 3,
@@ -173,6 +230,36 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
                 "filesystemHandoffCounts": {"true": 3},
                 "filesystemLauncherCounts": {"posix-spawn": 3},
                 "clientProcessCount": 1,
+            },
+            "persistentMcpOversizedRepeated": {
+                "completed": 3,
+                "timeouts": 0,
+                "p95Ms": 90.0,
+                "filesystemTotalMaxMs": 100,
+                "degradationReasons": {"server-unavailable": 3},
+                "filesystemProcessCounts": {"1": 3},
+                "filesystemLauncherCounts": {"posix-spawn": 3},
+                "clientProcessCount": 1,
+                "clientProcessIds": [101],
+                "filesystemQueryTruncatedCounts": {"true": 3},
+                "filesystemQueryCharacterCounts": {"4096": 3},
+                "filesystemDroppedPatternCounts": {"0": 3},
+                "filesystemPatternMaxCharacterCounts": {"8": 3},
+            },
+            "persistentMcpOversizedSingle": {
+                "completed": 3,
+                "timeouts": 0,
+                "p95Ms": 90.0,
+                "filesystemTotalMaxMs": 100,
+                "degradationReasons": {"server-unavailable": 3},
+                "filesystemProcessCounts": {"1": 3},
+                "filesystemLauncherCounts": {"posix-spawn": 3},
+                "clientProcessCount": 1,
+                "clientProcessIds": [101],
+                "filesystemQueryTruncatedCounts": {"true": 3},
+                "filesystemQueryCharacterCounts": {"4096": 3},
+                "filesystemDroppedPatternCounts": {"1": 3},
+                "filesystemPatternMaxCharacterCounts": {"1024": 3},
             },
         }
         mcp_startups = {
@@ -221,6 +308,10 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         lanes["persistentMcpActiveEmbeddingHandoff"]["degradationReasons"] = {
             "active-embedding": 2,
         }
+        lanes["persistentMcpOversizedRepeated"]["clientProcessIds"] = [102]
+        lanes["persistentMcpOversizedSingle"]["filesystemQueryTruncatedCounts"] = {
+            "false": 3,
+        }
         contract = bench.availability_contract(
             lanes,
             3,
@@ -245,6 +336,10 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         self.assertFalse(contract["persistentMcpStayedInOneClientProcess"])
         self.assertFalse(contract["persistentMcpActiveIndexingUsedFilesystem"])
         self.assertFalse(contract["persistentMcpActiveEmbeddingUsedFilesystem"])
+        self.assertFalse(
+            contract["persistentMcpOversizedQueriesReusedColdClientProcess"]
+        )
+        self.assertFalse(contract["persistentMcpOversizedQueriesReportedBounds"])
         failed_startup = bench.availability_contract(
             lanes,
             3,

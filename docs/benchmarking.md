@@ -149,9 +149,17 @@ not folded into per-query latency. The cold MCP lane must return explicit
 and use one filesystem process. All three lanes gate one persistent client
 process per lane across all samples.
 
+After the parity lanes finish, schema v12 sends repeated-token and single-token
+1 MB queries through the same cold MCP process. These lanes do not contend with
+the raw-`rg` samples. They must reuse the existing client process, complete
+without timeouts, start one `rg` each, return `server-unavailable`, cap the
+packet query at 4,096 characters, and report the 1,024-character pattern bound.
+Use `--oversized-query-characters` to change the input size without changing the
+production bounds.
+
 The client probes the numeric loopback endpoint through the
 built-in socket primitive and loads standard JSON only for a confirmed live
-server or concurrently with the fallback `rg` process. Benchmark schema v11 also
+server or concurrently with the fallback `rg` process. Benchmark schema v12 also
 requires every external filesystem fallback lane to report the
 dependency-free `posix-spawn` process boundary used on supported macOS and Linux
 hosts. `queryConnectAttemptTimeoutMs` records and gates the 5 ms zero-retry
@@ -163,7 +171,7 @@ cold Yggdrasil p95 is no slower than raw ripgrep p95. Expect wrapper and JSON
 packet overhead to make that false on small repositories; report the absolute
 overhead as well as the ratio. `contract.sameRipgrepArgv` and
 `oneFilesystemProcessPerFallback` distinguish orchestration overhead from an
-extra repository scan. Schema v11 separately reports
+extra repository scan. Schema v12 separately reports
 `comparison.persistentMcpRawParitySupported`; it does not substitute that
 persistent-process result for the stricter cold CLI result. The active-indexing
 handoff lane must report

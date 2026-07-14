@@ -21,7 +21,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLIENT_PATH = ROOT / "scripts" / "ygg-server-client.py"
 CLI_PATH = ROOT / "bin" / "ygg"
 MCP_PATH = ROOT / "bin" / "ygg-mcp"
-SCHEMA = "ygg.query-availability.benchmark/v11"
+SCHEMA = "ygg.query-availability.benchmark/v12"
 
 
 def load_client():
@@ -95,6 +95,21 @@ def summarize(samples):
     }
     if client_process_ids:
         summary["clientProcessCount"] = len(client_process_ids)
+        summary["clientProcessIds"] = sorted(client_process_ids)
+    for sample_key, summary_key in [
+        ("filesystemQueryTruncated", "filesystemQueryTruncatedCounts"),
+        ("filesystemQueryCharacters", "filesystemQueryCharacterCounts"),
+        ("filesystemDroppedPatternCount", "filesystemDroppedPatternCounts"),
+        ("filesystemPatternMaxCharacters", "filesystemPatternMaxCharacterCounts"),
+    ]:
+        counts = {}
+        for sample in samples:
+            value = sample.get(sample_key)
+            if value is not None:
+                key = str(value).lower() if isinstance(value, bool) else str(value)
+                counts[key] = counts.get(key, 0) + 1
+        if counts:
+            summary[summary_key] = counts
     for sample_key, summary_prefix in [
         ("filesystemSearchMs", "filesystemSearch"),
         ("filesystemTotalMs", "filesystemTotal"),
@@ -435,6 +450,20 @@ class PersistentMcpClient:
             ),
             "filesystemSearchMs": instrumentation.get("filesystem-search-ms"),
             "filesystemTotalMs": instrumentation.get("filesystem-total-ms"),
+            "filesystemQueryTruncated": instrumentation.get(
+                "filesystem-query-truncated?"
+            ),
+            "filesystemQueryCharacters": len(packet.get("query") or ""),
+            "filesystemDroppedPatternCount": instrumentation.get(
+                "filesystem-dropped-pattern-count"
+            ),
+            "filesystemPatternMaxCharacters": max(
+                [
+                    len(pattern)
+                    for pattern in instrumentation.get("filesystem-patterns", [])
+                ]
+                or [0]
+            ),
             "clientProcessId": self.process.pid,
         }
 
@@ -577,6 +606,8 @@ def comparison(
     persistent_mcp=None,
     persistent_mcp_active_handoff=None,
     persistent_mcp_embedding_handoff=None,
+    persistent_mcp_oversized_repeated=None,
+    persistent_mcp_oversized_single=None,
 ):
     raw_p95 = raw["p95Ms"]
     lane_p95 = lane["p95Ms"]
@@ -661,6 +692,17 @@ def comparison(
         result["persistentMcpActiveEmbeddingP95OverheadMs"] = (
             persistent_mcp_embedding_handoff["p95Ms"] - raw_p95
         )
+    if persistent_mcp_oversized_repeated and persistent_mcp_oversized_single:
+        result.update({
+            "persistentMcpOversizedRepeatedP95OverNormalMs": (
+                persistent_mcp_oversized_repeated["p95Ms"]
+                - persistent_mcp["p95Ms"]
+            ),
+            "persistentMcpOversizedSingleP95OverNormalMs": (
+                persistent_mcp_oversized_single["p95Ms"]
+                - persistent_mcp["p95Ms"]
+            ),
+        })
     return result
 
 
@@ -674,6 +716,8 @@ def availability_contract(
     filesystem_timeout_ms=1500,
     zero_retry_connect_attempt_timeout_ms=5,
     mcp_startups=None,
+    query_scan_character_limit=4096,
+    pattern_character_limit=1024,
 ):
     stalled = lanes["stalledYgg"]
     acknowledged_stalled = lanes["acknowledgedStalledYgg"]
@@ -681,6 +725,8 @@ def availability_contract(
     persistent_mcp = lanes["persistentMcpCold"]
     persistent_mcp_active = lanes["persistentMcpActiveIndexingHandoff"]
     persistent_mcp_embedding = lanes["persistentMcpActiveEmbeddingHandoff"]
+    persistent_mcp_oversized_repeated = lanes["persistentMcpOversizedRepeated"]
+    persistent_mcp_oversized_single = lanes["persistentMcpOversizedSingle"]
     cold = lanes["coldYgg"]
     cold_filesystem_max_ms = cold.get("filesystemTotalMaxMs")
     external_names = [
@@ -691,6 +737,8 @@ def availability_contract(
         "persistentMcpCold",
         "persistentMcpActiveIndexingHandoff",
         "persistentMcpActiveEmbeddingHandoff",
+        "persistentMcpOversizedRepeated",
+        "persistentMcpOversizedSingle",
     ]
     return {
         "sameRipgrepArgv": same_ripgrep_argv,
@@ -741,6 +789,12 @@ def availability_contract(
             and persistent_mcp_active.get("clientProcessCount") == 1
             and persistent_mcp_embedding.get("clientProcessCount") == 1
         ),
+        "persistentMcpOversizedQueriesReusedColdClientProcess": (
+            persistent_mcp.get("clientProcessIds")
+            == persistent_mcp_oversized_repeated.get("clientProcessIds")
+            == persistent_mcp_oversized_single.get("clientProcessIds")
+            and persistent_mcp.get("clientProcessCount") == 1
+        ),
         "persistentMcpColdUsedFilesystem": (
             persistent_mcp.get("degradationReasons")
             == {"server-unavailable": iterations}
@@ -764,6 +818,35 @@ def availability_contract(
             == {"1": iterations}
             and persistent_mcp_embedding.get("filesystemHandoffCounts")
             == {"true": iterations}
+        ),
+        "persistentMcpOversizedQueriesUsedFilesystem": (
+            persistent_mcp_oversized_repeated.get("degradationReasons")
+            == {"server-unavailable": iterations}
+            and persistent_mcp_oversized_single.get("degradationReasons")
+            == {"server-unavailable": iterations}
+        ),
+        "persistentMcpOversizedQueriesReportedBounds": (
+            persistent_mcp_oversized_repeated.get(
+                "filesystemQueryTruncatedCounts"
+            ) == {"true": iterations}
+            and persistent_mcp_oversized_single.get(
+                "filesystemQueryTruncatedCounts"
+            ) == {"true": iterations}
+            and persistent_mcp_oversized_repeated.get(
+                "filesystemQueryCharacterCounts"
+            ) == {str(query_scan_character_limit): iterations}
+            and persistent_mcp_oversized_single.get(
+                "filesystemQueryCharacterCounts"
+            ) == {str(query_scan_character_limit): iterations}
+            and persistent_mcp_oversized_repeated.get(
+                "filesystemDroppedPatternCounts"
+            ) == {"0": iterations}
+            and persistent_mcp_oversized_single.get(
+                "filesystemDroppedPatternCounts"
+            ) == {"1": iterations}
+            and persistent_mcp_oversized_single.get(
+                "filesystemPatternMaxCharacterCounts"
+            ) == {str(pattern_character_limit): iterations}
         ),
         "filesystemFallbackUsedPosixSpawn": all(
             lanes[name].get("filesystemLauncherCounts")
@@ -802,6 +885,12 @@ def availability_contract(
             persistent_mcp_embedding["p95Ms"]
             <= persistent_mcp["p95Ms"] + stalled_bound_tolerance_ms
         ),
+        "persistentMcpOversizedP95WithinBound": (
+            persistent_mcp_oversized_repeated["p95Ms"]
+            <= persistent_mcp["p95Ms"] + stalled_bound_tolerance_ms
+            and persistent_mcp_oversized_single["p95Ms"]
+            <= persistent_mcp["p95Ms"] + stalled_bound_tolerance_ms
+        ),
         "filesystemWorkMaxWithinDeadline": (
             filesystem_timeout_ms > 0
             and all(
@@ -823,6 +912,8 @@ def availability_contract(
                     "persistentMcpCold",
                     "persistentMcpActiveIndexingHandoff",
                     "persistentMcpActiveEmbeddingHandoff",
+                    "persistentMcpOversizedRepeated",
+                    "persistentMcpOversizedSingle",
                 ]
             )
         ),
@@ -875,7 +966,16 @@ def run(args):
         )
     if args.stalled_bound_tolerance_ms < 0:
         raise SystemExit("--stalled-bound-tolerance-ms cannot be negative")
+    if args.oversized_query_characters <= client.DEFAULT_FILESYSTEM_QUERY_SCAN_CHARACTER_LIMIT:
+        raise SystemExit(
+            "--oversized-query-characters must exceed the filesystem query scan limit"
+        )
     patterns = client.filesystem_query_patterns(args.query, [])
+    oversized_repeated_query = (
+        "token123 "
+        * math.ceil(args.oversized_query_characters / len("token123 "))
+    )[:args.oversized_query_characters]
+    oversized_single_query = "a" * args.oversized_query_characters
     accepted_handoff = {
         "schema": "ygg.query.filesystem-handoff/v1",
         "reason": "query-hedge",
@@ -992,6 +1092,28 @@ def run(args):
             for offset in range(len(lane_names)):
                 lane = lane_names[(index + offset) % len(lane_names)]
                 samples[lane].append(lane_fns[lane]())
+        oversized_lane_fns = {
+            "persistentMcpOversizedRepeated": lambda: persistent_mcp.sample(
+                oversized_repeated_query
+            ),
+            "persistentMcpOversizedSingle": lambda: persistent_mcp.sample(
+                oversized_single_query
+            ),
+        }
+        oversized_lane_names = list(oversized_lane_fns)
+        for index in range(args.warmup):
+            for offset in range(len(oversized_lane_names)):
+                lane = oversized_lane_names[
+                    (index + offset) % len(oversized_lane_names)
+                ]
+                oversized_lane_fns[lane]()
+        samples.update({lane: [] for lane in oversized_lane_names})
+        for index in range(args.iterations):
+            for offset in range(len(oversized_lane_names)):
+                lane = oversized_lane_names[
+                    (index + offset) % len(oversized_lane_names)
+                ]
+                samples[lane].append(oversized_lane_fns[lane]())
         mcp_startups = {
             "cold": persistent_mcp.startup,
             "activeIndexing": persistent_mcp_active.startup,
@@ -1035,6 +1157,13 @@ def run(args):
         ),
         "stalledServerDelayMs": stalled_server_delay_ms,
         "stalledBoundToleranceMs": args.stalled_bound_tolerance_ms,
+        "oversizedQueryCharacters": args.oversized_query_characters,
+        "filesystemQueryScanCharacterLimit": (
+            client.DEFAULT_FILESYSTEM_QUERY_SCAN_CHARACTER_LIMIT
+        ),
+        "filesystemPatternCharacterLimit": (
+            client.DEFAULT_FILESYSTEM_PATTERN_CHARACTER_LIMIT
+        ),
         "mcpStartup": mcp_startups,
         "lanes": lanes,
         "comparison": comparison(
@@ -1047,6 +1176,8 @@ def run(args):
             lanes["persistentMcpCold"],
             lanes["persistentMcpActiveIndexingHandoff"],
             lanes["persistentMcpActiveEmbeddingHandoff"],
+            lanes["persistentMcpOversizedRepeated"],
+            lanes["persistentMcpOversizedSingle"],
         ),
         "contract": availability_contract(
             lanes,
@@ -1058,6 +1189,8 @@ def run(args):
             args.timeout_ms,
             client.DEFAULT_ZERO_RETRY_CONNECT_ATTEMPT_TIMEOUT_MS,
             mcp_startups,
+            client.DEFAULT_FILESYSTEM_QUERY_SCAN_CHARACTER_LIMIT,
+            client.DEFAULT_FILESYSTEM_PATTERN_CHARACTER_LIMIT,
         ),
     }
     encoded = json.dumps(report, indent=2) + "\n"
@@ -1082,6 +1215,7 @@ def parser():
     value.add_argument("--acknowledged-query-hedge-after-ms", type=int)
     value.add_argument("--stalled-server-delay-ms", type=int)
     value.add_argument("--stalled-bound-tolerance-ms", type=int, default=75)
+    value.add_argument("--oversized-query-characters", type=int, default=1000000)
     value.add_argument("--rg-bin", default="rg")
     value.add_argument("--out")
     return value
