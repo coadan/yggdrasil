@@ -2,8 +2,6 @@
 import _thread
 import json
 import os
-import pathlib
-import platform
 import re
 import selectors
 import socket
@@ -49,8 +47,8 @@ FILESYSTEM_INCOMPLETE_WARNING = (
     "Filesystem fallback reached a search bound or tool failure; "
     "results may be incomplete."
 )
-ROOT = pathlib.Path(__file__).resolve().parents[1]
-YGG_BIN = ROOT / "bin" / "ygg"
+ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+YGG_BIN = os.path.join(ROOT, "bin", "ygg")
 INIT_LOCAL_FLAGS = {
     "--no-start-server",
     "--start-at-login",
@@ -397,12 +395,16 @@ def filesystem_query_patterns(query_text, args):
     return patterns or [query_text.strip()]
 
 
+def canonical_filesystem_path(path):
+    return os.path.realpath(os.path.abspath(os.path.expanduser(os.fspath(path))))
+
+
 def filesystem_query_root(cwd=None):
-    cwd = pathlib.Path(cwd or os.getcwd()).expanduser().resolve()
+    cwd = canonical_filesystem_path(cwd or os.getcwd())
     for directory in parent_dirs(cwd):
-        if (directory / ".git").exists():
+        if os.path.exists(os.path.join(directory, ".git")):
             return directory
-        if (directory / ".ygg" / "project.edn").is_file():
+        if os.path.isfile(os.path.join(directory, ".ygg", "project.edn")):
             return directory
     return cwd
 
@@ -635,14 +637,14 @@ def filesystem_handoff_repositories(response):
         if not isinstance(row, dict) or not row.get("root"):
             continue
         try:
-            root = pathlib.Path(row["root"]).expanduser().resolve()
+            root = canonical_filesystem_path(row["root"])
         except OSError:
             continue
-        if not root.is_dir() or root in seen_roots:
+        if not os.path.isdir(root) or root in seen_roots:
             continue
         seen_roots.add(root)
         repositories.append({
-            "id": str(row.get("id") or root.name),
+            "id": str(row.get("id") or os.path.basename(root)),
             "root": root,
         })
         if len(repositories) >= DEFAULT_FILESYSTEM_HANDOFF_REPO_LIMIT:
@@ -668,25 +670,25 @@ def filesystem_project_match(row, repositories):
     return None
 
 
+def filesystem_repository_scope(repository):
+    root = canonical_filesystem_path(repository["root"])
+    return {
+        **repository,
+        "root": root,
+        "root-prefix": os.path.normpath(root),
+    }
+
+
 def run_filesystem_project_search(repositories, patterns):
     repositories = sorted(
-        [
-            {
-                **repository,
-                "root": pathlib.Path(repository["root"]).resolve(),
-                "root-prefix": os.path.normpath(
-                    str(pathlib.Path(repository["root"]).resolve())
-                ),
-            }
-            for repository in repositories
-        ],
+        [filesystem_repository_scope(repository) for repository in repositories],
         key=lambda candidate: len(candidate["root-prefix"]),
         reverse=True,
     )
     search = run_filesystem_search(
         filesystem_query_root(),
         patterns,
-        [str(repository["root"]) for repository in repositories],
+        [repository["root"] for repository in repositories],
     )
     mapped_by_path = {}
     unmapped_count = 0
@@ -757,7 +759,7 @@ def degradation_message(reason):
 def filesystem_query_packet(args, reason, repositories=None):
     started = time.monotonic()
     query_text = " ".join(query_positional_args(args)).strip()
-    root = filesystem_query_root()
+    root = os.fspath(filesystem_query_root())
     patterns = filesystem_query_patterns(query_text, args)
     repositories = repositories or []
     if repositories:
@@ -765,7 +767,7 @@ def filesystem_query_packet(args, reason, repositories=None):
     else:
         search = run_filesystem_search(root, patterns)
         for match in search["matches"]:
-            match["repo"] = option_value(args, "--repo") or root.name
+            match["repo"] = option_value(args, "--repo") or os.path.basename(root)
 
     def path_pattern_count(row):
         path = row["path"].lower()
@@ -898,22 +900,23 @@ def filesystem_query_response(args, reason, repositories=None):
 
 
 def parent_dirs(path):
-    current = pathlib.Path(path).expanduser().resolve()
+    current = canonical_filesystem_path(path)
     while True:
         yield current
-        if current.parent == current:
+        parent = os.path.dirname(current)
+        if parent == current:
             return
-        current = current.parent
+        current = parent
 
 
 def display_path(path):
     try:
-        absolute = pathlib.Path(path).expanduser().resolve()
+        absolute = canonical_filesystem_path(path)
     except OSError:
-        absolute = pathlib.Path(path).expanduser().absolute()
+        absolute = os.path.abspath(os.path.expanduser(os.fspath(path)))
     try:
-        cwd = pathlib.Path.cwd().resolve()
-        relative = os.path.relpath(str(absolute), str(cwd))
+        cwd = os.path.realpath(os.getcwd())
+        relative = os.path.relpath(absolute, cwd)
         if relative != ".." and not relative.startswith("../"):
             return relative
     except OSError:
@@ -921,36 +924,41 @@ def display_path(path):
     return str(absolute)
 
 
+def path_object(value):
+    from pathlib import Path
+    return Path(value)
+
+
 def project_registry_path():
     configured = os.environ.get("YGG_PROJECTS_FILE")
     if configured:
-        return pathlib.Path(configured).expanduser()
+        return path_object(configured).expanduser()
     config_home = os.environ.get("YGG_CONFIG_HOME")
     if config_home:
-        return pathlib.Path(config_home).expanduser() / "projects.edn"
+        return path_object(config_home).expanduser() / "projects.edn"
     xdg_home = os.environ.get("XDG_CONFIG_HOME")
     if xdg_home:
-        return pathlib.Path(xdg_home).expanduser() / "ygg" / "projects.edn"
-    return pathlib.Path.home() / ".config" / "ygg" / "projects.edn"
+        return path_object(xdg_home).expanduser() / "ygg" / "projects.edn"
+    return path_object("~").expanduser() / ".config" / "ygg" / "projects.edn"
 
 
 def nearest_project_ref_path(cwd=None):
     for directory in parent_dirs(cwd or os.getcwd()):
-        path = directory / ".ygg" / "project.edn"
-        if path.is_file():
-            return path
+        path = os.path.join(directory, ".ygg", "project.edn")
+        if os.path.isfile(path):
+            return path_object(path)
     return None
 
 
 def cwd_project_config_path(cwd=None):
-    path = pathlib.Path(cwd or os.getcwd()) / "project.edn"
+    path = path_object(cwd or os.getcwd()) / "project.edn"
     return path if path.is_file() else None
 
 
 def looks_like_config_path(value):
     if not value or value.startswith("-"):
         return False
-    path = pathlib.Path(value)
+    path = path_object(value)
     return path.suffix == ".edn" or path.name == "project.edn" or path.is_file()
 
 
@@ -1013,7 +1021,7 @@ def unavailable_hint(op=None, args=None):
 
     config_path = first_config_path_arg(op, args)
     if config_path:
-        file = pathlib.Path(config_path).expanduser()
+        file = path_object(config_path).expanduser()
         if file.is_file():
             return (
                 f"Project config exists at `{display_path(file)}`. "
@@ -1498,31 +1506,31 @@ def server_request(op, args, stream=False, render_progress=False):
 
 
 def ygg_home():
-    return pathlib.Path(os.environ.get("YGG_HOME") or str(ROOT))
+    return os.path.abspath(os.path.expanduser(os.environ.get("YGG_HOME") or ROOT))
 
 
 def server_log_path():
     configured = os.environ.get("YGG_SERVER_LOG")
     if configured:
-        return pathlib.Path(configured).expanduser()
-    return ygg_home() / ".ygg" / "server.log"
+        return os.path.abspath(os.path.expanduser(configured))
+    return os.path.join(ygg_home(), ".ygg", "server.log")
 
 
 def server_start_marker_path():
-    return server_log_path().with_name("server-start-requested")
+    return os.path.join(os.path.dirname(server_log_path()), "server-start-requested")
 
 
 def claim_server_start():
     marker = server_start_marker_path()
-    marker.parent.mkdir(parents=True, exist_ok=True)
+    os.makedirs(os.path.dirname(marker), exist_ok=True)
     now = time.time()
     try:
-        age = now - marker.stat().st_mtime
+        age = now - os.stat(marker).st_mtime
     except FileNotFoundError:
         age = None
     if age is not None and age >= DEFAULT_QUERY_AUTO_START_COOLDOWN_SECONDS:
         try:
-            marker.unlink()
+            os.unlink(marker)
         except FileNotFoundError:
             pass
     try:
@@ -1540,7 +1548,7 @@ def start_server_in_background():
     if not claim_server_start():
         return {"status": "already-requested"}
     log_path = server_log_path()
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
     log = open(log_path, "ab", buffering=0)
     try:
         subprocess.Popen(
@@ -1552,20 +1560,20 @@ def start_server_in_background():
             env=os.environ.copy(),
             start_new_session=True,
         )
-        return {"status": "requested", "log": str(log_path)}
+        return {"status": "requested", "log": log_path}
     except OSError as exc:
         try:
-            server_start_marker_path().unlink()
+            os.unlink(server_start_marker_path())
         except FileNotFoundError:
             pass
-        return {"status": "error", "error": str(exc), "log": str(log_path)}
+        return {"status": "error", "error": str(exc), "log": log_path}
     finally:
         log.close()
 
 
 def start_server_for_init():
     log_path = server_log_path()
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
     log = open(log_path, "ab", buffering=0)
     try:
         subprocess.Popen(
@@ -1583,9 +1591,9 @@ def start_server_for_init():
     while time.monotonic() < deadline:
         response = request("ping", [], connect_timeout_override_ms=0)
         if response is not None and response.get("ok"):
-            return {"status": "started", "log": str(log_path)}
+            return {"status": "started", "log": log_path}
         time.sleep(1)
-    return {"status": "timeout", "log": str(log_path)}
+    return {"status": "timeout", "log": log_path}
 
 
 def init_interactive_enabled(args):
@@ -1635,7 +1643,7 @@ def prompt_choice(prompt, choices, default):
 
 
 def detect_init_harnesses(root):
-    root_path = pathlib.Path(root or os.getcwd()).expanduser()
+    root_path = path_object(root or os.getcwd()).expanduser()
     markers = []
     if (root_path / "AGENTS.md").exists():
         markers.append("AGENTS.md")
@@ -1860,7 +1868,7 @@ def attach_init_guided_result(response, guided):
 
 
 def launch_agent_dir():
-    return pathlib.Path.home() / "Library" / "LaunchAgents"
+    return path_object("~").expanduser() / "Library" / "LaunchAgents"
 
 
 def launch_agent_path():
@@ -1868,7 +1876,7 @@ def launch_agent_path():
 
 
 def launch_agent_plist():
-    log_dir = ygg_home() / ".ygg"
+    log_dir = path_object(ygg_home()) / ".ygg"
     return f"""<?xml version=\"1.0\" encoding=\"UTF-8\"?>
 <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
 <plist version=\"1.0\">
@@ -1900,6 +1908,7 @@ def run_launchctl(*args):
 
 
 def start_at_login(args, emit=True):
+    import platform
     action = args[0] if args else "status"
     json_output = "--json" in args
     if platform.system() != "Darwin":
@@ -1922,7 +1931,7 @@ def start_at_login(args, emit=True):
     }
     if action == "enable":
         path.parent.mkdir(parents=True, exist_ok=True)
-        (ygg_home() / ".ygg").mkdir(parents=True, exist_ok=True)
+        (path_object(ygg_home()) / ".ygg").mkdir(parents=True, exist_ok=True)
         path.write_text(launch_agent_plist(), encoding="utf-8")
         bootstrap = run_launchctl("bootstrap", f"gui/{os.getuid()}", str(path))
         if bootstrap.returncode not in (0, 5):

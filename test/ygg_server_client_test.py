@@ -370,7 +370,7 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual("scoped filesystem\n", out.getvalue())
         self.assertEqual("query-hedge", fallback_calls[0][1])
         self.assertEqual(
-            [("app", repo.resolve())],
+            [("app", str(repo.resolve()))],
             [(row["id"], row["root"]) for row in fallback_calls[0][2]],
         )
 
@@ -535,7 +535,7 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual("handoff fallback\n", out.getvalue())
         self.assertEqual("active-indexing", fallback_calls[0][1])
         self.assertEqual(
-            [("a", repo_a.resolve()), ("b", repo_b.resolve())],
+            [("a", str(repo_a.resolve())), ("b", str(repo_b.resolve()))],
             [(row["id"], row["root"]) for row in fallback_calls[0][2]],
         )
 
@@ -1180,10 +1180,12 @@ class ServerClientRoutingTest(unittest.TestCase):
 
     def test_service_start_at_login_status_reports_unsupported_off_macos(self):
         client = load_client()
-        client.platform.system = lambda: "Linux"
 
         out = io.StringIO()
-        with contextlib.redirect_stdout(out):
+        with (
+            mock.patch("platform.system", return_value="Linux"),
+            contextlib.redirect_stdout(out),
+        ):
             with self.assertRaises(SystemExit) as raised:
                 client.main(["ygg", "service", "start-at-login", "status", "--json"])
 

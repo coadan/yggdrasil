@@ -18,7 +18,7 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLIENT_PATH = ROOT / "scripts" / "ygg-server-client.py"
-SCHEMA = "ygg.query-availability.benchmark/v5"
+SCHEMA = "ygg.query-availability.benchmark/v6"
 
 
 def load_client():
@@ -183,6 +183,7 @@ def cold_ygg_sample(
         )
     argv = [
         sys.executable,
+        "-S",
         str(CLIENT_PATH),
         "query",
         query,
@@ -599,6 +600,7 @@ def run(args):
         "iterations": args.iterations,
         "warmup": args.warmup,
         "timeoutMs": args.timeout_ms,
+        "clientPythonArgs": ["-S"],
         "queryFallbackAfterMs": query_fallback_after_ms,
         "clientDefaultQueryFallbackAfterMs": client.DEFAULT_QUERY_FALLBACK_AFTER_MS,
         "queryHedgeAfterMs": query_hedge_after_ms,

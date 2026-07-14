@@ -20,4 +20,4 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 75
 fi
 
-exec python3 "$REPO_DIR/scripts/ygg-server-client.py" mcp "$@"
+exec python3 -S "$REPO_DIR/scripts/ygg-server-client.py" mcp "$@"

@@ -137,6 +137,8 @@ bb bench:query-availability \
 ```
 
 The report records min, mean, p50, p95, maximum, completion, and timeout counts.
+Its cold and stalled lanes invoke the same `python3 -S` source client as
+`bin/ygg`; `clientPythonArgs` records that startup contract.
 `comparison.rawParitySupported` is deliberately strict: it is true only when
 cold Yggdrasil p95 is no slower than raw ripgrep p95. Expect wrapper and JSON
 packet overhead to make that false on small repositories; report the absolute
