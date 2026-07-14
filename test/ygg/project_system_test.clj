@@ -1158,7 +1158,8 @@
       (is (= "workbench" (:id project)))
       (is (= [{:id "demo-cli"
                :root (.getCanonicalPath cache-root)
-               :role :tooling}]
+               :role :tooling
+               :ignore-paths []}]
              (:repos project))))))
 
 (deftest reads-workbench-project-config-with-supplemental-repos
@@ -1177,10 +1178,12 @@
     (let [project (project/read-project (.getPath project-edn))]
       (is (= [{:id "workbench"
                :root (.getCanonicalPath root)
-               :role :tooling}
+               :role :tooling
+               :ignore-paths []}
               {:id "demo-cli"
                :root (.getCanonicalPath cache-root)
-               :role :tooling}]
+               :role :tooling
+               :ignore-paths []}]
              (:repos project))))))
 
 (deftest reads-project-config-with-absolute-repo-root
@@ -1196,7 +1199,8 @@
     (let [project (project/read-project (.getPath project-edn))]
       (is (= [{:id "repo"
                :root (.getCanonicalPath repo-root)
-               :role :application}]
+               :role :application
+               :ignore-paths []}]
              (:repos project))))))
 
 (deftest adds-repo-to-project-config

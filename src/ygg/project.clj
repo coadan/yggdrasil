@@ -149,7 +149,8 @@
                             :repo-id repo-id})))
          {:id (name repo-id)
           :root resolved
-          :role (infer-role (name repo-id))}))
+          :role (infer-role (name repo-id))
+          :ignore-paths []}))
      repos)))
 
 (defn- normalize-repos
