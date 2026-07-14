@@ -127,7 +127,7 @@ benchmark harnesses, not in the normal sync path.
 Use the query-availability benchmark to compare the same fixed-string patterns
 and repository scope across raw ripgrep, the in-process filesystem lane, cold
 and stalled CLI calls, and a persistent MCP process that remains useful while
-the service is unavailable or indexing:
+the service is unavailable, indexing, or embedding:
 
 ```sh
 bb bench:query-availability \
@@ -144,14 +144,14 @@ startup contract. Each persistent lane starts `bin/ygg-mcp` once, completes the
 real MCP initialize and tool-list handshake, and reuses that same process for
 every measured query. `mcpStartup` reports handshake latency separately; it is
 not folded into per-query latency. The cold MCP lane must return explicit
-`server-unavailable` filesystem packets. The active-indexing MCP lane must
-return `active-indexing`, retain the accepted repository scope, and use one
-filesystem process. Both lanes gate one persistent client process across all
-samples.
+`server-unavailable` filesystem packets. The active-work MCP lanes must return
+`active-indexing` or `active-embedding`, retain the accepted repository scope,
+and use one filesystem process. All three lanes gate one persistent client
+process per lane across all samples.
 
 The client probes the numeric loopback endpoint through the
 built-in socket primitive and loads standard JSON only for a confirmed live
-server or concurrently with the fallback `rg` process. Benchmark schema v10 also
+server or concurrently with the fallback `rg` process. Benchmark schema v11 also
 requires every external filesystem fallback lane to report the
 dependency-free `posix-spawn` process boundary used on supported macOS and Linux
 hosts. `queryConnectAttemptTimeoutMs` records and gates the 5 ms zero-retry
@@ -163,7 +163,7 @@ cold Yggdrasil p95 is no slower than raw ripgrep p95. Expect wrapper and JSON
 packet overhead to make that false on small repositories; report the absolute
 overhead as well as the ratio. `contract.sameRipgrepArgv` and
 `oneFilesystemProcessPerFallback` distinguish orchestration overhead from an
-extra repository scan. Schema v10 separately reports
+extra repository scan. Schema v11 separately reports
 `comparison.persistentMcpRawParitySupported`; it does not substitute that
 persistent-process result for the stricter cold CLI result. The active-indexing
 handoff lane must report

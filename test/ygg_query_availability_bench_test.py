@@ -69,6 +69,7 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
             {"p95Ms": 50.0, "maxMs": 55.0},
             {"p95Ms": 11.0, "maxMs": 12.0},
             {"p95Ms": 12.0, "maxMs": 13.0},
+            {"p95Ms": 13.0, "maxMs": 14.0},
         )
 
         self.assertEqual(1.2, result["filesystemLaneToRawP95Ratio"])
@@ -87,6 +88,10 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         self.assertEqual(44.0, result["activeIndexingHandoffYggMaxOverheadMs"])
         self.assertEqual(1.0, result["persistentMcpP95OverheadMs"])
         self.assertEqual(1.0, result["persistentMcpMaxOverheadMs"])
+        self.assertEqual(
+            3.0,
+            result["persistentMcpActiveEmbeddingP95OverheadMs"],
+        )
         self.assertFalse(result["rawParitySupported"])
         self.assertFalse(result["rawMaxParitySupported"])
         self.assertFalse(result["persistentMcpRawParitySupported"])
@@ -157,10 +162,23 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
                 "filesystemLauncherCounts": {"posix-spawn": 3},
                 "clientProcessCount": 1,
             },
+            "persistentMcpActiveEmbeddingHandoff": {
+                "completed": 3,
+                "timeouts": 0,
+                "p95Ms": 90.0,
+                "filesystemTotalMaxMs": 100,
+                "degradationReasons": {"active-embedding": 3},
+                "filesystemProcessCounts": {"1": 3},
+                "filesystemRepoCounts": {"1": 3},
+                "filesystemHandoffCounts": {"true": 3},
+                "filesystemLauncherCounts": {"posix-spawn": 3},
+                "clientProcessCount": 1,
+            },
         }
         mcp_startups = {
             "cold": {"completed": True, "timeout": False},
             "activeIndexing": {"completed": True, "timeout": False},
+            "activeEmbedding": {"completed": True, "timeout": False},
         }
 
         contract = bench.availability_contract(
@@ -200,6 +218,9 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         lanes["persistentMcpActiveIndexingHandoff"]["degradationReasons"] = {
             "active-indexing": 2,
         }
+        lanes["persistentMcpActiveEmbeddingHandoff"]["degradationReasons"] = {
+            "active-embedding": 2,
+        }
         contract = bench.availability_contract(
             lanes,
             3,
@@ -223,6 +244,7 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         self.assertFalse(contract["oneFilesystemProcessPerFallback"])
         self.assertFalse(contract["persistentMcpStayedInOneClientProcess"])
         self.assertFalse(contract["persistentMcpActiveIndexingUsedFilesystem"])
+        self.assertFalse(contract["persistentMcpActiveEmbeddingUsedFilesystem"])
         failed_startup = bench.availability_contract(
             lanes,
             3,

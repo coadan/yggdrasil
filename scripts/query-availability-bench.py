@@ -21,7 +21,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLIENT_PATH = ROOT / "scripts" / "ygg-server-client.py"
 CLI_PATH = ROOT / "bin" / "ygg"
 MCP_PATH = ROOT / "bin" / "ygg-mcp"
-SCHEMA = "ygg.query-availability.benchmark/v10"
+SCHEMA = "ygg.query-availability.benchmark/v11"
 
 
 def load_client():
@@ -496,9 +496,10 @@ class StalledQueryServer:
                 return
 
 
-class ActiveIndexingHandoffServer:
-    def __init__(self, repo):
+class ActiveWorkHandoffServer:
+    def __init__(self, repo, reason):
         self.repo = pathlib.Path(repo).resolve()
+        self.reason = reason
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.listener.bind(("127.0.0.1", 0))
         self.listener.listen()
@@ -537,7 +538,7 @@ class ActiveIndexingHandoffServer:
                 connection.recv(65536)
                 handoff = {
                     "schema": "ygg.query.filesystem-handoff/v1",
-                    "reason": "active-indexing",
+                    "reason": self.reason,
                     "fallback": "filesystem",
                     "repos": [{"id": self.repo.name, "root": str(self.repo)}],
                 }
@@ -554,7 +555,7 @@ class ActiveIndexingHandoffServer:
                     "err": "",
                     "data": {
                         "schema": "ygg.query.filesystem-handoff/v1",
-                        "reason": "active-indexing",
+                        "reason": self.reason,
                         "fallback": "filesystem",
                         "repos": [{"id": self.repo.name, "root": str(self.repo)}],
                     },
@@ -575,6 +576,7 @@ def comparison(
     active_handoff=None,
     persistent_mcp=None,
     persistent_mcp_active_handoff=None,
+    persistent_mcp_embedding_handoff=None,
 ):
     raw_p95 = raw["p95Ms"]
     lane_p95 = lane["p95Ms"]
@@ -655,6 +657,10 @@ def comparison(
         result["persistentMcpActiveIndexingP95OverheadMs"] = (
             persistent_mcp_active_handoff["p95Ms"] - raw_p95
         )
+    if persistent_mcp_embedding_handoff:
+        result["persistentMcpActiveEmbeddingP95OverheadMs"] = (
+            persistent_mcp_embedding_handoff["p95Ms"] - raw_p95
+        )
     return result
 
 
@@ -674,6 +680,7 @@ def availability_contract(
     active_handoff = lanes["activeIndexingHandoffYgg"]
     persistent_mcp = lanes["persistentMcpCold"]
     persistent_mcp_active = lanes["persistentMcpActiveIndexingHandoff"]
+    persistent_mcp_embedding = lanes["persistentMcpActiveEmbeddingHandoff"]
     cold = lanes["coldYgg"]
     cold_filesystem_max_ms = cold.get("filesystemTotalMaxMs")
     external_names = [
@@ -683,6 +690,7 @@ def availability_contract(
         "activeIndexingHandoffYgg",
         "persistentMcpCold",
         "persistentMcpActiveIndexingHandoff",
+        "persistentMcpActiveEmbeddingHandoff",
     ]
     return {
         "sameRipgrepArgv": same_ripgrep_argv,
@@ -722,7 +730,7 @@ def availability_contract(
             active_handoff.get("filesystemHandoffCounts") == {"true": iterations}
         ),
         "persistentMcpHandshakeCompleted": (
-            set(mcp_startups or {}) == {"cold", "activeIndexing"}
+            set(mcp_startups or {}) == {"cold", "activeIndexing", "activeEmbedding"}
             and all(
                 startup.get("completed") and not startup.get("timeout")
                 for startup in mcp_startups.values()
@@ -731,6 +739,7 @@ def availability_contract(
         "persistentMcpStayedInOneClientProcess": (
             persistent_mcp.get("clientProcessCount") == 1
             and persistent_mcp_active.get("clientProcessCount") == 1
+            and persistent_mcp_embedding.get("clientProcessCount") == 1
         ),
         "persistentMcpColdUsedFilesystem": (
             persistent_mcp.get("degradationReasons")
@@ -744,6 +753,16 @@ def availability_contract(
             persistent_mcp_active.get("filesystemRepoCounts")
             == {"1": iterations}
             and persistent_mcp_active.get("filesystemHandoffCounts")
+            == {"true": iterations}
+        ),
+        "persistentMcpActiveEmbeddingUsedFilesystem": (
+            persistent_mcp_embedding.get("degradationReasons")
+            == {"active-embedding": iterations}
+        ),
+        "persistentMcpActiveEmbeddingUsedRequestedRepoScope": (
+            persistent_mcp_embedding.get("filesystemRepoCounts")
+            == {"1": iterations}
+            and persistent_mcp_embedding.get("filesystemHandoffCounts")
             == {"true": iterations}
         ),
         "filesystemFallbackUsedPosixSpawn": all(
@@ -779,6 +798,10 @@ def availability_contract(
             persistent_mcp_active["p95Ms"]
             <= persistent_mcp["p95Ms"] + stalled_bound_tolerance_ms
         ),
+        "persistentMcpActiveEmbeddingP95WithinBound": (
+            persistent_mcp_embedding["p95Ms"]
+            <= persistent_mcp["p95Ms"] + stalled_bound_tolerance_ms
+        ),
         "filesystemWorkMaxWithinDeadline": (
             filesystem_timeout_ms > 0
             and all(
@@ -799,6 +822,7 @@ def availability_contract(
                     "activeIndexingHandoffYgg",
                     "persistentMcpCold",
                     "persistentMcpActiveIndexingHandoff",
+                    "persistentMcpActiveEmbeddingHandoff",
                 ]
             )
         ),
@@ -865,7 +889,14 @@ def run(args):
               acknowledge=True,
               filesystem_handoff=accepted_handoff,
           ) as acknowledged_stalled_server,
-          ActiveIndexingHandoffServer(repo) as active_handoff_server,
+          ActiveWorkHandoffServer(
+              repo,
+              "active-indexing",
+          ) as active_handoff_server,
+          ActiveWorkHandoffServer(
+              repo,
+              "active-embedding",
+          ) as embedding_handoff_server,
           PersistentMcpClient(
               repo,
               port,
@@ -883,7 +914,16 @@ def run(args):
               query_fallback_after_ms,
               query_hedge_after_ms,
               acknowledged_query_hedge_after_ms,
-          ) as persistent_mcp_active):
+          ) as persistent_mcp_active,
+          PersistentMcpClient(
+              repo,
+              embedding_handoff_server.port,
+              args.timeout_ms,
+              args.rg_bin,
+              query_fallback_after_ms,
+              query_hedge_after_ms,
+              acknowledged_query_hedge_after_ms,
+          ) as persistent_mcp_embedding):
         lane_fns = {
             "rawRipgrep": lambda: raw_ripgrep_sample(
                 client, repo, patterns, args.timeout_ms, args.rg_bin
@@ -939,6 +979,9 @@ def run(args):
             "persistentMcpActiveIndexingHandoff": lambda: (
                 persistent_mcp_active.sample(args.query)
             ),
+            "persistentMcpActiveEmbeddingHandoff": lambda: (
+                persistent_mcp_embedding.sample(args.query)
+            ),
         }
         lane_names = list(lane_fns)
         for index in range(args.warmup):
@@ -952,6 +995,7 @@ def run(args):
         mcp_startups = {
             "cold": persistent_mcp.startup,
             "activeIndexing": persistent_mcp_active.startup,
+            "activeEmbedding": persistent_mcp_embedding.startup,
         }
     lanes = {lane: summarize(rows) for lane, rows in samples.items()}
     raw_ripgrep_argvs = {
@@ -1002,6 +1046,7 @@ def run(args):
             lanes["activeIndexingHandoffYgg"],
             lanes["persistentMcpCold"],
             lanes["persistentMcpActiveIndexingHandoff"],
+            lanes["persistentMcpActiveEmbeddingHandoff"],
         ),
         "contract": availability_contract(
             lanes,
