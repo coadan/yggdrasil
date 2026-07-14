@@ -288,17 +288,27 @@ def run(args):
         raise SystemExit("--iterations must be at least 1")
     if args.warmup < 0:
         raise SystemExit("--warmup cannot be negative")
-    if args.query_fallback_after_ms < 1:
+    client = load_client()
+    query_fallback_after_ms = (
+        args.query_fallback_after_ms
+        if args.query_fallback_after_ms is not None
+        else client.DEFAULT_QUERY_FALLBACK_AFTER_MS
+    )
+    stalled_server_delay_ms = (
+        args.stalled_server_delay_ms
+        if args.stalled_server_delay_ms is not None
+        else query_fallback_after_ms + 1000
+    )
+    if query_fallback_after_ms < 1:
         raise SystemExit("--query-fallback-after-ms must be at least 1")
-    if args.stalled_server_delay_ms <= args.query_fallback_after_ms:
+    if stalled_server_delay_ms <= query_fallback_after_ms:
         raise SystemExit(
             "--stalled-server-delay-ms must exceed --query-fallback-after-ms"
         )
     if args.stalled_bound_tolerance_ms < 0:
         raise SystemExit("--stalled-bound-tolerance-ms cannot be negative")
-    client = load_client()
     patterns = client.filesystem_query_patterns(args.query, [])
-    with StalledQueryServer(args.stalled_server_delay_ms) as stalled_server:
+    with StalledQueryServer(stalled_server_delay_ms) as stalled_server:
         port = closed_loopback_port()
         lane_fns = {
             "rawRipgrep": lambda: raw_ripgrep_sample(
@@ -317,7 +327,7 @@ def run(args):
                 args.timeout_ms,
                 args.rg_bin,
                 stalled_server.port,
-                args.query_fallback_after_ms,
+                query_fallback_after_ms,
             ),
         }
         lane_names = list(lane_fns)
@@ -338,8 +348,9 @@ def run(args):
         "iterations": args.iterations,
         "warmup": args.warmup,
         "timeoutMs": args.timeout_ms,
-        "queryFallbackAfterMs": args.query_fallback_after_ms,
-        "stalledServerDelayMs": args.stalled_server_delay_ms,
+        "queryFallbackAfterMs": query_fallback_after_ms,
+        "clientDefaultQueryFallbackAfterMs": client.DEFAULT_QUERY_FALLBACK_AFTER_MS,
+        "stalledServerDelayMs": stalled_server_delay_ms,
         "stalledBoundToleranceMs": args.stalled_bound_tolerance_ms,
         "lanes": lanes,
         "comparison": comparison(
@@ -351,7 +362,7 @@ def run(args):
         "contract": availability_contract(
             lanes,
             args.iterations,
-            args.query_fallback_after_ms,
+            query_fallback_after_ms,
             args.stalled_bound_tolerance_ms,
         ),
     }
@@ -372,8 +383,8 @@ def parser():
     value.add_argument("--warmup", type=int, default=2)
     value.add_argument("--limit", type=int, default=10)
     value.add_argument("--timeout-ms", type=int, default=1500)
-    value.add_argument("--query-fallback-after-ms", type=int, default=200)
-    value.add_argument("--stalled-server-delay-ms", type=int, default=1000)
+    value.add_argument("--query-fallback-after-ms", type=int)
+    value.add_argument("--stalled-server-delay-ms", type=int)
     value.add_argument("--stalled-bound-tolerance-ms", type=int, default=75)
     value.add_argument("--rg-bin", default="rg")
     value.add_argument("--out")
