@@ -48,6 +48,7 @@ FILESYSTEM_INCOMPLETE_WARNING = (
 )
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 YGG_BIN = os.path.join(ROOT, "bin", "ygg")
+MCP_MANIFEST_PATH = os.path.join(ROOT, "resources", "ygg", "mcp-manifest.json")
 INIT_LOCAL_FLAGS = {
     "--no-start-server",
     "--start-at-login",
@@ -1125,6 +1126,7 @@ def filesystem_query_response(args, reason, repositories=None):
             "exit": 0,
             "out": standard_json().dumps(packet, separators=(",", ":")) + "\n",
             "err": "",
+            "data": packet,
         }
     lines = []
     for result in packet["results"]:
@@ -1139,6 +1141,7 @@ def filesystem_query_response(args, reason, repositories=None):
         "exit": 0,
         "out": "\n".join(lines) + "\n",
         "err": "".join(f"Warning: {warning}\n" for warning in packet["warnings"]),
+        "data": packet,
     }
 
 
@@ -1554,9 +1557,151 @@ def write_json_line(value):
     sys.stdout.flush()
 
 
+def mcp_manifest():
+    with open(MCP_MANIFEST_PATH, encoding="utf-8") as file:
+        return standard_json().load(file)
+
+
+def mcp_tool_groups(args):
+    configured = (
+        option_value(args, "--tools")
+        or os.environ.get("YGG_MCP_TOOLS")
+        or "default"
+    )
+    return {
+        value.strip()
+        for value in configured.split(",")
+        if value.strip()
+    }
+
+
+def mcp_listed_tools(args, manifest):
+    groups = mcp_tool_groups(args)
+    tools = []
+    for definition in manifest["tools"]:
+        if "all" not in groups and not groups.intersection(definition["groups"]):
+            continue
+        tools.append({
+            key: value
+            for key, value in definition.items()
+            if key not in {"groups", "readOnly"}
+        })
+    return tools
+
+
+def mcp_local_protocol_response(args, message, manifest):
+    request_id = message.get("id")
+    method = message.get("method")
+    params = message.get("params") or {}
+    if method == "initialize":
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "protocolVersion": (
+                    params.get("protocolVersion")
+                    or manifest["protocolVersion"]
+                ),
+                "capabilities": {"tools": {}, "resources": {}},
+                "serverInfo": manifest["serverInfo"],
+                "instructions": manifest["instructions"],
+            },
+        }
+    if method == "ping":
+        return {"jsonrpc": "2.0", "id": request_id, "result": {}}
+    if method == "tools/list":
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {"tools": mcp_listed_tools(args, manifest)},
+        }
+    return None
+
+
+def mcp_query_call(message):
+    return (
+        message.get("method") == "tools/call"
+        and (message.get("params") or {}).get("name") == "ygg_query"
+    )
+
+
+def mcp_query_cli_args(proxy_args, message):
+    arguments = (message.get("params") or {}).get("arguments") or {}
+    query = arguments.get("query")
+    if not isinstance(query, str) or not query.strip():
+        return None
+    query_args = [query, "--json", "--no-progress"]
+    options = [
+        ("projectId", "--project"),
+        ("configPath", "--config"),
+        ("retriever", "--retriever"),
+        ("budget", "--budget"),
+    ]
+    for key, flag in options:
+        value = arguments.get(key)
+        if value is None and flag in {"--project", "--config"}:
+            value = option_value(proxy_args, flag)
+        if value is not None:
+            query_args.extend([flag, str(value)])
+    return query_args
+
+
+def mcp_tool_packet(value):
+    return {
+        "content": [{
+            "type": "text",
+            "text": standard_json().dumps(value, separators=(",", ":")),
+        }],
+        "structuredContent": value,
+    }
+
+
+def mcp_query_response(args, message):
+    query_args = mcp_query_cli_args(args, message)
+    if query_args is None:
+        return jsonrpc_error(
+            "Yggdrasil context query requires query.",
+            message,
+            -32602,
+            {
+                "schema": "ygg.mcp.error/v1",
+                "error": "invalid-arguments",
+                "field": "query",
+            },
+        ), False
+    response, start_server = resolved_query_response(
+        query_args,
+        stream=True,
+        render_progress=False,
+    )
+    if response is None or not response.get("ok", response.get("exit") == 0):
+        err = ((response or {}).get("err") or "Yggdrasil query failed.").strip()
+        return jsonrpc_error(
+            err,
+            message,
+            -32000,
+            (response or {}).get("data"),
+        ), start_server
+    packet = response.get("data")
+    if packet is None:
+        try:
+            packet = standard_json().loads(response.get("out") or "")
+        except (ValueError, TypeError):
+            return jsonrpc_error(
+                "Yggdrasil query returned no context packet.",
+                message,
+            ), start_server
+    return {
+        "jsonrpc": "2.0",
+        "id": message.get("id"),
+        "result": mcp_tool_packet(packet),
+    }, start_server
+
+
 def mcp_proxy(args):
     exit_code = 0
     json = standard_json()
+    manifest = mcp_manifest()
     for raw_line in sys.stdin:
         line = raw_line.strip()
         if not line:
@@ -1572,6 +1717,18 @@ def mcp_proxy(args):
             ))
             exit_code = 1
             continue
+        local_response = mcp_local_protocol_response(args, message, manifest)
+        if local_response is not None:
+            write_json_line(local_response)
+            continue
+        if message.get("id") is None:
+            continue
+        if mcp_query_call(message):
+            result, start_server = mcp_query_response(args, message)
+            write_json_line(result)
+            if start_server:
+                start_server_in_background()
+            continue
         response = request("mcp", args, extra={"message": message})
         if response is None:
             hint = unavailable_hint("mcp", args)
@@ -1582,7 +1739,7 @@ def mcp_proxy(args):
                 -32000,
                 {"hint": hint},
             ))
-            return UNAVAILABLE
+            continue
         if not response.get("ok"):
             err = (response.get("err") or "Server MCP request failed.").strip()
             if err:
@@ -1739,26 +1896,8 @@ def hedged_query_request(args, stream, render_progress):
     return None, pending
 
 
-def filesystem_query_exit(args, reason, repositories=None):
-    response = (
-        filesystem_query_response(args, reason, repositories)
-        if repositories
-        else filesystem_query_response(args, reason)
-    )
-    exit_code = print_response(response)
-    if reason == "server-unavailable":
-        sys.stdout.flush()
-        sys.stderr.flush()
-        start_server_in_background()
-    return exit_code
-
-
-def server_request(op, args, stream=False, render_progress=False):
-    pending = None
-    if op == "query":
-        response, pending = hedged_query_request(args, stream, render_progress)
-    else:
-        response = request(op, args, stream=stream, render_progress=render_progress)
+def resolved_query_response(args, stream=False, render_progress=False):
+    response, pending = hedged_query_request(args, stream, render_progress)
     if pending is not None:
         repositories = pending_query_filesystem_repositories(pending)
         reason = pending_query_filesystem_reason(pending)
@@ -1771,24 +1910,40 @@ def server_request(op, args, stream=False, render_progress=False):
             completed_response = completed_query_response(pending)
             completed_reason = query_response_fallback_reason(completed_response)
             if completed_reason is None:
-                return print_response(completed_response)
-            if completed_reason == "server-unavailable":
-                sys.stdout.flush()
-                sys.stderr.flush()
-                start_server_in_background()
-        return print_response(filesystem_response)
+                return completed_response, False
+            return filesystem_response, completed_reason == "server-unavailable"
+        return filesystem_response, False
+    reason = query_response_fallback_reason(response)
+    if reason is not None:
+        repositories = filesystem_handoff_repositories(response)
+        filesystem_response = (
+            filesystem_query_response(args, reason, repositories)
+            if repositories
+            else filesystem_query_response(args, reason)
+        )
+        return filesystem_response, reason == "server-unavailable"
+    return response, False
+
+
+def server_request(op, args, stream=False, render_progress=False):
+    start_server = False
     if op == "query":
-        reason = query_response_fallback_reason(response)
-        if reason is not None:
-            return filesystem_query_exit(
-                args,
-                reason,
-                filesystem_handoff_repositories(response),
-            )
+        response, start_server = resolved_query_response(
+            args,
+            stream,
+            render_progress,
+        )
+    else:
+        response = request(op, args, stream=stream, render_progress=render_progress)
     if response is None:
         sys.stderr.write(unavailable_message(op, args))
         return UNAVAILABLE
-    return print_response(response)
+    exit_code = print_response(response)
+    if start_server:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        start_server_in_background()
+    return exit_code
 
 
 def ygg_home():

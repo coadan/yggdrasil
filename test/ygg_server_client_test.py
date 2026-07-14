@@ -363,19 +363,35 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual(client.UNAVAILABLE, exit_code)
         self.assertIn("Project config exists at `project.edn`.", err.getvalue())
 
-    def test_mcp_unavailable_json_hint_matches_state_aware_hint(self):
+    def test_mcp_handshake_and_tools_list_do_not_require_server(self):
         client = load_client()
         old_stdin = client.sys.stdin
 
-        def unavailable_request(op, args, **kwargs):
-            return None
+        def unexpected_request(op, args, **kwargs):
+            self.fail(f"local MCP method requested server op {op}")
 
-        client.request = unavailable_request
+        client.request = unexpected_request
         with self.temporary_cwd() as root:
             os.environ.pop("YGG_PROJECT_ID", None)
             os.environ["YGG_PROJECTS_FILE"] = str(root / "missing-registry.edn")
             client.sys.stdin = io.StringIO(
-                json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}) + "\n"
+                "\n".join([
+                    json.dumps({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {"protocolVersion": "2025-03-26"},
+                    }),
+                    json.dumps({
+                        "jsonrpc": "2.0",
+                        "method": "notifications/initialized",
+                    }),
+                    json.dumps({
+                        "jsonrpc": "2.0",
+                        "id": 2,
+                        "method": "tools/list",
+                    }),
+                ]) + "\n"
             )
             try:
                 out = io.StringIO()
@@ -385,15 +401,141 @@ class ServerClientRoutingTest(unittest.TestCase):
             finally:
                 client.sys.stdin = old_stdin
 
-        self.assertEqual(client.UNAVAILABLE, exit_code)
-        body = json.loads(out.getvalue())
-        self.assertEqual("Yggdrasil server is not reachable.", body["error"]["message"])
-        self.assertIn(
-            "No project config or repo-local `.ygg/project.edn` was found",
-            body["error"]["data"]["hint"],
+        self.assertEqual(0, exit_code)
+        init, listed = [json.loads(line) for line in out.getvalue().splitlines()]
+        self.assertEqual("ygg-mcp", init["result"]["serverInfo"]["name"])
+        self.assertEqual(
+            ["ygg_query", "ygg_node", "ygg_systems", "ygg_status"],
+            [tool["name"] for tool in listed["result"]["tools"]],
         )
-        self.assertIn("No project config or repo-local `.ygg/project.edn` was found",
-                      err.getvalue())
+        self.assertEqual("", err.getvalue())
+
+    def test_mcp_cold_query_returns_filesystem_packet_and_stays_available(self):
+        client = load_client()
+        old_stdin = client.sys.stdin
+        client.connect_socket = lambda *_args, **_kwargs: None
+        start_calls = []
+        client.start_server_in_background = lambda: start_calls.append(True)
+        client.filesystem_query_root = lambda: pathlib.Path("/workspace/demo")
+        client.run_filesystem_search = lambda _root, _patterns: {
+            "elapsed-ms": 3,
+            "matches": [{"path": "src/auth.py", "count": 2}],
+            "diagnostics": [],
+            "process-attempted?": True,
+            "timeout?": False,
+            "truncated?": False,
+        }
+        messages = [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "ygg_query",
+                    "arguments": {"query": "auth flow"},
+                },
+            },
+            {"jsonrpc": "2.0", "id": 2, "method": "ping"},
+        ]
+        client.sys.stdin = io.StringIO(
+            "\n".join(json.dumps(message) for message in messages) + "\n"
+        )
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                exit_code = client.main(["ygg", "mcp"])
+        finally:
+            client.sys.stdin = old_stdin
+
+        self.assertEqual(0, exit_code)
+        query_response, ping_response = [
+            json.loads(line) for line in out.getvalue().splitlines()
+        ]
+        packet = query_response["result"]["structuredContent"]
+        self.assertEqual(client.FILESYSTEM_QUERY_SCHEMA, packet["schema"])
+        self.assertEqual("server-unavailable", packet["degradation"]["reason"])
+        self.assertEqual("filesystem", packet["retrieval"]["effective"])
+        self.assertEqual("src/auth.py", packet["results"][0]["resolvedPath"])
+        self.assertEqual({}, ping_response["result"])
+        self.assertEqual([True], start_calls)
+
+    def test_mcp_unavailable_nonquery_tool_does_not_end_search_transport(self):
+        client = load_client()
+        old_stdin = client.sys.stdin
+        client.request = lambda *_args, **_kwargs: None
+        messages = [
+            {"jsonrpc": "2.0", "id": 1, "method": "resources/list"},
+            {"jsonrpc": "2.0", "id": 2, "method": "ping"},
+        ]
+        client.sys.stdin = io.StringIO(
+            "\n".join(json.dumps(message) for message in messages) + "\n"
+        )
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                exit_code = client.main(["ygg", "mcp"])
+        finally:
+            client.sys.stdin = old_stdin
+
+        self.assertEqual(0, exit_code)
+        unavailable, ping = [json.loads(line) for line in out.getvalue().splitlines()]
+        self.assertEqual(
+            "Yggdrasil server is not reachable.",
+            unavailable["error"]["message"],
+        )
+        self.assertEqual({}, ping["result"])
+
+    def test_mcp_query_translates_tool_scope_to_canonical_query_protocol(self):
+        client = load_client()
+        calls = []
+        packet = {
+            "schema": client.FILESYSTEM_QUERY_SCHEMA,
+            "degradation": {"reason": "active-indexing"},
+        }
+
+        def resolve(args, stream, render_progress):
+            calls.append((args, stream, render_progress))
+            return {"ok": True, "exit": 0, "data": packet}, False
+
+        client.resolved_query_response = resolve
+        message = {
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/call",
+            "params": {
+                "name": "ygg_query",
+                "arguments": {
+                    "query": "billing path",
+                    "projectId": "tool-project",
+                    "retriever": "auto",
+                    "budget": 3000,
+                },
+            },
+        }
+
+        response, start_server = client.mcp_query_response(
+            ["--project", "proxy-project", "--config", "project.edn"],
+            message,
+        )
+
+        self.assertFalse(start_server)
+        self.assertEqual(packet, response["result"]["structuredContent"])
+        self.assertEqual(
+            [[
+                "billing path",
+                "--json",
+                "--no-progress",
+                "--project",
+                "tool-project",
+                "--config",
+                "project.edn",
+                "--retriever",
+                "auto",
+                "--budget",
+                "3000",
+            ], True, False],
+            [list(calls[0][0]), calls[0][1], calls[0][2]],
+        )
 
     def test_server_command_routes_to_matching_server_op(self):
         client = load_client()

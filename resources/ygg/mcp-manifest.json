@@ -1,0 +1,231 @@
+{
+  "protocolVersion": "2025-03-26",
+  "serverInfo": {
+    "name": "ygg-mcp",
+    "version": "0.1.0"
+  },
+  "instructions": "Use ygg_query first for structural coding questions when a project graph exists. Check freshness, evidence.families, evidence.planes, and nextActions before trusting missing evidence. Treat returned systems as the work-area orientation, architecture as auditable evidence, snippets as already-read source context, and relationships as nearby mechanical edges before broad grep. Use ygg_node for one exact file, node, package, system, or evidence target; ambiguous labels return choices. Use ygg_status for graph freshness, basis, query-index readiness, evidence-family readiness, coverage, plugin package caveats, and next actions. When coverage or nextActions show skipped unsupported source, follow the surfaced plugin workflow commands: registry/list, gap, new, dry-run, diagnose, and core-check. Extractor plugins may enhance core rows or add unsupported file-family rows after core extraction; unbenchmarked or project-local plugin output is non-authoritative review evidence. Use ygg_systems for a compact systems view. Treat Yggdrasil output as mechanical facts plus accepted correction facts/metadata; do not infer architecture from names or path vocabulary.",
+  "tools": [
+    {
+      "name": "ygg_query",
+      "groups": ["default"],
+      "readOnly": true,
+      "description": "Return the primary one-shot Yggdrasil context packet for an agent question.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "query": {"type": "string"},
+          "projectId": {"type": "string"},
+          "configPath": {"type": "string"},
+          "retriever": {"type": "string", "enum": ["lexical", "auto", "hybrid", "semantic"]},
+          "budget": {"type": "integer", "minimum": 1000}
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "ygg_node",
+      "groups": ["default"],
+      "readOnly": true,
+      "description": "Inspect one exact graph node or source file target with mechanical neighbors and source context.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "target": {"type": "string"},
+          "projectId": {"type": "string"},
+          "configPath": {"type": "string"},
+          "limit": {"type": "integer", "minimum": 1},
+          "sourceLines": {"type": "integer", "minimum": 1}
+        },
+        "required": ["target"]
+      }
+    },
+    {
+      "name": "ygg_systems",
+      "groups": ["default"],
+      "readOnly": true,
+      "description": "Return the canonical ygg.graph/v2 systems graph JSON.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {"type": "string"},
+          "configPath": {"type": "string"},
+          "detail": {"type": "string", "enum": ["primary", "expanded", "evidence", "raw"]},
+          "limit": {"type": "integer", "minimum": 1}
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "ygg_sync_inspect",
+      "groups": ["sync"],
+      "readOnly": true,
+      "description": "Return project config plus the current mechanical evidence surface without syncing.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"configPath": {"type": "string"}},
+        "required": []
+      }
+    },
+    {
+      "name": "ygg_status",
+      "groups": ["default"],
+      "readOnly": true,
+      "description": "Return agent-facing freshness, query-index readiness, evidence surface, coverage, and next actions without syncing.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {"configPath": {"type": "string"}},
+        "required": []
+      }
+    },
+    {
+      "name": "ygg_sync_check",
+      "groups": ["sync"],
+      "readOnly": true,
+      "description": "Return the read-only maintenance check report for a project.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "configPath": {"type": "string"},
+          "minConfidence": {"type": "number"}
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "ygg_sync_activity",
+      "groups": ["sync"],
+      "readOnly": false,
+      "description": "Import project queue lifecycle and result audit facts into local activity rows.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "configPath": {"type": "string"},
+          "projectId": {"type": "string"}
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "ygg_work_list",
+      "groups": ["work"],
+      "readOnly": true,
+      "description": "List project queue work items without claiming them.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {"type": "string"},
+          "kind": {"type": "string"},
+          "status": {"type": "string"},
+          "limit": {"type": "integer", "minimum": 1}
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "ygg_work_show",
+      "groups": ["work"],
+      "readOnly": true,
+      "description": "Return one project queue work item without changing its state.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {"type": "string"},
+          "workId": {"type": "string"}
+        },
+        "required": ["workId"]
+      }
+    },
+    {
+      "name": "ygg_work_pull",
+      "groups": ["work"],
+      "readOnly": false,
+      "description": "Claim one ready project queue item for an agent.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {"type": "string"},
+          "kind": {"type": "string"},
+          "agentId": {"type": "string"},
+          "leaseMinutes": {"type": "integer", "minimum": 1}
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "ygg_work_heartbeat",
+      "groups": ["work"],
+      "readOnly": false,
+      "description": "Extend the lease for one claimed project queue item.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {"type": "string"},
+          "workId": {"type": "string"},
+          "agentId": {"type": "string"},
+          "leaseMinutes": {"type": "integer", "minimum": 1}
+        },
+        "required": ["workId"]
+      }
+    },
+    {
+      "name": "ygg_work_complete",
+      "groups": ["work"],
+      "readOnly": false,
+      "description": "Complete a claimed project queue item with a schema-bearing result object.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {"type": "string"},
+          "workId": {"type": "string"},
+          "result": {"type": "object"}
+        },
+        "required": ["workId", "result"]
+      }
+    },
+    {
+      "name": "ygg_work_release",
+      "groups": ["work"],
+      "readOnly": false,
+      "description": "Release one claimed project queue item back to ready.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {"type": "string"},
+          "workId": {"type": "string"},
+          "reason": {"type": "string"}
+        },
+        "required": ["workId"]
+      }
+    },
+    {
+      "name": "ygg_work_reject",
+      "groups": ["work"],
+      "readOnly": false,
+      "description": "Reject one project queue item with a reason.",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "projectId": {"type": "string"},
+          "workId": {"type": "string"},
+          "reason": {"type": "string"}
+        },
+        "required": ["workId", "reason"]
+      }
+    }
+  ]
+}

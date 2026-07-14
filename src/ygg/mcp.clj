@@ -19,36 +19,20 @@
             [clojure.string :as str])
   (:gen-class))
 
+(def ^:private manifest
+  (json/read-json (slurp (io/resource "ygg/mcp-manifest.json")) :key-fn keyword))
+
 (def protocol-version
-  "2025-03-26")
+  (:protocolVersion manifest))
 
 (def server-name
-  "ygg-mcp")
+  (get-in manifest [:serverInfo :name]))
 
 (def server-version
-  "0.1.0")
+  (get-in manifest [:serverInfo :version]))
 
 (def server-instructions
-  (str "Use ygg_query first for structural coding questions when a project "
-       "graph exists. Check freshness, evidence.families, evidence.planes, "
-       "and nextActions before trusting missing evidence. Treat returned "
-       "systems as the work-area orientation, architecture as auditable "
-       "evidence, snippets as already-read source context, and relationships "
-       "as nearby mechanical edges before broad grep. "
-       "Use ygg_node for one exact file, node, package, system, or "
-       "evidence target; ambiguous labels return choices. Use ygg_status for "
-       "graph freshness, basis, query-index readiness, evidence-family readiness, "
-       "coverage, plugin package caveats, and next actions. "
-       "When coverage or nextActions show skipped unsupported source, follow "
-       "the surfaced plugin workflow commands: registry/list, gap, new, "
-       "dry-run, diagnose, and core-check. Extractor plugins may enhance core "
-       "rows or add unsupported file-family rows after core extraction; "
-       "unbenchmarked or project-local plugin output is non-authoritative "
-       "review evidence. "
-       "Use ygg_systems for a compact systems view. Treat Yggdrasil output as "
-       "mechanical facts plus "
-       "accepted correction facts/metadata; do not infer architecture from names "
-       "or path vocabulary."))
+  (:instructions manifest))
 
 (def default-root
   ".")
@@ -84,144 +68,13 @@
    :project-id (option-value args "--project")
    :tool-groups (parse-tool-groups (configured-tool-groups args))})
 
-(defn- json-schema
-  [properties required]
-  {:type "object"
-   :additionalProperties false
-   :properties properties
-   :required required})
-
 (def tool-definitions
-  [{:name "ygg_query"
-    :groups #{:default}
-    :read-only? true
-    :description "Return the primary one-shot Yggdrasil context packet for an agent question."
-    :inputSchema (json-schema
-                  {:query {:type "string"}
-                   :projectId {:type "string"}
-                   :configPath {:type "string"}
-                   :retriever {:type "string"
-                               :enum ["lexical" "auto" "hybrid" "semantic"]}
-                   :budget {:type "integer"
-                            :minimum 1000}}
-                  ["query"])}
-   {:name "ygg_node"
-    :groups #{:default}
-    :read-only? true
-    :description "Inspect one exact graph node or source file target with mechanical neighbors and source context."
-    :inputSchema (json-schema
-                  {:target {:type "string"}
-                   :projectId {:type "string"}
-                   :configPath {:type "string"}
-                   :limit {:type "integer"
-                           :minimum 1}
-                   :sourceLines {:type "integer"
-                                 :minimum 1}}
-                  ["target"])}
-   {:name "ygg_systems"
-    :groups #{:default}
-    :read-only? true
-    :description "Return the canonical ygg.graph/v2 systems graph JSON."
-    :inputSchema (json-schema
-                  {:projectId {:type "string"}
-                   :configPath {:type "string"}
-                   :detail {:type "string"
-                            :enum ["primary" "expanded" "evidence" "raw"]}
-                   :limit {:type "integer"
-                           :minimum 1}}
-                  [])}
-   {:name "ygg_sync_inspect"
-    :groups #{:sync}
-    :read-only? true
-    :description "Return project config plus the current mechanical evidence surface without syncing."
-    :inputSchema (json-schema
-                  {:configPath {:type "string"}}
-                  [])}
-   {:name "ygg_status"
-    :groups #{:default}
-    :read-only? true
-    :description "Return agent-facing freshness, query-index readiness, evidence surface, coverage, and next actions without syncing."
-    :inputSchema (json-schema
-                  {:configPath {:type "string"}}
-                  [])}
-   {:name "ygg_sync_check"
-    :groups #{:sync}
-    :read-only? true
-    :description "Return the read-only maintenance check report for a project."
-    :inputSchema (json-schema
-                  {:configPath {:type "string"}
-                   :minConfidence {:type "number"}}
-                  [])}
-   {:name "ygg_sync_activity"
-    :groups #{:sync}
-    :description "Import project queue lifecycle and result audit facts into local activity rows."
-    :inputSchema (json-schema
-                  {:configPath {:type "string"}
-                   :projectId {:type "string"}}
-                  [])}
-   {:name "ygg_work_list"
-    :groups #{:work}
-    :read-only? true
-    :description "List project queue work items without claiming them."
-    :inputSchema (json-schema
-                  {:projectId {:type "string"}
-                   :kind {:type "string"}
-                   :status {:type "string"}
-                   :limit {:type "integer"
-                           :minimum 1}}
-                  [])}
-   {:name "ygg_work_show"
-    :groups #{:work}
-    :read-only? true
-    :description "Return one project queue work item without changing its state."
-    :inputSchema (json-schema
-                  {:projectId {:type "string"}
-                   :workId {:type "string"}}
-                  ["workId"])}
-   {:name "ygg_work_pull"
-    :groups #{:work}
-    :description "Claim one ready project queue item for an agent."
-    :inputSchema (json-schema
-                  {:projectId {:type "string"}
-                   :kind {:type "string"}
-                   :agentId {:type "string"}
-                   :leaseMinutes {:type "integer"
-                                  :minimum 1}}
-                  [])}
-   {:name "ygg_work_heartbeat"
-    :groups #{:work}
-    :description "Extend the lease for one claimed project queue item."
-    :inputSchema (json-schema
-                  {:projectId {:type "string"}
-                   :workId {:type "string"}
-                   :agentId {:type "string"}
-                   :leaseMinutes {:type "integer"
-                                  :minimum 1}}
-                  ["workId"])}
-   {:name "ygg_work_complete"
-    :groups #{:work}
-    :description "Complete a claimed project queue item with a schema-bearing result object."
-    :inputSchema (json-schema
-                  {:projectId {:type "string"}
-                   :workId {:type "string"}
-                   :result {:type "object"}}
-                  ["workId" "result"])}
-   {:name "ygg_work_release"
-    :groups #{:work}
-    :description "Release one claimed project queue item back to ready."
-    :inputSchema (json-schema
-                  {:projectId {:type "string"}
-                   :workId {:type "string"}
-                   :reason {:type "string"}}
-                  ["workId"])}
-   {:name "ygg_work_reject"
-    :groups #{:work}
-    :description "Reject one project queue item with a reason."
-    :inputSchema (json-schema
-                  {:projectId {:type "string"}
-                   :workId {:type "string"}
-                   :reason {:type "string"}}
-                  ["workId" "reason"])}])
+  (mapv (fn [tool]
+          (-> tool
+              (assoc :groups (set (map keyword (:groups tool)))
+                     :read-only? (boolean (:readOnly tool)))
+              (dissoc :readOnly)))
+        (:tools manifest)))
 
 (defn- tool-visible?
   [groups tool]
