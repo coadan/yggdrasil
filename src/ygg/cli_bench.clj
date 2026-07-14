@@ -1,6 +1,7 @@
 (ns ygg.cli-bench
   (:require [ygg.agent-efficiency :as agent-efficiency]
             [ygg.benchmark :as benchmark]
+            [ygg.benchmark-patch-verifier :as benchmark-patch-verifier]
             [ygg.benchmark-repos :as benchmark-repos]
             [ygg.cli-options :refer [json-output? option-value option-values parse-case-ids parse-limit parse-optional-double parse-optional-long positional-args]]
             [ygg.queue :as queue]
@@ -23,7 +24,7 @@
 
 (defn- local-bench-usage
   []
-  "bench efficiency|repos|prepare|run|report|agent-baseline|agent-run|agent-score|agent-report|agent-check|agent-compare|claim-pack|show <benchmark.edn>")
+  "bench efficiency|repos|prepare|run|report|verifier-check|agent-baseline|agent-run|agent-score|agent-report|agent-check|agent-compare|claim-pack|show <benchmark.edn>")
 
 (defn- local-enqueue-output?
   [_args]
@@ -1147,6 +1148,7 @@
               opts (bench-opts bench-args)
               result (case action
                        :prepare (benchmark/prepare-suite! suite opts)
+                       :verifier-check (benchmark-patch-verifier/check-suite! suite opts)
                        :run (benchmark/run-suite! suite opts)
                        :report (benchmark/report-suite suite opts)
                        :agent-report (benchmark/report-agent-suite suite opts)
@@ -1181,9 +1183,12 @@
                                         :usage (usage)})))]
           (if (json-output? bench-args)
             (print-json result)
-            (print-benchmark-summary result))
+            (if (= benchmark-patch-verifier/check-schema (:schema result))
+              (benchmark-patch-verifier/print-human result)
+              (print-benchmark-summary result)))
           (when (and (or (= benchmark/agent-check-schema (:schema result))
-                         (= benchmark/agent-compare-schema (:schema result)))
+                         (= benchmark/agent-compare-schema (:schema result))
+                         (= benchmark-patch-verifier/check-schema (:schema result)))
                      (= "failed" (:status result)))
             (throw (ex-info "Benchmark gate failed."
                             {:schema (:schema result)

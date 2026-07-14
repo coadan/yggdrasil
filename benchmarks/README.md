@@ -147,6 +147,7 @@ metrics such as `patchAttemptRate`, `patchFileRecall`, `patchFileF1`, and
 
 ```sh
 bb bench repos check --suite benchmarks/oss-issue-patch-replay.edn
+bb bench verifier-check benchmarks/oss-issue-patch-replay.edn
 
 bb bench agent-run benchmarks/oss-issue-patch-replay.edn \
   --mode shell-only \

@@ -3,6 +3,7 @@
             [ygg.agent-efficiency :as agent-efficiency]
             [ygg.agent-install :as agent-install]
             [ygg.benchmark :as benchmark]
+            [ygg.benchmark-patch-verifier :as benchmark-patch-verifier]
             [ygg.benchmark-repos :as benchmark-repos]
             [ygg.cli :as cli]
             [ygg.cli-bench :as cli-bench]
@@ -121,6 +122,7 @@
     (is (str/includes? usage "watch <project.edn>"))
     (is (str/includes? usage "hook install <project.edn>"))
     (is (str/includes? usage "bench prepare|run|report"))
+    (is (str/includes? usage "bench verifier-check"))
     (is (str/includes? usage "bench show"))
     (is (str/includes? usage "bench agent-packet"))
     (is (str/includes? usage "bench agent-baseline"))
@@ -2608,6 +2610,43 @@
         (is (= [[:check {:manifest-path "benchmarks/repos.edn"
                          :suite-path "benchmarks/custom.edn"
                          :repo-ids ["repo-a" "repo-b"]}]
+                [:print "passed"]]
+               @calls))))))
+
+(deftest bench-verifier-check-dispatches-to-patch-contract-check
+  (let [calls (atom [])
+        suite {:id "suite"
+               :path "/tmp/benchmark.edn"
+               :cases [{:id "case-1"}]}]
+    (with-redefs [benchmark/read-suite (fn [path]
+                                         (swap! calls conj [:read path])
+                                         suite)
+                  benchmark-patch-verifier/check-suite!
+                  (fn [actual-suite opts]
+                    (swap! calls conj [:check actual-suite opts])
+                    {:schema benchmark-patch-verifier/check-schema
+                     :status "passed"
+                     :counts {:cases 1}
+                     :cases []})
+                  benchmark-patch-verifier/print-human
+                  (fn [check]
+                    (swap! calls conj [:print (:status check)])
+                    (println (str "verifier-check=" (:status check))))]
+      (let [out (with-out-str
+                  (cli/dispatch "bench"
+                                ["verifier-check"
+                                 "benchmark.edn"
+                                 "--case"
+                                 "case-1"]))]
+        (is (= "verifier-check=passed\n" out))
+        (is (= [[:read "benchmark.edn"]
+                [:check suite {:case-id "case-1"
+                               :out nil
+                               :retriever nil
+                               :parser-worker nil
+                               :mode nil
+                               :result-path nil
+                               :command nil}]
                 [:print "passed"]]
                @calls))))))
 

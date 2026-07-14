@@ -8,7 +8,7 @@ usage() {
   cat <<'EOF'
 Usage: bb bench:patch-claim [options]
 
-Checks existing OSS issue-to-patch replay artifacts:
+Checks the OSS patch verifier contracts and existing issue-to-patch artifacts:
   --suite benchmarks/oss-issue-patch-replay.edn
   --out .dev/ygg/patch-claim-gate
   --mode ygg
@@ -22,9 +22,11 @@ Checks existing OSS issue-to-patch replay artifacts:
   --min-patch-verifier-pass-rate 1.00
   --min-patch-behavioral-verifier-pass-rate 1.00
 
-Run `bench agent-run` and `bench agent-report` for the same suite/out/agent
-before this gate. This script does not run a deterministic baseline because
-patch claims require an actual worktree diff from an agent command.
+The verifier contract check requires every behavioral verifier to fail at its
+base SHA and pass at its fix SHA. Run `bench agent-run` and `bench agent-report`
+for the same suite/out/agent before this gate.
+This script does not run a deterministic baseline because patch claims require
+an actual worktree diff from an agent command.
 EOF
 }
 
@@ -164,6 +166,15 @@ done
 
 repo_check_args=(repos check --manifest "$manifest" --suite "$suite")
 run_cmd "${bench_cmd[@]}" "${repo_check_args[@]}"
+
+verifier_check_args=(verifier-check "$suite")
+if [[ -n "$case_id" ]]; then
+  verifier_check_args+=(--case "$case_id")
+fi
+if [[ -n "$case_ids" ]]; then
+  verifier_check_args+=(--cases "$case_ids")
+fi
+run_cmd "${bench_cmd[@]}" "${verifier_check_args[@]}"
 
 if [[ "$setup_check_only" == true ]]; then
   exit 0

@@ -33,7 +33,7 @@
   packages {:doc "Report package/dependency evidence. Usage: bb packages [--project ID] [--repo ID] [--ecosystem npm|cargo|go] [--package NAME] [--with-conflicts] [--without-import-evidence] [--limit N] [--json]"
             :task (apply ygg "packages" *command-line-args*)}
 
-  bench {:doc "Run issue replay benchmarks. Usage: bb bench prepare|agent-packet|agent-baseline|agent-run|agent-score|agent-report|agent-check|claim-pack|improve|run|report|show <benchmark.edn>"
+  bench {:doc "Run issue replay benchmarks. Usage: bb bench prepare|verifier-check|agent-packet|agent-baseline|agent-run|agent-score|agent-report|agent-check|claim-pack|improve|run|report|show <benchmark.edn>"
          :task (apply ygg "bench" *command-line-args*)}
 
   headline {:doc "Run the architecture-first headline benchmark workflow. Usage: bb headline baseline|codebase-memory|external-baselines|shell-only|prepare-ygg|ygg|agents|reports|token-check|compare|claim-pack|all [--suite PATH] [--out DIR] [--agent ID] [--command CMD] [--dry-run]"

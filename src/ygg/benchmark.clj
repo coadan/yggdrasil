@@ -2,6 +2,7 @@
   "Issue replay benchmarks for Yggdrasil retrieval quality."
   (:require [ygg.benchmark-io :as benchmark-io]
             [ygg.benchmark-paths :as benchmark-paths]
+            [ygg.benchmark-patch :as benchmark-patch]
             [ygg.benchmark-preflight :as benchmark-preflight]
             [ygg.benchmark-score :as benchmark-score]
             [ygg.context :as context]
@@ -798,9 +799,6 @@
 (def ^:private patch-git-timeout-ms
   30000)
 
-(def ^:private default-patch-verifier-timeout-ms
-  120000)
-
 (defn- patch-configured?
   [prepared]
   (or (= "patch" (:resultScope prepared))
@@ -860,57 +858,6 @@
                  (mapv #(patch-file-row multi-repo? repo-id %)))
      :warnings warnings}))
 
-(defn- patch-verifier-root
-  [prepared verifier]
-  (let [repo-id (or (:repoId verifier)
-                    (:repo-id verifier)
-                    (:repo-id prepared))]
-    (or (when repo-id
-          (get (:worktreeRoots prepared) repo-id))
-        (:worktreeRoot prepared))))
-
-(defn- run-patch-verifier
-  [prepared verifier]
-  (let [root (patch-verifier-root prepared verifier)
-        command (:command verifier)
-        hidden? (= "hidden" (:visibility verifier))
-        suite-dir (some-> (:suitePath prepared) io/file .getParentFile .getCanonicalPath)
-        env (cond-> {"YGG_BENCH_WORKTREE" (or root "")
-                     "YGG_BENCH_CASE_ID" (:case-id prepared)
-                     "YGG_BENCH_REPO_ID" (or (:repoId verifier)
-                                             (:repo-id prepared))}
-              suite-dir (assoc "YGG_BENCH_SUITE_DIR" suite-dir))
-        timeout-ms (long (or (:timeoutMs verifier)
-                             default-patch-verifier-timeout-ms))]
-    (if (and root command)
-      (let [result (run-worktree-command root command env timeout-ms)]
-        (cond-> {:id (:id verifier)
-                 :visibility (:visibility verifier)
-                 :kind (:kind verifier)
-                 :status (if (zero? (:exit result)) "passed" "failed")
-                 :exit (:exit result)
-                 :timedOut (boolean (:timedOut result))
-                 :durationMs (:durationMs result)}
-          (not hidden?)
-          (assoc :command command)
-
-          (:repoId verifier)
-          (assoc :repoId (:repoId verifier))
-
-          (not (str/blank? (:stdout result)))
-          (assoc :stdout (:stdout result))
-
-          (not (str/blank? (:stderr result)))
-          (assoc :stderr (:stderr result))))
-      {:id (:id verifier)
-       :visibility (:visibility verifier)
-       :kind (:kind verifier)
-       :status "failed"
-       :exit -1
-       :timedOut false
-       :durationMs 0
-       :warnings ["patch verifier did not resolve to a benchmark worktree"]})))
-
 (defn- measured-patch-outcome
   [prepared]
   (let [multi-repo? (< 1 (count (:repoIds prepared)))
@@ -926,7 +873,7 @@
         changed-files (->> changed-by-repo
                            (mapcat :files)
                            vec)
-        verifiers (mapv #(run-patch-verifier prepared %)
+        verifiers (mapv #(benchmark-patch/run-verifier prepared %)
                         (get-in prepared [:patch :verifiers]))
         warnings (->> changed-by-repo
                       (mapcat :warnings)

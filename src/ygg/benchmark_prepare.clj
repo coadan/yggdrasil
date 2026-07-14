@@ -2,6 +2,7 @@
   (:require [ygg.benchmark-classes :as benchmark-classes]
             [ygg.benchmark-io :as benchmark-io]
             [ygg.benchmark-paths :as benchmark-paths]
+            [ygg.benchmark-patch :as benchmark-patch]
             [ygg.benchmark-progress :as benchmark-progress]
             [ygg.benchmark-score :as benchmark-score]
             [ygg.benchmark-suite :as benchmark-suite]
@@ -87,71 +88,6 @@
       (:kind truth) (assoc :kind (normalize-decision-kind (:kind truth)))
       (:acceptable-defer truth) (assoc :acceptableDefer (id-list (:acceptable-defer truth)))
       (:acceptableDefer truth) (assoc :acceptableDefer (id-list (:acceptableDefer truth))))))
-
-(defn- verifier-input-digest
-  [suite path]
-  (let [base (.getCanonicalFile (.getParentFile (io/file (:path suite))))
-        input (.getCanonicalFile (io/file base (str path)))
-        base-path (.toPath base)
-        input-path (.toPath input)]
-    (when-not (.startsWith input-path base-path)
-      (throw (ex-info "Patch verifier input must stay under the suite directory."
-                      {:suite (:path suite)
-                       :input path})))
-    (when-not (.isFile input)
-      (throw (ex-info "Patch verifier input does not exist."
-                      {:suite (:path suite)
-                       :input path})))
-    {:path (str path)
-     :sha256 (hash/sha256-bytes-hex (java.nio.file.Files/readAllBytes input-path))}))
-
-(defn- normalize-patch-verifier
-  [suite verifier]
-  (let [id (normalize-id (:id verifier))
-        command (some-> (:command verifier) str str/trim not-empty)
-        visibility (name (keyword (or (:visibility verifier) :public)))
-        kind (name (keyword (or (:kind verifier) :structural)))]
-    (when (benchmark-util/blankish? id)
-      (throw (ex-info "Patch verifier is missing :id."
-                      {:verifier verifier})))
-    (when-not command
-      (throw (ex-info "Patch verifier is missing :command."
-                      {:verifier verifier})))
-    (when-not (contains? #{"public" "hidden"} visibility)
-      (throw (ex-info "Patch verifier has unsupported :visibility."
-                      {:verifier verifier
-                       :supported ["public" "hidden"]})))
-    (when-not (contains? #{"structural" "behavioral"} kind)
-      (throw (ex-info "Patch verifier has unsupported :kind."
-                      {:verifier verifier
-                       :supported ["structural" "behavioral"]})))
-    (cond-> {:id id
-             :command command
-             :visibility visibility
-             :kind kind}
-      (seq (:inputs verifier))
-      (assoc :inputDigests (mapv #(verifier-input-digest suite %) (:inputs verifier)))
-
-      (:repo-id verifier) (assoc :repoId (str (:repo-id verifier)))
-      (:repoId verifier) (assoc :repoId (str (:repoId verifier)))
-      (:timeout-ms verifier) (assoc :timeoutMs (long (:timeout-ms verifier)))
-      (:timeoutMs verifier) (assoc :timeoutMs (long (:timeoutMs verifier))))))
-
-(defn- patch-config
-  [suite case]
-  (when-let [patch (:patch case)]
-    (let [verifiers (mapv #(normalize-patch-verifier suite %) (:verifiers patch))]
-      (cond-> {:required (boolean (:required? patch))
-               :verifiers verifiers}
-        (:policy patch) (assoc :policy (name (:policy patch)))))))
-
-(defn- agent-visible-patch-config
-  [suite case]
-  (some-> (patch-config suite case)
-          (update :verifiers (fn [verifiers]
-                               (->> verifiers
-                                    (remove #(= "hidden" (:visibility %)))
-                                    vec)))))
 
 (defn run-git!
   [repo-root args]
@@ -563,7 +499,7 @@
    :query-text (issue-text case)
    :coverage {:source-kinds (declared-source-kinds case)}
    :decision-candidates (decision-candidates case)
-   :patch (patch-config suite case)
+   :patch (benchmark-patch/config suite case)
    :expectations (case-expectations case)
    :ground-truth (:ground-truth case)
    :decision-ground-truth (normalize-decision-ground-truth case)})
@@ -579,7 +515,7 @@
    :result-scope (:result-scope case)
    :query-text (issue-text case)
    :decision-candidates (decision-candidates case)
-   :patch (agent-visible-patch-config suite case)
+   :patch (benchmark-patch/agent-visible-config suite case)
    :coverage {:source-kinds (declared-source-kinds case)}})
 
 (defn- fingerprint
@@ -643,7 +579,7 @@
              :agentInputFingerprint agent-input-fingerprint
              :resultScope (:result-scope case)
              :tags (case-tags case)
-             :patch (patch-config suite case)
+             :patch (benchmark-patch/config suite case)
              :expectations (case-expectations case)
              :baseSha (:base-sha repo)
              :fixSha (:fix-sha repo)

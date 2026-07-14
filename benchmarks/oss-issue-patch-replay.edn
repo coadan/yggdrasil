@@ -47,7 +47,7 @@
                   :verifiers [{:id "git-diff-check"
                                :command "git diff --check"}
                               {:id "hidden-behavior"
-                              :command "python3 \"$YGG_BENCH_SUITE_DIR/verifiers/oss_patch_behavior.py\" --case \"$YGG_BENCH_CASE_ID\""
+                               :command "python3 \"$YGG_BENCH_SUITE_DIR/verifiers/oss_patch_behavior.py\" --case \"$YGG_BENCH_CASE_ID\""
                                :inputs ["verifiers/oss_patch_behavior.py"]
                                :visibility :hidden
                                :kind :behavioral
