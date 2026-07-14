@@ -64,6 +64,8 @@
                (get-in packet [:degradation :operation])))
         (is (= 2 (get-in packet [:search :instrumentation :filesystem-processes])))
         (is (= 10 (get-in packet [:search :instrumentation :filesystem-search-ms])))
+        (is (= 7 (get-in packet
+                         [:search :instrumentation :filesystem-slowest-repo-ms])))
         (is (= 7 (get-in packet [:search :instrumentation :filesystem-match-count])))
         (is (= {:stdout-truncated 1}
                (get-in packet
@@ -94,3 +96,30 @@
                  (get-in result [:packet :retrieval :effective])))
           (is (= :active-embedding
                  (get-in result [:packet :degradation :reason]))))))))
+
+(deftest search-project-bounds-and-parallelizes-multi-repo-search
+  (let [active (atom 0)
+        max-active (atom 0)
+        both-started (promise)]
+    (with-redefs [ripgrep/search-counts-many
+                  (fn [_root _patterns _paths _opts]
+                    (let [current (swap! active inc)]
+                      (swap! max-active max current)
+                      (when (= 2 current)
+                        (deliver both-started true))
+                      @both-started
+                      (swap! active dec)
+                      {:elapsed-ms 5
+                       :matches []
+                       :match-count 0
+                       :file-count 0
+                       :diagnostics []}))]
+      (let [packet (:packet (filesystem-query/search-project
+                             project
+                             "needle"
+                             {:max-parallel-repos 2}))]
+        (is (= 2 @max-active))
+        (is (= 2 (get-in packet [:search :instrumentation :filesystem-processes])))
+        (is (= 10 (get-in packet [:search :instrumentation :filesystem-search-ms])))
+        (is (= 5 (get-in packet
+                         [:search :instrumentation :filesystem-slowest-repo-ms])))))))

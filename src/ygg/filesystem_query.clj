@@ -4,7 +4,8 @@
   This lane is a bounded availability fallback. It emits transient mechanical
   evidence and never writes graph or query-run facts."
   (:require [ygg.ripgrep :as ripgrep]
-            [clojure.string :as str]))
+            [clojure.string :as str])
+  (:import [java.util.concurrent Callable ExecutorService Executors Future]))
 
 (def schema
   "ygg.query/v2")
@@ -23,6 +24,9 @@
 
 (def default-max-stdout-bytes
   200000)
+
+(def default-max-parallel-repos
+  4)
 
 (def ^:private ignored-directories
   [".git" ".dev" ".ygg" ".cpcache" ".clj-kondo" "target"
@@ -120,6 +124,25 @@
            :ignore-globs ignore-globs})
          :repo-id (str id)))
 
+(defn- search-repos
+  [repos patterns opts]
+  (if (< (count repos) 2)
+    (mapv #(search-repo % patterns opts) repos)
+    (let [parallelism (min (count repos)
+                           (max 1 (long (or (:max-parallel-repos opts)
+                                            default-max-parallel-repos))))
+          ^ExecutorService executor (Executors/newFixedThreadPool parallelism)
+          tasks (mapv (fn [repo]
+                        (reify Callable
+                          (call [_]
+                            (search-repo repo patterns opts))))
+                      repos)]
+      (try
+        (->> (.invokeAll executor tasks)
+             (mapv #(.get ^Future %)))
+        (finally
+          (.shutdownNow executor))))))
+
 (defn- diagnostic-kind-counts
   [searches]
   (->> searches
@@ -202,7 +225,7 @@
   (let [started (now-ns)
         patterns (query-patterns query-text opts)
         repos (selected-repos project repo-id)
-        searches (mapv #(search-repo % patterns opts) repos)
+        searches (search-repos repos patterns opts)
         rows (ranked-matches searches patterns (long (or limit default-limit)))
         path-rows (map-indexed (fn [index row]
                                  [(str "p" (inc index)) row])
@@ -241,6 +264,7 @@
                 :search {:instrumentation
                          {:filesystem-processes (count searches)
                           :filesystem-search-ms (reduce + 0 (map :elapsed-ms searches))
+                          :filesystem-slowest-repo-ms (reduce max 0 (map :elapsed-ms searches))
                           :filesystem-total-ms (elapsed-ms started)
                           :filesystem-patterns patterns
                           :filesystem-match-count match-count
