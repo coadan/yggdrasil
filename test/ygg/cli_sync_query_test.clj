@@ -1703,6 +1703,34 @@
       (is (= "active-embedding" (get-in packet [:degradation :reason])))
       (is (= "embed" (get-in packet [:degradation :operation :op]))))))
 
+(deftest active-query-filesystem-handoff-returns-roots-without-searching
+  (with-redefs [registry/resolve-project
+                (fn [_]
+                  {:project {:id "fixture"
+                             :repos [{:id "app"
+                                      :root "/workspace/app"}
+                                     {:id "docs"
+                                      :root "/workspace/docs"}]}})
+                filesystem-query/search-project
+                (fn [& _]
+                  (throw (ex-info "handoff should not run filesystem search" {})))]
+    (let [handoff (binding [cli-query/*deps*
+                            {:active-indexing
+                             {:schema "ygg.server.active-operation/v1"
+                              :op "sync"
+                              :projectId "fixture"
+                              :lockKey "project:fixture"}}]
+                    (cli-query/active-query-filesystem-handoff
+                     ["auth" "--project" "fixture"]))]
+      (is (= cli-query/filesystem-handoff-schema (:schema handoff)))
+      (is (= :active-indexing (:reason handoff)))
+      (is (= :filesystem (:fallback handoff)))
+      (is (= "fixture" (:projectId handoff)))
+      (is (= [{:id "app" :root "/workspace/app"}
+              {:id "docs" :root "/workspace/docs"}]
+             (:repos handoff)))
+      (is (= "sync" (get-in handoff [:operation :op]))))))
+
 (deftest query-routes-to-filesystem-when-index-is-not-ready
   (with-redefs [store/with-node (fn [_ f] (f :xtdb))
                 store/xtdb-handle? (constantly true)

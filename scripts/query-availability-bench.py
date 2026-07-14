@@ -18,7 +18,7 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLIENT_PATH = ROOT / "scripts" / "ygg-server-client.py"
-SCHEMA = "ygg.query-availability.benchmark/v3"
+SCHEMA = "ygg.query-availability.benchmark/v4"
 
 
 def load_client():
@@ -55,6 +55,21 @@ def summarize(samples):
     }
     if degradation_reasons:
         summary["degradationReasons"] = degradation_reasons
+    filesystem_process_counts = {}
+    filesystem_repo_counts = {}
+    for sample in samples:
+        process_count = sample.get("filesystemProcesses")
+        repo_count = sample.get("filesystemRepos")
+        if process_count is not None:
+            key = str(process_count)
+            filesystem_process_counts[key] = filesystem_process_counts.get(key, 0) + 1
+        if repo_count is not None:
+            key = str(repo_count)
+            filesystem_repo_counts[key] = filesystem_repo_counts.get(key, 0) + 1
+    if filesystem_process_counts:
+        summary["filesystemProcessCounts"] = filesystem_process_counts
+    if filesystem_repo_counts:
+        summary["filesystemRepoCounts"] = filesystem_repo_counts
     return summary
 
 
@@ -198,6 +213,12 @@ def cold_ygg_sample(
         "completed": not timed_out and process.returncode == 0,
         "timeout": timed_out,
         "degradationReason": packet.get("degradation", {}).get("reason"),
+        "filesystemProcesses": packet.get("search", {}).get(
+            "instrumentation", {}
+        ).get("filesystem-processes"),
+        "filesystemRepos": packet.get("search", {}).get(
+            "instrumentation", {}
+        ).get("filesystem-repos"),
     }
 
 
@@ -251,7 +272,76 @@ class StalledQueryServer:
                 return
 
 
-def comparison(raw, lane, cold, stalled=None, acknowledged_stalled=None):
+class ActiveIndexingHandoffServer:
+    def __init__(self, repo):
+        self.repo = pathlib.Path(repo).resolve()
+        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen()
+        self.listener.settimeout(0.1)
+        self.port = self.listener.getsockname()[1]
+        self.running = threading.Event()
+        self.thread = threading.Thread(target=self._serve, daemon=True)
+
+    def __enter__(self):
+        self.running.set()
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_args):
+        self.running.clear()
+        self.listener.close()
+        self.thread.join(timeout=1)
+
+    def _serve(self):
+        while self.running.is_set():
+            try:
+                connection, _address = self.listener.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+            threading.Thread(
+                target=self._handoff_connection,
+                args=(connection,),
+                daemon=True,
+            ).start()
+
+    def _handoff_connection(self, connection):
+        with connection:
+            try:
+                connection.recv(65536)
+                connection.sendall(
+                    b'{"schema":"ygg.server.frame/v1","type":"accepted",'
+                    b'"operation":"query"}\n'
+                )
+                response = {
+                    "ok": True,
+                    "exit": 0,
+                    "out": "",
+                    "err": "",
+                    "data": {
+                        "schema": "ygg.query.filesystem-handoff/v1",
+                        "reason": "active-indexing",
+                        "fallback": "filesystem",
+                        "repos": [{"id": self.repo.name, "root": str(self.repo)}],
+                    },
+                }
+                connection.sendall(
+                    (json.dumps(response, separators=(",", ":")) + "\n").encode()
+                )
+            except OSError:
+                return
+
+
+def comparison(
+    raw,
+    lane,
+    cold,
+    stalled=None,
+    acknowledged_stalled=None,
+    active_handoff=None,
+):
     raw_p95 = raw["p95Ms"]
     lane_p95 = lane["p95Ms"]
     cold_p95 = cold["p95Ms"]
@@ -276,6 +366,15 @@ def comparison(raw, lane, cold, stalled=None, acknowledged_stalled=None):
                 acknowledged_stalled["p95Ms"] - raw_p95
             ),
         })
+    if active_handoff:
+        result.update({
+            "activeIndexingHandoffYggToRawP95Ratio": (
+                active_handoff["p95Ms"] / raw_p95 if raw_p95 else None
+            ),
+            "activeIndexingHandoffYggP95OverheadMs": (
+                active_handoff["p95Ms"] - raw_p95
+            ),
+        })
     return result
 
 
@@ -288,6 +387,7 @@ def availability_contract(
 ):
     stalled = lanes["stalledYgg"]
     acknowledged_stalled = lanes["acknowledgedStalledYgg"]
+    active_handoff = lanes["activeIndexingHandoffYgg"]
     cold = lanes["coldYgg"]
     return {
         "sameRipgrepArgv": True,
@@ -302,6 +402,16 @@ def availability_contract(
         "acknowledgedStalledQueriesUsedFilesystem": (
             acknowledged_stalled.get("degradationReasons")
             == {"query-hedge": iterations}
+        ),
+        "activeIndexingHandoffUsedFilesystem": (
+            active_handoff.get("degradationReasons")
+            == {"active-indexing": iterations}
+        ),
+        "activeIndexingHandoffUsedOneProcess": (
+            active_handoff.get("filesystemProcessCounts") == {"1": iterations}
+        ),
+        "activeIndexingHandoffUsedRequestedRepoScope": (
+            active_handoff.get("filesystemRepoCounts") == {"1": iterations}
         ),
         "stalledP95WithinBound": (
             stalled["p95Ms"]
@@ -318,6 +428,10 @@ def availability_contract(
                 + cold["p95Ms"]
                 + stalled_bound_tolerance_ms
             )
+        ),
+        "activeIndexingHandoffP95WithinBound": (
+            active_handoff["p95Ms"]
+            <= cold["p95Ms"] + stalled_bound_tolerance_ms
         ),
     }
 
@@ -373,7 +487,8 @@ def run(args):
           StalledQueryServer(
               stalled_server_delay_ms,
               acknowledge=True,
-          ) as acknowledged_stalled_server):
+          ) as acknowledged_stalled_server,
+          ActiveIndexingHandoffServer(repo) as active_handoff_server):
         port = closed_loopback_port()
         lane_fns = {
             "rawRipgrep": lambda: raw_ripgrep_sample(
@@ -415,6 +530,17 @@ def run(args):
                 query_hedge_after_ms,
                 acknowledged_query_hedge_after_ms,
             ),
+            "activeIndexingHandoffYgg": lambda: cold_ygg_sample(
+                repo,
+                args.query,
+                args.limit,
+                args.timeout_ms,
+                args.rg_bin,
+                active_handoff_server.port,
+                query_fallback_after_ms,
+                query_hedge_after_ms,
+                acknowledged_query_hedge_after_ms,
+            ),
         }
         lane_names = list(lane_fns)
         for index in range(args.warmup):
@@ -451,6 +577,7 @@ def run(args):
             lanes["coldYgg"],
             lanes["stalledYgg"],
             lanes["acknowledgedStalledYgg"],
+            lanes["activeIndexingHandoffYgg"],
         ),
         "contract": availability_contract(
             lanes,

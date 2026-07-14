@@ -1415,6 +1415,46 @@
       (finally
         (.unlock lock)))))
 
+(deftest query-request-hands-client-active-indexing-fallback-without-searching
+  (let [lock (java.util.concurrent.locks.ReentrantLock.)
+        active-operations (atom {"project:demo" {:schema "ygg.server.active-operation/v1"
+                                                 :op "sync"
+                                                 :projectId "demo"
+                                                 :startedAtMs (System/currentTimeMillis)}})]
+    (.lock lock)
+    (try
+      (with-redefs [cli/query-deps (constantly {})
+                    cli-query/active-query-filesystem-handoff
+                    (fn [args]
+                      (is (= ["needle" "--project" "demo"] args))
+                      {:schema cli-query/filesystem-handoff-schema
+                       :reason :active-indexing
+                       :fallback :filesystem
+                       :repos [{:id "app" :root "/workspace/app"}]})
+                    cli-query/active-query-fallback!
+                    (fn [& _]
+                      (throw (ex-info "server should hand fallback to client" {})))
+                    store/storage-path
+                    (fn [& _]
+                      (throw (ex-info "handoff should not resolve graph storage" {})))]
+        (let [response (server/handle-request
+                        {:xtdb :xtdb
+                         :token "token"
+                         :running (atom true)
+                         :operation-locks (atom {"project:demo" lock})
+                         :active-operations active-operations}
+                        {:op "query"
+                         :token "token"
+                         :filesystemFallbackOwner "client"
+                         :args ["needle" "--project" "demo"]})]
+          (is (true? (:ok response)))
+          (is (= "" (:out response)))
+          (is (= cli-query/filesystem-handoff-schema
+                 (get-in response [:data :schema])))
+          (is (= :active-indexing (get-in response [:data :reason])))))
+      (finally
+        (.unlock lock)))))
+
 (deftest query-request-emits-server-progress-frames-when-streaming
   (let [frames (atom [])]
     (with-redefs [cli/query-deps (constantly {})

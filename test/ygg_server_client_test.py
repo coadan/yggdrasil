@@ -411,6 +411,73 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual("ok\n", response["out"])
         self.assertEqual(0, calls[0][2]["connect_timeout_override_ms"])
 
+    def test_query_request_declares_client_owned_filesystem_fallback(self):
+        client = load_client()
+        sent = []
+
+        class ResponseSocket:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def settimeout(self, _timeout):
+                return None
+
+            def sendall(self, payload):
+                sent.append(json.loads(payload))
+
+            def makefile(self, *_args, **_kwargs):
+                return iter(['{"exit":0,"out":"ok\\n","err":""}\n'])
+
+        client.connect_socket = lambda *_args, **_kwargs: ResponseSocket()
+
+        response = client.request_once("query", ["needle"])
+
+        self.assertEqual("ok\n", response["out"])
+        self.assertEqual("client", sent[0]["filesystemFallbackOwner"])
+
+    def test_active_indexing_handoff_routes_registered_repositories_to_fallback(self):
+        client = load_client()
+        os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "0"
+        with tempfile.TemporaryDirectory() as root:
+            repo_a = pathlib.Path(root) / "repo-a"
+            repo_b = pathlib.Path(root) / "repo-b"
+            repo_a.mkdir()
+            repo_b.mkdir()
+            client.request = lambda *_args, **_kwargs: {
+                "ok": True,
+                "exit": 0,
+                "out": "",
+                "err": "",
+                "data": {
+                    "schema": client.FILESYSTEM_HANDOFF_SCHEMA,
+                    "reason": "active-indexing",
+                    "repos": [
+                        {"id": "a", "root": str(repo_a)},
+                        {"id": "b", "root": str(repo_b)},
+                    ],
+                },
+            }
+            fallback_calls = []
+            client.filesystem_query_response = (
+                lambda args, reason, repositories: fallback_calls.append(
+                    (args, reason, repositories)
+                ) or {"exit": 0, "out": "handoff fallback\n", "err": ""}
+            )
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                exit_code = client.main(["ygg", "query", "needle"])
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("handoff fallback\n", out.getvalue())
+        self.assertEqual("active-indexing", fallback_calls[0][1])
+        self.assertEqual(
+            [("a", repo_a.resolve()), ("b", repo_b.resolve())],
+            [(row["id"], row["root"]) for row in fallback_calls[0][2]],
+        )
+
     def test_query_socket_timeout_returns_structured_fallback_reason(self):
         client = load_client()
 
@@ -547,6 +614,63 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertTrue(instrumentation["filesystem-incomplete?"])
         self.assertEqual(1, instrumentation["filesystem-repos"])
         self.assertIn(client.FILESYSTEM_INCOMPLETE_WARNING, packet["warnings"])
+
+    def test_filesystem_handoff_searches_registered_roots_in_one_process(self):
+        client = load_client()
+        with tempfile.TemporaryDirectory() as root:
+            repo_a = pathlib.Path(root) / "repo-a"
+            repo_b = repo_a / "nested-repo"
+            repo_b.mkdir(parents=True)
+            calls = []
+
+            def fake_search(cwd, patterns, search_paths):
+                calls.append((cwd, patterns, search_paths))
+                return {
+                    "elapsed-ms": 4,
+                    "matches": [
+                        {
+                            "path": str((repo_a / "src" / "auth.py").resolve()),
+                            "count": 3,
+                        },
+                        {
+                            "path": str((repo_b / "lib" / "auth.py").resolve()),
+                            "count": 2,
+                        },
+                        {
+                            "path": str((repo_b / "lib" / "auth.py").resolve()),
+                            "count": 2,
+                        },
+                    ],
+                    "diagnostics": [],
+                    "process-attempted?": True,
+                    "timeout?": False,
+                    "truncated?": False,
+                }
+
+            client.filesystem_query_root = lambda: pathlib.Path(root)
+            client.run_filesystem_search = fake_search
+            repositories = [
+                {"id": "a", "root": repo_a},
+                {"id": "b", "root": repo_b},
+            ]
+
+            packet = client.filesystem_query_packet(
+                ["auth", "--json"],
+                "active-indexing",
+                repositories,
+            )
+
+        self.assertEqual(
+            [("a", "src/auth.py"), ("b", "lib/auth.py")],
+            [(row["repo"], row["resolvedPath"]) for row in packet["results"]],
+        )
+        self.assertEqual(
+            [str(repo_b.resolve()), str(repo_a.resolve())],
+            calls[0][2],
+        )
+        instrumentation = packet["search"]["instrumentation"]
+        self.assertEqual(1, instrumentation["filesystem-processes"])
+        self.assertEqual(2, instrumentation["filesystem-repos"])
 
     def test_plain_filesystem_timeout_warns_that_results_are_incomplete(self):
         client = load_client()

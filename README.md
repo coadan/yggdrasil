@@ -86,7 +86,9 @@ filesystem results while one deduplicated background warmup prepares the richer
 path for later queries. A reachable but slow enriched query is also bounded;
 the client hedges it with filesystem search after a short grace period. A local
 server acknowledgement extends that grace so the server can finish its
-registered-root search without a duplicate client search. If the service is
+registered-root search without a duplicate client search. During active
+indexing or embedding, the server instead hands registered roots to the client
+immediately and starts no competing filesystem search. If the service is
 unavailable, the first fallback also requests one deduplicated background start
 so later queries can recover without a separate warm-up command. If graph
 storage is locked or cannot be opened, acquisition fails immediately and the

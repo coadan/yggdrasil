@@ -31,15 +31,18 @@ DEFAULT_QUERY_AUTO_START_COOLDOWN_SECONDS = 15
 SERVER_FRAME_SCHEMA = "ygg.server.frame/v1"
 FILESYSTEM_QUERY_SCHEMA = "ygg.query/v2"
 QUERY_DEGRADATION_SCHEMA = "ygg.context.degradation/v1"
+FILESYSTEM_HANDOFF_SCHEMA = "ygg.query.filesystem-handoff/v1"
 DEFAULT_FILESYSTEM_QUERY_TIMEOUT_MS = 1500
 DEFAULT_FILESYSTEM_QUERY_MAX_STDOUT_BYTES = 200000
 DEFAULT_FILESYSTEM_QUERY_LIMIT = 10
 DEFAULT_FILESYSTEM_QUERY_PATTERN_LIMIT = 6
+DEFAULT_FILESYSTEM_HANDOFF_REPO_LIMIT = 64
 FILESYSTEM_INCOMPLETE_DIAGNOSTIC_KINDS = {
     "invalid-count-line",
     "ripgrep-error",
     "stdout-truncated",
     "timeout",
+    "unmapped-path",
     "unavailable",
 }
 FILESYSTEM_INCOMPLETE_WARNING = (
@@ -429,7 +432,7 @@ def filesystem_query_limit(args):
         return DEFAULT_FILESYSTEM_QUERY_LIMIT
 
 
-def filesystem_query_argv(patterns):
+def filesystem_query_argv(patterns, search_paths=None):
     argv = [
         os.environ.get("YGG_RG_BIN") or "rg",
         "--count-matches",
@@ -443,7 +446,8 @@ def filesystem_query_argv(patterns):
         argv.extend(["--glob", f"!**/{directory}/**"])
     for pattern in patterns:
         argv.extend(["-e", pattern])
-    argv.extend(["--", "."])
+    argv.append("--")
+    argv.extend(search_paths or ["."])
     return argv
 
 
@@ -570,14 +574,14 @@ def parse_filesystem_count_output(stdout):
     return matches
 
 
-def run_filesystem_search(root, patterns):
+def run_filesystem_search(root, patterns, search_paths=None):
     started = time.monotonic()
     timeout_ms = filesystem_query_timeout_ms()
     max_stdout_bytes = filesystem_query_max_stdout_bytes()
     diagnostics = []
     try:
         captured = run_captured_process(
-            filesystem_query_argv(patterns),
+            filesystem_query_argv(patterns, search_paths),
             root,
             timeout_ms,
             max_stdout_bytes,
@@ -619,7 +623,108 @@ def run_filesystem_search(root, patterns):
     }
 
 
+def filesystem_handoff_repositories(response):
+    if not isinstance(response, dict):
+        return []
+    data = response.get("data")
+    if not isinstance(data, dict) or data.get("schema") != FILESYSTEM_HANDOFF_SCHEMA:
+        return []
+    repositories = []
+    seen_roots = set()
+    for row in data.get("repos") or []:
+        if not isinstance(row, dict) or not row.get("root"):
+            continue
+        try:
+            root = pathlib.Path(row["root"]).expanduser().resolve()
+        except OSError:
+            continue
+        if not root.is_dir() or root in seen_roots:
+            continue
+        seen_roots.add(root)
+        repositories.append({
+            "id": str(row.get("id") or root.name),
+            "root": root,
+        })
+        if len(repositories) >= DEFAULT_FILESYSTEM_HANDOFF_REPO_LIMIT:
+            break
+    return repositories
+
+
+def filesystem_project_match(row, repositories):
+    absolute = os.path.normpath(os.path.abspath(row["path"]))
+    for repository in repositories:
+        root_prefix = repository["root-prefix"]
+        if absolute == root_prefix:
+            relative = "."
+        elif absolute.startswith(root_prefix + os.sep):
+            relative = absolute[len(root_prefix) + 1:]
+        else:
+            continue
+        return {
+            "path": relative.replace(os.sep, "/"),
+            "count": row["count"],
+            "repo": repository["id"],
+        }
+    return None
+
+
+def run_filesystem_project_search(repositories, patterns):
+    repositories = sorted(
+        [
+            {
+                **repository,
+                "root": pathlib.Path(repository["root"]).resolve(),
+                "root-prefix": os.path.normpath(
+                    str(pathlib.Path(repository["root"]).resolve())
+                ),
+            }
+            for repository in repositories
+        ],
+        key=lambda candidate: len(candidate["root-prefix"]),
+        reverse=True,
+    )
+    search = run_filesystem_search(
+        filesystem_query_root(),
+        patterns,
+        [str(repository["root"]) for repository in repositories],
+    )
+    mapped_by_path = {}
+    unmapped_count = 0
+    for row in search["matches"]:
+        match = filesystem_project_match(row, repositories)
+        if match is None:
+            unmapped_count += 1
+            continue
+        key = (match["repo"], match["path"])
+        existing = mapped_by_path.get(key)
+        if existing is None or match["count"] > existing["count"]:
+            mapped_by_path[key] = match
+    mapped = list(mapped_by_path.values())
+    diagnostics = list(search["diagnostics"])
+    if unmapped_count:
+        diagnostics.append({
+            "kind": "unmapped-path",
+            "count": unmapped_count,
+        })
+    return {
+        **search,
+        "matches": mapped,
+        "diagnostics": diagnostics,
+        "repository-count": len(repositories),
+    }
+
+
 def degradation_message(reason):
+    if reason == "active-indexing":
+        return (
+            "Indexing is active; search is using bounded filesystem evidence. "
+            "Graph-enriched results will become available automatically."
+        )
+    if reason == "active-embedding":
+        return (
+            "Embedding is active; search is using bounded filesystem evidence. "
+            "Semantic and graph-enriched results will become available automatically."
+        )
     if reason == "server-starting":
         return (
             "Yggdrasil enrichment is starting; search is using bounded filesystem evidence. "
@@ -649,21 +754,30 @@ def degradation_message(reason):
     )
 
 
-def filesystem_query_packet(args, reason):
+def filesystem_query_packet(args, reason, repositories=None):
     started = time.monotonic()
     query_text = " ".join(query_positional_args(args)).strip()
     root = filesystem_query_root()
     patterns = filesystem_query_patterns(query_text, args)
-    search = run_filesystem_search(root, patterns)
+    repositories = repositories or []
+    if repositories:
+        search = run_filesystem_project_search(repositories, patterns)
+    else:
+        search = run_filesystem_search(root, patterns)
+        for match in search["matches"]:
+            match["repo"] = option_value(args, "--repo") or root.name
+
     def path_pattern_count(row):
         path = row["path"].lower()
         return sum(1 for pattern in patterns if pattern.lower() in path)
+
     matches = sorted(
         search["matches"],
         key=lambda row: (
             -path_pattern_count(row),
             -row["count"],
             len(row["path"]),
+            row["repo"],
             row["path"],
         ),
     )[:filesystem_query_limit(args)]
@@ -681,7 +795,7 @@ def filesystem_query_packet(args, reason):
         results.append({
             "path": path_id,
             "resolvedPath": match["path"],
-            "repo": option_value(args, "--repo") or root.name,
+            "repo": match["repo"],
             "rank": index,
             "score": rank_score / max_rank_score,
             "kind": "file",
@@ -743,7 +857,7 @@ def filesystem_query_packet(args, reason):
         "search": {
             "instrumentation": {
                 "filesystem-processes": int(search.get("process-attempted?", True)),
-                "filesystem-repos": 1,
+                "filesystem-repos": len(repositories) if repositories else 1,
                 "filesystem-search-ms": search["elapsed-ms"],
                 "filesystem-total-ms": int((time.monotonic() - started) * 1000),
                 "filesystem-patterns": patterns,
@@ -759,11 +873,11 @@ def filesystem_query_packet(args, reason):
     return packet
 
 
-def filesystem_query_response(args, reason):
+def filesystem_query_response(args, reason, repositories=None):
     query_text = " ".join(query_positional_args(args)).strip()
     if not query_text:
         return {"exit": 2, "out": "", "err": "Missing query text.\n"}
-    packet = filesystem_query_packet(args, reason)
+    packet = filesystem_query_packet(args, reason, repositories)
     if has_flag(args, "--json"):
         return {"exit": 0, "out": json.dumps(packet, indent=2) + "\n", "err": ""}
     lines = []
@@ -1052,6 +1166,8 @@ def request_once(
         payload["projectId"] = project_id
     if stream:
         payload["stream"] = True
+    if op == "query":
+        payload["filesystemFallbackOwner"] = "client"
     host = server_host()
     port = server_port()
     timeout_seconds = response_timeout_seconds(op, args)
@@ -1225,7 +1341,12 @@ def query_response_fallback_reason(response):
         if isinstance(response, dict) and isinstance(response.get("data"), dict)
         else None
     )
-    if response_reason in {"query-timeout", "storage-unavailable"}:
+    if response_reason in {
+        "active-embedding",
+        "active-indexing",
+        "query-timeout",
+        "storage-unavailable",
+    }:
         return response_reason
     if server_starting_response(response):
         return "server-starting"
@@ -1307,8 +1428,13 @@ def hedged_query_request(args, stream, render_progress):
     return None, pending
 
 
-def filesystem_query_exit(args, reason):
-    exit_code = print_response(filesystem_query_response(args, reason))
+def filesystem_query_exit(args, reason, repositories=None):
+    response = (
+        filesystem_query_response(args, reason, repositories)
+        if repositories
+        else filesystem_query_response(args, reason)
+    )
+    exit_code = print_response(response)
     if reason == "server-unavailable":
         sys.stdout.flush()
         sys.stderr.flush()
@@ -1337,7 +1463,11 @@ def server_request(op, args, stream=False, render_progress=False):
     if op == "query":
         reason = query_response_fallback_reason(response)
         if reason is not None:
-            return filesystem_query_exit(args, reason)
+            return filesystem_query_exit(
+                args,
+                reason,
+                filesystem_handoff_repositories(response),
+            )
     if response is None:
         sys.stderr.write(unavailable_message(op, args))
         return UNAVAILABLE

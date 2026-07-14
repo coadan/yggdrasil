@@ -26,17 +26,19 @@ state is cold, absent, or changing.
 | Service starting | Search the nearest repository root instead of waiting for startup retries. | degradation reason `server-starting` |
 | Query index absent or unreadable | Search registered repository roots before corpus or context work. | degradation reason `index-unavailable` |
 | Graph storage locked or unavailable | Fail storage acquisition immediately and search registered repository roots. | degradation reason `storage-unavailable` |
-| Sync, initialization, or embedding active | Search registered repository roots without reading or writing graph query state. | degradation reason `active-indexing` or `active-embedding`; active operation attached |
+| Sync, initialization, or embedding active | Hand registered repository roots to the client without opening graph storage; the client searches that scope directly. | degradation reason `active-indexing` or `active-embedding` |
 | Enriched query caches cold or warming | Search registered repository roots, start one background warmup per project/repository scope, and keep later queries on the filesystem lane until it completes. | degradation reason `cache-warming`; `query-warmup` operation attached |
 | Connected endpoint remains silent | Start filesystem search after a 75 ms compact-query grace period. | degradation reason `query-hedge` |
 | Local server acknowledges the query but remains slow | Give the server 300 ms for a compact query so its registered-root search can finish without a duplicate client search, then take the filesystem lane. | degradation reason `query-hedge` |
 | Enriched query exceeds its response bound | Return filesystem evidence while the requested query continues in the local service. | degradation reason `query-timeout` |
 | Enrichment ready | Use normal `auto` retrieval and the available lexical, grep, semantic, and graph evidence. | normal retrieval and evidence fields |
 
-The fallback starts at most one fixed-string ripgrep process per repository and
-applies one 1.5-second wall deadline to the entire project search, including
-multi-repository projects. Processes still running at the deadline are
-terminated and repositories still queued are skipped. The response marks
+An active-indexing handoff starts one fixed-string ripgrep process across all
+registered roots supplied by the server. Server-owned fallback starts at most
+one process per repository. Both paths apply one 1.5-second wall deadline to the
+entire project search, including multi-repository projects. Processes still
+running at the deadline are terminated and repositories still queued are
+skipped. The response marks
 `filesystem-incomplete?` and adds a warning when a deadline, output bound, or
 tool failure may have omitted matches. It ranks only mechanical signals:
 explicit literals and symbols, query token character shape and length, path
@@ -58,6 +60,9 @@ benchmarks can distinguish retrieval time from project-wide recomputation.
 The client hedges a silent compact query after 75 ms and an acknowledged compact
 query after 300 ms. The acknowledged grace lets a healthy local server finish
 its registered-root fallback without launching a duplicate client search.
+During active indexing or embedding, the client declares that it can own the
+fallback; the server returns repository roots immediately and starts no
+filesystem process, so this path does not consume either hedge grace.
 Explicit `--output evidence` and `--output full` queries use 250 ms and 750 ms
 respectively. If the server finishes while the client filesystem search is in
 progress, the client still returns the server response. Configure the grace

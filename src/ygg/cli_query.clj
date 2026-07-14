@@ -26,6 +26,9 @@
 
 (def ^:dynamic *deps* {})
 
+(def filesystem-handoff-schema
+  "ygg.query.filesystem-handoff/v1")
+
 (defn- call-dep
   [k & args]
   (apply (or (get *deps* k)
@@ -742,6 +745,30 @@
     (throw (ex-info "Active query fallback requires an active indexing operation."
                     {})))
   (query-with-node! nil args))
+
+(defn active-query-filesystem-handoff
+  "Return registered repository roots for a client-owned active-indexing fallback.
+
+  This path does not open graph storage or start filesystem processes. The caller
+  must bind `:active-indexing` in `*deps*`."
+  [args]
+  (let [operation (active-indexing)]
+    (when-not operation
+      (throw (ex-info "Active query handoff requires an active indexing operation."
+                      {})))
+    (let [{:keys [project-id repo-id]} (project-scope args)
+          project (or (resolved-project args)
+                      (cwd-fallback-project project-id repo-id))
+          {:keys [reason message]} (active-fallback-status operation)
+          repos (cond->> (:repos project)
+                  repo-id (filter #(= (str repo-id) (str (:id %)))))]
+      {:schema filesystem-handoff-schema
+       :reason reason
+       :fallback :filesystem
+       :message message
+       :projectId (:id project)
+       :repos (mapv #(select-keys % [:id :root]) repos)
+       :operation operation})))
 
 (defn query!
   [args]

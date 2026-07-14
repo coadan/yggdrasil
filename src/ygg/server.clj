@@ -1325,6 +1325,10 @@
      #(with-cli-operation ctx cli-args (request-operation request cli-args) %)
      #(run-command-handler! command args))))
 
+(defn- client-owned-filesystem-fallback?
+  [request]
+  (= "client" (:filesystemFallbackOwner request)))
+
 (defn- cli-query-response
   [ctx request command handler]
   (let [args (absolutize-path-options (:cwd request) (vec (:args request)))
@@ -1364,7 +1368,9 @@
        #(with-user-dir (:cwd request)
           (fn []
             (with-bindings {#'cli-query/*deps* query-deps}
-              (cli-query/active-query-fallback! args)))))
+              (if (client-owned-filesystem-fallback? request)
+                (cli-query/active-query-filesystem-handoff args)
+                (cli-query/active-query-fallback! args))))))
       (captured-request-storage-response
        ctx
        request

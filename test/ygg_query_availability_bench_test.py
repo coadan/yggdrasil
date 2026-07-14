@@ -46,6 +46,7 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
             {"p95Ms": 35.0},
             {"p95Ms": 140.0},
             {"p95Ms": 180.0},
+            {"p95Ms": 50.0},
         )
 
         self.assertEqual(1.2, result["filesystemLaneToRawP95Ratio"])
@@ -55,6 +56,10 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         self.assertEqual(
             170.0,
             result["acknowledgedStalledYggP95OverheadMs"],
+        )
+        self.assertEqual(
+            40.0,
+            result["activeIndexingHandoffYggP95OverheadMs"],
         )
         self.assertFalse(result["rawParitySupported"])
 
@@ -76,6 +81,14 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
                 "p95Ms": 420.0,
                 "degradationReasons": {"query-hedge": 3},
             },
+            "activeIndexingHandoffYgg": {
+                "completed": 3,
+                "timeouts": 0,
+                "p95Ms": 130.0,
+                "degradationReasons": {"active-indexing": 3},
+                "filesystemProcessCounts": {"1": 3},
+                "filesystemRepoCounts": {"1": 3},
+            },
         }
 
         contract = bench.availability_contract(lanes, 3, 200, 300)
@@ -88,11 +101,23 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         lanes["acknowledgedStalledYgg"]["degradationReasons"] = {
             "query-hedge": 2,
         }
+        lanes["activeIndexingHandoffYgg"]["p95Ms"] = 131.0
+        lanes["activeIndexingHandoffYgg"]["degradationReasons"] = {
+            "active-indexing": 2,
+        }
+        lanes["activeIndexingHandoffYgg"]["filesystemProcessCounts"] = {
+            "1": 2,
+        }
+        lanes["activeIndexingHandoffYgg"]["filesystemRepoCounts"] = {"1": 2}
         contract = bench.availability_contract(lanes, 3, 200, 300)
         self.assertFalse(contract["stalledP95WithinBound"])
         self.assertFalse(contract["stalledQueriesUsedFilesystem"])
         self.assertFalse(contract["acknowledgedStalledP95WithinBound"])
         self.assertFalse(contract["acknowledgedStalledQueriesUsedFilesystem"])
+        self.assertFalse(contract["activeIndexingHandoffP95WithinBound"])
+        self.assertFalse(contract["activeIndexingHandoffUsedFilesystem"])
+        self.assertFalse(contract["activeIndexingHandoffUsedOneProcess"])
+        self.assertFalse(contract["activeIndexingHandoffUsedRequestedRepoScope"])
 
 
 if __name__ == "__main__":
