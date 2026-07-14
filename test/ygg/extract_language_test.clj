@@ -261,6 +261,7 @@
                            (zero? (:exit (shell/sh python-bin
                                                    "-c"
                                                    "import tree_sitter_language_pack"))))]
+    (is (boolean? worker-ready?))
     (when worker-ready?
       (let [result (with-redefs [extract/parser-worker-enabled? (constantly true)
                                  extract/parser-worker-python (constantly python-bin)]
