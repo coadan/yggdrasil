@@ -8,21 +8,19 @@
       (throw (ex-info "Missing CLI start dependency." {:dependency k}))))
 
 (defn- init-sync-args
-  [project-id config-path query-index?]
-  (cond-> (if config-path
-            [config-path "--check"]
-            ["--project" project-id "--check"])
-    query-index? (conj "--query-index")))
+  [project-id config-path]
+  (conj (if config-path
+          [config-path "--check"]
+          ["--project" project-id "--check"])
+        "--query-index"))
 
 (defn- sync-output
-  [args deps result]
-  (let [dispatch (dep deps :dispatch)
-        query-index? (dep deps :query-index?)]
+  [deps result]
+  (let [dispatch (dep deps :dispatch)]
     (with-out-str
       (dispatch "sync"
                 (init-sync-args (:project-id result)
-                                (:config result)
-                                (query-index? args))))))
+                                (:config result))))))
 
 (defn init!
   [args deps]
@@ -48,4 +46,4 @@
     (print-json
      (cond-> result
        (some #{"--sync"} args)
-       (assoc :sync-output (sync-output args deps result))))))
+       (assoc :sync-output (sync-output deps result))))))

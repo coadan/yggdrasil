@@ -15,10 +15,7 @@
                        {:print-json #(reset! printed %)
                         :dispatch (fn [command args]
                                     (swap! calls conj [:dispatch command args])
-                                    (println "synced"))
-                        :query-index? (fn [args]
-                                        (swap! calls conj [:query-index args])
-                                        true)}))
+                                    (println "synced"))}))
     (is (= [[:init "repo"
              {:out nil
               :force? false
@@ -35,7 +32,6 @@
               :maintenance-model nil
               :maintenance-reasoning nil
               :maintenance-command nil}]
-            [:query-index ["repo" "--project" "demo" "--sync" "--query-index"]]
             [:dispatch "sync" ["project.edn" "--check" "--query-index"]]]
            @calls))
     (is (= {:schema "ygg.init/v1"
@@ -52,9 +48,8 @@
       (cli-start/init! ["repo" "--sync"]
                        {:print-json (constantly nil)
                         :dispatch (fn [command args]
-                                    (reset! dispatched [command args]))
-                        :query-index? (constantly false)}))
-    (is (= ["sync" ["--project" "registered" "--check"]]
+                                    (reset! dispatched [command args]))}))
+    (is (= ["sync" ["--project" "registered" "--check" "--query-index"]]
            @dispatched))))
 
 (deftest plain-init-only-requires-json-printer

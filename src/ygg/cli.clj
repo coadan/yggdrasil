@@ -633,8 +633,7 @@
   [args]
   (cli-start/init! args
                    {:print-json print-json
-                    :dispatch dispatch
-                    :query-index? query-index?}))
+                    :dispatch dispatch}))
 
 (defn- agent!
   [args]
