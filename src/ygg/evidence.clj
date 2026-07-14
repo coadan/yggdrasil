@@ -802,10 +802,11 @@
       nil)))
 
 (defn- latest-source-snapshots-by-repo
-  [xtdb project-id read-context]
+  [xtdb project-id repo-id read-context]
   (->> (active-rows xtdb
                     (:source-snapshots store/tables)
                     {:project-id project-id
+                     :repo-id repo-id
                      :read-context read-context})
        (group-by :repo-id)
        (map (fn [[repo-id snapshots]]
@@ -965,6 +966,7 @@
         files (active-rows xtdb (:files store/tables) read-scope)
         source-snapshots-by-repo (latest-source-snapshots-by-repo xtdb
                                                                   (:id project)
+                                                                  repo-id
                                                                   read-context)
         file-fact-count (active-row-total xtdb (:file-facts store/tables) read-scope)
         file-fact-kind-counts (active-field-counts xtdb

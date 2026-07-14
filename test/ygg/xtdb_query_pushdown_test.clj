@@ -2815,6 +2815,12 @@
                                    :mtime-ms 1
                                    :size-bytes 1
                                    :active? true}]
+                      :ygg/source-snapshots
+                      (do
+                        (is (= {:project-id "project-a"
+                                :repo-id "app"}
+                               constraints))
+                        [])
                       (throw (ex-info "unexpected constrained read"
                                       {:table table
                                        :constraints constraints}))))
