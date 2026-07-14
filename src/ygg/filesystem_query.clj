@@ -5,7 +5,8 @@
   evidence and never writes graph or query-run facts."
   (:require [ygg.ripgrep :as ripgrep]
             [clojure.string :as str])
-  (:import [java.util.concurrent Callable ExecutorService Executors Future]))
+  (:import [java.util.concurrent Callable CancellationException ExecutionException
+            ExecutorService Executors Future TimeUnit]))
 
 (def schema
   "ygg.query/v2")
@@ -38,6 +39,18 @@
                   (str "**/" dir "/**")])
                ignored-directories)))
 
+(def ^:private incomplete-diagnostic-kinds
+  #{:invalid-count-line
+    :project-timeout
+    :ripgrep-error
+    :search-error
+    :stdout-truncated
+    :timeout
+    :unavailable})
+
+(def ^:private incomplete-warning
+  "Filesystem fallback reached a search bound or tool failure; results may be incomplete.")
+
 (defn- now-ns
   []
   (System/nanoTime))
@@ -45,6 +58,29 @@
 (defn- elapsed-ms
   [started-ns]
   (long (/ (- (now-ns) started-ns) 1000000)))
+
+(defn- env-long
+  [name fallback]
+  (if-let [raw (some-> (System/getenv name) str/trim not-empty)]
+    (try
+      (Long/parseLong raw)
+      (catch NumberFormatException _
+        fallback))
+    fallback))
+
+(defn- effective-search-opts
+  [opts]
+  (assoc opts
+         :rg-bin (or (:rg-bin opts)
+                     (some-> (System/getenv "YGG_RG_BIN") str/trim not-empty)
+                     ripgrep/default-bin)
+         :timeout-ms (max 0 (long (or (:timeout-ms opts)
+                                      (env-long "YGG_FILESYSTEM_QUERY_TIMEOUT_MS"
+                                                default-timeout-ms))))
+         :max-stdout-bytes
+         (max 0 (long (or (:max-stdout-bytes opts)
+                          (env-long "YGG_FILESYSTEM_QUERY_MAX_STDOUT_BYTES"
+                                    default-max-stdout-bytes))))))
 
 (defn- normalize-pattern
   [value]
@@ -111,18 +147,61 @@
 
 (defn- search-repo
   [{:keys [id root]} patterns opts]
-  (assoc (ripgrep/search-counts-many
-          root
-          patterns
-          []
-          {:timeout-ms (long (or (:timeout-ms opts) default-timeout-ms))
-           :max-stdout-bytes (long (or (:max-stdout-bytes opts)
-                                       default-max-stdout-bytes))
-           :max-stderr-bytes 20000
-           :hidden? true
-           :ignore-case? true
-           :ignore-globs ignore-globs})
-         :repo-id (str id)))
+  (let [search (ripgrep/search-counts-many
+                root
+                patterns
+                []
+                {:bin (:rg-bin opts)
+                 :timeout-ms (:timeout-ms opts)
+                 :max-stdout-bytes (:max-stdout-bytes opts)
+                 :max-stderr-bytes 20000
+                 :hidden? true
+                 :ignore-case? true
+                 :ignore-globs ignore-globs})]
+    (assoc search
+           :repo-id (str id)
+           :process-attempted? (not-any? #(= :unavailable (:kind %))
+                                         (:diagnostics search)))))
+
+(defn- empty-search
+  [repo kind process-attempted? elapsed-ms message]
+  {:repo-id (str (:id repo))
+   :elapsed-ms elapsed-ms
+   :matches []
+   :match-count 0
+   :file-count 0
+   :process-attempted? process-attempted?
+   :diagnostics [(cond-> {:kind kind}
+                   (seq message) (assoc :message message))]})
+
+(defn- task-elapsed-ms
+  [{:keys [search-started-ns]}]
+  (if-let [started @search-started-ns]
+    (elapsed-ms started)
+    0))
+
+(defn- future->search
+  [{:keys [repo process-attempted?] :as task} ^Future future]
+  (if (.isCancelled future)
+    (empty-search repo
+                  :project-timeout
+                  @process-attempted?
+                  (task-elapsed-ms task)
+                  nil)
+    (try
+      (.get future)
+      (catch CancellationException _
+        (empty-search repo
+                      :project-timeout
+                      @process-attempted?
+                      (task-elapsed-ms task)
+                      nil))
+      (catch ExecutionException e
+        (empty-search repo
+                      :search-error
+                      @process-attempted?
+                      (task-elapsed-ms task)
+                      (some-> e .getCause .getMessage))))))
 
 (defn- search-repos
   [repos patterns opts]
@@ -131,15 +210,37 @@
     (let [parallelism (min (count repos)
                            (max 1 (long (or (:max-parallel-repos opts)
                                             default-max-parallel-repos))))
+          timeout-ms (max 0 (long (or (:timeout-ms opts) default-timeout-ms)))
           ^ExecutorService executor (Executors/newFixedThreadPool parallelism)
           tasks (mapv (fn [repo]
-                        (reify Callable
-                          (call [_]
-                            (search-repo repo patterns opts))))
-                      repos)]
+                        (let [process-attempted? (atom false)
+                              search-started-ns (atom nil)]
+                          {:repo repo
+                           :process-attempted? process-attempted?
+                           :search-started-ns search-started-ns
+                           :callable
+                           (reify Callable
+                             (call [_]
+                               (reset! search-started-ns (now-ns))
+                               (reset! process-attempted? true)
+                               (search-repo repo patterns opts)))}))
+                      repos)
+          callables (mapv :callable tasks)]
       (try
-        (->> (.invokeAll executor tasks)
-             (mapv #(.get ^Future %)))
+        (let [futures (.invokeAll executor
+                                  ^java.util.Collection callables
+                                  timeout-ms
+                                  TimeUnit/MILLISECONDS)]
+          (mapv future->search tasks futures))
+        (catch InterruptedException _
+          (.interrupt (Thread/currentThread))
+          (mapv (fn [{:keys [repo process-attempted?] :as task}]
+                  (empty-search repo
+                                :project-timeout
+                                @process-attempted?
+                                (task-elapsed-ms task)
+                                "Filesystem fallback was interrupted."))
+                tasks))
         (finally
           (.shutdownNow executor))))))
 
@@ -150,6 +251,10 @@
        (keep :kind)
        frequencies
        (into (sorted-map))))
+
+(defn- incomplete-search?
+  [diagnostic-counts]
+  (boolean (some incomplete-diagnostic-kinds (keys diagnostic-counts))))
 
 (defn- path-pattern-count
   [patterns path]
@@ -222,7 +327,8 @@
   degraded `:packet` for JSON consumers."
   [project query-text {:keys [repo-id retriever query-input limit reason message operation]
                        :as opts}]
-  (let [started (now-ns)
+  (let [opts (effective-search-opts opts)
+        started (now-ns)
         patterns (query-patterns query-text opts)
         repos (selected-repos project repo-id)
         searches (search-repos repos patterns opts)
@@ -238,10 +344,13 @@
                         (result-row path-id row))
                       path-rows)
         diagnostic-counts (diagnostic-kind-counts searches)
+        incomplete? (incomplete-search? diagnostic-counts)
         file-count (reduce + 0 (map :file-count searches))
         match-count (reduce + 0 (map :match-count searches))
         warning (or message
                     "Graph enrichment is unavailable; results use bounded filesystem search.")
+        warnings (cond-> [warning]
+                   incomplete? (conj incomplete-warning))
         packet {:schema schema
                 :query query-text
                 :input (or query-input {})
@@ -257,12 +366,13 @@
                             :reason (or reason :enrichment-unavailable)}
                 :results results
                 :evidence (mapv evidence-row results)
-                :warnings [warning]
+                :warnings warnings
                 :degradation (degradation {:reason reason
                                            :message warning
                                            :operation operation})
                 :search {:instrumentation
-                         {:filesystem-processes (count searches)
+                         {:filesystem-processes (count (filter :process-attempted? searches))
+                          :filesystem-repos (count searches)
                           :filesystem-search-ms (reduce + 0 (map :elapsed-ms searches))
                           :filesystem-slowest-repo-ms (reduce max 0 (map :elapsed-ms searches))
                           :filesystem-total-ms (elapsed-ms started)
@@ -271,7 +381,7 @@
                           :filesystem-file-count file-count
                           :filesystem-returned-count (count results)
                           :filesystem-diagnostic-kinds diagnostic-counts
-                          :filesystem-timeout-ms (long (or (:timeout-ms opts)
-                                                           default-timeout-ms))}}}]
+                          :filesystem-incomplete? incomplete?
+                          :filesystem-timeout-ms (:timeout-ms opts)}}}]
     {:rows rows
      :packet packet}))

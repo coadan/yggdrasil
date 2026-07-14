@@ -31,6 +31,17 @@ DEFAULT_FILESYSTEM_QUERY_TIMEOUT_MS = 1500
 DEFAULT_FILESYSTEM_QUERY_MAX_STDOUT_BYTES = 200000
 DEFAULT_FILESYSTEM_QUERY_LIMIT = 10
 DEFAULT_FILESYSTEM_QUERY_PATTERN_LIMIT = 6
+FILESYSTEM_INCOMPLETE_DIAGNOSTIC_KINDS = {
+    "invalid-count-line",
+    "ripgrep-error",
+    "stdout-truncated",
+    "timeout",
+    "unavailable",
+}
+FILESYSTEM_INCOMPLETE_WARNING = (
+    "Filesystem fallback reached a search bound or tool failure; "
+    "results may be incomplete."
+)
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 YGG_BIN = ROOT / "bin" / "ygg"
 INIT_LOCAL_FLAGS = {
@@ -470,6 +481,7 @@ def run_filesystem_search(root, patterns):
                 "elapsed-ms": int((time.monotonic() - started) * 1000),
                 "matches": [],
                 "diagnostics": [{"kind": "unavailable", "message": str(exc)}],
+                "process-attempted?": False,
                 "timeout?": False,
                 "truncated?": False,
             }
@@ -493,6 +505,7 @@ def run_filesystem_search(root, patterns):
             "elapsed-ms": int((time.monotonic() - started) * 1000),
             "matches": parse_filesystem_count_output(stdout),
             "diagnostics": diagnostics,
+            "process-attempted?": True,
             "timeout?": timed_out,
             "truncated?": truncated,
         }
@@ -569,7 +582,13 @@ def filesystem_query_packet(args, reason):
         kind = diagnostic.get("kind")
         if kind:
             diagnostic_counts[kind] = diagnostic_counts.get(kind, 0) + 1
+    incomplete = bool(
+        FILESYSTEM_INCOMPLETE_DIAGNOSTIC_KINDS.intersection(diagnostic_counts)
+    )
     message = degradation_message(reason)
+    warnings = [message]
+    if incomplete:
+        warnings.append(FILESYSTEM_INCOMPLETE_WARNING)
     requested = option_value(args, "--retriever") or "auto"
     packet = {
         "schema": FILESYSTEM_QUERY_SCHEMA,
@@ -599,7 +618,7 @@ def filesystem_query_packet(args, reason):
             }
             for result in results
         ],
-        "warnings": [message],
+        "warnings": warnings,
         "degradation": {
             "schema": QUERY_DEGRADATION_SCHEMA,
             "status": "degraded",
@@ -609,7 +628,8 @@ def filesystem_query_packet(args, reason):
         },
         "search": {
             "instrumentation": {
-                "filesystem-processes": 1,
+                "filesystem-processes": int(search.get("process-attempted?", True)),
+                "filesystem-repos": 1,
                 "filesystem-search-ms": search["elapsed-ms"],
                 "filesystem-total-ms": int((time.monotonic() - started) * 1000),
                 "filesystem-patterns": patterns,
@@ -617,6 +637,7 @@ def filesystem_query_packet(args, reason):
                 "filesystem-file-count": len(search["matches"]),
                 "filesystem-returned-count": len(results),
                 "filesystem-diagnostic-kinds": diagnostic_counts,
+                "filesystem-incomplete?": incomplete,
                 "filesystem-timeout-ms": filesystem_query_timeout_ms(),
             }
         },
@@ -643,7 +664,7 @@ def filesystem_query_response(args, reason):
     return {
         "exit": 0,
         "out": "\n".join(lines) + "\n",
-        "err": f"Warning: {packet['degradation']['message']}\n",
+        "err": "".join(f"Warning: {warning}\n" for warning in packet["warnings"]),
     }
 
 

@@ -78,6 +78,11 @@
   (doseq [[k v] env]
     (.put (.environment builder) (str k) (str v))))
 
+(defn- terminate-process!
+  [^Process process]
+  (.destroyForcibly process)
+  (.waitFor process 1000 TimeUnit/MILLISECONDS))
+
 (defn- run-argv
   [repo-root argv {:keys [timeout-ms max-stdout-bytes max-stderr-bytes env]
                    :or {timeout-ms default-timeout-ms
@@ -93,18 +98,32 @@
               _ (.close (.getOutputStream process))
               out-future (read-stream-async (.getInputStream process) max-stdout-bytes)
               err-future (read-stream-async (.getErrorStream process) max-stderr-bytes)]
-          (if (.waitFor process (long timeout-ms) TimeUnit/MILLISECONDS)
-            (let [out @out-future
-                  err @err-future]
-              {:argv (vec argv)
-               :exit (.exitValue process)
-               :elapsed-ms (elapsed-ms started)
-               :stdout (:text out)
-               :stderr (:text err)
-               :stdout-truncated? (:truncated? out)
-               :stderr-truncated? (:truncated? err)})
-            (do
-              (.destroyForcibly process)
+          (try
+            (if (.waitFor process (long timeout-ms) TimeUnit/MILLISECONDS)
+              (let [out @out-future
+                    err @err-future]
+                {:argv (vec argv)
+                 :exit (.exitValue process)
+                 :elapsed-ms (elapsed-ms started)
+                 :stdout (:text out)
+                 :stderr (:text err)
+                 :stdout-truncated? (:truncated? out)
+                 :stderr-truncated? (:truncated? err)})
+              (do
+                (terminate-process! process)
+                {:argv (vec argv)
+                 :exit nil
+                 :elapsed-ms (elapsed-ms started)
+                 :stdout ""
+                 :stderr ""
+                 :timeout? true
+                 :stdout-truncated? false
+                 :stderr-truncated? false}))
+            (catch InterruptedException _
+              (try
+                (terminate-process! process)
+                (finally
+                  (.interrupt (Thread/currentThread))))
               {:argv (vec argv)
                :exit nil
                :elapsed-ms (elapsed-ms started)

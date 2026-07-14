@@ -1633,7 +1633,9 @@
                   {:rows [{:score 1.0
                            :path "src/auth.clj"
                            :count 3}]
-                   :packet {:degradation {:message (:message opts)}}})
+                   :packet {:degradation {:message (:message opts)}
+                            :warnings [(:message opts)
+                                       "Filesystem results may be incomplete."]}})
                 query/semantic-query (fn [& _]
                                        (throw (ex-info "graph query should not run" {})))
                 context/context-packet (fn [& _]
@@ -1658,7 +1660,8 @@
                     "--retriever" "lexical"])))]
       (is (str/includes? out "src/auth.clj"))
       (is (str/includes? out "filesystem fixed-string match (3 matches)"))
-      (is (str/includes? (str err) "Indexing is active")))))
+      (is (str/includes? (str err) "Indexing is active"))
+      (is (str/includes? (str err) "Filesystem results may be incomplete")))))
 
 (deftest query-json-routes-to-filesystem-while-embedding-is-active
   (with-redefs [store/with-node (fn [_ f] (f :xtdb))

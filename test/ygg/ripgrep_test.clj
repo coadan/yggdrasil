@@ -18,6 +18,17 @@
     (spit file content)
     file))
 
+(defn- await-file
+  [file timeout-ms]
+  (let [deadline (+ (System/nanoTime) (* timeout-ms 1000000))]
+    (loop []
+      (cond
+        (.exists file) true
+        (< (System/nanoTime) deadline) (do
+                                         (Thread/sleep 5)
+                                         (recur))
+        :else false))))
+
 (deftest available-reports-missing-binary
   (is (false? (ripgrep/available? {:bin "definitely-not-ygg-rg"}))))
 
@@ -143,3 +154,28 @@
       (is (= 0 (:exit result)))
       (is (true? (:truncated? result)))
       (is (some #(= :stdout-truncated (:kind %)) (:diagnostics result))))))
+
+(deftest cancelling-search-terminates-the-ripgrep-process
+  (let [root (temp-dir "ygg-rg-cancel")
+        started (io/file root "started")
+        completed (io/file root "completed")
+        mock-rg (spit-file! root
+                            "mock-rg"
+                            (str "#!/bin/sh\n"
+                                 "printf started > \"$YGG_TEST_STARTED\"\n"
+                                 "sleep 0.25\n"
+                                 "printf completed > \"$YGG_TEST_COMPLETED\"\n"))
+        _ (.setExecutable mock-rg true)
+        search (future
+                 (ripgrep/search-counts-many
+                  root
+                  ["needle"]
+                  []
+                  {:bin (.getPath mock-rg)
+                   :env {"YGG_TEST_STARTED" (.getPath started)
+                         "YGG_TEST_COMPLETED" (.getPath completed)}
+                   :timeout-ms 5000}))]
+    (is (await-file started 1000))
+    (future-cancel search)
+    (Thread/sleep 500)
+    (is (not (.exists completed)))))

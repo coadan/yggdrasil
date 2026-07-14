@@ -31,11 +31,15 @@ state is cold, absent, or changing.
 | Enriched query exceeds its response bound | Return filesystem evidence while the requested query continues in the local service. | degradation reason `query-timeout` |
 | Enrichment ready | Use normal `auto` retrieval and the available lexical, grep, semantic, and graph evidence. | normal retrieval and evidence fields |
 
-The fallback uses one fixed-string ripgrep process per repository, bounded by
-default to 1.5 seconds and 200,000 stdout bytes. It ranks only mechanical
-signals: explicit literals and symbols, query token character shape and length,
-path overlap, and match counts. It does not infer architecture or project
-meaning. Override the process bounds with
+The fallback starts at most one fixed-string ripgrep process per repository and
+applies one 1.5-second wall deadline to the entire project search, including
+multi-repository projects. Processes still running at the deadline are
+terminated and repositories still queued are skipped. The response marks
+`filesystem-incomplete?` and adds a warning when a deadline, output bound, or
+tool failure may have omitted matches. It ranks only mechanical signals:
+explicit literals and symbols, query token character shape and length, path
+overlap, and match counts. It does not infer architecture or project meaning.
+Override the project deadline and output bound with
 `YGG_FILESYSTEM_QUERY_TIMEOUT_MS` and
 `YGG_FILESYSTEM_QUERY_MAX_STDOUT_BYTES`.
 
@@ -79,7 +83,8 @@ inspect these fields:
     "instrumentation": {
       "filesystem-processes": 1,
       "filesystem-search-ms": 12,
-      "filesystem-file-count": 8
+      "filesystem-file-count": 8,
+      "filesystem-incomplete?": false
     }
   }
 }

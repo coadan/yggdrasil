@@ -649,8 +649,11 @@
 
 (defn- print-filesystem-fallback
   [{:keys [rows packet]}]
-  (binding [*out* *err*]
-    (println "Warning:" (get-in packet [:degradation :message])))
+  (let [warnings (or (seq (:warnings packet))
+                     [(get-in packet [:degradation :message])])]
+    (binding [*out* *err*]
+      (doseq [warning (distinct (remove nil? warnings))]
+        (println "Warning:" warning))))
   (if (seq rows)
     (doseq [{:keys [score path count]} rows]
       (println (format "%.2f  file  %s" score path))

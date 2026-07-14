@@ -398,6 +398,27 @@ class ServerClientRoutingTest(unittest.TestCase):
             {"stdout-truncated": 1},
             instrumentation["filesystem-diagnostic-kinds"],
         )
+        self.assertTrue(instrumentation["filesystem-incomplete?"])
+        self.assertEqual(1, instrumentation["filesystem-repos"])
+        self.assertIn(client.FILESYSTEM_INCOMPLETE_WARNING, packet["warnings"])
+
+    def test_plain_filesystem_timeout_warns_that_results_are_incomplete(self):
+        client = load_client()
+        client.filesystem_query_root = lambda: pathlib.Path("/workspace/demo")
+        client.run_filesystem_search = lambda root, patterns: {
+            "elapsed-ms": 1500,
+            "matches": [],
+            "diagnostics": [{"kind": "timeout"}],
+            "process-attempted?": True,
+            "timeout?": True,
+            "truncated?": False,
+        }
+
+        response = client.filesystem_query_response(["needle"], "server-unavailable")
+
+        self.assertEqual(0, response["exit"])
+        self.assertIn("No filesystem query results.", response["out"])
+        self.assertIn(client.FILESYSTEM_INCOMPLETE_WARNING, response["err"])
 
     def test_query_routes_to_filesystem_when_server_is_unavailable(self):
         client = load_client()

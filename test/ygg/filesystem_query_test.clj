@@ -1,7 +1,8 @@
 (ns ygg.filesystem-query-test
   (:require [ygg.filesystem-query :as filesystem-query]
             [ygg.ripgrep :as ripgrep]
-            [clojure.test :refer [deftest is testing]]))
+            [clojure.test :refer [deftest is testing]])
+  (:import [java.util.concurrent CountDownLatch]))
 
 (def project
   {:id "demo"
@@ -70,6 +71,11 @@
         (is (= {:stdout-truncated 1}
                (get-in packet
                        [:search :instrumentation :filesystem-diagnostic-kinds])))
+        (is (true? (get-in packet
+                           [:search :instrumentation :filesystem-incomplete?])))
+        (is (= 2 (get-in packet [:search :instrumentation :filesystem-repos])))
+        (is (some #(re-find #"results may be incomplete" %)
+                  (:warnings packet)))
         (is (= ["src/auth.clj" "auth.md" "src/routes.clj"]
                (mapv :resolvedPath (:results packet))))))))
 
@@ -123,3 +129,41 @@
         (is (= 10 (get-in packet [:search :instrumentation :filesystem-search-ms])))
         (is (= 5 (get-in packet
                          [:search :instrumentation :filesystem-slowest-repo-ms])))))))
+
+(deftest search-project-enforces-one-deadline-across-repository-batches
+  (let [repos (mapv (fn [index]
+                      {:id (str "repo-" index)
+                       :root (str "/tmp/repo-" index)})
+                    (range 6))
+        started (CountDownLatch. 2)]
+    (with-redefs [ripgrep/search-counts-many
+                  (fn [_root _patterns _paths _opts]
+                    (.countDown started)
+                    (try
+                      (Thread/sleep 250)
+                      (catch InterruptedException _
+                        (.interrupt (Thread/currentThread))))
+                    {:elapsed-ms 1000
+                     :matches []
+                     :match-count 0
+                     :file-count 0
+                     :diagnostics []})]
+      (let [started-ns (System/nanoTime)
+            packet (:packet (filesystem-query/search-project
+                             {:id "many-repos" :repos repos}
+                             "needle"
+                             {:max-parallel-repos 2
+                              :timeout-ms 100}))
+            elapsed-ms (/ (- (System/nanoTime) started-ns) 1000000.0)
+            instrumentation (get-in packet [:search :instrumentation])]
+        (is (zero? (.getCount started)))
+        (is (< elapsed-ms 400.0))
+        (is (< (:filesystem-total-ms instrumentation) 400))
+        (is (= 2 (:filesystem-processes instrumentation)))
+        (is (= 6 (:filesystem-repos instrumentation)))
+        (is (<= 100 (:filesystem-search-ms instrumentation) 400))
+        (is (= {:project-timeout 6}
+               (:filesystem-diagnostic-kinds instrumentation)))
+        (is (true? (:filesystem-incomplete? instrumentation)))
+        (is (some #(re-find #"results may be incomplete" %)
+                  (:warnings packet)))))))

@@ -78,6 +78,9 @@ from the repository while the service is starting—or from another terminal
 while indexing or embedding is active—returns bounded filesystem evidence and
 identifies that fallback in its output. As durable facts and embeddings become
 available, the same `ygg query` command automatically uses richer retrieval.
+The filesystem deadline applies to the whole project, so repository count does
+not multiply the worst-case wait; responses explicitly warn when the bound may
+have made filesystem evidence incomplete.
 Cold enriched-query caches follow the same contract: the first query returns
 filesystem results while one deduplicated background warmup prepares the richer
 path for later queries. A reachable but slow enriched query is also bounded;
