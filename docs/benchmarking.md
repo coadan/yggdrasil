@@ -140,7 +140,9 @@ bb bench:query-availability \
 The report records min, mean, p50, p95, maximum, completion, and timeout counts.
 Its cold and stalled lanes invoke `bin/ygg`, including the real wrapper and its
 `python3 -S` client; `clientEntrypoint` and `clientPythonArgs` record that
-startup contract. Each persistent lane starts `bin/ygg-mcp` once, completes the
+startup contract. `clientModuleCache` reports whether the validated Python
+bytecode cache was available for the measured run. Each persistent lane starts
+`bin/ygg-mcp` once, completes the
 real MCP initialize and tool-list handshake, and reuses that same process for
 every measured query. `mcpStartup` reports handshake latency separately; it is
 not folded into per-query latency. The cold MCP lane must return explicit

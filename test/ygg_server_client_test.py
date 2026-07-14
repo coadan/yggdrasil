@@ -4,6 +4,8 @@ import io
 import json
 import os
 import pathlib
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -11,7 +13,8 @@ from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-CLIENT_PATH = ROOT / "scripts" / "ygg-server-client.py"
+CLIENT_PATH = ROOT / "scripts" / "ygg_server_client.py"
+CLIENT_ENTRY_PATH = ROOT / "scripts" / "ygg-server-client.py"
 
 
 def load_client():
@@ -37,6 +40,36 @@ class ServerClientRoutingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as root:
             os.chdir(root)
             yield pathlib.Path(root)
+
+    def test_executable_entrypoint_loads_cacheable_client_module(self):
+        with tempfile.TemporaryDirectory() as root:
+            scripts = pathlib.Path(root) / "scripts"
+            scripts.mkdir()
+            client_path = scripts / CLIENT_PATH.name
+            entry_path = scripts / CLIENT_ENTRY_PATH.name
+            client_path.write_bytes(CLIENT_PATH.read_bytes())
+            entry_path.write_bytes(CLIENT_ENTRY_PATH.read_bytes())
+
+            result = subprocess.run(
+                [sys.executable, "-S", str(entry_path)],
+                cwd=root,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(75, result.returncode)
+            self.assertTrue(
+                pathlib.Path(
+                    importlib.util.cache_from_source(str(client_path))
+                ).is_file()
+            )
+        self.assertIn(
+            "scripts/ygg_server_client.py",
+            (ROOT / "Dockerfile").read_text(encoding="utf-8"),
+        )
 
     def test_timeout_env_parsing_keeps_distinct_zero_semantics(self):
         client = load_client()

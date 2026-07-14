@@ -18,7 +18,7 @@ import time
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-CLIENT_PATH = ROOT / "scripts" / "ygg-server-client.py"
+CLIENT_PATH = ROOT / "scripts" / "ygg_server_client.py"
 CLI_PATH = ROOT / "bin" / "ygg"
 MCP_PATH = ROOT / "bin" / "ygg-mcp"
 SCHEMA = "ygg.query-availability.benchmark/v12"
@@ -29,6 +29,20 @@ def load_client():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def client_module_cache_status():
+    cache_path = pathlib.Path(importlib.util.cache_from_source(str(CLIENT_PATH)))
+    source_mtime_ns = CLIENT_PATH.stat().st_mtime_ns
+    cache_mtime_ns = cache_path.stat().st_mtime_ns if cache_path.is_file() else None
+    return {
+        "source": str(CLIENT_PATH),
+        "cache": str(cache_path),
+        "available": cache_mtime_ns is not None,
+        "sourceCurrent": (
+            cache_mtime_ns is not None and cache_mtime_ns >= source_mtime_ns
+        ),
+    }
 
 
 def percentile(values, fraction):
@@ -1142,6 +1156,7 @@ def run(args):
         "warmup": args.warmup,
         "timeoutMs": args.timeout_ms,
         "clientEntrypoint": str(CLI_PATH),
+        "clientModuleCache": client_module_cache_status(),
         "mcpClientEntrypoint": str(MCP_PATH),
         "clientPythonArgs": ["-S"],
         "queryConnectAttemptTimeoutMs": (

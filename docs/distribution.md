@@ -31,6 +31,12 @@ ygg init /absolute/path/to/repo --project my-project --sync --no-input
 ygg query "where is auth handled" --project my-project
 ```
 
+The Python entrypoint imports `scripts/ygg_server_client.py` as a normal module.
+Python caches validated bytecode under the ignored `scripts/__pycache__/`
+directory, so later CLI processes avoid recompiling the client. Source changes
+and Python upgrades invalidate that cache automatically. A read-only checkout
+continues to work from source without the optimization.
+
 `ygg init` starts the local server when needed. To keep it warm after login on
 macOS:
 

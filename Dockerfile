@@ -17,6 +17,7 @@ COPY resources ./resources
 COPY bin ./bin
 COPY docker ./docker
 COPY scripts/ygg-server-client.py \
+     scripts/ygg_server_client.py \
      scripts/local-embedding-worker.py \
      scripts/local-vector-requirements.txt \
      scripts/parser-worker.py \
