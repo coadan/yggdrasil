@@ -3,9 +3,11 @@ import json
 import os
 import pathlib
 import platform
+import re
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 
@@ -19,6 +21,12 @@ STARTING_RETRY_INTERVAL_SECONDS = 5.0
 DEFAULT_REQUEST_TIMEOUT_MS = 600000
 DEFAULT_BENCH_AGENT_BASELINE_REQUEST_TIMEOUT_MS = 3600000
 SERVER_FRAME_SCHEMA = "ygg.server.frame/v1"
+FILESYSTEM_QUERY_SCHEMA = "ygg.query/v2"
+QUERY_DEGRADATION_SCHEMA = "ygg.context.degradation/v1"
+DEFAULT_FILESYSTEM_QUERY_TIMEOUT_MS = 1500
+DEFAULT_FILESYSTEM_QUERY_MAX_STDOUT_BYTES = 200000
+DEFAULT_FILESYSTEM_QUERY_LIMIT = 10
+DEFAULT_FILESYSTEM_QUERY_PATTERN_LIMIT = 6
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 YGG_BIN = ROOT / "bin" / "ygg"
 INIT_LOCAL_FLAGS = {
@@ -61,6 +69,51 @@ CONFIG_PATH_POSITIONAL_OPS = {
     "sync",
     "watch",
 }
+QUERY_VALUE_OPTIONS = {
+    "--anchor",
+    "--budget",
+    "--config",
+    "--doc-limit",
+    "--edge-limit",
+    "--entity-limit",
+    "--fts-weight",
+    "--known-at",
+    "--lanes",
+    "--limit",
+    "--literal",
+    "--min-confidence",
+    "--model",
+    "--output",
+    "--project",
+    "--provider",
+    "--repo",
+    "--retriever",
+    "--since",
+    "--snapshot-token",
+    "--snippet-chars",
+    "--symbol",
+    "--task",
+    "--valid-at",
+}
+QUERY_BOOLEAN_OPTIONS = {
+    "--changed-only",
+    "--json",
+    "--no-progress",
+    "--proof-commands",
+}
+FILESYSTEM_QUERY_IGNORED_DIRECTORIES = [
+    ".git",
+    ".dev",
+    ".ygg",
+    ".cpcache",
+    ".clj-kondo",
+    "target",
+    "node_modules",
+    ".shadow-cljs",
+    ".calva",
+    ".idea",
+    "ygg-out",
+]
 
 def server_host():
     return os.environ.get("YGG_SERVER_HOST", DEFAULT_SERVER_HOST).strip() or DEFAULT_SERVER_HOST
@@ -170,6 +223,364 @@ def has_flag(args, flag):
 
 def has_any(args, flags):
     return any(flag in args for flag in flags)
+
+
+def option_values(args, flag):
+    return [
+        args[idx + 1]
+        for idx, arg in enumerate(args[:-1])
+        if arg == flag
+    ]
+
+
+def query_positional_args(args):
+    values = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in QUERY_VALUE_OPTIONS:
+            index += 2
+            continue
+        if arg in QUERY_BOOLEAN_OPTIONS:
+            index += 1
+            continue
+        if arg.startswith("--"):
+            index += 1
+            continue
+        values.append(arg)
+        index += 1
+    return values
+
+
+def query_input_options(args):
+    value = {
+        "task": option_value(args, "--task") or "auto",
+        "anchors": option_values(args, "--anchor"),
+        "symbols": option_values(args, "--symbol"),
+        "literals": option_values(args, "--literal"),
+        "changed-only?": has_flag(args, "--changed-only"),
+    }
+    lanes = option_value(args, "--lanes")
+    if lanes:
+        value["lanes"] = [lane.strip() for lane in lanes.split(",") if lane.strip()]
+    since = option_value(args, "--since")
+    if since:
+        value["since"] = since
+    return value
+
+
+def alnum_count(value):
+    return len(re.findall(r"[A-Za-z0-9]", str(value)))
+
+
+def shaped_pattern(value):
+    return re.search(r"[._/:-]", str(value)) is not None
+
+
+def filesystem_query_patterns(query_text, args):
+    explicit = [
+        value.strip()
+        for value in [
+            *option_values(args, "--literal"),
+            *option_values(args, "--symbol"),
+        ]
+        if value and value.strip()
+    ]
+    tokens = []
+    for index, value in enumerate(
+        re.split(r"[^A-Za-z0-9_./:+?!<>=-]+", query_text)
+    ):
+        value = value.strip()
+        if value and alnum_count(value) >= 3:
+            tokens.append((index, value))
+    tokens.sort(key=lambda row: (
+        0 if shaped_pattern(row[1]) else 1,
+        -alnum_count(row[1]),
+        row[0],
+        row[1].lower(),
+    ))
+    candidates = [*explicit, *(value for _, value in tokens)]
+    patterns = []
+    seen = set()
+    for pattern in candidates:
+        key = pattern.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        patterns.append(pattern)
+        if len(patterns) >= DEFAULT_FILESYSTEM_QUERY_PATTERN_LIMIT:
+            break
+    return patterns or [query_text.strip()]
+
+
+def filesystem_query_root(cwd=None):
+    cwd = pathlib.Path(cwd or os.getcwd()).expanduser().resolve()
+    for directory in parent_dirs(cwd):
+        if (directory / ".git").exists():
+            return directory
+        if (directory / ".ygg" / "project.edn").is_file():
+            return directory
+    return cwd
+
+
+def filesystem_query_timeout_ms():
+    return max(
+        env_int("YGG_FILESYSTEM_QUERY_TIMEOUT_MS", DEFAULT_FILESYSTEM_QUERY_TIMEOUT_MS),
+        0,
+    )
+
+
+def filesystem_query_max_stdout_bytes():
+    return max(
+        env_int(
+            "YGG_FILESYSTEM_QUERY_MAX_STDOUT_BYTES",
+            DEFAULT_FILESYSTEM_QUERY_MAX_STDOUT_BYTES,
+        ),
+        0,
+    )
+
+
+def filesystem_query_limit(args):
+    raw = option_value(args, "--limit")
+    try:
+        return max(1, int(raw)) if raw else DEFAULT_FILESYSTEM_QUERY_LIMIT
+    except ValueError:
+        return DEFAULT_FILESYSTEM_QUERY_LIMIT
+
+
+def filesystem_query_argv(patterns):
+    argv = [
+        os.environ.get("YGG_RG_BIN") or "rg",
+        "--count-matches",
+        "-H",
+        "--fixed-strings",
+        "--hidden",
+        "--ignore-case",
+    ]
+    for directory in FILESYSTEM_QUERY_IGNORED_DIRECTORIES:
+        argv.extend(["--glob", f"!{directory}/**"])
+        argv.extend(["--glob", f"!**/{directory}/**"])
+    for pattern in patterns:
+        argv.extend(["-e", pattern])
+    argv.extend(["--", "."])
+    return argv
+
+
+def bounded_temp_text(file, max_bytes):
+    file.seek(0, os.SEEK_END)
+    size = file.tell()
+    file.seek(0)
+    data = file.read(max_bytes + 1)
+    truncated = size > max_bytes
+    if truncated:
+        data = data[:max_bytes]
+        newline = data.rfind(b"\n")
+        data = data[:newline + 1] if newline >= 0 else b""
+    return data.decode("utf-8", errors="replace"), truncated
+
+
+def parse_filesystem_count_output(stdout):
+    matches = []
+    for line in stdout.splitlines():
+        path, separator, raw_count = line.rpartition(":")
+        if not separator or not raw_count.isdigit():
+            continue
+        path = path.removeprefix("./").replace(os.sep, "/")
+        matches.append({"path": path, "count": int(raw_count)})
+    return matches
+
+
+def run_filesystem_search(root, patterns):
+    started = time.monotonic()
+    timeout_ms = filesystem_query_timeout_ms()
+    max_stdout_bytes = filesystem_query_max_stdout_bytes()
+    diagnostics = []
+    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+        try:
+            process = subprocess.Popen(
+                filesystem_query_argv(patterns),
+                cwd=str(root),
+                stdin=subprocess.DEVNULL,
+                stdout=stdout_file,
+                stderr=stderr_file,
+            )
+        except OSError as exc:
+            return {
+                "elapsed-ms": int((time.monotonic() - started) * 1000),
+                "matches": [],
+                "diagnostics": [{"kind": "unavailable", "message": str(exc)}],
+                "timeout?": False,
+                "truncated?": False,
+            }
+        timed_out = False
+        try:
+            if timeout_ms > 0:
+                process.wait(timeout=timeout_ms / 1000.0)
+            else:
+                process.wait()
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            process.kill()
+            process.wait()
+        stdout, truncated = bounded_temp_text(stdout_file, max_stdout_bytes)
+        stderr, stderr_truncated = bounded_temp_text(stderr_file, 20000)
+        if timed_out:
+            diagnostics.append({"kind": "timeout"})
+        if truncated:
+            diagnostics.append({"kind": "stdout-truncated"})
+        if stderr_truncated:
+            diagnostics.append({"kind": "stderr-truncated"})
+        if process.returncode not in {0, 1} and not timed_out:
+            diagnostics.append({
+                "kind": "ripgrep-error",
+                "message": stderr.strip(),
+            })
+        elif stderr.strip():
+            diagnostics.append({"kind": "stderr", "message": stderr.strip()})
+        return {
+            "elapsed-ms": int((time.monotonic() - started) * 1000),
+            "matches": parse_filesystem_count_output(stdout),
+            "diagnostics": diagnostics,
+            "timeout?": timed_out,
+            "truncated?": truncated,
+        }
+
+
+def degradation_message(reason):
+    if reason == "server-starting":
+        return (
+            "Yggdrasil enrichment is starting; search is using bounded filesystem evidence. "
+            "Graph-enriched results will become available automatically."
+        )
+    return (
+        "Yggdrasil enrichment is unavailable; search is using bounded filesystem evidence. "
+        "Graph-enriched results will become available automatically."
+    )
+
+
+def filesystem_query_packet(args, reason):
+    started = time.monotonic()
+    query_text = " ".join(query_positional_args(args)).strip()
+    root = filesystem_query_root()
+    patterns = filesystem_query_patterns(query_text, args)
+    search = run_filesystem_search(root, patterns)
+    def path_pattern_count(row):
+        path = row["path"].lower()
+        return sum(1 for pattern in patterns if pattern.lower() in path)
+    matches = sorted(
+        search["matches"],
+        key=lambda row: (
+            -path_pattern_count(row),
+            -row["count"],
+            len(row["path"]),
+            row["path"],
+        ),
+    )[:filesystem_query_limit(args)]
+    max_count = max([row["count"] for row in matches] or [1])
+    rank_scores = [
+        path_pattern_count(row) + (row["count"] / max_count)
+        for row in matches
+    ]
+    max_rank_score = max(rank_scores or [1.0])
+    paths = {}
+    results = []
+    for index, (match, rank_score) in enumerate(zip(matches, rank_scores), start=1):
+        path_id = f"p{index}"
+        paths[path_id] = match["path"]
+        results.append({
+            "path": path_id,
+            "resolvedPath": match["path"],
+            "repo": option_value(args, "--repo") or root.name,
+            "rank": index,
+            "score": rank_score / max_rank_score,
+            "kind": "file",
+            "why": ["grep"],
+            "reason": (
+                f"filesystem fixed-string match ({match['count']} "
+                f"{'match' if match['count'] == 1 else 'matches'})"
+            ),
+        })
+    diagnostic_counts = {}
+    for diagnostic in search["diagnostics"]:
+        kind = diagnostic.get("kind")
+        if kind:
+            diagnostic_counts[kind] = diagnostic_counts.get(kind, 0) + 1
+    message = degradation_message(reason)
+    requested = option_value(args, "--retriever") or "auto"
+    packet = {
+        "schema": FILESYSTEM_QUERY_SCHEMA,
+        "query": query_text,
+        "input": query_input_options(args),
+        "basis": {"status": "limited", "degraded": True},
+        "paths": paths,
+        "lanes": {
+            "requested": requested,
+            "mode": "filesystem",
+            "used": ["grep"] if results else [],
+        },
+        "retrieval": {
+            "requested": requested,
+            "effective": "filesystem",
+            "fallback?": True,
+            "reason": reason,
+        },
+        "results": results,
+        "evidence": [
+            {
+                "kind": "candidate",
+                "path": result["path"],
+                "resolvedPath": result["resolvedPath"],
+                "repo": result["repo"],
+                "why": ["grep"],
+            }
+            for result in results
+        ],
+        "warnings": [message],
+        "degradation": {
+            "schema": QUERY_DEGRADATION_SCHEMA,
+            "status": "degraded",
+            "reason": reason,
+            "fallback": "filesystem",
+            "message": message,
+        },
+        "search": {
+            "instrumentation": {
+                "filesystem-processes": 1,
+                "filesystem-search-ms": search["elapsed-ms"],
+                "filesystem-total-ms": int((time.monotonic() - started) * 1000),
+                "filesystem-patterns": patterns,
+                "filesystem-match-count": sum(row["count"] for row in search["matches"]),
+                "filesystem-file-count": len(search["matches"]),
+                "filesystem-returned-count": len(results),
+                "filesystem-diagnostic-kinds": diagnostic_counts,
+                "filesystem-timeout-ms": filesystem_query_timeout_ms(),
+            }
+        },
+    }
+    return packet
+
+
+def filesystem_query_response(args, reason):
+    query_text = " ".join(query_positional_args(args)).strip()
+    if not query_text:
+        return {"exit": 2, "out": "", "err": "Missing query text.\n"}
+    packet = filesystem_query_packet(args, reason)
+    if has_flag(args, "--json"):
+        return {"exit": 0, "out": json.dumps(packet, indent=2) + "\n", "err": ""}
+    lines = []
+    for result in packet["results"]:
+        lines.extend([
+            f"{result['score']:.2f}  file  {result['resolvedPath']}",
+            f"       {result['resolvedPath']}",
+            f"        {result['reason']}",
+        ])
+    if not lines:
+        lines.append("No filesystem query results.")
+    return {
+        "exit": 0,
+        "out": "\n".join(lines) + "\n",
+        "err": f"Warning: {packet['degradation']['message']}\n",
+    }
 
 
 def parent_dirs(path):
@@ -467,6 +878,8 @@ def request_once(op, args, extra=None, stream=False, render_progress=False, conn
 
 
 def request(op, args, extra=None, stream=False, render_progress=False, connect_timeout_override_ms=None):
+    if op == "query" and connect_timeout_override_ms is None:
+        connect_timeout_override_ms = 0
     timeout_ms = starting_retry_timeout_ms()
     deadline = time.monotonic() + (timeout_ms / 1000.0)
     while True:
@@ -478,7 +891,7 @@ def request(op, args, extra=None, stream=False, render_progress=False, connect_t
             render_progress=render_progress,
             connect_timeout_override_ms=connect_timeout_override_ms,
         )
-        if not server_starting_response(response):
+        if op == "query" or not server_starting_response(response):
             return response
         if timeout_ms <= 0 or time.monotonic() >= deadline:
             return response
@@ -573,6 +986,9 @@ def print_response(response):
 
 def server_request(op, args, stream=False, render_progress=False):
     response = request(op, args, stream=stream, render_progress=render_progress)
+    if op == "query" and (response is None or server_starting_response(response)):
+        reason = "server-starting" if server_starting_response(response) else "server-unavailable"
+        return print_response(filesystem_query_response(args, reason))
     if response is None:
         sys.stderr.write(unavailable_message(op, args))
         return UNAVAILABLE

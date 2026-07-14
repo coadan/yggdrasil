@@ -258,6 +258,110 @@ class ServerClientRoutingTest(unittest.TestCase):
                 self.assertEqual(expected_render_progress,
                                  requests[0][2]["render_progress"])
 
+    def test_query_connection_is_non_blocking_when_server_is_cold(self):
+        client = load_client()
+        calls = []
+
+        def fake_request_once(op, args, **kwargs):
+            calls.append((op, args, kwargs))
+            return {"exit": 0, "out": "ok\n", "err": ""}
+
+        client.request_once = fake_request_once
+        response = client.request("query", ["needle"])
+
+        self.assertEqual("ok\n", response["out"])
+        self.assertEqual(0, calls[0][2]["connect_timeout_override_ms"])
+
+    def test_filesystem_query_patterns_match_mechanical_server_contract(self):
+        client = load_client()
+
+        patterns = client.filesystem_query_patterns(
+            "where is auth handled src/auth_handler.clj",
+            ["--literal", "AUTH_URL", "--symbol", "AuthHandler"],
+        )
+
+        self.assertEqual(
+            ["AUTH_URL", "AuthHandler", "src/auth_handler.clj", "handled", "where", "auth"],
+            patterns,
+        )
+
+    def test_filesystem_query_packet_is_explicitly_degraded(self):
+        client = load_client()
+        client.filesystem_query_root = lambda: pathlib.Path("/workspace/demo")
+        client.run_filesystem_search = lambda root, patterns: {
+            "elapsed-ms": 8,
+            "matches": [
+                {"path": "src/auth.py", "count": 4},
+                {"path": "src/routes.py", "count": 1},
+            ],
+            "diagnostics": [{"kind": "stdout-truncated"}],
+            "timeout?": False,
+            "truncated?": True,
+        }
+
+        packet = client.filesystem_query_packet(
+            ["where is auth handled", "--project", "demo", "--json"],
+            "server-starting",
+        )
+
+        self.assertEqual(client.FILESYSTEM_QUERY_SCHEMA, packet["schema"])
+        self.assertEqual("filesystem", packet["retrieval"]["effective"])
+        self.assertTrue(packet["retrieval"]["fallback?"])
+        self.assertEqual("server-starting", packet["degradation"]["reason"])
+        self.assertEqual("filesystem", packet["degradation"]["fallback"])
+        self.assertEqual(["src/auth.py", "src/routes.py"], [
+            result["resolvedPath"] for result in packet["results"]
+        ])
+        instrumentation = packet["search"]["instrumentation"]
+        self.assertEqual(1, instrumentation["filesystem-processes"])
+        self.assertEqual(8, instrumentation["filesystem-search-ms"])
+        self.assertEqual(
+            {"stdout-truncated": 1},
+            instrumentation["filesystem-diagnostic-kinds"],
+        )
+
+    def test_query_routes_to_filesystem_when_server_is_unavailable(self):
+        client = load_client()
+        client.request = lambda *args, **kwargs: None
+        fallback_calls = []
+
+        def fake_fallback(args, reason):
+            fallback_calls.append((args, reason))
+            return {"exit": 0, "out": "filesystem result\n", "err": "degraded\n"}
+
+        client.filesystem_query_response = fake_fallback
+        out = io.StringIO()
+        err = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            exit_code = client.main(["ygg", "query", "needle"])
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("filesystem result\n", out.getvalue())
+        self.assertEqual("degraded\n", err.getvalue())
+        self.assertEqual([(["needle"], "server-unavailable")], fallback_calls)
+
+    def test_query_routes_to_filesystem_without_retrying_starting_server(self):
+        client = load_client()
+        request_calls = []
+
+        def fake_request(op, args, **kwargs):
+            request_calls.append((op, args, kwargs))
+            return {"ok": False, "data": {"reason": "server-starting"}}
+
+        client.request = fake_request
+        client.filesystem_query_response = lambda args, reason: {
+            "exit": 0,
+            "out": f"{reason}\n",
+            "err": "",
+        }
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            exit_code = client.main(["ygg", "query", "needle"])
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("server-starting\n", out.getvalue())
+        self.assertEqual(1, len(request_calls))
+
     def test_request_retries_starting_health_response(self):
         client = load_client()
         calls = []
