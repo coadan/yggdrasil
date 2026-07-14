@@ -50,6 +50,11 @@ skipped. The response marks
 tool failure may have omitted matches. It ranks only mechanical signals:
 explicit literals and symbols, query token character shape and length, path
 overlap, and match counts. It does not infer architecture or project meaning.
+Pattern selection scans at most 4,096 query characters, uses at most six
+fixed-string patterns, and limits each pattern to 1,024 characters. A longer
+query or candidate is truncated or dropped before `rg` starts; the packet sets
+`filesystem-query-truncated?`, reports `query-truncated` or `pattern-too-long`
+in `filesystem-diagnostic-kinds`, and marks the filesystem evidence incomplete.
 Override the project deadline and output bound with
 `YGG_FILESYSTEM_QUERY_TIMEOUT_MS` and
 `YGG_FILESYSTEM_QUERY_MAX_STDOUT_BYTES`.

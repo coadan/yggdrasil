@@ -20,6 +20,12 @@
 (def default-pattern-limit
   6)
 
+(def default-query-scan-character-limit
+  4096)
+
+(def default-pattern-character-limit
+  1024)
+
 (def default-timeout-ms
   1500)
 
@@ -42,6 +48,8 @@
 (def ^:private incomplete-diagnostic-kinds
   #{:invalid-count-line
     :project-timeout
+    :pattern-too-long
+    :query-truncated
     :ripgrep-error
     :search-error
     :stdout-truncated
@@ -94,6 +102,16 @@
   [value]
   (boolean (re-find #"[._/:-]" (str value))))
 
+(def ^:private token-characters
+  (set "_./:+?!<>=-"))
+
+(defn- token-character?
+  [character]
+  (or (<= (int \A) (int character) (int \Z))
+      (<= (int \a) (int character) (int \z))
+      (<= (int \0) (int character) (int \9))
+      (contains? token-characters character)))
+
 (defn- query-token-candidates
   [query-text]
   (->> (str/split (str query-text) #"[^A-Za-z0-9_./:+?!<>=-]+")
@@ -108,14 +126,42 @@
                    index
                    (str/lower-case pattern)]))))
 
-(defn query-patterns
-  "Return bounded fixed-string patterns from explicit inputs and query shape.
+(defn- pattern-within-limit?
+  [pattern]
+  (<= (count pattern) default-pattern-character-limit))
 
-  Selection uses only explicit values, character shape, length, and position."
+(defn query-pattern-selection
+  "Return bounded fixed-string patterns plus mechanical truncation diagnostics."
   [query-text {:keys [literals symbols pattern-limit]
                :or {pattern-limit default-pattern-limit}}]
-  (let [explicit (keep normalize-pattern (concat literals symbols))
-        candidates (concat explicit (map :pattern (query-token-candidates query-text)))
+  (let [query-text (str query-text)
+        scan-limit default-query-scan-character-limit
+        scanned-query (subs query-text 0 (min scan-limit (count query-text)))
+        query-truncated? (< (count scanned-query) (count query-text))
+        query-cut-token? (and query-truncated?
+                              (seq scanned-query)
+                              (token-character? (nth scanned-query
+                                                     (dec (count scanned-query))))
+                              (token-character? (nth query-text
+                                                     (count scanned-query))))
+        candidate-query (if query-cut-token?
+                          (str/replace scanned-query
+                                       #"[A-Za-z0-9_./:+?!<>=-]+$"
+                                       "")
+                          scanned-query)
+        explicit (vec (keep normalize-pattern (concat literals symbols)))
+        token-candidates (vec (query-token-candidates candidate-query))
+        oversized-pattern-count (count (remove pattern-within-limit?
+                                               (concat explicit
+                                                       (map :pattern token-candidates))))
+        candidates (concat (filter pattern-within-limit? explicit)
+                           (->> token-candidates
+                                (map :pattern)
+                                (filter pattern-within-limit?)))
+        effective-pattern-limit (-> pattern-limit
+                                    long
+                                    (max 1)
+                                    (min default-pattern-limit))
         patterns (->> candidates
                       (reduce (fn [{:keys [seen] :as state} pattern]
                                 (let [key (str/lower-case pattern)]
@@ -127,11 +173,41 @@
                               {:seen #{}
                                :patterns []})
                       :patterns
-                      (take (max 1 (long pattern-limit)))
-                      vec)]
-    (if (seq patterns)
-      patterns
-      [(str/trim (str query-text))])))
+                      (take effective-pattern-limit)
+                      vec)
+        fallback (some-> scanned-query normalize-pattern)
+        fallback-truncated? (and (empty? patterns)
+                                 (< default-pattern-character-limit
+                                    (count (or fallback ""))))
+        patterns (if (seq patterns)
+                   patterns
+                   [(subs (or fallback "")
+                          0
+                          (min default-pattern-character-limit
+                               (count (or fallback ""))))])
+        dropped-pattern-count (+ oversized-pattern-count
+                                 (if fallback-truncated? 1 0))
+        diagnostics (cond-> []
+                      query-truncated?
+                      (conj {:kind :query-truncated
+                             :limitCharacters scan-limit})
+
+                      (pos? dropped-pattern-count)
+                      (conj {:kind :pattern-too-long
+                             :count dropped-pattern-count
+                             :maxCharacters default-pattern-character-limit}))]
+    {:query scanned-query
+     :patterns patterns
+     :diagnostics diagnostics
+     :query-truncated? query-truncated?
+     :dropped-pattern-count dropped-pattern-count}))
+
+(defn query-patterns
+  "Return bounded fixed-string patterns from explicit inputs and query shape.
+
+  Selection uses only explicit values, character shape, length, and position."
+  [query-text opts]
+  (:patterns (query-pattern-selection query-text opts)))
 
 (defn- selected-repos
   [project repo-id]
@@ -245,9 +321,8 @@
           (.shutdownNow executor))))))
 
 (defn- diagnostic-kind-counts
-  [searches]
-  (->> searches
-       (mapcat :diagnostics)
+  [searches diagnostics]
+  (->> (concat diagnostics (mapcat :diagnostics searches))
        (keep :kind)
        frequencies
        (into (sorted-map))))
@@ -329,7 +404,8 @@
                        :as opts}]
   (let [opts (effective-search-opts opts)
         started (now-ns)
-        patterns (query-patterns query-text opts)
+        pattern-selection (query-pattern-selection query-text opts)
+        patterns (:patterns pattern-selection)
         repos (selected-repos project repo-id)
         searches (search-repos repos patterns opts)
         rows (ranked-matches searches patterns (long (or limit default-limit)))
@@ -343,7 +419,8 @@
         results (mapv (fn [[path-id row]]
                         (result-row path-id row))
                       path-rows)
-        diagnostic-counts (diagnostic-kind-counts searches)
+        diagnostic-counts (diagnostic-kind-counts searches
+                                                  (:diagnostics pattern-selection))
         incomplete? (incomplete-search? diagnostic-counts)
         file-count (reduce + 0 (map :file-count searches))
         match-count (reduce + 0 (map :match-count searches))
@@ -352,7 +429,7 @@
         warnings (cond-> [warning]
                    incomplete? (conj incomplete-warning))
         packet {:schema schema
-                :query query-text
+                :query (:query pattern-selection)
                 :input (or query-input {})
                 :basis {:status :limited
                         :degraded true}
@@ -377,6 +454,14 @@
                           :filesystem-slowest-repo-ms (reduce max 0 (map :elapsed-ms searches))
                           :filesystem-total-ms (elapsed-ms started)
                           :filesystem-patterns patterns
+                          :filesystem-query-scan-limit-characters
+                          default-query-scan-character-limit
+                          :filesystem-query-truncated?
+                          (:query-truncated? pattern-selection)
+                          :filesystem-pattern-character-limit
+                          default-pattern-character-limit
+                          :filesystem-dropped-pattern-count
+                          (:dropped-pattern-count pattern-selection)
                           :filesystem-match-count match-count
                           :filesystem-file-count file-count
                           :filesystem-returned-count (count results)

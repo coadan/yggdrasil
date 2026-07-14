@@ -32,11 +32,15 @@ DEFAULT_FILESYSTEM_QUERY_TIMEOUT_MS = 1500
 DEFAULT_FILESYSTEM_QUERY_MAX_STDOUT_BYTES = 200000
 DEFAULT_FILESYSTEM_QUERY_LIMIT = 10
 DEFAULT_FILESYSTEM_QUERY_PATTERN_LIMIT = 6
+DEFAULT_FILESYSTEM_QUERY_SCAN_CHARACTER_LIMIT = 4096
+DEFAULT_FILESYSTEM_PATTERN_CHARACTER_LIMIT = 1024
 DEFAULT_FILESYSTEM_HANDOFF_REPO_LIMIT = 64
 FILESYSTEM_PROCESS_LAUNCHER = "posix-spawn"
 FILESYSTEM_INCOMPLETE_DIAGNOSTIC_KINDS = {
     "invalid-count-line",
     "ripgrep-error",
+    "pattern-too-long",
+    "query-truncated",
     "stdout-truncated",
     "timeout",
     "unmapped-path",
@@ -501,7 +505,7 @@ def shaped_pattern(value):
 def filesystem_query_tokens(query_text):
     tokens = []
     token = []
-    for character in query_text:
+    for character in query_text[:DEFAULT_FILESYSTEM_QUERY_SCAN_CHARACTER_LIMIT]:
         if ascii_alnum(character) or character in FILESYSTEM_PATTERN_PUNCTUATION:
             token.append(character)
         elif token:
@@ -512,7 +516,30 @@ def filesystem_query_tokens(query_text):
     return tokens
 
 
-def filesystem_query_patterns(query_text, args):
+def filesystem_query_pattern_selection(query_text, args):
+    scanned_query = query_text[:DEFAULT_FILESYSTEM_QUERY_SCAN_CHARACTER_LIMIT]
+    query_truncated = len(query_text) > len(scanned_query)
+    query_cut_token = (
+        query_truncated
+        and bool(scanned_query)
+        and (
+            ascii_alnum(scanned_query[-1])
+            or scanned_query[-1] in FILESYSTEM_PATTERN_PUNCTUATION
+        )
+        and (
+            ascii_alnum(query_text[len(scanned_query)])
+            or query_text[len(scanned_query)] in FILESYSTEM_PATTERN_PUNCTUATION
+        )
+    )
+    candidate_query = scanned_query
+    if query_cut_token:
+        token_start = len(candidate_query)
+        while token_start > 0 and (
+            ascii_alnum(candidate_query[token_start - 1])
+            or candidate_query[token_start - 1] in FILESYSTEM_PATTERN_PUNCTUATION
+        ):
+            token_start -= 1
+        candidate_query = candidate_query[:token_start]
     explicit = [
         value.strip()
         for value in [
@@ -522,10 +549,15 @@ def filesystem_query_patterns(query_text, args):
         if value and value.strip()
     ]
     tokens = []
-    for index, value in enumerate(filesystem_query_tokens(query_text)):
+    dropped_pattern_count = 0
+    query_tokens = filesystem_query_tokens(candidate_query)
+    for index, value in enumerate(query_tokens):
         value = value.strip()
         if value and alnum_count(value) >= 3:
-            tokens.append((index, value))
+            if len(value) <= DEFAULT_FILESYSTEM_PATTERN_CHARACTER_LIMIT:
+                tokens.append((index, value))
+            else:
+                dropped_pattern_count += 1
     tokens.sort(key=lambda row: (
         0 if shaped_pattern(row[1]) else 1,
         -alnum_count(row[1]),
@@ -536,6 +568,9 @@ def filesystem_query_patterns(query_text, args):
     patterns = []
     seen = set()
     for pattern in candidates:
+        if len(pattern) > DEFAULT_FILESYSTEM_PATTERN_CHARACTER_LIMIT:
+            dropped_pattern_count += 1
+            continue
         key = pattern.lower()
         if key in seen:
             continue
@@ -543,7 +578,35 @@ def filesystem_query_patterns(query_text, args):
         patterns.append(pattern)
         if len(patterns) >= DEFAULT_FILESYSTEM_QUERY_PATTERN_LIMIT:
             break
-    return patterns or [query_text.strip()]
+    if not patterns:
+        fallback = scanned_query.strip()
+        if len(fallback) > DEFAULT_FILESYSTEM_PATTERN_CHARACTER_LIMIT:
+            dropped_pattern_count += 1
+            fallback = fallback[:DEFAULT_FILESYSTEM_PATTERN_CHARACTER_LIMIT]
+        patterns = [fallback]
+    diagnostics = []
+    if query_truncated:
+        diagnostics.append({
+            "kind": "query-truncated",
+            "limitCharacters": DEFAULT_FILESYSTEM_QUERY_SCAN_CHARACTER_LIMIT,
+        })
+    if dropped_pattern_count:
+        diagnostics.append({
+            "kind": "pattern-too-long",
+            "count": dropped_pattern_count,
+            "maxCharacters": DEFAULT_FILESYSTEM_PATTERN_CHARACTER_LIMIT,
+        })
+    return {
+        "query": scanned_query,
+        "patterns": patterns,
+        "diagnostics": diagnostics,
+        "query-truncated?": query_truncated,
+        "dropped-pattern-count": dropped_pattern_count,
+    }
+
+
+def filesystem_query_patterns(query_text, args):
+    return filesystem_query_pattern_selection(query_text, args)["patterns"]
 
 
 def canonical_filesystem_path(path):
@@ -996,7 +1059,8 @@ def filesystem_query_packet(args, reason, repositories=None):
     started = time.monotonic()
     query_text = " ".join(query_positional_args(args)).strip()
     root = os.fspath(filesystem_query_root())
-    patterns = filesystem_query_patterns(query_text, args)
+    pattern_selection = filesystem_query_pattern_selection(query_text, args)
+    patterns = pattern_selection["patterns"]
     repositories = repositories or []
     if repositories:
         search = run_filesystem_project_search(repositories, patterns)
@@ -1044,7 +1108,8 @@ def filesystem_query_packet(args, reason, repositories=None):
             ),
         })
     diagnostic_counts = {}
-    for diagnostic in search["diagnostics"]:
+    diagnostics = [*pattern_selection["diagnostics"], *search["diagnostics"]]
+    for diagnostic in diagnostics:
         kind = diagnostic.get("kind")
         if kind:
             diagnostic_counts[kind] = diagnostic_counts.get(kind, 0) + 1
@@ -1058,7 +1123,7 @@ def filesystem_query_packet(args, reason, repositories=None):
     requested = option_value(args, "--retriever") or "auto"
     packet = {
         "schema": FILESYSTEM_QUERY_SCHEMA,
-        "query": query_text,
+        "query": pattern_selection["query"],
         "input": query_input_options(args),
         "basis": {"status": "limited", "degraded": True},
         "paths": paths,
@@ -1101,6 +1166,18 @@ def filesystem_query_packet(args, reason, repositories=None):
                 "filesystem-search-ms": search["elapsed-ms"],
                 "filesystem-total-ms": int((time.monotonic() - started) * 1000),
                 "filesystem-patterns": patterns,
+                "filesystem-query-scan-limit-characters": (
+                    DEFAULT_FILESYSTEM_QUERY_SCAN_CHARACTER_LIMIT
+                ),
+                "filesystem-query-truncated?": pattern_selection[
+                    "query-truncated?"
+                ],
+                "filesystem-pattern-character-limit": (
+                    DEFAULT_FILESYSTEM_PATTERN_CHARACTER_LIMIT
+                ),
+                "filesystem-dropped-pattern-count": pattern_selection[
+                    "dropped-pattern-count"
+                ],
                 "filesystem-match-count": sum(row["count"] for row in search["matches"]),
                 "filesystem-file-count": len(search["matches"]),
                 "filesystem-returned-count": len(results),

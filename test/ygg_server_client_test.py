@@ -930,6 +930,71 @@ class ServerClientRoutingTest(unittest.TestCase):
             ),
         )
 
+    def test_filesystem_query_pattern_selection_bounds_large_inputs(self):
+        client = load_client()
+        query = "a" * (client.DEFAULT_FILESYSTEM_QUERY_SCAN_CHARACTER_LIMIT + 100)
+
+        selection = client.filesystem_query_pattern_selection(query, [])
+
+        self.assertEqual(
+            client.DEFAULT_FILESYSTEM_QUERY_SCAN_CHARACTER_LIMIT,
+            len(selection["query"]),
+        )
+        self.assertEqual(
+            ["a" * client.DEFAULT_FILESYSTEM_PATTERN_CHARACTER_LIMIT],
+            selection["patterns"],
+        )
+        self.assertTrue(selection["query-truncated?"])
+        self.assertEqual(1, selection["dropped-pattern-count"])
+        self.assertEqual(
+            {"query-truncated", "pattern-too-long"},
+            {row["kind"] for row in selection["diagnostics"]},
+        )
+        punctuation = client.filesystem_query_pattern_selection(
+            "?" * (client.DEFAULT_FILESYSTEM_QUERY_SCAN_CHARACTER_LIMIT + 1),
+            [],
+        )
+        self.assertEqual(
+            ["?" * client.DEFAULT_FILESYSTEM_PATTERN_CHARACTER_LIMIT],
+            punctuation["patterns"],
+        )
+        prefix = "keep " + " " * (
+            client.DEFAULT_FILESYSTEM_QUERY_SCAN_CHARACTER_LIMIT - 7
+        )
+        cut_short_token = client.filesystem_query_pattern_selection(
+            prefix + "xxx",
+            [],
+        )
+        self.assertEqual(["keep"], cut_short_token["patterns"])
+
+    def test_filesystem_query_packet_reports_bounded_pattern_degradation(self):
+        client = load_client()
+        client.filesystem_query_root = lambda: pathlib.Path("/workspace/demo")
+        client.run_filesystem_search = lambda _root, _patterns: {
+            "elapsed-ms": 1,
+            "matches": [],
+            "diagnostics": [],
+            "process-attempted?": True,
+            "timeout?": False,
+            "truncated?": False,
+        }
+        query = "token123 " * client.DEFAULT_FILESYSTEM_QUERY_SCAN_CHARACTER_LIMIT
+
+        packet = client.filesystem_query_packet(
+            [query, "--json"],
+            "server-unavailable",
+        )
+
+        instrumentation = packet["search"]["instrumentation"]
+        self.assertTrue(instrumentation["filesystem-query-truncated?"])
+        self.assertEqual(["token123"], instrumentation["filesystem-patterns"])
+        self.assertEqual(
+            {"query-truncated": 1},
+            instrumentation["filesystem-diagnostic-kinds"],
+        )
+        self.assertTrue(instrumentation["filesystem-incomplete?"])
+        self.assertIn(client.FILESYSTEM_INCOMPLETE_WARNING, packet["warnings"])
+
     def test_standard_json_prefetch_publishes_one_shared_module(self):
         client = load_client()
 

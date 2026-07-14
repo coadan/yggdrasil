@@ -19,6 +19,57 @@
   (is (= ["x"]
          (filesystem-query/query-patterns "x" {}))))
 
+(deftest query-pattern-selection-bounds-large-inputs
+  (let [query-text (apply str
+                          (repeat (+ filesystem-query/default-query-scan-character-limit
+                                     100)
+                                  "a"))
+        selection (filesystem-query/query-pattern-selection query-text {})]
+    (is (= filesystem-query/default-query-scan-character-limit
+           (count (:query selection))))
+    (is (= [(apply str
+                   (repeat filesystem-query/default-pattern-character-limit "a"))]
+           (:patterns selection)))
+    (is (true? (:query-truncated? selection)))
+    (is (= 1 (:dropped-pattern-count selection)))
+    (is (= #{:query-truncated :pattern-too-long}
+           (set (map :kind (:diagnostics selection)))))
+    (is (= [(apply str
+                   (repeat filesystem-query/default-pattern-character-limit "?"))]
+           (filesystem-query/query-patterns
+            (apply str
+                   (repeat (inc filesystem-query/default-query-scan-character-limit)
+                           "?"))
+            {})))
+    (let [prefix (str "keep "
+                      (apply str
+                             (repeat (- filesystem-query/default-query-scan-character-limit
+                                        7)
+                                     " ")))]
+      (is (= ["keep"]
+             (filesystem-query/query-patterns (str prefix "xxx") {}))))))
+
+(deftest search-project-reports-bounded-query-degradation
+  (with-redefs [ripgrep/search-counts-many
+                (fn [_ _ _ _]
+                  {:elapsed-ms 1
+                   :matches []
+                   :match-count 0
+                   :file-count 0
+                   :diagnostics []})]
+    (let [query-text (apply str
+                            (repeat filesystem-query/default-query-scan-character-limit
+                                    "token123 "))
+          packet (:packet (filesystem-query/search-project project query-text {}))
+          instrumentation (get-in packet [:search :instrumentation])]
+      (is (true? (:filesystem-query-truncated? instrumentation)))
+      (is (= ["token123"] (:filesystem-patterns instrumentation)))
+      (is (= {:query-truncated 1}
+             (:filesystem-diagnostic-kinds instrumentation)))
+      (is (true? (:filesystem-incomplete? instrumentation)))
+      (is (some #(re-find #"results may be incomplete" %)
+                (:warnings packet))))))
+
 (deftest search-project-emits-canonical-degraded-packet
   (let [calls (atom [])]
     (with-redefs [ripgrep/search-counts-many
