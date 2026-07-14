@@ -3306,7 +3306,10 @@
                                      :semantic-score-ms
                                      :vector-search-ms
                                      :graph-adjacency-query-count
-                                     :context-chunks])
+                                     :context-chunks
+                                     :system-graph-cache
+                                     :package-report-cache
+                                     :source-coverage-cache])
       :contextTimingsMs (:context-timings-ms instrumentation)})))
 
 (def ^:private context-progress-slowest-limit
@@ -3606,8 +3609,8 @@
      (memory-counts xtdb scope opts)
      (overlay-counts overlay))))
 
-(def ^:private max-capability-count-cache-entries
-  32)
+(def ^:private max-read-model-cache-entries
+  64)
 
 (def ^:private capability-temporal-keys
   [:valid-at :known-at :snapshot-token :current-time])
@@ -3620,14 +3623,55 @@
      repo-id
      (hash (dissoc overlay :updated-at-ms))]))
 
-(defn- evict-capability-count-cache-entry
+(defn- evict-read-model-cache-entry
   [entries]
-  (if (<= (count entries) max-capability-count-cache-entries)
+  (if (<= (count entries) max-read-model-cache-entries)
     entries
     (dissoc entries
             (key (apply min-key
                         (fn [[_ {:keys [last-used]}]] last-used)
                         entries)))))
+
+(defn- read-model-data
+  [xtdb cache-key load-value]
+  (let [cache (:read-model-cache xtdb)]
+    (if (and cache cache-key)
+      (let [{:keys [generation clock entries]} @cache
+            next-clock (inc (long clock))]
+        (if-let [entry (get entries cache-key)]
+          (do
+            (swap! cache
+                   (fn [state]
+                     (if (= generation (:generation state))
+                       (assoc state
+                              :clock next-clock
+                              :entries (assoc (:entries state)
+                                              cache-key
+                                              (assoc entry :last-used next-clock)))
+                       state)))
+            {:value (:value entry)
+             :cache-status :hit
+             :cache-generation generation})
+          (let [value (load-value)
+                loaded-generation (:generation @cache)]
+            (when (= generation loaded-generation)
+              (swap! cache
+                     (fn [state]
+                       (if (= generation (:generation state))
+                         (assoc state
+                                :clock next-clock
+                                :entries (evict-read-model-cache-entry
+                                          (assoc (:entries state)
+                                                 cache-key
+                                                 {:value value
+                                                  :last-used next-clock})))
+                         state))))
+            {:value value
+             :cache-status :miss
+             :cache-generation loaded-generation})))
+      {:value (load-value)
+       :cache-status :bypass
+       :cache-generation nil})))
 
 (defn- uncached-capability-counts
   [xtdb overlay opts]
@@ -3637,40 +3681,13 @@
 
 (defn- capability-count-data
   [xtdb overlay opts]
-  (let [cache (:read-model-cache xtdb)
-        cache-key (capability-count-cache-key overlay opts)]
-    (if (and cache cache-key)
-      (locking cache
-        (let [{:keys [generation clock entries]} @cache
-              next-clock (inc (long clock))]
-          (if-let [entry (get entries cache-key)]
-            (do
-              (swap! cache assoc
-                     :clock next-clock
-                     :entries (assoc entries cache-key (assoc entry :last-used next-clock)))
-              {:counts (:counts entry)
-               :cache-status :hit
-               :cache-generation generation})
-            (let [counts (uncached-capability-counts xtdb overlay opts)
-                  loaded-generation (:generation @cache)]
-              (when (= generation loaded-generation)
-                (swap! cache
-                       (fn [state]
-                         (if (= generation (:generation state))
-                           (assoc state
-                                  :clock next-clock
-                                  :entries (evict-capability-count-cache-entry
-                                            (assoc (:entries state)
-                                                   cache-key
-                                                   {:counts counts
-                                                    :last-used next-clock})))
-                           state))))
-              {:counts counts
-               :cache-status :miss
-               :cache-generation loaded-generation}))))
-      {:counts (uncached-capability-counts xtdb overlay opts)
-       :cache-status :bypass
-       :cache-generation nil})))
+  (let [{:keys [value] :as data}
+        (read-model-data xtdb
+                         (capability-count-cache-key overlay opts)
+                         #(uncached-capability-counts xtdb overlay opts))]
+    (-> data
+        (dissoc :value)
+        (assoc :counts value))))
 
 (defn- validation-history-count
   [counts]
@@ -4239,6 +4256,12 @@
              :nextActions actions}
       degradation (assoc :degradation degradation))))
 
+(defn- context-read-model-cache-key
+  [kind overlay {:keys [project-id repo-id read-context]}]
+  (when-not (some #(some? (get read-context %)) capability-temporal-keys)
+    (cond-> [kind project-id repo-id]
+      overlay (conj (hash (dissoc overlay :updated-at-ms))))))
+
 (defn context-packet
   "Return compact graph/doc context for an agent query."
   [xtdb query-text {:keys [budget entity-limit edge-limit doc-limit snippet-chars
@@ -4270,25 +4293,55 @@
                           :repo-id repo-id}))
         overlay (resolve-correction-overlay xtdb nil correction-overlay project-id)
         query-tokens (text/tokenize query-text)
+        graph-cache-key (some-> (context-read-model-cache-key
+                                 :system-graph
+                                 overlay
+                                 {:project-id project-id
+                                  :repo-id nil
+                                  :read-context read-context})
+                                (conj min-confidence))
         graph-task (timed-context-task
-                    #(graph/system-graph xtdb
-                                         project-id
-                                         {:limit graph/default-node-limit
-                                          :min-confidence min-confidence
-                                          :correction-overlay correction-overlay
-                                          :read-context read-context}))
-        dependency-task (timed-context-task
-                         #(dependency/package-report
-                           xtdb
-                           {:project-id project-id
-                            :repo-id repo-id}
-                           {:correction-overlay overlay}))
-        coverage-task (timed-context-task
-                       #(coverage/context-summary
+                    #(read-model-data
+                      xtdb
+                      graph-cache-key
+                      (fn []
+                        (graph/system-graph
                          xtdb
-                         {:project-id project-id
-                          :repo-id repo-id
-                          :read-context read-context}))
+                         project-id
+                         {:limit graph/default-node-limit
+                          :min-confidence min-confidence
+                          :correction-overlay overlay
+                          :read-context read-context}))))
+        dependency-task (timed-context-task
+                         #(read-model-data
+                           xtdb
+                           (context-read-model-cache-key
+                            :dependency-package-report
+                            overlay
+                            {:project-id project-id
+                             :repo-id repo-id
+                             :read-context read-context})
+                           (fn []
+                             (dependency/package-report
+                              xtdb
+                              {:project-id project-id
+                               :repo-id repo-id}
+                              {:correction-overlay overlay}))))
+        coverage-task (timed-context-task
+                       #(read-model-data
+                         xtdb
+                         (context-read-model-cache-key
+                          :source-coverage-context
+                          nil
+                          {:project-id project-id
+                           :repo-id repo-id
+                           :read-context read-context})
+                         (fn []
+                           (coverage/context-summary
+                            xtdb
+                            {:project-id project-id
+                             :repo-id repo-id
+                             :read-context read-context}))))
         [search-report timings] (timed-context-step
                                  {}
                                  :search
@@ -4357,9 +4410,10 @@
                                    {:project-id project-id
                                     :repo-id repo-id
                                     :read-context read-context}))
-        [graph-data timings] (await-context-task timings
-                                                 :system-graph
-                                                 graph-task)
+        [graph-data-cache timings] (await-context-task timings
+                                                       :system-graph
+                                                       graph-task)
+        graph-data (:value graph-data-cache)
         entities (select-entities query-tokens results graph-data entity-limit)
         edges (select-edges query-tokens entities graph-data edge-limit)
         _ (when progress-fn
@@ -4412,9 +4466,14 @@
         [system-evidence timings] (await-context-task timings
                                                       :system-evidence
                                                       system-evidence-task)
-        [dependency-report timings] (await-context-task timings
-                                                        :package-report
-                                                        dependency-task)
+        [dependency-report-data timings] (await-context-task timings
+                                                             :package-report
+                                                             dependency-task)
+        dependency-report (:value dependency-report-data)
+        [source-coverage-data timings] (await-context-task timings
+                                                           :source-coverage
+                                                           coverage-task)
+        source-coverage (:value source-coverage-data)
         runtime-evidence (select-system-evidence query-tokens
                                                  selected-system-ids
                                                  candidate-inputs
@@ -4451,6 +4510,12 @@
                            (update :instrumentation
                                    merge
                                    {:context-chunks (count chunks)
+                                    :system-graph-cache
+                                    (:cache-status graph-data-cache)
+                                    :package-report-cache
+                                    (:cache-status dependency-report-data)
+                                    :source-coverage-cache
+                                    (:cache-status source-coverage-data)
                                     :parallel-context-steps
                                     [:system-graph
                                      :package-report
@@ -4508,9 +4573,6 @@
                                                                                (:event-kind event)))
                                                                           (:events item)))
                                                                   activity))}))
-        [source-coverage timings] (await-context-task timings
-                                                      :source-coverage
-                                                      coverage-task)
         [source-declarations timings] (await-context-task timings
                                                           :source-declarations
                                                           source-declaration-task)

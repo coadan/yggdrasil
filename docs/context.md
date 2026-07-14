@@ -48,7 +48,12 @@ Override the project deadline and output bound with
 Cache warmups are bounded to two server threads and deduplicated by storage,
 project, and repository scope. A warmup performs deterministic lexical/context
 reads, does not persist a query-run telemetry row for results the caller did not
-receive, and is cancelled when the local service stops.
+receive, and is cancelled when the local service stops. The warmup also caches
+stable dependency, source-coverage, and system-graph read models. Later current
+queries reuse those values until a graph write advances the cache generation;
+temporal reads bypass them. Compact packets expose `package-report-cache`,
+`source-coverage-cache`, and `system-graph-cache` in search instrumentation so
+benchmarks can distinguish retrieval time from project-wide recomputation.
 
 The client hedges a silent compact query after 75 ms and an acknowledged compact
 query after 300 ms. The acknowledged grace lets a healthy local server finish

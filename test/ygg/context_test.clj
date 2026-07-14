@@ -1592,6 +1592,73 @@
                    (assoc opts :read-context {:known-at "2025-01-01T00:00:00Z"})))))
           (is (= 3 @calls)))))))
 
+(deftest read-model-cache-reuses-values-across-query-context-builds
+  (store/with-node (temp-dir "ygg-context-read-model-cache-xtdb")
+    (fn [xtdb]
+      (let [calls (atom [])
+            load-value (fn [model]
+                         (swap! calls conj model)
+                         {:model model})]
+        (is (= {:value {:model :dependencies}
+                :cache-status :miss
+                :cache-generation 0}
+               (#'context/read-model-data
+                xtdb
+                [:dependency-package-report "fixture" nil 1]
+                #(load-value :dependencies))))
+        (is (= {:value {:model :dependencies}
+                :cache-status :hit
+                :cache-generation 0}
+               (#'context/read-model-data
+                xtdb
+                [:dependency-package-report "fixture" nil 1]
+                #(load-value :unexpected))))
+        (is (= {:value {:model :coverage}
+                :cache-status :miss
+                :cache-generation 0}
+               (#'context/read-model-data
+                xtdb
+                [:source-coverage-context "fixture" nil]
+                #(load-value :coverage))))
+        (is (= [:dependencies :coverage] @calls))
+        (store/execute-tx!
+         xtdb
+         [(store/put-op (store/table-ref :activity-items)
+                        {:xt/id "activity:invalidate-models"})])
+        (is (= :miss
+               (:cache-status
+                (#'context/read-model-data
+                 xtdb
+                 [:dependency-package-report "fixture" nil 1]
+                 #(load-value :dependencies)))))
+        (is (= [:dependencies :coverage :dependencies] @calls))))))
+
+(deftest context-read-model-cache-keys-bypass-temporal-reads
+  (let [scope {:project-id "fixture"
+               :repo-id "app"}
+        overlay {:project-id "fixture"
+                 :updated-at-ms 1
+                 :docs {"doc:a" {:path "README.md"}}}]
+    (is (= [:source-coverage-context "fixture" "app"]
+           (#'context/context-read-model-cache-key
+            :source-coverage-context
+            nil
+            scope)))
+    (is (= (#'context/context-read-model-cache-key
+            :dependency-package-report
+            overlay
+            scope)
+           (#'context/context-read-model-cache-key
+            :dependency-package-report
+            (assoc overlay :updated-at-ms 2)
+            scope)))
+    (is (nil? (#'context/context-read-model-cache-key
+               :source-coverage-context
+               nil
+               (assoc scope
+                      :read-context
+                      {:known-at "2025-01-01T00:00:00Z"}))))))
+
 (deftest context-packet-includes-architecture-section-for-selected-systems
   (with-redefs [query/search-report (fn [_ query-text opts]
                                       {:schema query/search-report-schema
