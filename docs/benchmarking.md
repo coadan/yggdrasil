@@ -125,8 +125,8 @@ benchmark harnesses, not in the normal sync path.
 ## Query Availability Latency
 
 Use the query-availability benchmark to compare the same fixed-string patterns
-and repository scope across raw ripgrep, the in-process filesystem lane, and a
-cold end-to-end `ygg query` invocation:
+and repository scope across raw ripgrep, the in-process filesystem lane, an
+unavailable service, and a reachable service that deliberately does not answer:
 
 ```sh
 bb bench:query-availability \
@@ -142,8 +142,13 @@ cold Yggdrasil p95 is no slower than raw ripgrep p95. Expect wrapper and JSON
 packet overhead to make that false on small repositories; report the absolute
 overhead as well as the ratio. `contract.sameRipgrepArgv` and
 `oneFilesystemProcessPerRepo` distinguish orchestration overhead from an extra
-repository scan. This lane measures availability latency only; it does not
-support agent-effectiveness or architecture-quality claims.
+repository scan. The command also exits non-zero unless every stalled request
+uses the `query-timeout` filesystem fallback and its p95 stays within the chosen
+query bound plus measured cold-wrapper p95 and a 75 ms scheduling tolerance.
+Use `--query-fallback-after-ms` and `--stalled-bound-tolerance-ms` to make those
+bounds explicit in constrained environments. This lane measures availability
+latency only; it does not support agent-effectiveness or architecture-quality
+claims.
 
 ## Headline Suite
 

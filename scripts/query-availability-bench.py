@@ -12,12 +12,13 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLIENT_PATH = ROOT / "scripts" / "ygg-server-client.py"
-SCHEMA = "ygg.query-availability.benchmark/v1"
+SCHEMA = "ygg.query-availability.benchmark/v2"
 
 
 def load_client():
@@ -37,7 +38,12 @@ def percentile(values, fraction):
 
 def summarize(samples):
     elapsed = [sample["elapsedMs"] for sample in samples]
-    return {
+    degradation_reasons = {}
+    for sample in samples:
+        reason = sample.get("degradationReason")
+        if reason:
+            degradation_reasons[reason] = degradation_reasons.get(reason, 0) + 1
+    summary = {
         "runs": len(samples),
         "completed": sum(1 for sample in samples if sample["completed"]),
         "timeouts": sum(1 for sample in samples if sample["timeout"]),
@@ -47,6 +53,9 @@ def summarize(samples):
         "p95Ms": percentile(elapsed, 0.95),
         "maxMs": max(elapsed),
     }
+    if degradation_reasons:
+        summary["degradationReasons"] = degradation_reasons
+    return summary
 
 
 def wait_process(process, timeout_ms):
@@ -110,7 +119,15 @@ def closed_loopback_port():
         return sock.getsockname()[1]
 
 
-def cold_ygg_sample(repo, query, limit, timeout_ms, rg_bin, port):
+def cold_ygg_sample(
+    repo,
+    query,
+    limit,
+    timeout_ms,
+    rg_bin,
+    port,
+    query_fallback_after_ms=None,
+):
     env = os.environ.copy()
     env.update({
         "YGG_SERVER_HOST": "127.0.0.1",
@@ -120,6 +137,8 @@ def cold_ygg_sample(repo, query, limit, timeout_ms, rg_bin, port):
         "YGG_FILESYSTEM_QUERY_TIMEOUT_MS": str(timeout_ms),
         "YGG_RG_BIN": rg_bin,
     })
+    if query_fallback_after_ms is not None:
+        env["YGG_QUERY_FALLBACK_AFTER_MS"] = str(query_fallback_after_ms)
     argv = [
         sys.executable,
         str(CLIENT_PATH),
@@ -140,24 +159,112 @@ def cold_ygg_sample(repo, query, limit, timeout_ms, rg_bin, port):
             stdout=stdout_file,
             stderr=stderr_file,
         )
-        timed_out = wait_process(process, timeout_ms + 2000)
+        timed_out = wait_process(
+            process,
+            max(timeout_ms, query_fallback_after_ms or 0) + 2000,
+        )
+        stdout_file.seek(0)
+        try:
+            packet = json.load(stdout_file)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            packet = {}
     return {
         "elapsedMs": (time.monotonic() - started) * 1000.0,
         "completed": not timed_out and process.returncode == 0,
         "timeout": timed_out,
+        "degradationReason": packet.get("degradation", {}).get("reason"),
     }
 
 
-def comparison(raw, lane, cold):
+class StalledQueryServer:
+    def __init__(self, delay_ms):
+        self.delay_seconds = delay_ms / 1000.0
+        self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.listener.bind(("127.0.0.1", 0))
+        self.listener.listen()
+        self.listener.settimeout(0.1)
+        self.port = self.listener.getsockname()[1]
+        self.running = threading.Event()
+        self.thread = threading.Thread(target=self._serve, daemon=True)
+
+    def __enter__(self):
+        self.running.set()
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_args):
+        self.running.clear()
+        self.listener.close()
+        self.thread.join(timeout=1)
+
+    def _serve(self):
+        while self.running.is_set():
+            try:
+                connection, _address = self.listener.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+            threading.Thread(
+                target=self._stall_connection,
+                args=(connection,),
+                daemon=True,
+            ).start()
+
+    def _stall_connection(self, connection):
+        with connection:
+            try:
+                connection.recv(65536)
+                time.sleep(self.delay_seconds)
+            except OSError:
+                return
+
+
+def comparison(raw, lane, cold, stalled=None):
     raw_p95 = raw["p95Ms"]
     lane_p95 = lane["p95Ms"]
     cold_p95 = cold["p95Ms"]
-    return {
+    result = {
         "filesystemLaneToRawP95Ratio": lane_p95 / raw_p95 if raw_p95 else None,
         "filesystemLaneP95OverheadMs": lane_p95 - raw_p95,
         "coldYggToRawP95Ratio": cold_p95 / raw_p95 if raw_p95 else None,
         "coldYggP95OverheadMs": cold_p95 - raw_p95,
         "rawParitySupported": cold_p95 <= raw_p95,
+    }
+    if stalled:
+        result.update({
+            "stalledYggToRawP95Ratio": stalled["p95Ms"] / raw_p95 if raw_p95 else None,
+            "stalledYggP95OverheadMs": stalled["p95Ms"] - raw_p95,
+        })
+    return result
+
+
+def availability_contract(
+    lanes,
+    iterations,
+    query_fallback_after_ms,
+    stalled_bound_tolerance_ms=0,
+):
+    stalled = lanes["stalledYgg"]
+    cold = lanes["coldYgg"]
+    return {
+        "sameRipgrepArgv": True,
+        "oneFilesystemProcessPerRepo": True,
+        "allRunsCompleted": all(
+            lane["completed"] == iterations for lane in lanes.values()
+        ),
+        "zeroProcessTimeouts": all(lane["timeouts"] == 0 for lane in lanes.values()),
+        "stalledQueriesUsedFilesystem": (
+            stalled.get("degradationReasons") == {"query-timeout": iterations}
+        ),
+        "stalledP95WithinBound": (
+            stalled["p95Ms"]
+            <= (
+                query_fallback_after_ms
+                + cold["p95Ms"]
+                + stalled_bound_tolerance_ms
+            )
+        ),
     }
 
 
@@ -169,29 +276,47 @@ def run(args):
         raise SystemExit("--iterations must be at least 1")
     if args.warmup < 0:
         raise SystemExit("--warmup cannot be negative")
+    if args.query_fallback_after_ms < 1:
+        raise SystemExit("--query-fallback-after-ms must be at least 1")
+    if args.stalled_server_delay_ms <= args.query_fallback_after_ms:
+        raise SystemExit(
+            "--stalled-server-delay-ms must exceed --query-fallback-after-ms"
+        )
+    if args.stalled_bound_tolerance_ms < 0:
+        raise SystemExit("--stalled-bound-tolerance-ms cannot be negative")
     client = load_client()
     patterns = client.filesystem_query_patterns(args.query, [])
-    port = closed_loopback_port()
-    lane_fns = {
-        "rawRipgrep": lambda: raw_ripgrep_sample(
-            client, repo, patterns, args.timeout_ms, args.rg_bin
-        ),
-        "filesystemLane": lambda: filesystem_lane_sample(
-            client, repo, patterns, args.timeout_ms, args.rg_bin
-        ),
-        "coldYgg": lambda: cold_ygg_sample(
-            repo, args.query, args.limit, args.timeout_ms, args.rg_bin, port
-        ),
-    }
-    lane_names = list(lane_fns)
-    for index in range(args.warmup):
-        for offset in range(len(lane_names)):
-            lane_fns[lane_names[(index + offset) % len(lane_names)]]()
-    samples = {lane: [] for lane in lane_names}
-    for index in range(args.iterations):
-        for offset in range(len(lane_names)):
-            lane = lane_names[(index + offset) % len(lane_names)]
-            samples[lane].append(lane_fns[lane]())
+    with StalledQueryServer(args.stalled_server_delay_ms) as stalled_server:
+        port = closed_loopback_port()
+        lane_fns = {
+            "rawRipgrep": lambda: raw_ripgrep_sample(
+                client, repo, patterns, args.timeout_ms, args.rg_bin
+            ),
+            "filesystemLane": lambda: filesystem_lane_sample(
+                client, repo, patterns, args.timeout_ms, args.rg_bin
+            ),
+            "coldYgg": lambda: cold_ygg_sample(
+                repo, args.query, args.limit, args.timeout_ms, args.rg_bin, port
+            ),
+            "stalledYgg": lambda: cold_ygg_sample(
+                repo,
+                args.query,
+                args.limit,
+                args.timeout_ms,
+                args.rg_bin,
+                stalled_server.port,
+                args.query_fallback_after_ms,
+            ),
+        }
+        lane_names = list(lane_fns)
+        for index in range(args.warmup):
+            for offset in range(len(lane_names)):
+                lane_fns[lane_names[(index + offset) % len(lane_names)]]()
+        samples = {lane: [] for lane in lane_names}
+        for index in range(args.iterations):
+            for offset in range(len(lane_names)):
+                lane = lane_names[(index + offset) % len(lane_names)]
+                samples[lane].append(lane_fns[lane]())
     lanes = {lane: summarize(rows) for lane, rows in samples.items()}
     report = {
         "schema": SCHEMA,
@@ -201,20 +326,22 @@ def run(args):
         "iterations": args.iterations,
         "warmup": args.warmup,
         "timeoutMs": args.timeout_ms,
+        "queryFallbackAfterMs": args.query_fallback_after_ms,
+        "stalledServerDelayMs": args.stalled_server_delay_ms,
+        "stalledBoundToleranceMs": args.stalled_bound_tolerance_ms,
         "lanes": lanes,
         "comparison": comparison(
             lanes["rawRipgrep"],
             lanes["filesystemLane"],
             lanes["coldYgg"],
+            lanes["stalledYgg"],
         ),
-        "contract": {
-            "sameRipgrepArgv": True,
-            "oneFilesystemProcessPerRepo": True,
-            "allRunsCompleted": all(
-                lane["completed"] == args.iterations for lane in lanes.values()
-            ),
-            "zeroTimeouts": all(lane["timeouts"] == 0 for lane in lanes.values()),
-        },
+        "contract": availability_contract(
+            lanes,
+            args.iterations,
+            args.query_fallback_after_ms,
+            args.stalled_bound_tolerance_ms,
+        ),
     }
     encoded = json.dumps(report, indent=2) + "\n"
     if args.out:
@@ -222,7 +349,7 @@ def run(args):
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(encoded, encoding="utf-8")
     sys.stdout.write(encoded)
-    return 0 if report["contract"]["allRunsCompleted"] else 1
+    return 0 if all(report["contract"].values()) else 1
 
 
 def parser():
@@ -233,6 +360,9 @@ def parser():
     value.add_argument("--warmup", type=int, default=2)
     value.add_argument("--limit", type=int, default=10)
     value.add_argument("--timeout-ms", type=int, default=1500)
+    value.add_argument("--query-fallback-after-ms", type=int, default=200)
+    value.add_argument("--stalled-server-delay-ms", type=int, default=1000)
+    value.add_argument("--stalled-bound-tolerance-ms", type=int, default=75)
     value.add_argument("--rg-bin", default="rg")
     value.add_argument("--out")
     return value

@@ -44,11 +44,38 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
             {"p95Ms": 10.0},
             {"p95Ms": 12.0},
             {"p95Ms": 35.0},
+            {"p95Ms": 140.0},
         )
 
         self.assertEqual(1.2, result["filesystemLaneToRawP95Ratio"])
         self.assertEqual(25.0, result["coldYggP95OverheadMs"])
+        self.assertEqual(14.0, result["stalledYggToRawP95Ratio"])
+        self.assertEqual(130.0, result["stalledYggP95OverheadMs"])
         self.assertFalse(result["rawParitySupported"])
+
+    def test_contract_requires_bounded_filesystem_fallback_for_every_stall(self):
+        bench = load_bench()
+        lanes = {
+            "rawRipgrep": {"completed": 3, "timeouts": 0, "p95Ms": 40.0},
+            "filesystemLane": {"completed": 3, "timeouts": 0, "p95Ms": 42.0},
+            "coldYgg": {"completed": 3, "timeouts": 0, "p95Ms": 130.0},
+            "stalledYgg": {
+                "completed": 3,
+                "timeouts": 0,
+                "p95Ms": 320.0,
+                "degradationReasons": {"query-timeout": 3},
+            },
+        }
+
+        contract = bench.availability_contract(lanes, 3, 200)
+
+        self.assertTrue(all(contract.values()))
+
+        lanes["stalledYgg"]["p95Ms"] = 331.0
+        lanes["stalledYgg"]["degradationReasons"] = {"query-timeout": 2}
+        contract = bench.availability_contract(lanes, 3, 200)
+        self.assertFalse(contract["stalledP95WithinBound"])
+        self.assertFalse(contract["stalledQueriesUsedFilesystem"])
 
 
 if __name__ == "__main__":
