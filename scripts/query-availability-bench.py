@@ -7,6 +7,7 @@ import json
 import math
 import os
 import pathlib
+import select
 import socket
 import statistics
 import subprocess
@@ -19,7 +20,8 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLIENT_PATH = ROOT / "scripts" / "ygg-server-client.py"
 CLI_PATH = ROOT / "bin" / "ygg"
-SCHEMA = "ygg.query-availability.benchmark/v9"
+MCP_PATH = ROOT / "bin" / "ygg-mcp"
+SCHEMA = "ygg.query-availability.benchmark/v10"
 
 
 def load_client():
@@ -86,6 +88,13 @@ def summarize(samples):
         summary["filesystemHandoffCounts"] = filesystem_handoff_counts
     if filesystem_launcher_counts:
         summary["filesystemLauncherCounts"] = filesystem_launcher_counts
+    client_process_ids = {
+        sample["clientProcessId"]
+        for sample in samples
+        if sample.get("clientProcessId") is not None
+    }
+    if client_process_ids:
+        summary["clientProcessCount"] = len(client_process_ids)
     for sample_key, summary_prefix in [
         ("filesystemSearchMs", "filesystemSearch"),
         ("filesystemTotalMs", "filesystemTotal"),
@@ -252,6 +261,184 @@ def cold_ygg_sample(
     }
 
 
+class PersistentMcpClient:
+    def __init__(
+        self,
+        repo,
+        port,
+        timeout_ms,
+        rg_bin,
+        query_fallback_after_ms,
+        query_hedge_after_ms,
+        acknowledged_query_hedge_after_ms,
+    ):
+        self.repo = pathlib.Path(repo)
+        self.response_timeout_ms = max(
+            timeout_ms,
+            query_fallback_after_ms,
+            query_hedge_after_ms,
+            acknowledged_query_hedge_after_ms,
+        ) + 2000
+        self.env = os.environ.copy()
+        self.env.update({
+            "YGG_SERVER_HOST": "127.0.0.1",
+            "YGG_SERVER_PORT": str(port),
+            "YGG_SERVER_CONNECT_TIMEOUT_MS": "0",
+            "YGG_SERVER_STARTING_RETRY_TIMEOUT_MS": "0",
+            "YGG_FILESYSTEM_QUERY_TIMEOUT_MS": str(timeout_ms),
+            "YGG_RG_BIN": rg_bin,
+            "YGG_QUERY_AUTO_START": "0",
+            "YGG_QUERY_FALLBACK_AFTER_MS": str(query_fallback_after_ms),
+            "YGG_QUERY_HEDGE_AFTER_MS": str(query_hedge_after_ms),
+            "YGG_QUERY_ACKNOWLEDGED_HEDGE_AFTER_MS": str(
+                acknowledged_query_hedge_after_ms
+            ),
+        })
+        self.process = None
+        self.next_id = 1
+        self.startup = None
+
+    def __enter__(self):
+        started = time.monotonic()
+        self.process = subprocess.Popen(
+            [str(MCP_PATH)],
+            cwd=str(self.repo),
+            env=self.env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1,
+        )
+        try:
+            initialize = self.exchange("initialize", {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "ygg-query-availability-benchmark",
+                    "version": "1",
+                },
+            })
+            self.notify("notifications/initialized", {})
+            listed = self.exchange("tools/list", {})
+            tool_names = {
+                tool.get("name")
+                for tool in listed.get("result", {}).get("tools", [])
+            }
+            completed = (
+                initialize.get("result", {}).get("serverInfo", {}).get("name")
+                == "ygg-mcp"
+                and "ygg_query" in tool_names
+            )
+            self.startup = {
+                "elapsedMs": (time.monotonic() - started) * 1000.0,
+                "completed": completed,
+                "timeout": False,
+                "clientProcessId": self.process.pid,
+            }
+            if not completed:
+                raise RuntimeError(
+                    "persistent MCP client did not initialize ygg_query"
+                )
+            return self
+        except BaseException:
+            self.stop()
+            raise
+
+    def __exit__(self, *_args):
+        self.stop()
+
+    def stop(self):
+        if self.process is None:
+            return
+        if self.process.stdin is not None:
+            self.process.stdin.close()
+        try:
+            self.process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait()
+
+    def write_message(self, message):
+        if self.process is None or self.process.stdin is None:
+            raise RuntimeError("persistent MCP client is not running")
+        self.process.stdin.write(json.dumps(message, separators=(",", ":")) + "\n")
+        self.process.stdin.flush()
+
+    def read_response(self, request_id):
+        if self.process is None or self.process.stdout is None:
+            raise RuntimeError("persistent MCP client is not running")
+        deadline = time.monotonic() + self.response_timeout_ms / 1000.0
+        while time.monotonic() < deadline:
+            remaining = max(0.0, deadline - time.monotonic())
+            ready, _write, _error = select.select(
+                [self.process.stdout],
+                [],
+                [],
+                remaining,
+            )
+            if not ready:
+                break
+            line = self.process.stdout.readline()
+            if not line:
+                break
+            response = json.loads(line)
+            if response.get("id") == request_id:
+                return response
+        raise TimeoutError(f"persistent MCP response {request_id} timed out")
+
+    def exchange(self, method, params):
+        request_id = self.next_id
+        self.next_id += 1
+        self.write_message({
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": params,
+        })
+        return self.read_response(request_id)
+
+    def notify(self, method, params):
+        self.write_message({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        })
+
+    def sample(self, query):
+        started = time.monotonic()
+        response = {}
+        timed_out = False
+        try:
+            response = self.exchange("tools/call", {
+                "name": "ygg_query",
+                "arguments": {"query": query},
+            })
+        except TimeoutError:
+            timed_out = True
+        packet = response.get("result", {}).get("structuredContent", {})
+        instrumentation = packet.get("search", {}).get("instrumentation", {})
+        return {
+            "elapsedMs": (time.monotonic() - started) * 1000.0,
+            "completed": (
+                not timed_out
+                and "error" not in response
+                and packet.get("schema") == "ygg.query/v2"
+            ),
+            "timeout": timed_out,
+            "degradationReason": packet.get("degradation", {}).get("reason"),
+            "filesystemProcesses": instrumentation.get("filesystem-processes"),
+            "filesystemRepos": instrumentation.get("filesystem-repos"),
+            "filesystemHandoff": instrumentation.get("filesystem-handoff?"),
+            "filesystemLauncher": instrumentation.get(
+                "filesystem-process-launcher"
+            ),
+            "filesystemSearchMs": instrumentation.get("filesystem-search-ms"),
+            "filesystemTotalMs": instrumentation.get("filesystem-total-ms"),
+            "clientProcessId": self.process.pid,
+        }
+
+
 class StalledQueryServer:
     def __init__(self, delay_ms, acknowledge=False, filesystem_handoff=None):
         self.delay_seconds = delay_ms / 1000.0
@@ -386,6 +573,8 @@ def comparison(
     stalled=None,
     acknowledged_stalled=None,
     active_handoff=None,
+    persistent_mcp=None,
+    persistent_mcp_active_handoff=None,
 ):
     raw_p95 = raw["p95Ms"]
     lane_p95 = lane["p95Ms"]
@@ -437,6 +626,35 @@ def comparison(
             result["activeIndexingHandoffYggMaxOverheadMs"] = (
                 active_handoff["maxMs"] - raw["maxMs"]
             )
+    if persistent_mcp:
+        result.update({
+            "persistentMcpToRawP95Ratio": (
+                persistent_mcp["p95Ms"] / raw_p95 if raw_p95 else None
+            ),
+            "persistentMcpP95OverheadMs": persistent_mcp["p95Ms"] - raw_p95,
+            "persistentMcpToFilesystemLaneP95Ratio": (
+                persistent_mcp["p95Ms"] / lane_p95 if lane_p95 else None
+            ),
+            "persistentMcpP95OverFilesystemLaneMs": (
+                persistent_mcp["p95Ms"] - lane_p95
+            ),
+            "persistentMcpRawParitySupported": (
+                persistent_mcp["p95Ms"] <= raw_p95
+            ),
+        })
+        if raw.get("maxMs") is not None:
+            result.update({
+                "persistentMcpMaxOverheadMs": (
+                    persistent_mcp["maxMs"] - raw["maxMs"]
+                ),
+                "persistentMcpRawMaxParitySupported": (
+                    persistent_mcp["maxMs"] <= raw["maxMs"]
+                ),
+            })
+    if persistent_mcp_active_handoff:
+        result["persistentMcpActiveIndexingP95OverheadMs"] = (
+            persistent_mcp_active_handoff["p95Ms"] - raw_p95
+        )
     return result
 
 
@@ -449,10 +667,13 @@ def availability_contract(
     same_ripgrep_argv=True,
     filesystem_timeout_ms=1500,
     zero_retry_connect_attempt_timeout_ms=5,
+    mcp_startups=None,
 ):
     stalled = lanes["stalledYgg"]
     acknowledged_stalled = lanes["acknowledgedStalledYgg"]
     active_handoff = lanes["activeIndexingHandoffYgg"]
+    persistent_mcp = lanes["persistentMcpCold"]
+    persistent_mcp_active = lanes["persistentMcpActiveIndexingHandoff"]
     cold = lanes["coldYgg"]
     cold_filesystem_max_ms = cold.get("filesystemTotalMaxMs")
     external_names = [
@@ -460,6 +681,8 @@ def availability_contract(
         "stalledYgg",
         "acknowledgedStalledYgg",
         "activeIndexingHandoffYgg",
+        "persistentMcpCold",
+        "persistentMcpActiveIndexingHandoff",
     ]
     return {
         "sameRipgrepArgv": same_ripgrep_argv,
@@ -498,6 +721,31 @@ def availability_contract(
         "activeIndexingHandoffUsedAcceptedOrFinalHandoff": (
             active_handoff.get("filesystemHandoffCounts") == {"true": iterations}
         ),
+        "persistentMcpHandshakeCompleted": (
+            set(mcp_startups or {}) == {"cold", "activeIndexing"}
+            and all(
+                startup.get("completed") and not startup.get("timeout")
+                for startup in mcp_startups.values()
+            )
+        ),
+        "persistentMcpStayedInOneClientProcess": (
+            persistent_mcp.get("clientProcessCount") == 1
+            and persistent_mcp_active.get("clientProcessCount") == 1
+        ),
+        "persistentMcpColdUsedFilesystem": (
+            persistent_mcp.get("degradationReasons")
+            == {"server-unavailable": iterations}
+        ),
+        "persistentMcpActiveIndexingUsedFilesystem": (
+            persistent_mcp_active.get("degradationReasons")
+            == {"active-indexing": iterations}
+        ),
+        "persistentMcpActiveIndexingUsedRequestedRepoScope": (
+            persistent_mcp_active.get("filesystemRepoCounts")
+            == {"1": iterations}
+            and persistent_mcp_active.get("filesystemHandoffCounts")
+            == {"true": iterations}
+        ),
         "filesystemFallbackUsedPosixSpawn": all(
             lanes[name].get("filesystemLauncherCounts")
             == {"posix-spawn": iterations}
@@ -523,6 +771,14 @@ def availability_contract(
             active_handoff["p95Ms"]
             <= cold["p95Ms"] + stalled_bound_tolerance_ms
         ),
+        "persistentMcpP95WithinColdCliBound": (
+            persistent_mcp["p95Ms"]
+            <= cold["p95Ms"] + stalled_bound_tolerance_ms
+        ),
+        "persistentMcpActiveIndexingP95WithinBound": (
+            persistent_mcp_active["p95Ms"]
+            <= persistent_mcp["p95Ms"] + stalled_bound_tolerance_ms
+        ),
         "filesystemWorkMaxWithinDeadline": (
             filesystem_timeout_ms > 0
             and all(
@@ -541,6 +797,8 @@ def availability_contract(
                     "stalledYgg",
                     "acknowledgedStalledYgg",
                     "activeIndexingHandoffYgg",
+                    "persistentMcpCold",
+                    "persistentMcpActiveIndexingHandoff",
                 ]
             )
         ),
@@ -600,14 +858,32 @@ def run(args):
         "fallback": "filesystem",
         "repos": [{"id": repo.name, "root": str(repo)}],
     }
+    port = closed_loopback_port()
     with (StalledQueryServer(stalled_server_delay_ms) as stalled_server,
           StalledQueryServer(
               stalled_server_delay_ms,
               acknowledge=True,
               filesystem_handoff=accepted_handoff,
           ) as acknowledged_stalled_server,
-          ActiveIndexingHandoffServer(repo) as active_handoff_server):
-        port = closed_loopback_port()
+          ActiveIndexingHandoffServer(repo) as active_handoff_server,
+          PersistentMcpClient(
+              repo,
+              port,
+              args.timeout_ms,
+              args.rg_bin,
+              query_fallback_after_ms,
+              query_hedge_after_ms,
+              acknowledged_query_hedge_after_ms,
+          ) as persistent_mcp,
+          PersistentMcpClient(
+              repo,
+              active_handoff_server.port,
+              args.timeout_ms,
+              args.rg_bin,
+              query_fallback_after_ms,
+              query_hedge_after_ms,
+              acknowledged_query_hedge_after_ms,
+          ) as persistent_mcp_active):
         lane_fns = {
             "rawRipgrep": lambda: raw_ripgrep_sample(
                 client, repo, patterns, args.timeout_ms, args.rg_bin
@@ -659,6 +935,10 @@ def run(args):
                 query_hedge_after_ms,
                 acknowledged_query_hedge_after_ms,
             ),
+            "persistentMcpCold": lambda: persistent_mcp.sample(args.query),
+            "persistentMcpActiveIndexingHandoff": lambda: (
+                persistent_mcp_active.sample(args.query)
+            ),
         }
         lane_names = list(lane_fns)
         for index in range(args.warmup):
@@ -669,6 +949,10 @@ def run(args):
             for offset in range(len(lane_names)):
                 lane = lane_names[(index + offset) % len(lane_names)]
                 samples[lane].append(lane_fns[lane]())
+        mcp_startups = {
+            "cold": persistent_mcp.startup,
+            "activeIndexing": persistent_mcp_active.startup,
+        }
     lanes = {lane: summarize(rows) for lane, rows in samples.items()}
     raw_ripgrep_argvs = {
         tuple(sample["ripgrepArgv"])
@@ -692,6 +976,7 @@ def run(args):
         "warmup": args.warmup,
         "timeoutMs": args.timeout_ms,
         "clientEntrypoint": str(CLI_PATH),
+        "mcpClientEntrypoint": str(MCP_PATH),
         "clientPythonArgs": ["-S"],
         "queryConnectAttemptTimeoutMs": (
             client.DEFAULT_ZERO_RETRY_CONNECT_ATTEMPT_TIMEOUT_MS
@@ -706,6 +991,7 @@ def run(args):
         ),
         "stalledServerDelayMs": stalled_server_delay_ms,
         "stalledBoundToleranceMs": args.stalled_bound_tolerance_ms,
+        "mcpStartup": mcp_startups,
         "lanes": lanes,
         "comparison": comparison(
             lanes["rawRipgrep"],
@@ -714,6 +1000,8 @@ def run(args):
             lanes["stalledYgg"],
             lanes["acknowledgedStalledYgg"],
             lanes["activeIndexingHandoffYgg"],
+            lanes["persistentMcpCold"],
+            lanes["persistentMcpActiveIndexingHandoff"],
         ),
         "contract": availability_contract(
             lanes,
@@ -724,6 +1012,7 @@ def run(args):
             same_ripgrep_argv,
             args.timeout_ms,
             client.DEFAULT_ZERO_RETRY_CONNECT_ATTEMPT_TIMEOUT_MS,
+            mcp_startups,
         ),
     }
     encoded = json.dumps(report, indent=2) + "\n"

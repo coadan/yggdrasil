@@ -67,6 +67,8 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
             {"p95Ms": 140.0, "maxMs": 150.0},
             {"p95Ms": 180.0, "maxMs": 190.0},
             {"p95Ms": 50.0, "maxMs": 55.0},
+            {"p95Ms": 11.0, "maxMs": 12.0},
+            {"p95Ms": 12.0, "maxMs": 13.0},
         )
 
         self.assertEqual(1.2, result["filesystemLaneToRawP95Ratio"])
@@ -83,8 +85,12 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         )
         self.assertEqual(29.0, result["coldYggMaxOverheadMs"])
         self.assertEqual(44.0, result["activeIndexingHandoffYggMaxOverheadMs"])
+        self.assertEqual(1.0, result["persistentMcpP95OverheadMs"])
+        self.assertEqual(1.0, result["persistentMcpMaxOverheadMs"])
         self.assertFalse(result["rawParitySupported"])
         self.assertFalse(result["rawMaxParitySupported"])
+        self.assertFalse(result["persistentMcpRawParitySupported"])
+        self.assertFalse(result["persistentMcpRawMaxParitySupported"])
 
     def test_contract_requires_bounded_filesystem_fallback_for_every_stall(self):
         bench = load_bench()
@@ -129,9 +135,41 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
                 "filesystemHandoffCounts": {"true": 3},
                 "filesystemLauncherCounts": {"posix-spawn": 3},
             },
+            "persistentMcpCold": {
+                "completed": 3,
+                "timeouts": 0,
+                "p95Ms": 90.0,
+                "filesystemTotalMaxMs": 100,
+                "degradationReasons": {"server-unavailable": 3},
+                "filesystemProcessCounts": {"1": 3},
+                "filesystemLauncherCounts": {"posix-spawn": 3},
+                "clientProcessCount": 1,
+            },
+            "persistentMcpActiveIndexingHandoff": {
+                "completed": 3,
+                "timeouts": 0,
+                "p95Ms": 90.0,
+                "filesystemTotalMaxMs": 100,
+                "degradationReasons": {"active-indexing": 3},
+                "filesystemProcessCounts": {"1": 3},
+                "filesystemRepoCounts": {"1": 3},
+                "filesystemHandoffCounts": {"true": 3},
+                "filesystemLauncherCounts": {"posix-spawn": 3},
+                "clientProcessCount": 1,
+            },
+        }
+        mcp_startups = {
+            "cold": {"completed": True, "timeout": False},
+            "activeIndexing": {"completed": True, "timeout": False},
         }
 
-        contract = bench.availability_contract(lanes, 3, 200, 300)
+        contract = bench.availability_contract(
+            lanes,
+            3,
+            200,
+            300,
+            mcp_startups=mcp_startups,
+        )
 
         self.assertTrue(all(contract.values()))
 
@@ -158,7 +196,17 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         lanes["coldYgg"]["filesystemLauncherCounts"] = {"subprocess": 3}
         lanes["coldYgg"]["filesystemProcessCounts"] = {"2": 3}
         lanes["stalledYgg"]["filesystemTotalMaxMs"] = 2000
-        contract = bench.availability_contract(lanes, 3, 200, 300)
+        lanes["persistentMcpCold"]["clientProcessCount"] = 2
+        lanes["persistentMcpActiveIndexingHandoff"]["degradationReasons"] = {
+            "active-indexing": 2,
+        }
+        contract = bench.availability_contract(
+            lanes,
+            3,
+            200,
+            300,
+            mcp_startups=mcp_startups,
+        )
         self.assertFalse(contract["stalledP95WithinBound"])
         self.assertFalse(contract["stalledQueriesUsedFilesystem"])
         self.assertFalse(contract["acknowledgedStalledP95WithinBound"])
@@ -173,12 +221,26 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         self.assertFalse(contract["activeIndexingHandoffUsedAcceptedOrFinalHandoff"])
         self.assertFalse(contract["filesystemFallbackUsedPosixSpawn"])
         self.assertFalse(contract["oneFilesystemProcessPerFallback"])
+        self.assertFalse(contract["persistentMcpStayedInOneClientProcess"])
+        self.assertFalse(contract["persistentMcpActiveIndexingUsedFilesystem"])
+        failed_startup = bench.availability_contract(
+            lanes,
+            3,
+            200,
+            300,
+            mcp_startups={
+                **mcp_startups,
+                "cold": {"completed": False, "timeout": True},
+            },
+        )
+        self.assertFalse(failed_startup["persistentMcpHandshakeCompleted"])
         unbounded_connect = bench.availability_contract(
             lanes,
             3,
             200,
             300,
             zero_retry_connect_attempt_timeout_ms=6,
+            mcp_startups=mcp_startups,
         )
         self.assertFalse(
             unbounded_connect["zeroRetryConnectAttemptWithinFiveMs"]

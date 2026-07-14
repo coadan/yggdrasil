@@ -100,7 +100,7 @@
                                                      *command-line-args*)]
                            (System/exit exit))}
 
-  bench:query-availability {:doc "Compare raw ripgrep with filesystem, unavailable, and stalled ygg query latency. Usage: bb bench:query-availability --query TEXT [--repo PATH] [--iterations N] [--out PATH]"
+  bench:query-availability {:doc "Compare raw ripgrep with filesystem, unavailable, stalled, and persistent MCP ygg query latency. Usage: bb bench:query-availability --query TEXT [--repo PATH] [--iterations N] [--out PATH]"
                             :task (let [{:keys [exit]} (apply shell
                                                               {:continue true}
                                                               "python3"
