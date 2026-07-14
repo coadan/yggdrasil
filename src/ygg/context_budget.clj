@@ -15,6 +15,46 @@
              dissoc
              :context-chunks))
 
+(def ^:private compact-search-instrumentation-keys
+  [:search-docs
+   :durable-search-docs
+   :returned-count
+   :candidate-count
+   :ranked-count
+   :query-tokens
+   :grep-status
+   :grep-searches
+   :grep-candidates
+   :grep-positive
+   :grep-raw-matches
+   :lexical-positive
+   :semantic-positive
+   :fts-positive
+   :vector-candidates
+   :fusion-overlap-count
+   :fusion-strategy
+   :vector-store
+   :vector-store-fallback-reason
+   :fts-store
+   :fts-status
+   :auto-lexical-short-circuit?
+   :auto-lexical-short-circuit-reason
+   :search-corpus-generation
+   :search-corpus-cache
+   :context-timings-ms])
+
+(defn compact-search-instrumentation
+  [instrumentation]
+  (select-keys instrumentation compact-search-instrumentation-keys))
+
+(defn- compact-search-in-packet
+  [packet]
+  (if (get-in packet [:search :instrumentation])
+    (update-in packet
+               [:search :instrumentation]
+               compact-search-instrumentation)
+    packet))
+
 (defn- add-warning-with-budget
   [packet warning budget]
   (let [with-warning (update packet :warnings conj warning)
@@ -363,6 +403,7 @@
 (defn trim-optional-context-metadata
   [packet budget]
   (let [trim-steps [remove-budget-diagnostics
+                    compact-search-in-packet
                     compact-freshness-in-packet
                     compact-source-coverage-in-packet
                     #(dissoc % :sourceCoverage)
@@ -418,6 +459,7 @@
                 (trim-step packet))
               packet
               [remove-budget-diagnostics
+               compact-search-in-packet
                compact-source-coverage-in-packet
                #(dissoc % :sourceCoverage)
                compact-architecture-in-packet
