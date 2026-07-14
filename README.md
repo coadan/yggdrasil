@@ -183,22 +183,23 @@ ygg query "where is auth handled" --project my-project --provider openrouter
 
 ## How Yggdrasil Compares
 
-These tools overlap, but they are not interchangeable. This is a capability
-map, not a leaderboard; links go to primary project documentation.
+These tools overlap, but they are not interchangeable. The last column gives the
+decision rule: when is Yggdrasil the better fit? It is a capability map, not a
+leaderboard; links go to primary project documentation.
 
-| Tool or lane | Core shape | Compared with Yggdrasil |
+| Tool or lane | Core shape | Why choose Yggdrasil? |
 |---|---|---|
-| **Yggdrasil** | MIT, local XTDB project record: graph facts, corrections, memory, queues, plugins, and bounded evidence packets. | The durable, auditable, provider-agnostic project-memory layer. System under test. |
-| Shell-only (`rg`, `git`, `find`) | Direct working-tree exploration. | Universal baseline; measured against Yggdrasil. |
-| [Codebase Memory MCP](https://github.com/DeusData/codebase-memory-mcp) | Tree-sitter/AST graph exposed through MCP and CLI. | Focused structural retrieval; deterministic comparison lane, not a same-agent MCP run. |
-| [Graphify](https://github.com/Graphify-Labs/graphify) | Graphs code and mixed sources; local deterministic code extraction plus model-assisted non-code extraction. | Dedicated comparison lane and historical OSS replay; not a same-agent run. |
-| Yggdrasil retrieval ablations | Lexical, semantic, graph-only, and local-vector controls. | Diagnostic lanes; `auto` remains the default composed path. |
-| [OpenWiki](https://github.com/langchain-ai/openwiki) | MIT local repo wiki, `AGENTS.md`/`CLAUDE.md` pointers, and scheduled updates. | Documentation-oriented complement; researched, not yet benchmarked. |
-| [Serena](https://github.com/oraios/serena) | MCP plus LSP/JetBrains symbol retrieval, editing, and refactoring. | IDE tool, not Yggdrasil’s durable evidence plane; researched, not benchmarked. |
-| [Aider repository map](https://aider.chat/docs/repomap.html) | Graph-ranked repo map sent to a terminal agent. | Session context, not durable project memory; researched, not benchmarked. |
-| [Repomix](https://repomix.com/guide/) | One AI-friendly, git-aware repository snapshot. | One-shot full context, not bounded durable retrieval; researched, not benchmarked. |
-| [Sourcegraph Code Search and Deep Search](https://sourcegraph.com/docs/code-search) | Hosted cross-repository search and navigation. | Different deployment and governance model; researched, not benchmarked. |
-| [GitNexus](https://github.com/nxpatterns/gitnexus) | Zero-server client-side code graph and graph-RAG surface. | Browser-first graph exploration versus Yggdrasil’s XTDB facts, corrections, and queues; researched, not benchmarked. |
+| **Yggdrasil** | MIT, local XTDB project record: graph facts, corrections, memory, queues, plugins, and bounded evidence packets. | Use it when project context must persist across tasks, agents, and tools—with provenance, correction history, and local handoff. |
+| Shell-only (`rg`, `git`, `find`) | Direct working-tree exploration. | Use Yggdrasil for repeated work, cross-session context, citations, and durable handoff; keep the shell as the universal baseline. |
+| [Codebase Memory MCP](https://github.com/DeusData/codebase-memory-mcp) | Tree-sitter/AST graph exposed through MCP and CLI. | Use Yggdrasil when code structure is only part of the problem and docs, configuration, routes, evidence, corrections, and queues matter. Benchmarked in a deterministic lane, not a same-agent MCP run. |
+| [Graphify](https://github.com/Graphify-Labs/graphify) | Graphs code and mixed sources; local deterministic code extraction plus model-assisted non-code extraction. | Use Yggdrasil when core facts must stay source-backed and auditable, with accepted corrections and handoff. Use Graphify for broad graph synthesis. Dedicated comparison lane; not a same-agent run. |
+| Yggdrasil retrieval ablations | Lexical, semantic, graph-only, and local-vector controls. | Use Yggdrasil’s `auto` path for the default composed retrieval with explicit lexical fallback; use the ablations to diagnose misses. |
+| [OpenWiki](https://github.com/langchain-ai/openwiki) | MIT local repo wiki, `AGENTS.md`/`CLAUDE.md` pointers, and scheduled updates. | Use Yggdrasil when agents need queryable evidence and structured memory, not only generated repo prose. Use OpenWiki alongside it for a maintained wiki. Researched, not benchmarked. |
+| [Serena](https://github.com/oraios/serena) | MCP plus LSP/JetBrains symbol retrieval, editing, and refactoring. | Use Yggdrasil for durable project memory across tools and agents; use Serena for symbol-aware editing and refactoring. Researched, not benchmarked. |
+| [Aider repository map](https://aider.chat/docs/repomap.html) | Graph-ranked repo map sent to a terminal agent. | Use Yggdrasil when context must survive the current session and include evidence, corrections, and handoff; use Aider for compact terminal-agent context. Researched, not benchmarked. |
+| [Repomix](https://repomix.com/guide/) | One AI-friendly, git-aware repository snapshot. | Use Yggdrasil for bounded, relevant retrieval and repeatable citations; use Repomix for a one-shot full-repository export. Researched, not benchmarked. |
+| [Sourcegraph Code Search and Deep Search](https://sourcegraph.com/docs/code-search) | Hosted cross-repository search and navigation. | Use Yggdrasil when project state should remain local, provider-agnostic, and auditable; use Sourcegraph for hosted organization-scale cross-repo search. Researched, not benchmarked. |
+| [GitNexus](https://github.com/nxpatterns/gitnexus) | Zero-server client-side code graph and graph-RAG surface. | Use Yggdrasil when graph results need XTDB history, multi-source facts, corrections, and queues; use GitNexus for browser-first graph exploration. Researched, not benchmarked. |
 
 ## Open Platform And Growing Evidence
 
