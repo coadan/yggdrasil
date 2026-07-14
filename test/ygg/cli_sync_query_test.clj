@@ -1399,12 +1399,13 @@
                                 ["where" "auth"
                                  "--project" "fixture"
                                  "--config" "project.edn"
+                                 "--output" "evidence"
                                  "--json"]))
             parsed (read-json-output out)]
         (is (= context/schema (:schema parsed)))
         (is (= "where auth" (:query parsed)))
         (is (= "fixture" (:project-id parsed)))
-        (is (= "compact" (:output parsed)))
+        (is (= "evidence" (:output parsed)))
         (is (false? (:proofCommands parsed)))
         (is (= {:status "current"
                 :counts {:indexed 3}}
@@ -1417,6 +1418,30 @@
                   :config-path "project.edn"
                   :summary? true}]]
                @summaries))))))
+
+(deftest query-compact-skips-project-freshness-recomputation
+  (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                project/read-project (fn [path]
+                                       (assoc project-with-plugin-package :path path))
+                cli-query/embedding-options (constantly {:provider :local
+                                                         :model "test"})
+                cli-query/query-embedding-client (constantly :embedding-client)
+                evidence/summarize (fn [& _]
+                                     (throw (ex-info "freshness should not run" {})))
+                context/context-packet (fn [_ _ opts]
+                                         {:schema context/compact-schema
+                                          :output (:output opts)
+                                          :freshness (:freshness opts)})]
+    (let [out (with-out-str
+                (cli/dispatch "query"
+                              ["where" "auth"
+                               "--project" "fixture"
+                               "--config" "project.edn"
+                               "--json"]))
+          parsed (read-json-output out)]
+      (is (= context/compact-schema (:schema parsed)))
+      (is (= "compact" (:output parsed)))
+      (is (nil? (:freshness parsed))))))
 
 (deftest query-json-surfaces-semantic-availability-fallback
   (let [err (java.io.StringWriter.)

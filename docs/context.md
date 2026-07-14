@@ -210,6 +210,11 @@ flags map onto that selector: `--snippets` to `snippets`, `--evidence` to
 the packet may include compact `:kind :grep` command suggestions for rerunnable
 audit over exact candidate files. Default packets do not include action rows.
 
+Default compact queries do not recompute project freshness from the filesystem.
+That inventory spans coverage, packages, graph counts, and source state, so it
+belongs to `ygg sync inspect <project.edn> --json` or an explicit
+`--output evidence|full` query rather than the latency-sensitive default path.
+
 ## Memory In Query Packets
 
 Project memory is retrieved through the same context packet as graph and docs.

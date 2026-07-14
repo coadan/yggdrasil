@@ -113,8 +113,10 @@
 (defn- context-packet-options
   [xtdb args {:keys [project-id repo-id retriever embedding-client semantic-status
                      read-context active-indexing fts-weight progress-fn]}]
-  (let [project-info (matching-context-project args project-id)
-        freshness (context-packet-freshness xtdb project-info)
+  (let [output (keyword (or (option-value args "--output") "compact"))
+        project-info (matching-context-project args project-id)
+        freshness (when (contains? #{:evidence :full} output)
+                    (context-packet-freshness xtdb project-info))
         plugins (not-empty (get-in project-info [:project :plugins]))]
     (cond-> {:project-id project-id
              :repo-id repo-id
@@ -123,7 +125,7 @@
              :semantic-status semantic-status
              :fts-weight (or fts-weight (parse-optional-double args "--fts-weight"))
              :read-context read-context
-             :output (keyword (or (option-value args "--output") "compact"))
+             :output output
              :proof-commands? (boolean (some #{"--proof-commands"} args))
              :query-input (query-input-options args)
              :budget (parse-long-option args
