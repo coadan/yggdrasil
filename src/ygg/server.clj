@@ -397,7 +397,15 @@
     (let [path (absolute-path nil storage-path)]
       (locking node-pool
         (or (get @node-pool path)
-            (let [node (store/open-node! path)]
+            (let [node (try
+                         (store/open-node! path)
+                         (catch Exception e
+                           (throw
+                            (ex-info "Yggdrasil graph storage is unavailable."
+                                     {:exit daemon-contract/unavailable-exit
+                                      :reason "storage-unavailable"
+                                      :storagePath path}
+                                     e))))]
               (swap! node-pool assoc path node)
               node))))))
 

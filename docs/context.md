@@ -25,6 +25,7 @@ state is cold, absent, or changing.
 | Service cold or unreachable | Make one zero-wait connection attempt, then search the nearest repository root with bounded ripgrep. | `retrieval.effective: filesystem`; degradation reason `server-unavailable` |
 | Service starting | Search the nearest repository root instead of waiting for startup retries. | degradation reason `server-starting` |
 | Query index absent or unreadable | Search registered repository roots before corpus or context work. | degradation reason `index-unavailable` |
+| Graph storage locked or unavailable | Fail storage acquisition immediately and search registered repository roots. | degradation reason `storage-unavailable` |
 | Sync, initialization, or embedding active | Search registered repository roots without reading or writing graph query state. | degradation reason `active-indexing` or `active-embedding`; active operation attached |
 | Enriched query caches cold or warming | Search registered repository roots, start one background warmup per project/repository scope, and keep later queries on the filesystem lane until it completes. | degradation reason `cache-warming`; `query-warmup` operation attached |
 | Enriched query exceeds its response bound | Return filesystem evidence while the requested query continues in the local service. | degradation reason `query-timeout` |
@@ -53,7 +54,9 @@ After an unavailable-service fallback has produced its results, the client
 requests a background service start. Start requests are deduplicated for 15
 seconds, so concurrent cold queries do not launch a process each. Set
 `YGG_QUERY_AUTO_START=0` only when the service lifecycle is managed externally;
-filesystem fallback remains available either way.
+filesystem fallback remains available either way. A storage-unavailable response
+does not restart the reachable service; queries keep using filesystem evidence
+until the store can be acquired again.
 
 Degraded JSON still uses the compact `ygg.query/v2` schema. Consumers should
 inspect these fields:

@@ -8,7 +8,7 @@
             [xtdb.node :as xtn])
   (:import [java.io Closeable]
            [java.net URLEncoder]
-           [java.nio.channels FileChannel]
+           [java.nio.channels FileChannel OverlappingFileLockException]
            [java.nio.file OpenOption StandardOpenOption]
            [java.time Instant OffsetDateTime ZonedDateTime]
            [java.util Date]))
@@ -123,7 +123,21 @@
         options (into-array OpenOption [StandardOpenOption/CREATE
                                         StandardOpenOption/WRITE])
         channel (FileChannel/open lock-path options)
-        lock (.lock channel)]
+        lock (try
+               (or (.tryLock channel)
+                   (throw (ex-info "Yggdrasil graph storage is already in use."
+                                   {:exit 75
+                                    :reason "storage-unavailable"
+                                    :storagePath root})))
+               (catch OverlappingFileLockException _
+                 (.close channel)
+                 (throw (ex-info "Yggdrasil graph storage is already in use."
+                                 {:exit 75
+                                  :reason "storage-unavailable"
+                                  :storagePath root})))
+               (catch Throwable t
+                 (.close channel)
+                 (throw t)))]
     (try
       (let [xtdb (start-node root)]
         (await-ready! (:node xtdb))

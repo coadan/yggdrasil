@@ -30,6 +30,23 @@
   (is (str/includes? (store/project-storage-path "team/a")
                      "/projects/team%2Fa/xtdb")))
 
+(deftest graph-storage-lock-fails-fast-with-structured-reason
+  (let [path (temp-dir "ygg-storage-lock")
+        first-node (store/open-node! path)]
+    (try
+      (let [error (try
+                    (store/open-node! path)
+                    nil
+                    (catch clojure.lang.ExceptionInfo e
+                      e))]
+        (is (some? error))
+        (is (= {:exit 75
+                :reason "storage-unavailable"
+                :storagePath path}
+               (ex-data error))))
+      (finally
+        (store/stop-node! first-node)))))
+
 (deftest instant-normalizes-xtdb-time-values
   (is (= t1 (store/instant (java.time.ZonedDateTime/parse "2026-01-01T00:00:00Z[UTC]"))))
   (is (= t1 (store/instant (java.time.OffsetDateTime/parse "2026-01-01T00:00:00Z")))))

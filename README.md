@@ -35,10 +35,11 @@ currently a supported host; use WSL or Docker there.
   agents decide what to read next.
 - Compact agent context: `ygg query` returns bounded, graph-grounded evidence
   packets instead of dumping the whole repository into a prompt.
-- Search availability: a cold service, missing index, active sync, or active
-  embedding job routes queries to bounded filesystem search instead of making
-  agents wait for Yggdrasil to become ready. The response states when evidence
-  is degraded; see the [query availability contract](docs/context.md#search-availability-contract).
+- Search availability: a cold service, missing index, unavailable graph store,
+  active sync, or active embedding job routes queries to bounded filesystem
+  search instead of making agents wait for Yggdrasil to become ready. The
+  response states when evidence is degraded; see the
+  [query availability contract](docs/context.md#search-availability-contract).
 - Reviewable trust: answers can cite the files, rows, memories, and corrections
   that supported them.
 - Measured claims: improvements in speed, cost, or effectiveness belong in
@@ -83,7 +84,9 @@ path for later queries. A reachable but slow enriched query is also bounded;
 the client returns filesystem evidence instead of inheriting the general
 long-running request timeout. If the service is unavailable, the first fallback
 also requests one deduplicated background start so later queries can recover
-without a separate warm-up command.
+without a separate warm-up command. If graph storage is locked or cannot be
+opened, acquisition fails immediately and the reachable service returns
+filesystem evidence until storage becomes available again.
 
 If you need an explicit editable project config, keep it separate from the
 generated project reference:

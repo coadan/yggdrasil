@@ -510,6 +510,12 @@ def degradation_message(reason):
             "search is using bounded filesystem evidence. The enriched query continues "
             "in the local service for later requests."
         )
+    if reason == "storage-unavailable":
+        return (
+            "Yggdrasil graph storage is unavailable; search is using bounded "
+            "filesystem evidence. Graph-enriched results will resume when storage "
+            "becomes available."
+        )
     return (
         "Yggdrasil enrichment is unavailable; search is using bounded filesystem evidence. "
         "Graph-enriched results will become available automatically."
@@ -1063,10 +1069,10 @@ def server_request(op, args, stream=False, render_progress=False):
     if op == "query" and (
         response is None
         or server_starting_response(response)
-        or response_reason == "query-timeout"
+        or response_reason in {"query-timeout", "storage-unavailable"}
     ):
-        if response_reason == "query-timeout":
-            reason = "query-timeout"
+        if response_reason in {"query-timeout", "storage-unavailable"}:
+            reason = response_reason
         elif server_starting_response(response):
             reason = "server-starting"
         else:

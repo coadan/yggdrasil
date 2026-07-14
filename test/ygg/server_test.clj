@@ -447,6 +447,31 @@
                  "/store/projects/demo-b/xtdb"}
                (set (keys @node-pool))))))))
 
+(deftest query-storage-open-failure-is-structured-for-client-fallback
+  (with-redefs [store/storage-path
+                (fn [& _] "/store/projects/demo/xtdb")
+                store/open-node!
+                (fn [_]
+                  (throw (java.io.IOException. "storage open failed")))
+                cli-query/query!
+                (fn [_]
+                  (store/with-node
+                    (store/storage-path)
+                    (fn [_]
+                      (throw (ex-info "query handler should not run" {})))))]
+    (let [response (server/handle-request
+                    {:token "token"
+                     :running (atom true)
+                     :node-pool (atom {})}
+                    {:op "query"
+                     :token "token"
+                     :args ["needle" "--project" "demo"]})]
+      (is (false? (:ok response)))
+      (is (= 75 (:exit response)))
+      (is (= "storage-unavailable" (get-in response [:data :reason])))
+      (is (= "/store/projects/demo/xtdb"
+             (get-in response [:data :storagePath]))))))
+
 (deftest report-request-routes-config-path-to-on-demand-project-node
   (let [opened (atom [])
         node-pool (atom {})

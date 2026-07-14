@@ -503,6 +503,34 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual("bounded fallback\n", out.getvalue())
         self.assertEqual([(["needle"], "query-timeout")], fallback_calls)
 
+    def test_query_routes_to_filesystem_when_graph_storage_is_unavailable(self):
+        client = load_client()
+        client.request = lambda *args, **kwargs: {
+            "ok": False,
+            "exit": 75,
+            "out": "",
+            "err": "Yggdrasil graph storage is unavailable.\n",
+            "data": {
+                "reason": "storage-unavailable",
+                "storagePath": "/storage/demo",
+            },
+        }
+        fallback_calls = []
+        client.filesystem_query_response = lambda args, reason: fallback_calls.append(
+            (args, reason)
+        ) or {"exit": 0, "out": "storage fallback\n", "err": ""}
+        client.start_server_in_background = lambda: self.fail(
+            "reachable service should not be restarted"
+        )
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            exit_code = client.main(["ygg", "query", "needle"])
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("storage fallback\n", out.getvalue())
+        self.assertEqual([(["needle"], "storage-unavailable")], fallback_calls)
+
     def test_query_timeout_packet_explains_that_enrichment_continues(self):
         client = load_client()
         client.filesystem_query_root = lambda: pathlib.Path("/workspace/demo")
