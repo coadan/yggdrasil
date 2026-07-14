@@ -1,5 +1,6 @@
 (ns ygg.extract.parser-worker
   (:require [charred.api :as json]
+            [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str]))
 
@@ -29,6 +30,14 @@
   []
   (or (not-empty (System/getenv "YGG_PARSER_WORKER_PYTHON"))
       "python3"))
+(defn parser-worker-path
+  []
+  (.getPath
+   (io/file (or (not-empty (System/getProperty "ygg.home"))
+                (not-empty (System/getenv "YGG_HOME"))
+                ".")
+            "scripts"
+            "parser-worker.py")))
 (defn parser-worker-failure
   [stage message]
   {:definitions []
@@ -54,10 +63,12 @@
   "Return parser-worker facts by file path for worker-enabled file records."
   ([files]
    (parser-worker-batch-facts files {:enabled? parser-worker-enabled?
-                                     :python parser-worker-python}))
-  ([files {:keys [enabled? python]
+                                     :python parser-worker-python
+                                     :worker-path parser-worker-path}))
+  ([files {:keys [enabled? python worker-path]
            :or {enabled? parser-worker-enabled?
-                python parser-worker-python}}]
+                python parser-worker-python
+                worker-path parser-worker-path}}]
    (let [files (vec (filter #(enabled? (:kind %)) files))]
      (if (empty? files)
        {}
@@ -69,7 +80,7 @@
                                          files))
                           "\n")
                {:keys [exit out err]} (shell/sh (python)
-                                                "scripts/parser-worker.py"
+                                                (worker-path)
                                                 :in input)]
            (if (zero? exit)
              (try

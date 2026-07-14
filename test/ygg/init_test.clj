@@ -229,7 +229,10 @@
                (:work maintenance)))
         (is (= true (get-in maintenance [:worker :enabled])))
         (is (= 1 (get-in maintenance [:worker :max-items-per-run])))
-        (is (= ["scripts/ygg-maintenance-codex.sh"] (:command executor)))
+        (let [command (io/file (first (:command executor)))]
+          (is (.isAbsolute command))
+          (is (= "ygg-maintenance-codex.sh" (.getName command)))
+          (is (.isFile command)))
         (is (= :command-harness (:type executor)))
         (is (= "high" (:reasoning executor)))
         (is (= #{:maintenance-decision :infra-review :dependency-review}

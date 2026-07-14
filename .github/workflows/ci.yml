@@ -52,4 +52,12 @@ jobs:
           context: .
           load: true
           tags: ygg:test
-      - run: docker run --rm ygg:test help
+      - name: Smoke CLI lifecycle
+        run: |
+          docker run --rm ygg:test sh -lc '
+            repo=$(mktemp -d)
+            git -C "$repo" init -q
+            ygg init "$repo" --project docker-smoke --sync --no-input
+            ygg status --json
+            ygg stop
+          '

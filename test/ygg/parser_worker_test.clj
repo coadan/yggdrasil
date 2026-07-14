@@ -1,5 +1,6 @@
 (ns ygg.parser-worker-test
   (:require [ygg.extract :as extract]
+            [ygg.extract.parser-worker :as parser-worker]
             [charred.api :as json]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
@@ -97,6 +98,29 @@
           [{:path "unknown"
             :kind nil
             :content "opaque\n"}]))))
+
+(deftest parser-worker-batch-facts-uses-the-bundled-worker-path
+  (let [invocation (atom nil)]
+    (with-redefs [shell/sh (fn [& args]
+                             (reset! invocation args)
+                             {:exit 0
+                              :out (str (json/write-json-str
+                                         {:id "one.py"
+                                          :facts {:definitions []
+                                                  :imports []
+                                                  :references []
+                                                  :diagnostics []}})
+                                        "\n")
+                              :err ""})]
+      (parser-worker/parser-worker-batch-facts
+       [{:path "one.py"
+         :kind :python
+         :content "pass\n"}]
+       {:enabled? (constantly true)
+        :python (constantly "python-test")
+        :worker-path (constantly "/opt/ygg/scripts/parser-worker.py")})
+      (is (= ["python-test" "/opt/ygg/scripts/parser-worker.py"]
+             (take 2 @invocation))))))
 
 (deftest parser-worker-reports-python-syntax-diagnostics
   (let [[response] (worker! [{:id "bad-python"

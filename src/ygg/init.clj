@@ -139,12 +139,22 @@
     :check true
     :enqueue true}])
 
+(defn- ygg-home
+  []
+  (or (not-empty (System/getProperty "ygg.home"))
+      (not-empty (System/getenv "YGG_HOME"))
+      (fs/canonical-path ".")))
+
+(defn- bundled-maintenance-command
+  [filename]
+  (.getPath (io/file (ygg-home) "scripts" filename)))
+
 (defn- maintenance-harness-command
   [platform opts]
   (if-let [command (:maintenance-command opts)]
     [command]
     (case (or platform "codex")
-      "codex" ["scripts/ygg-maintenance-codex.sh"]
+      "codex" [(bundled-maintenance-command "ygg-maintenance-codex.sh")]
       (throw (ex-info "No maintenance command is known for harness."
                       {:platform platform
                        :hint "Pass --maintenance-command."})))))
