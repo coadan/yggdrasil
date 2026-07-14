@@ -1671,7 +1671,7 @@
   [row]
   (or (:kind row) :unknown))
 
-(defn- source-graph-neighbor-kind-path-rows
+(defn- source-graph-kind-path-reserve
   [rows]
   (loop [remaining (seq rows)
          kind-counts {}
@@ -1691,16 +1691,22 @@
                  (conj selected row))))
       selected)))
 
-(defn- select-source-graph-neighbor-rows
-  [rows]
-  (let [kind-path-rows (source-graph-neighbor-kind-path-rows rows)
+(defn- select-source-graph-kind-path-diversity
+  [rows limit]
+  (let [kind-path-rows (source-graph-kind-path-reserve rows)
         selected-paths (set (map source-graph-neighbor-path-key kind-path-rows))]
     (->> (concat kind-path-rows
                  (remove #(contains? selected-paths
                                      (source-graph-neighbor-path-key %))
                          rows))
-         (take source-graph-neighbor-candidate-limit)
+         (take limit)
          vec)))
+
+(defn- select-source-graph-neighbor-rows
+  [rows]
+  (select-source-graph-kind-path-diversity
+   rows
+   source-graph-neighbor-candidate-limit))
 
 (defn- source-graph-row-query-token-count
   [query-tokens row]
@@ -2085,8 +2091,9 @@
                                    query-tokens
                                    node-rows
                                    source-graph-neighbor-scan-limit)
-          node-candidates (vec (take source-graph-candidate-limit
-                                     matched-node-candidates))
+          node-candidates (select-source-graph-kind-path-diversity
+                           matched-node-candidates
+                           source-graph-candidate-limit)
           candidates (vec
                       (concat
                        node-candidates
