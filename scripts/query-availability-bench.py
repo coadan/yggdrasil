@@ -18,7 +18,7 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLIENT_PATH = ROOT / "scripts" / "ygg-server-client.py"
-SCHEMA = "ygg.query-availability.benchmark/v6"
+SCHEMA = "ygg.query-availability.benchmark/v7"
 
 
 def load_client():
@@ -58,10 +58,12 @@ def summarize(samples):
     filesystem_process_counts = {}
     filesystem_repo_counts = {}
     filesystem_handoff_counts = {}
+    filesystem_launcher_counts = {}
     for sample in samples:
         process_count = sample.get("filesystemProcesses")
         repo_count = sample.get("filesystemRepos")
         handoff = sample.get("filesystemHandoff")
+        launcher = sample.get("filesystemLauncher")
         if process_count is not None:
             key = str(process_count)
             filesystem_process_counts[key] = filesystem_process_counts.get(key, 0) + 1
@@ -71,12 +73,18 @@ def summarize(samples):
         if handoff is not None:
             key = str(bool(handoff)).lower()
             filesystem_handoff_counts[key] = filesystem_handoff_counts.get(key, 0) + 1
+        if launcher:
+            filesystem_launcher_counts[launcher] = (
+                filesystem_launcher_counts.get(launcher, 0) + 1
+            )
     if filesystem_process_counts:
         summary["filesystemProcessCounts"] = filesystem_process_counts
     if filesystem_repo_counts:
         summary["filesystemRepoCounts"] = filesystem_repo_counts
     if filesystem_handoff_counts:
         summary["filesystemHandoffCounts"] = filesystem_handoff_counts
+    if filesystem_launcher_counts:
+        summary["filesystemLauncherCounts"] = filesystem_launcher_counts
     return summary
 
 
@@ -102,7 +110,7 @@ def wait_process(process, timeout_ms):
 
 
 def raw_ripgrep_sample(client, repo, patterns, timeout_ms, rg_bin):
-    argv = client.filesystem_query_argv(patterns)
+    argv = client.filesystem_query_argv(patterns, [str(repo)])
     argv[0] = rg_bin
     started = time.monotonic()
     with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
@@ -118,6 +126,7 @@ def raw_ripgrep_sample(client, repo, patterns, timeout_ms, rg_bin):
         "elapsedMs": (time.monotonic() - started) * 1000.0,
         "completed": not timed_out and process.returncode in {0, 1},
         "timeout": timed_out,
+        "ripgrepArgv": argv,
     }
 
 
@@ -143,6 +152,7 @@ def filesystem_lane_sample(client, repo, patterns, timeout_ms, rg_bin):
         "elapsedMs": (time.monotonic() - started) * 1000.0,
         "completed": not result["timeout?"] and "ripgrep-error" not in diagnostic_kinds,
         "timeout": result["timeout?"],
+        "ripgrepArgv": result["argv"],
     }
 
 
@@ -230,6 +240,9 @@ def cold_ygg_sample(
         "filesystemHandoff": packet.get("search", {}).get(
             "instrumentation", {}
         ).get("filesystem-handoff?"),
+        "filesystemLauncher": packet.get("search", {}).get(
+            "instrumentation", {}
+        ).get("filesystem-process-launcher"),
     }
 
 
@@ -410,14 +423,23 @@ def availability_contract(
     query_hedge_after_ms,
     acknowledged_query_hedge_after_ms,
     stalled_bound_tolerance_ms=0,
+    same_ripgrep_argv=True,
 ):
     stalled = lanes["stalledYgg"]
     acknowledged_stalled = lanes["acknowledgedStalledYgg"]
     active_handoff = lanes["activeIndexingHandoffYgg"]
     cold = lanes["coldYgg"]
     return {
-        "sameRipgrepArgv": True,
-        "oneFilesystemProcessPerRepo": True,
+        "sameRipgrepArgv": same_ripgrep_argv,
+        "oneFilesystemProcessPerFallback": all(
+            lanes[name].get("filesystemProcessCounts") == {"1": iterations}
+            for name in [
+                "coldYgg",
+                "stalledYgg",
+                "acknowledgedStalledYgg",
+                "activeIndexingHandoffYgg",
+            ]
+        ),
         "allRunsCompleted": all(
             lane["completed"] == iterations for lane in lanes.values()
         ),
@@ -445,6 +467,16 @@ def availability_contract(
         ),
         "activeIndexingHandoffUsedAcceptedOrFinalHandoff": (
             active_handoff.get("filesystemHandoffCounts") == {"true": iterations}
+        ),
+        "filesystemFallbackUsedPosixSpawn": all(
+            lanes[name].get("filesystemLauncherCounts")
+            == {"posix-spawn": iterations}
+            for name in [
+                "coldYgg",
+                "stalledYgg",
+                "acknowledgedStalledYgg",
+                "activeIndexingHandoffYgg",
+            ]
         ),
         "stalledP95WithinBound": (
             stalled["p95Ms"]
@@ -592,11 +624,24 @@ def run(args):
                 lane = lane_names[(index + offset) % len(lane_names)]
                 samples[lane].append(lane_fns[lane]())
     lanes = {lane: summarize(rows) for lane, rows in samples.items()}
+    raw_ripgrep_argvs = {
+        tuple(sample["ripgrepArgv"])
+        for sample in samples["rawRipgrep"]
+    }
+    filesystem_lane_argvs = {
+        tuple(sample["ripgrepArgv"])
+        for sample in samples["filesystemLane"]
+    }
+    same_ripgrep_argv = (
+        len(raw_ripgrep_argvs) == 1
+        and raw_ripgrep_argvs == filesystem_lane_argvs
+    )
     report = {
         "schema": SCHEMA,
         "repo": str(repo),
         "query": args.query,
         "patterns": patterns,
+        "ripgrepArgv": list(next(iter(raw_ripgrep_argvs), ())),
         "iterations": args.iterations,
         "warmup": args.warmup,
         "timeoutMs": args.timeout_ms,
@@ -626,6 +671,7 @@ def run(args):
             query_hedge_after_ms,
             acknowledged_query_hedge_after_ms,
             args.stalled_bound_tolerance_ms,
+            same_ripgrep_argv,
         ),
     }
     encoded = json.dumps(report, indent=2) + "\n"

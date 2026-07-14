@@ -139,12 +139,16 @@ bb bench:query-availability \
 The report records min, mean, p50, p95, maximum, completion, and timeout counts.
 Its cold and stalled lanes invoke the same `python3 -S` source client as
 `bin/ygg`; `clientPythonArgs` records that startup contract.
+Benchmark schema v7 also requires every external filesystem fallback lane to
+report the dependency-free `posix-spawn` process boundary used on supported
+macOS and Linux hosts. It stores the observed `ripgrepArgv`; the parity contract
+compares raw and filesystem-lane samples rather than assuming they match.
 `comparison.rawParitySupported` is deliberately strict: it is true only when
 cold Yggdrasil p95 is no slower than raw ripgrep p95. Expect wrapper and JSON
 packet overhead to make that false on small repositories; report the absolute
 overhead as well as the ratio. `contract.sameRipgrepArgv` and
-`oneFilesystemProcessPerRepo` distinguish orchestration overhead from an extra
-repository scan. The active-indexing handoff lane must report
+`oneFilesystemProcessPerFallback` distinguish orchestration overhead from an
+extra repository scan. The active-indexing handoff lane must report
 `active-indexing`, use one filesystem process for the requested scope, and stay
 within measured cold-wrapper p95 plus the scheduling tolerance. Silent-stalled
 and acknowledged-stalled lanes must both use the `query-hedge` filesystem

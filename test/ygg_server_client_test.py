@@ -638,6 +638,36 @@ class ServerClientRoutingTest(unittest.TestCase):
             {diagnostic["kind"] for diagnostic in result["diagnostics"]},
         )
 
+    def test_filesystem_pipe_capture_reports_nonzero_exit_and_stderr(self):
+        client = load_client()
+        with tempfile.TemporaryDirectory() as root:
+            fake_rg = pathlib.Path(root) / "fake-rg"
+            fake_rg.write_text(
+                "#!/bin/sh\nprintf 'broken search\\n' >&2\nexit 7\n",
+                encoding="utf-8",
+            )
+            fake_rg.chmod(0o755)
+            os.environ["YGG_RG_BIN"] = str(fake_rg)
+
+            result = client.run_filesystem_search(pathlib.Path(root), ["needle"])
+
+        self.assertFalse(result["timeout?"])
+        self.assertEqual([], result["matches"])
+        self.assertIn(
+            {"kind": "ripgrep-error", "message": "broken search"},
+            result["diagnostics"],
+        )
+
+    def test_filesystem_pipe_capture_reports_missing_executable(self):
+        client = load_client()
+        with tempfile.TemporaryDirectory() as root:
+            os.environ["YGG_RG_BIN"] = str(pathlib.Path(root) / "missing-rg")
+
+            result = client.run_filesystem_search(pathlib.Path(root), ["needle"])
+
+        self.assertFalse(result["process-attempted?"])
+        self.assertEqual("unavailable", result["diagnostics"][0]["kind"])
+
     def test_filesystem_query_packet_is_explicitly_degraded(self):
         client = load_client()
         client.filesystem_query_root = lambda: pathlib.Path("/workspace/demo")
@@ -667,6 +697,10 @@ class ServerClientRoutingTest(unittest.TestCase):
         ])
         instrumentation = packet["search"]["instrumentation"]
         self.assertEqual(1, instrumentation["filesystem-processes"])
+        self.assertEqual(
+            client.FILESYSTEM_PROCESS_LAUNCHER,
+            instrumentation["filesystem-process-launcher"],
+        )
         self.assertEqual(8, instrumentation["filesystem-search-ms"])
         self.assertEqual(
             {"stdout-truncated": 1},
@@ -785,9 +819,8 @@ class ServerClientRoutingTest(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as root:
             os.environ["YGG_SERVER_LOG"] = str(pathlib.Path(root) / "server.log")
-            with mock.patch.object(
-                client.subprocess,
-                "Popen",
+            with mock.patch(
+                "subprocess.Popen",
                 side_effect=lambda *args, **kwargs: starts.append(
                     (args, kwargs)
                 ) or StartedProcess(),

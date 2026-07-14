@@ -68,19 +68,29 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         lanes = {
             "rawRipgrep": {"completed": 3, "timeouts": 0, "p95Ms": 40.0},
             "filesystemLane": {"completed": 3, "timeouts": 0, "p95Ms": 42.0},
-            "coldYgg": {"completed": 3, "timeouts": 0, "p95Ms": 130.0},
+            "coldYgg": {
+                "completed": 3,
+                "timeouts": 0,
+                "p95Ms": 130.0,
+                "filesystemProcessCounts": {"1": 3},
+                "filesystemLauncherCounts": {"posix-spawn": 3},
+            },
             "stalledYgg": {
                 "completed": 3,
                 "timeouts": 0,
                 "p95Ms": 320.0,
                 "degradationReasons": {"query-hedge": 3},
+                "filesystemProcessCounts": {"1": 3},
+                "filesystemLauncherCounts": {"posix-spawn": 3},
             },
             "acknowledgedStalledYgg": {
                 "completed": 3,
                 "timeouts": 0,
                 "p95Ms": 420.0,
                 "degradationReasons": {"query-hedge": 3},
+                "filesystemProcessCounts": {"1": 3},
                 "filesystemHandoffCounts": {"true": 3},
+                "filesystemLauncherCounts": {"posix-spawn": 3},
             },
             "activeIndexingHandoffYgg": {
                 "completed": 3,
@@ -90,6 +100,7 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
                 "filesystemProcessCounts": {"1": 3},
                 "filesystemRepoCounts": {"1": 3},
                 "filesystemHandoffCounts": {"true": 3},
+                "filesystemLauncherCounts": {"posix-spawn": 3},
             },
         }
 
@@ -117,6 +128,8 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         lanes["activeIndexingHandoffYgg"]["filesystemHandoffCounts"] = {
             "true": 2,
         }
+        lanes["coldYgg"]["filesystemLauncherCounts"] = {"subprocess": 3}
+        lanes["coldYgg"]["filesystemProcessCounts"] = {"2": 3}
         contract = bench.availability_contract(lanes, 3, 200, 300)
         self.assertFalse(contract["stalledP95WithinBound"])
         self.assertFalse(contract["stalledQueriesUsedFilesystem"])
@@ -128,6 +141,8 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         self.assertFalse(contract["activeIndexingHandoffUsedOneProcess"])
         self.assertFalse(contract["activeIndexingHandoffUsedRequestedRepoScope"])
         self.assertFalse(contract["activeIndexingHandoffUsedAcceptedOrFinalHandoff"])
+        self.assertFalse(contract["filesystemFallbackUsedPosixSpawn"])
+        self.assertFalse(contract["oneFilesystemProcessPerFallback"])
 
 
 if __name__ == "__main__":

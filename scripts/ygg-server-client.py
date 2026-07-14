@@ -4,8 +4,8 @@ import json
 import os
 import re
 import selectors
+import signal
 import socket
-import subprocess
 import sys
 import time
 
@@ -35,6 +35,7 @@ DEFAULT_FILESYSTEM_QUERY_MAX_STDOUT_BYTES = 200000
 DEFAULT_FILESYSTEM_QUERY_LIMIT = 10
 DEFAULT_FILESYSTEM_QUERY_PATTERN_LIMIT = 6
 DEFAULT_FILESYSTEM_HANDOFF_REPO_LIMIT = 64
+FILESYSTEM_PROCESS_LAUNCHER = "posix-spawn"
 FILESYSTEM_INCOMPLETE_DIAGNOSTIC_KINDS = {
     "invalid-count-line",
     "ripgrep-error",
@@ -494,14 +495,84 @@ def drain_ready_stream(selector, key, captures):
             return
 
 
-def run_captured_process(argv, cwd, timeout_ms, max_stdout_bytes, max_stderr_bytes):
-    process = subprocess.Popen(
-        argv,
-        cwd=str(cwd),
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+def spawn_captured_child(argv):
+    stdout_read, stdout_write = os.pipe()
+    stderr_read, stderr_write = os.pipe()
+    file_actions = [
+        (os.POSIX_SPAWN_OPEN, 0, os.devnull, os.O_RDONLY, 0o644),
+        (os.POSIX_SPAWN_DUP2, stdout_write, 1),
+        (os.POSIX_SPAWN_DUP2, stderr_write, 2),
+        (os.POSIX_SPAWN_CLOSE, stdout_read),
+        (os.POSIX_SPAWN_CLOSE, stderr_read),
+        (os.POSIX_SPAWN_CLOSE, stdout_write),
+        (os.POSIX_SPAWN_CLOSE, stderr_write),
+    ]
+    try:
+        pid = os.posix_spawnp(
+            os.fspath(argv[0]),
+            [os.fspath(value) for value in argv],
+            os.environ,
+            file_actions=file_actions,
+        )
+    except BaseException:
+        os.close(stdout_read)
+        os.close(stderr_read)
+        raise
+    finally:
+        os.close(stdout_write)
+        os.close(stderr_write)
+    return {
+        "pid": pid,
+        "returncode": None,
+        "stdout": os.fdopen(stdout_read, "rb", buffering=0),
+        "stderr": os.fdopen(stderr_read, "rb", buffering=0),
+    }
+
+
+def poll_child(child):
+    if child["returncode"] is not None:
+        return child["returncode"]
+    waited_pid, status = os.waitpid(child["pid"], os.WNOHANG)
+    if waited_pid:
+        child["returncode"] = os.waitstatus_to_exitcode(status)
+    return child["returncode"]
+
+
+def wait_child(child, deadline=None):
+    if child["returncode"] is not None:
+        return child["returncode"]
+    if deadline is None:
+        _pid, status = os.waitpid(child["pid"], 0)
+        child["returncode"] = os.waitstatus_to_exitcode(status)
+        return child["returncode"]
+    while time.monotonic() < deadline:
+        if poll_child(child) is not None:
+            return child["returncode"]
+        time.sleep(min(0.001, max(0.0, deadline - time.monotonic())))
+    return poll_child(child)
+
+
+def kill_child(child):
+    if poll_child(child) is not None:
+        return child["returncode"]
+    try:
+        os.kill(child["pid"], signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    return wait_child(child)
+
+
+def drain_remaining_streams(selector, captures):
+    while selector.get_map():
+        events = selector.select(0.05)
+        if not events:
+            return
+        for key, _mask in events:
+            drain_ready_stream(selector, key, captures)
+
+
+def run_captured_process(argv, timeout_ms, max_stdout_bytes, max_stderr_bytes):
+    child = spawn_captured_child(argv)
     captures = {
         "stdout": {"data": bytearray(), "overflow": False},
         "stderr": {"data": bytearray(), "overflow": False},
@@ -510,8 +581,8 @@ def run_captured_process(argv, cwd, timeout_ms, max_stdout_bytes, max_stderr_byt
     deadline = None if timeout_ms <= 0 else time.monotonic() + timeout_ms / 1000.0
     timed_out = False
     try:
-        streams = ((process.stdout, "stdout", max_stdout_bytes),
-                   (process.stderr, "stderr", max_stderr_bytes))
+        streams = ((child["stdout"], "stdout", max_stdout_bytes),
+                   (child["stderr"], "stderr", max_stderr_bytes))
         for stream, name, max_bytes in streams:
             os.set_blocking(stream.fileno(), False)
             selector.register(stream, selectors.EVENT_READ, (name, max_bytes))
@@ -521,34 +592,26 @@ def run_captured_process(argv, cwd, timeout_ms, max_stdout_bytes, max_stderr_byt
             if not events:
                 timed_out = deadline is not None and time.monotonic() >= deadline
                 if timed_out:
-                    process.kill()
-                    process.wait()
+                    kill_child(child)
                     break
                 continue
             for key, _mask in events:
                 drain_ready_stream(selector, key, captures)
             if (deadline is not None
                     and time.monotonic() >= deadline
-                    and process.poll() is None):
+                    and poll_child(child) is None):
                 timed_out = True
-                process.kill()
-                process.wait()
+                kill_child(child)
                 break
         if not timed_out:
-            remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
-            try:
-                process.wait(timeout=remaining)
-            except subprocess.TimeoutExpired:
+            if wait_child(child, deadline) is None:
                 timed_out = True
-                process.kill()
-                process.wait()
+                kill_child(child)
         if timed_out:
-            for key in list(selector.get_map().values()):
-                drain_ready_stream(selector, key, captures)
+            drain_remaining_streams(selector, captures)
     finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait()
+        if poll_child(child) is None:
+            kill_child(child)
         close_registered_streams(selector)
         selector.close()
     stdout, stdout_truncated = bounded_capture_text(captures["stdout"], max_stdout_bytes)
@@ -556,7 +619,7 @@ def run_captured_process(argv, cwd, timeout_ms, max_stdout_bytes, max_stderr_byt
         captures["stderr"], max_stderr_bytes
     )
     return {
-        "exit": process.returncode,
+        "exit": child["returncode"],
         "stdout": stdout,
         "stderr": stderr,
         "timeout?": timed_out,
@@ -581,10 +644,12 @@ def run_filesystem_search(root, patterns, search_paths=None):
     timeout_ms = filesystem_query_timeout_ms()
     max_stdout_bytes = filesystem_query_max_stdout_bytes()
     diagnostics = []
+    local_search = not search_paths
+    effective_search_paths = search_paths or [canonical_filesystem_path(root)]
+    argv = filesystem_query_argv(patterns, effective_search_paths)
     try:
         captured = run_captured_process(
-            filesystem_query_argv(patterns, search_paths),
-            root,
+            argv,
             timeout_ms,
             max_stdout_bytes,
             20000,
@@ -592,6 +657,7 @@ def run_filesystem_search(root, patterns, search_paths=None):
     except OSError as exc:
         return {
             "elapsed-ms": int((time.monotonic() - started) * 1000),
+            "argv": argv,
             "matches": [],
             "diagnostics": [{"kind": "unavailable", "message": str(exc)}],
             "process-attempted?": False,
@@ -615,9 +681,19 @@ def run_filesystem_search(root, patterns, search_paths=None):
         })
     elif stderr.strip():
         diagnostics.append({"kind": "stderr", "message": stderr.strip()})
+    matches = parse_filesystem_count_output(stdout)
+    if local_search:
+        root_prefix = canonical_filesystem_path(root)
+        for match in matches:
+            if os.path.isabs(match["path"]):
+                match["path"] = os.path.relpath(match["path"], root_prefix).replace(
+                    os.sep,
+                    "/",
+                )
     return {
         "elapsed-ms": int((time.monotonic() - started) * 1000),
-        "matches": parse_filesystem_count_output(stdout),
+        "argv": argv,
+        "matches": matches,
         "diagnostics": diagnostics,
         "process-attempted?": True,
         "timeout?": timed_out,
@@ -859,6 +935,7 @@ def filesystem_query_packet(args, reason, repositories=None):
         "search": {
             "instrumentation": {
                 "filesystem-processes": int(search.get("process-attempted?", True)),
+                "filesystem-process-launcher": FILESYSTEM_PROCESS_LAUNCHER,
                 "filesystem-repos": len(repositories) if repositories else 1,
                 "filesystem-handoff?": bool(repositories),
                 "filesystem-search-ms": search["elapsed-ms"],
@@ -1547,6 +1624,7 @@ def start_server_in_background():
         return {"status": "disabled"}
     if not claim_server_start():
         return {"status": "already-requested"}
+    import subprocess
     log_path = server_log_path()
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     log = open(log_path, "ab", buffering=0)
@@ -1572,6 +1650,7 @@ def start_server_in_background():
 
 
 def start_server_for_init():
+    import subprocess
     log_path = server_log_path()
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     log = open(log_path, "ab", buffering=0)
@@ -1904,6 +1983,7 @@ def launch_agent_plist():
 
 
 def run_launchctl(*args):
+    import subprocess
     return subprocess.run(["launchctl", *args], text=True, capture_output=True, timeout=15)
 
 
