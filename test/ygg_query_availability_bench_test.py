@@ -26,9 +26,27 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         bench = load_bench()
 
         summary = bench.summarize([
-            {"elapsedMs": 10.0, "completed": True, "timeout": False},
-            {"elapsedMs": 12.0, "completed": True, "timeout": False},
-            {"elapsedMs": 20.0, "completed": False, "timeout": True},
+            {
+                "elapsedMs": 10.0,
+                "completed": True,
+                "timeout": False,
+                "filesystemSearchMs": 3,
+                "filesystemTotalMs": 5,
+            },
+            {
+                "elapsedMs": 12.0,
+                "completed": True,
+                "timeout": False,
+                "filesystemSearchMs": 4,
+                "filesystemTotalMs": 6,
+            },
+            {
+                "elapsedMs": 20.0,
+                "completed": False,
+                "timeout": True,
+                "filesystemSearchMs": 8,
+                "filesystemTotalMs": 9,
+            },
         ])
 
         self.assertEqual(3, summary["runs"])
@@ -36,6 +54,8 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         self.assertEqual(1, summary["timeouts"])
         self.assertEqual(12.0, summary["p50Ms"])
         self.assertEqual(20.0, summary["p95Ms"])
+        self.assertEqual(8, summary["filesystemSearchMaxMs"])
+        self.assertEqual(9, summary["filesystemTotalMaxMs"])
 
     def test_comparison_does_not_claim_raw_parity_when_wrapper_is_slower(self):
         bench = load_bench()
@@ -75,6 +95,7 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
                 "completed": 3,
                 "timeouts": 0,
                 "p95Ms": 130.0,
+                "filesystemTotalMaxMs": 100,
                 "filesystemProcessCounts": {"1": 3},
                 "filesystemLauncherCounts": {"posix-spawn": 3},
             },
@@ -82,6 +103,7 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
                 "completed": 3,
                 "timeouts": 0,
                 "p95Ms": 320.0,
+                "filesystemTotalMaxMs": 100,
                 "degradationReasons": {"query-hedge": 3},
                 "filesystemProcessCounts": {"1": 3},
                 "filesystemLauncherCounts": {"posix-spawn": 3},
@@ -90,6 +112,7 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
                 "completed": 3,
                 "timeouts": 0,
                 "p95Ms": 420.0,
+                "filesystemTotalMaxMs": 100,
                 "degradationReasons": {"query-hedge": 3},
                 "filesystemProcessCounts": {"1": 3},
                 "filesystemHandoffCounts": {"true": 3},
@@ -99,6 +122,7 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
                 "completed": 3,
                 "timeouts": 0,
                 "p95Ms": 130.0,
+                "filesystemTotalMaxMs": 100,
                 "degradationReasons": {"active-indexing": 3},
                 "filesystemProcessCounts": {"1": 3},
                 "filesystemRepoCounts": {"1": 3},
@@ -133,22 +157,32 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         }
         lanes["coldYgg"]["filesystemLauncherCounts"] = {"subprocess": 3}
         lanes["coldYgg"]["filesystemProcessCounts"] = {"2": 3}
+        lanes["stalledYgg"]["filesystemTotalMaxMs"] = 2000
         contract = bench.availability_contract(lanes, 3, 200, 300)
         self.assertFalse(contract["stalledP95WithinBound"])
-        self.assertFalse(contract["stalledMaxWithinBound"])
         self.assertFalse(contract["stalledQueriesUsedFilesystem"])
         self.assertFalse(contract["acknowledgedStalledP95WithinBound"])
-        self.assertFalse(contract["acknowledgedStalledMaxWithinBound"])
         self.assertFalse(contract["acknowledgedStalledQueriesUsedFilesystem"])
         self.assertFalse(contract["acknowledgedStalledUsedAcceptedHandoff"])
         self.assertFalse(contract["activeIndexingHandoffP95WithinBound"])
-        self.assertFalse(contract["activeIndexingHandoffMaxWithinBound"])
+        self.assertFalse(contract["filesystemWorkMaxWithinDeadline"])
+        self.assertFalse(contract["filesystemWorkMaxWithinColdBound"])
         self.assertFalse(contract["activeIndexingHandoffUsedFilesystem"])
         self.assertFalse(contract["activeIndexingHandoffUsedOneProcess"])
         self.assertFalse(contract["activeIndexingHandoffUsedRequestedRepoScope"])
         self.assertFalse(contract["activeIndexingHandoffUsedAcceptedOrFinalHandoff"])
         self.assertFalse(contract["filesystemFallbackUsedPosixSpawn"])
         self.assertFalse(contract["oneFilesystemProcessPerFallback"])
+        unbounded_connect = bench.availability_contract(
+            lanes,
+            3,
+            200,
+            300,
+            zero_retry_connect_attempt_timeout_ms=6,
+        )
+        self.assertFalse(
+            unbounded_connect["zeroRetryConnectAttemptWithinFiveMs"]
+        )
 
 
 if __name__ == "__main__":

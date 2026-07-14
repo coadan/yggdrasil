@@ -19,7 +19,7 @@ import time
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLIENT_PATH = ROOT / "scripts" / "ygg-server-client.py"
 CLI_PATH = ROOT / "bin" / "ygg"
-SCHEMA = "ygg.query-availability.benchmark/v8"
+SCHEMA = "ygg.query-availability.benchmark/v9"
 
 
 def load_client():
@@ -86,6 +86,18 @@ def summarize(samples):
         summary["filesystemHandoffCounts"] = filesystem_handoff_counts
     if filesystem_launcher_counts:
         summary["filesystemLauncherCounts"] = filesystem_launcher_counts
+    for sample_key, summary_prefix in [
+        ("filesystemSearchMs", "filesystemSearch"),
+        ("filesystemTotalMs", "filesystemTotal"),
+    ]:
+        values = [
+            sample[sample_key]
+            for sample in samples
+            if sample.get(sample_key) is not None
+        ]
+        if values:
+            summary[f"{summary_prefix}P95Ms"] = percentile(values, 0.95)
+            summary[f"{summary_prefix}MaxMs"] = max(values)
     return summary
 
 
@@ -225,23 +237,18 @@ def cold_ygg_sample(
             packet = json.load(stdout_file)
         except (json.JSONDecodeError, UnicodeDecodeError):
             packet = {}
+    instrumentation = packet.get("search", {}).get("instrumentation", {})
     return {
         "elapsedMs": (time.monotonic() - started) * 1000.0,
         "completed": not timed_out and process.returncode == 0,
         "timeout": timed_out,
         "degradationReason": packet.get("degradation", {}).get("reason"),
-        "filesystemProcesses": packet.get("search", {}).get(
-            "instrumentation", {}
-        ).get("filesystem-processes"),
-        "filesystemRepos": packet.get("search", {}).get(
-            "instrumentation", {}
-        ).get("filesystem-repos"),
-        "filesystemHandoff": packet.get("search", {}).get(
-            "instrumentation", {}
-        ).get("filesystem-handoff?"),
-        "filesystemLauncher": packet.get("search", {}).get(
-            "instrumentation", {}
-        ).get("filesystem-process-launcher"),
+        "filesystemProcesses": instrumentation.get("filesystem-processes"),
+        "filesystemRepos": instrumentation.get("filesystem-repos"),
+        "filesystemHandoff": instrumentation.get("filesystem-handoff?"),
+        "filesystemLauncher": instrumentation.get("filesystem-process-launcher"),
+        "filesystemSearchMs": instrumentation.get("filesystem-search-ms"),
+        "filesystemTotalMs": instrumentation.get("filesystem-total-ms"),
     }
 
 
@@ -440,22 +447,28 @@ def availability_contract(
     acknowledged_query_hedge_after_ms,
     stalled_bound_tolerance_ms=0,
     same_ripgrep_argv=True,
+    filesystem_timeout_ms=1500,
+    zero_retry_connect_attempt_timeout_ms=5,
 ):
     stalled = lanes["stalledYgg"]
     acknowledged_stalled = lanes["acknowledgedStalledYgg"]
     active_handoff = lanes["activeIndexingHandoffYgg"]
     cold = lanes["coldYgg"]
-    cold_max_ms = cold.get("maxMs", cold["p95Ms"])
+    cold_filesystem_max_ms = cold.get("filesystemTotalMaxMs")
+    external_names = [
+        "coldYgg",
+        "stalledYgg",
+        "acknowledgedStalledYgg",
+        "activeIndexingHandoffYgg",
+    ]
     return {
         "sameRipgrepArgv": same_ripgrep_argv,
+        "zeroRetryConnectAttemptWithinFiveMs": (
+            0 < zero_retry_connect_attempt_timeout_ms <= 5
+        ),
         "oneFilesystemProcessPerFallback": all(
             lanes[name].get("filesystemProcessCounts") == {"1": iterations}
-            for name in [
-                "coldYgg",
-                "stalledYgg",
-                "acknowledgedStalledYgg",
-                "activeIndexingHandoffYgg",
-            ]
+            for name in external_names
         ),
         "allRunsCompleted": all(
             lane["completed"] == iterations for lane in lanes.values()
@@ -488,12 +501,7 @@ def availability_contract(
         "filesystemFallbackUsedPosixSpawn": all(
             lanes[name].get("filesystemLauncherCounts")
             == {"posix-spawn": iterations}
-            for name in [
-                "coldYgg",
-                "stalledYgg",
-                "acknowledgedStalledYgg",
-                "activeIndexingHandoffYgg",
-            ]
+            for name in external_names
         ),
         "stalledP95WithinBound": (
             stalled["p95Ms"]
@@ -503,10 +511,6 @@ def availability_contract(
                 + stalled_bound_tolerance_ms
             )
         ),
-        "stalledMaxWithinBound": (
-            stalled.get("maxMs", stalled["p95Ms"])
-            <= query_hedge_after_ms + cold_max_ms + stalled_bound_tolerance_ms
-        ),
         "acknowledgedStalledP95WithinBound": (
             acknowledged_stalled["p95Ms"]
             <= (
@@ -515,21 +519,30 @@ def availability_contract(
                 + stalled_bound_tolerance_ms
             )
         ),
-        "acknowledgedStalledMaxWithinBound": (
-            acknowledged_stalled.get("maxMs", acknowledged_stalled["p95Ms"])
-            <= (
-                acknowledged_query_hedge_after_ms
-                + cold_max_ms
-                + stalled_bound_tolerance_ms
-            )
-        ),
         "activeIndexingHandoffP95WithinBound": (
             active_handoff["p95Ms"]
             <= cold["p95Ms"] + stalled_bound_tolerance_ms
         ),
-        "activeIndexingHandoffMaxWithinBound": (
-            active_handoff.get("maxMs", active_handoff["p95Ms"])
-            <= cold_max_ms + stalled_bound_tolerance_ms
+        "filesystemWorkMaxWithinDeadline": (
+            filesystem_timeout_ms > 0
+            and all(
+                lanes[name].get("filesystemTotalMaxMs") is not None
+                and lanes[name]["filesystemTotalMaxMs"] <= filesystem_timeout_ms
+                for name in external_names
+            )
+        ),
+        "filesystemWorkMaxWithinColdBound": (
+            cold_filesystem_max_ms is not None
+            and all(
+                lanes[name].get("filesystemTotalMaxMs") is not None
+                and lanes[name]["filesystemTotalMaxMs"]
+                <= cold_filesystem_max_ms + stalled_bound_tolerance_ms
+                for name in [
+                    "stalledYgg",
+                    "acknowledgedStalledYgg",
+                    "activeIndexingHandoffYgg",
+                ]
+            )
         ),
     }
 
@@ -680,6 +693,9 @@ def run(args):
         "timeoutMs": args.timeout_ms,
         "clientEntrypoint": str(CLI_PATH),
         "clientPythonArgs": ["-S"],
+        "queryConnectAttemptTimeoutMs": (
+            client.DEFAULT_ZERO_RETRY_CONNECT_ATTEMPT_TIMEOUT_MS
+        ),
         "queryFallbackAfterMs": query_fallback_after_ms,
         "clientDefaultQueryFallbackAfterMs": client.DEFAULT_QUERY_FALLBACK_AFTER_MS,
         "queryHedgeAfterMs": query_hedge_after_ms,
@@ -706,6 +722,8 @@ def run(args):
             acknowledged_query_hedge_after_ms,
             args.stalled_bound_tolerance_ms,
             same_ripgrep_argv,
+            args.timeout_ms,
+            client.DEFAULT_ZERO_RETRY_CONNECT_ATTEMPT_TIMEOUT_MS,
         ),
     }
     encoded = json.dumps(report, indent=2) + "\n"

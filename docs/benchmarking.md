@@ -141,11 +141,13 @@ Its cold and stalled lanes invoke `bin/ygg`, including the real wrapper and its
 `python3 -S` client; `clientEntrypoint` and `clientPythonArgs` record that
 startup contract. The client probes the numeric loopback endpoint through the
 built-in socket primitive and loads standard JSON only for a confirmed live
-server or concurrently with the fallback `rg` process. Benchmark schema v8 also
+server or concurrently with the fallback `rg` process. Benchmark schema v9 also
 requires every external filesystem fallback lane to report the
 dependency-free `posix-spawn` process boundary used on supported macOS and Linux
-hosts. It stores the observed `ripgrepArgv`; the parity contract compares raw
-and filesystem-lane samples rather than assuming they match.
+hosts. `queryConnectAttemptTimeoutMs` records and gates the 5 ms zero-retry
+connection bound. The report stores the observed `ripgrepArgv`; the parity
+contract compares raw and filesystem-lane samples rather than assuming they
+match.
 `comparison.rawParitySupported` is deliberately strict: it is true only when
 cold Yggdrasil p95 is no slower than raw ripgrep p95. Expect wrapper and JSON
 packet overhead to make that false on small repositories; report the absolute
@@ -159,9 +161,11 @@ fallback. The acknowledged lane must also use repository scope from its accepted
 frame. Their p95 bounds use the corresponding hedge grace plus measured
 cold-wrapper p95 and a 75 ms scheduling tolerance. Filesystem packets expose
 `filesystem-handoff?` so this scope transfer is measured rather than inferred.
-The same lanes also gate observed maxima against cold-wrapper maximum plus the
-corresponding grace and tolerance, so a passing p95 cannot hide an unbounded
-tail.
+The report retains observed wall-clock maxima, but hard maximum contracts use
+the instrumented filesystem phase so an unrelated scheduler pause cannot make
+the gate nondeterministic. Every filesystem-total maximum must remain below the
+process deadline and within the measured cold filesystem maximum plus the 75 ms
+scheduling tolerance.
 Use `--query-hedge-after-ms`, `--acknowledged-query-hedge-after-ms`, and
 `--stalled-bound-tolerance-ms` to make those bounds explicit in constrained
 environments. The underlying `--query-fallback-after-ms` remains recorded as

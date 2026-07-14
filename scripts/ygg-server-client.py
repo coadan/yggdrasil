@@ -11,6 +11,7 @@ UNAVAILABLE = 75
 DEFAULT_SERVER_HOST = "127.0.0.1"
 DEFAULT_SERVER_PORT = 62121
 DEFAULT_CONNECT_TIMEOUT_MS = 30000
+DEFAULT_ZERO_RETRY_CONNECT_ATTEMPT_TIMEOUT_MS = 5
 CONNECT_RETRY_INTERVAL_SECONDS = 5.0
 DEFAULT_STARTING_RETRY_TIMEOUT_MS = 30000
 STARTING_RETRY_INTERVAL_SECONDS = 5.0
@@ -290,20 +291,31 @@ def starting_retry_timeout_ms():
     )
 
 
-def connect_address(host, port, timeout_seconds):
+def numeric_address_family(host):
     for family in (socket.AF_INET, socket.AF_INET6):
         try:
             socket.inet_pton(family, host)
+            return family
         except OSError:
             continue
-        connection = socket.socket(family, socket.SOCK_STREAM)
-        connection.settimeout(timeout_seconds)
-        try:
-            connection.connect((host, port))
-            return connection
-        except OSError:
-            connection.close()
-            raise
+    return None
+
+
+def connect_numeric_address(host, port, family, timeout_seconds):
+    connection = socket.socket(family, socket.SOCK_STREAM)
+    connection.settimeout(timeout_seconds)
+    try:
+        connection.connect((host, port))
+        return connection
+    except OSError:
+        connection.close()
+        raise
+
+
+def connect_address(host, port, timeout_seconds):
+    family = numeric_address_family(host)
+    if family is not None:
+        return connect_numeric_address(host, port, family, timeout_seconds)
     last_error = None
     for family, kind, protocol, _canonical_name, address in socket.getaddrinfo(
         host,
@@ -323,13 +335,77 @@ def connect_address(host, port, timeout_seconds):
     raise OSError(f"No socket address found for {host}:{port}")
 
 
+def connect_address_before_deadline(host, port, timeout_seconds):
+    completion = _thread.allocate_lock()
+    completion.acquire()
+    state_lock = _thread.allocate_lock()
+    state = {"cancelled": False}
+
+    def connect():
+        connection = None
+        error = None
+        try:
+            connection = connect_address(host, port, timeout_seconds)
+        except OSError as exc:
+            error = exc
+        with state_lock:
+            if state["cancelled"]:
+                if connection is not None:
+                    connection.close()
+            else:
+                state["connection"] = connection
+                state["error"] = error
+        completion.release()
+
+    _thread.start_new_thread(connect, ())
+    if not completion.acquire(timeout=timeout_seconds):
+        with state_lock:
+            state["cancelled"] = True
+            connection = state.pop("connection", None)
+            if connection is not None:
+                connection.close()
+        return None
+    with state_lock:
+        if state.get("error") is not None:
+            raise state["error"]
+        return state.get("connection")
+
+
 def connect_socket(host, port, timeout_ms=None):
     timeout_ms = connect_timeout_ms() if timeout_ms is None else max(timeout_ms, 0)
     deadline = time.monotonic() + (timeout_ms / 1000.0)
+    numeric_family = numeric_address_family(host)
+    first_attempt = True
     while True:
+        remaining_seconds = max(0.0, deadline - time.monotonic())
+        if not first_attempt and timeout_ms > 0 and remaining_seconds <= 0:
+            return None
+        attempt_timeout_seconds = (
+            DEFAULT_ZERO_RETRY_CONNECT_ATTEMPT_TIMEOUT_MS / 1000.0
+            if timeout_ms <= 0
+            else max(0.001, min(0.25, remaining_seconds))
+        )
         try:
-            return connect_address(host, port, 0.25)
+            if numeric_family is not None:
+                connection = connect_numeric_address(
+                    host,
+                    port,
+                    numeric_family,
+                    attempt_timeout_seconds,
+                )
+            elif timeout_ms > 0:
+                connection = connect_address(host, port, attempt_timeout_seconds)
+            else:
+                connection = connect_address_before_deadline(
+                    host,
+                    port,
+                    attempt_timeout_seconds,
+                )
+            if connection is not None:
+                return connection
+            raise TimeoutError()
         except OSError:
+            first_attempt = False
             if timeout_ms <= 0 or time.monotonic() >= deadline:
                 return None
             sleep_seconds = min(

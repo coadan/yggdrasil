@@ -22,7 +22,7 @@ state is cold, absent, or changing.
 
 | Project state | Query behavior | Structured signal |
 |---|---|---|
-| Service cold or unreachable | Make one zero-wait connection attempt, then search the nearest repository root with bounded ripgrep. | `retrieval.effective: filesystem`; degradation reason `server-unavailable` |
+| Service cold or unreachable | Make one connection attempt bounded to 5 ms, then search the nearest repository root with bounded ripgrep. | `retrieval.effective: filesystem`; degradation reason `server-unavailable` |
 | Service starting | Search the nearest repository root instead of waiting for startup retries. | degradation reason `server-starting` |
 | Query index absent or unreadable | Search registered repository roots before corpus or context work. | degradation reason `index-unavailable` |
 | Graph storage locked or unavailable | Fail storage acquisition immediately and search registered repository roots. | degradation reason `storage-unavailable` |
@@ -46,6 +46,12 @@ overlap, and match counts. It does not infer architecture or project meaning.
 Override the project deadline and output bound with
 `YGG_FILESYSTEM_QUERY_TIMEOUT_MS` and
 `YGG_FILESYSTEM_QUERY_MAX_STDOUT_BYTES`.
+
+The zero-retry query probe caps both a numeric socket connection and hostname
+resolution at 5 ms before declaring the service unavailable. A hostname
+resolution or connection that finishes after that deadline is discarded and
+any late socket is closed, so endpoint configuration cannot postpone filesystem
+fallback behind the ordinary 250 ms connection-attempt timeout.
 
 Cache warmups are bounded to two server threads and deduplicated by storage,
 project, and repository scope. A warmup performs deterministic lexical/context

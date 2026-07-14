@@ -87,12 +87,73 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual(
             [
                 ("socket", client.socket.AF_INET, client.socket.SOCK_STREAM),
-                ("timeout", 0.25),
+                (
+                    "timeout",
+                    client.DEFAULT_ZERO_RETRY_CONNECT_ATTEMPT_TIMEOUT_MS / 1000.0,
+                ),
                 ("connect", ("127.0.0.1", 62009)),
                 ("close",),
             ],
             calls,
         )
+
+    def test_connect_budget_does_not_start_an_attempt_after_the_deadline(self):
+        client = load_client()
+        attempts = []
+
+        class Clock:
+            now = 0.0
+
+            def monotonic(self):
+                return self.now
+
+            def sleep(self, seconds):
+                self.now += seconds
+
+        clock = Clock()
+
+        def refuse(_host, _port, timeout_seconds):
+            attempts.append(timeout_seconds)
+            raise ConnectionRefusedError()
+
+        with (
+            mock.patch.object(client.time, "monotonic", clock.monotonic),
+            mock.patch.object(client.time, "sleep", clock.sleep),
+            mock.patch.object(client, "connect_address", side_effect=refuse),
+        ):
+            self.assertIsNone(client.connect_socket("server.local", 62009, 100))
+
+        self.assertEqual([0.1], attempts)
+        self.assertEqual(0.1, clock.now)
+
+    def test_zero_retry_hostname_resolution_abandons_and_closes_late_connection(self):
+        client = load_client()
+        started = threading.Event()
+        release = threading.Event()
+        closed = threading.Event()
+
+        class LateConnection:
+            def close(self):
+                closed.set()
+
+        def delayed_connect(_host, _port, _timeout_seconds):
+            started.set()
+            release.wait(1)
+            return LateConnection()
+
+        with mock.patch.object(
+            client,
+            "connect_address",
+            side_effect=delayed_connect,
+        ):
+            before = client.time.monotonic()
+            connection = client.connect_socket("server.local", 62009, 0)
+            elapsed = client.time.monotonic() - before
+            self.assertTrue(started.is_set())
+            self.assertIsNone(connection)
+            self.assertLess(elapsed, 0.05)
+            release.set()
+            self.assertTrue(closed.wait(0.5))
 
     def test_hostname_server_address_uses_resolved_socket_candidates(self):
         client = load_client()
