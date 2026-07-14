@@ -23,6 +23,7 @@ DEFAULT_REQUEST_TIMEOUT_MS = 600000
 DEFAULT_BENCH_AGENT_BASELINE_REQUEST_TIMEOUT_MS = 3600000
 DEFAULT_QUERY_FALLBACK_AFTER_MS = 1500
 DEFAULT_EXPANDED_QUERY_FALLBACK_AFTER_MS = 5000
+DEFAULT_QUERY_AUTO_START_COOLDOWN_SECONDS = 15
 SERVER_FRAME_SCHEMA = "ygg.server.frame/v1"
 FILESYSTEM_QUERY_SCHEMA = "ygg.query/v2"
 QUERY_DEGRADATION_SCHEMA = "ygg.context.degradation/v1"
@@ -162,6 +163,18 @@ def env_int(name, default):
         return int(raw)
     except ValueError:
         return default
+
+
+def env_bool(name, default):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    value = raw.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
 def default_request_timeout_ms(op=None, args=None):
@@ -1058,7 +1071,12 @@ def server_request(op, args, stream=False, render_progress=False):
             reason = "server-starting"
         else:
             reason = "server-unavailable"
-        return print_response(filesystem_query_response(args, reason))
+        exit_code = print_response(filesystem_query_response(args, reason))
+        if reason == "server-unavailable":
+            sys.stdout.flush()
+            sys.stderr.flush()
+            start_server_in_background()
+        return exit_code
     if response is None:
         sys.stderr.write(unavailable_message(op, args))
         return UNAVAILABLE
@@ -1074,6 +1092,61 @@ def server_log_path():
     if configured:
         return pathlib.Path(configured).expanduser()
     return ygg_home() / ".ygg" / "server.log"
+
+
+def server_start_marker_path():
+    return server_log_path().with_name("server-start-requested")
+
+
+def claim_server_start():
+    marker = server_start_marker_path()
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    try:
+        age = now - marker.stat().st_mtime
+    except FileNotFoundError:
+        age = None
+    if age is not None and age >= DEFAULT_QUERY_AUTO_START_COOLDOWN_SECONDS:
+        try:
+            marker.unlink()
+        except FileNotFoundError:
+            pass
+    try:
+        descriptor = os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return False
+    with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+        file.write(f"{os.getpid()} {int(now)}\n")
+    return True
+
+
+def start_server_in_background():
+    if not env_bool("YGG_QUERY_AUTO_START", True):
+        return {"status": "disabled"}
+    if not claim_server_start():
+        return {"status": "already-requested"}
+    log_path = server_log_path()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log = open(log_path, "ab", buffering=0)
+    try:
+        subprocess.Popen(
+            [str(YGG_BIN), "start"],
+            cwd=str(ROOT),
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            env=os.environ.copy(),
+            start_new_session=True,
+        )
+        return {"status": "requested", "log": str(log_path)}
+    except OSError as exc:
+        try:
+            server_start_marker_path().unlink()
+        except FileNotFoundError:
+            pass
+        return {"status": "error", "error": str(exc), "log": str(log_path)}
+    finally:
+        log.close()
 
 
 def start_server_for_init():

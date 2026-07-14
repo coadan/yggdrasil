@@ -147,6 +147,7 @@ def cold_ygg_sample(
         "YGG_SERVER_STARTING_RETRY_TIMEOUT_MS": "0",
         "YGG_FILESYSTEM_QUERY_TIMEOUT_MS": str(timeout_ms),
         "YGG_RG_BIN": rg_bin,
+        "YGG_QUERY_AUTO_START": "0",
     })
     if query_fallback_after_ms is not None:
         env["YGG_QUERY_FALLBACK_AFTER_MS"] = str(query_fallback_after_ms)

@@ -81,7 +81,9 @@ Cold enriched-query caches follow the same contract: the first query returns
 filesystem results while one deduplicated background warmup prepares the richer
 path for later queries. A reachable but slow enriched query is also bounded;
 the client returns filesystem evidence instead of inheriting the general
-long-running request timeout.
+long-running request timeout. If the service is unavailable, the first fallback
+also requests one deduplicated background start so later queries can recover
+without a separate warm-up command.
 
 If you need an explicit editable project config, keep it separate from the
 generated project reference:

@@ -49,6 +49,12 @@ lane. Set `YGG_QUERY_FALLBACK_AFTER_MS` to choose one bound for all query output
 modes. Set it to `0` only when diagnosing an enriched query and intentionally
 waiting up to the general request timeout.
 
+After an unavailable-service fallback has produced its results, the client
+requests a background service start. Start requests are deduplicated for 15
+seconds, so concurrent cold queries do not launch a process each. Set
+`YGG_QUERY_AUTO_START=0` only when the service lifecycle is managed externally;
+filesystem fallback remains available either way.
+
 Degraded JSON still uses the compact `ygg.query/v2` schema. Consumers should
 inspect these fields:
 

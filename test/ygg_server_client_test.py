@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -402,12 +403,14 @@ class ServerClientRoutingTest(unittest.TestCase):
         client = load_client()
         client.request = lambda *args, **kwargs: None
         fallback_calls = []
+        start_calls = []
 
         def fake_fallback(args, reason):
             fallback_calls.append((args, reason))
             return {"exit": 0, "out": "filesystem result\n", "err": "degraded\n"}
 
         client.filesystem_query_response = fake_fallback
+        client.start_server_in_background = lambda: start_calls.append(True)
         out = io.StringIO()
         err = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -417,6 +420,39 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual("filesystem result\n", out.getvalue())
         self.assertEqual("degraded\n", err.getvalue())
         self.assertEqual([(["needle"], "server-unavailable")], fallback_calls)
+        self.assertEqual([True], start_calls)
+
+    def test_background_server_start_is_deduplicated_during_cooldown(self):
+        client = load_client()
+        starts = []
+
+        class StartedProcess:
+            pass
+
+        with tempfile.TemporaryDirectory() as root:
+            os.environ["YGG_SERVER_LOG"] = str(pathlib.Path(root) / "server.log")
+            with mock.patch.object(
+                client.subprocess,
+                "Popen",
+                side_effect=lambda *args, **kwargs: starts.append(
+                    (args, kwargs)
+                ) or StartedProcess(),
+            ):
+                first = client.start_server_in_background()
+                second = client.start_server_in_background()
+
+        self.assertEqual("requested", first["status"])
+        self.assertEqual("already-requested", second["status"])
+        self.assertEqual(1, len(starts))
+        self.assertEqual([str(client.YGG_BIN), "start"], list(starts[0][0][0]))
+        self.assertTrue(starts[0][1]["start_new_session"])
+
+    def test_background_server_start_can_be_disabled_for_diagnostics(self):
+        client = load_client()
+        os.environ["YGG_QUERY_AUTO_START"] = "0"
+        client.claim_server_start = lambda: self.fail("start should remain disabled")
+
+        self.assertEqual("disabled", client.start_server_in_background()["status"])
 
     def test_query_routes_to_filesystem_without_retrying_starting_server(self):
         client = load_client()
