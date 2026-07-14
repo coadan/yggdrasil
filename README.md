@@ -4,24 +4,27 @@
 
 # Yggdrasil
 
-Real-world systems are more than code files. They are services, configs,
-dependencies, docs, deployments, ownership decisions, architectural choices,
-and half-remembered fixes spread across a repo over time.
+[![CI](https://github.com/coadan/yggdrasil/actions/workflows/ci.yml/badge.svg)](https://github.com/coadan/yggdrasil/actions/workflows/ci.yml)
 
 Yggdrasil is local, auditable codebase memory for coding agents. It builds a
-reviewable map of what exists, how important pieces connect, and what has been
-accepted about the system, so agents can find the right context without
-rereading everything from scratch.
+reviewable graph of source files, dependencies, routes, configuration, docs,
+accepted corrections, and project memory. Queries return bounded evidence
+packets so an agent can inspect relevant context without loading the whole
+repository.
 
-As a project grows, an agentic development tool needs to preserve more than
-search results. It needs a maintainable way to encode project-specific tribal
-knowledge about architecture, boundaries, ownership, and recurring fixes, then
-keep that knowledge easy to review and update as the system changes.
+Yggdrasil stores concrete facts first. Architecture, ownership, and other
+project meaning enter through auditable corrections and reviewed metadata, not
+hard-coded guesses based on names or paths.
 
-Many agent tools call this codebase memory. Yggdrasil is more specific: it keeps
-that memory tied to files, evidence, and reviewable corrections, so maintainers
-can see why an answer was trusted. Claims about speed, cost, or effectiveness
-come from repeatable benchmarks.
+## Project Status
+
+Yggdrasil is in active early development. Data shapes and commands may change
+without a compatibility layer before the first tagged release. The supported
+ways to try it today are a source checkout or a locally built Docker image;
+prebuilt binaries and a Homebrew release are not published yet.
+
+The source wrapper is exercised on macOS and Ubuntu. Native Windows is not
+currently a supported host; use WSL or Docker there.
 
 ## What Yggdrasil Provides
 
@@ -37,23 +40,41 @@ come from repeatable benchmarks.
 - Measured claims: improvements in speed, cost, or effectiveness belong in
   benchmark reports, not unchecked product copy.
 
-## Quickstart
+## Install And Try
+
+Native source use requires JDK 21 or newer, the Clojure CLI, Git, and Python 3.
+See [Dependencies](docs/dependencies.md) for optional tools and feature-specific
+requirements.
+
+Clone Yggdrasil and put its source entrypoints on your shell path:
 
 ```sh
-bin/ygg init . --project my-project --out project.edn --sync
+git clone https://github.com/coadan/yggdrasil.git
+cd yggdrasil
+export PATH="$PWD/bin:$PATH"
+ygg help
+```
+
+Index another repository and run the first query:
+
+```sh
+ygg init /absolute/path/to/repo --project my-project --sync --no-input
 ygg query "where is auth handled" --project my-project
 ```
 
-`init` creates the project reference and starts the long-lived local Yggdrasil
-server when it is not already running. Other `ygg` commands expect that server
-to be available.
-Project graph state, correction facts, memory, and activity are stored in XTDB.
+`init` starts the local service when needed, registers the project centrally,
+writes a small `.ygg/project.edn` reference in the indexed repository, and
+builds the default query index. Project graph state, corrections, memory,
+queues, and activity live under `YGG_STORAGE_ROOT` or
+`~/.local/share/ygg/projects/<project-id>/`.
 
-For lower-level setup, use the explicit commands behind that flow:
+If you need an explicit editable project config, keep it separate from the
+generated project reference:
 
 ```sh
-ygg init . --project my-project --out project.edn
-ygg sync project.edn --check
+ygg init /absolute/path/to/repo --project my-project \
+  --out /absolute/path/to/repo/.ygg/config.edn --no-input
+ygg sync /absolute/path/to/repo/.ygg/config.edn --check --query-index
 ygg query "where is auth handled" --project my-project
 ```
 
@@ -63,25 +84,19 @@ To start the server automatically when you log in on macOS:
 ygg service start-at-login enable
 ```
 
-In an interactive terminal, `init` guides the first setup: current directory or
-another repo path, assistant harness/MCP/skill setup, start-at-login, auto
-maintenance, and whether to index immediately. Agents and scripts can pass the
-same choices without prompts:
+In an interactive terminal, `init` guides repository selection, assistant
+integration, login startup, maintenance, and initial indexing. Agents and
+scripts can pass the same choices explicitly:
 
 ```sh
-bin/ygg init . --project my-project --out project.edn \
+ygg init /absolute/path/to/repo --project my-project \
   --harness codex --hooks --skill --mcp \
-  --maintenance harness
+  --maintenance harness --sync --no-input
 ```
 
 Use `--maintenance deepseek` or `--maintenance openrouter` to run maintenance
 with a DeepSeek V4-compatible API executor instead of the assistant harness.
 Use `--no-input` to force non-interactive behavior.
-
-Default repo-local Yggdrasil data lives under `.ygg/`. Project-shared state,
-including XTDB, lives under the central Yggdrasil storage root by project id.
-Use `YGG_XTDB_PATH` when you need a
-different XTDB directory.
 
 `ygg query` returns compact graph-grounded evidence by default. Exact literals
 can use bounded internal ripgrep evidence, configured embeddings can support
@@ -138,8 +153,9 @@ ygg query "where is auth handled" --project my-project --provider openrouter
 ## Core Ideas
 
 - Real systems first: Yggdrasil looks beyond source files to the repo evidence
-  agents need for real maintenance work. Use `ygg sync coverage project.edn`
-  for the current support breakdown.
+  agents need for real maintenance work. Use
+  `ygg sync coverage --project my-project --json` for the current support
+  breakdown.
 - Architecture and tribal knowledge: accepted corrections, boundaries, and
   useful context become part of the project record instead of disappearing with
   one agent session.
@@ -166,9 +182,9 @@ ygg query "where is auth handled" --project my-project --provider openrouter
 
 ## Develop
 
-From a clone, run the entrypoints directly from `bin/` or put that directory on
-your `PATH`. First project setup is always `ygg init`; there is no separate
-top-level setup command.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, design boundaries, and pull
+request expectations. First project setup is always `ygg init`; there is no
+separate top-level setup command.
 
 Local verification:
 
@@ -176,6 +192,8 @@ Local verification:
 bb test
 bb lint
 bb format:check
+bb report-ui:test
+bb report-ui:build
 bb v1:smoke
 bb v1:gate
 ```
@@ -204,6 +222,15 @@ Project agent setup is noun-scoped: use `ygg agent install` and
 - [Extractor plugins](docs/extractor-plugins.md)
 - [Plugin packages](docs/plugin-packages.md)
 - [Report plugins](docs/report-plugins.md)
+- [Parser workers](docs/parser-workers.md)
+- [Index maintenance worker](docs/index-maintenance-worker.md)
 - [Bitemporal XTDB core](docs/bitemporal-core.md)
 - [Benchmarking](docs/benchmarking.md)
 - [Agent efficiency study](docs/agent-efficiency-study.md)
+
+## Community And Security
+
+Yggdrasil is [MIT licensed](LICENSE). Use the issue templates for bugs and
+feature proposals, read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull
+request, and report vulnerabilities through the private process in
+[SECURITY.md](SECURITY.md).

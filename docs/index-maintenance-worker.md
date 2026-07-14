@@ -83,32 +83,20 @@ Example:
 
     {:id "codex"
      :type :command-harness
-     :command ["scripts/ygg-maintenance-codex.sh"]
-     :reasoning :medium
-     :kinds #{:maintenance-decision :infra-review :dependency-review}
-     :timeout-ms 600000}
-
-    {:id "claude"
-     :type :command-harness
-     :command ["scripts/ygg-maintenance-claude.sh"]
-     :reasoning :medium
-     :kinds #{:maintenance-decision :infra-review :dependency-review}
-     :timeout-ms 600000}
-
-    {:id "opencode"
-     :type :command-harness
-     :command ["scripts/ygg-maintenance-opencode.sh"]
+     :command ["/absolute/path/to/yggdrasil/scripts/ygg-maintenance-codex.sh"]
      :reasoning :medium
      :kinds #{:maintenance-decision :infra-review :dependency-review}
      :timeout-ms 600000}]}}}
 ```
 
-`ygg init` can write the common worker config non-interactively:
+Do not copy the placeholder Codex path by hand. `ygg init` resolves the bundled
+script from the active Yggdrasil installation and can write the common worker
+config non-interactively:
 
 ```sh
-ygg init . --project my-project --out project.edn --maintenance harness
-ygg init . --project my-project --out project.edn --maintenance deepseek
-ygg init . --project my-project --out project.edn --maintenance openrouter
+ygg init . --project my-project --out .ygg/config.edn --maintenance harness
+ygg init . --project my-project --out .ygg/config.edn --maintenance deepseek
+ygg init . --project my-project --out .ygg/config.edn --maintenance openrouter
 ```
 
 Command harness executors are called with `--work <input.json> --result
@@ -134,10 +122,10 @@ enough. Do not broaden a packet into a whole-repository review.
 Server behavior:
 
 ```sh
-ygg init . --project my-project --out project.edn
-ygg maintenance schedule project.edn --id sync --every-minutes 10 --query-index --no-check --no-enqueue
-ygg maintenance schedule project.edn --id check --every-minutes 60 --check --enqueue
-ygg maintenance enable project.edn
+ygg init . --project my-project --out .ygg/config.edn
+ygg maintenance schedule .ygg/config.edn --id sync --every-minutes 10 --query-index --no-check --no-enqueue
+ygg maintenance schedule .ygg/config.edn --id check --every-minutes 60 --check --enqueue
+ygg maintenance enable .ygg/config.edn
 ygg status
 ```
 

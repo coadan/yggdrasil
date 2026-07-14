@@ -1,0 +1,32 @@
+name: Feature request
+description: Propose a concrete, project-agnostic improvement.
+title: "feature: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user workflow or evidence gap is not handled today?
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Concrete evidence
+      description: Provide sanitized file kinds, parser output, graph rows, or benchmark cases without inferring project meaning from names.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the observable behavior and how it could be verified.
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Boundaries and alternatives
+      description: Note provider, privacy, compatibility, or semantic-judgment boundaries and any alternatives considered.

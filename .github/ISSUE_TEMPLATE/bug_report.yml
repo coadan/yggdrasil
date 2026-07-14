@@ -1,0 +1,54 @@
+name: Bug report
+description: Report reproducible incorrect behavior in Yggdrasil.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues first. Do not include credentials, private source, or generated project state.
+  - type: input
+    id: revision
+    attributes:
+      label: Yggdrasil revision
+      description: Commit SHA or tag where the problem occurs.
+      placeholder: 0123456789abcdef
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, JDK, Clojure CLI, Python, and installation path.
+      placeholder: macOS 15, JDK 21, Clojure CLI 1.12, Python 3.12, source checkout
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Minimal commands and sanitized fixture data that reproduce the problem.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include sanitized errors or diagnostics.
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Sharing check
+      options:
+        - label: I removed credentials, private source, and generated project state.
+          required: true

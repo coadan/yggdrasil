@@ -11,4 +11,7 @@ once public releases begin.
 - Add hybrid lexical/semantic query with OpenRouter/OpenAI embeddings.
 - Add project-level system graph inference and HTML visualization.
 - Add agent-oriented build/query/maintain workflows.
-- Add Docker, native CLI, macOS install script, and Homebrew formula template.
+- Add source CLI, local Docker image, native-image build path, and Homebrew
+  formula template.
+- Make `ygg init --sync` build query-ready project state.
+- Add public onboarding, contribution, issue, pull-request, and security guidance.

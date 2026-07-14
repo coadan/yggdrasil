@@ -1,12 +1,13 @@
 # Distribution
 
-Yggdrasil has three distribution surfaces:
+Yggdrasil currently has two usable distribution surfaces:
 
-- Native CLI: `bin/ygg` and `bin/ygg-mcp`
-- Docker image: hermetic CLI runtime for agents
-- Homebrew formula: native macOS install after tagged releases exist
+- Source checkout: `bin/ygg` and `bin/ygg-mcp`
+- Locally built Docker image: a self-contained CLI runtime for agents
 
-The CLI is the product boundary. Docker and Homebrew wrap the same entrypoints.
+Native-image and Homebrew build paths exist for release preparation, but no
+tagged binary, container image, or Homebrew formula is published yet. The CLI is
+the product boundary; future packages must wrap the same entrypoints.
 
 Graph data has one maintained export contract: `ygg.graph/v2` JSON from
 `ygg view ... --format json`. The bundled HTML graph viewer consumes the same graph
@@ -18,13 +19,16 @@ The React/MDX report viewer is a build-time asset. Contributors build it with
 `ygg view ... --format html` copy those compiled assets into local bundles;
 installed users should not need Node for normal report or graph viewing.
 
-## Native CLI
+## Source Checkout
 
-From a clone, use the entrypoints directly or put `bin/` on `PATH`:
+Follow the [README quickstart](../README.md#install-and-try) to install the
+runtime prerequisites and clone the repository. From the clone, use the
+entrypoints directly or put `bin/` on `PATH`:
 
 ```sh
-bin/ygg init . --project my-project --out project.edn --sync
-bin/ygg query "where is auth handled" --project my-project
+export PATH="$PWD/bin:$PATH"
+ygg init /absolute/path/to/repo --project my-project --sync --no-input
+ygg query "where is auth handled" --project my-project
 ```
 
 `ygg init` starts the local server when needed. To keep it warm after login on
@@ -40,9 +44,9 @@ maintenance, and whether to index immediately. For non-interactive assistant
 setup, pass those choices to `init`:
 
 ```sh
-bin/ygg init . --project my-project --out project.edn \
+ygg init /absolute/path/to/repo --project my-project \
   --harness codex --hooks --skill --mcp \
-  --maintenance harness
+  --maintenance harness --sync --no-input
 ```
 
 Use `--maintenance deepseek` or `--maintenance openrouter` to configure a
@@ -53,8 +57,10 @@ Verify the entrypoints:
 
 ```sh
 ygg help
-ygg-mcp --config project.edn
+ygg-mcp --project my-project
 ```
+
+## Native Server Build
 
 Build the standalone JVM artifact used by the native-image path:
 
@@ -102,24 +108,23 @@ Build locally:
 docker build -t yggdrasil:dev .
 ```
 
-Inspect a mounted project config:
+Run onboarding and a query in one container lifecycle:
 
 ```sh
 docker run --rm \
-  -v "$PWD:/workspace:ro" \
+  -v "$PWD:/workspace" \
   -v "$HOME/.cache/ygg:/data" \
-  yggdrasil:dev start
+  yggdrasil:dev sh -c '
+    ygg init /workspace --project my-project --sync --no-input
+    ygg query "where is auth handled" --project my-project
+    ygg stop
+  '
 ```
 
-For first-run onboarding in a mounted repo, write generated project files to a
-writable mounted directory:
-
-```sh
-docker run --rm \
-  -v "$PWD:/workspace:ro" \
-  -v "$HOME/.cache/ygg:/data" \
-  yggdrasil:dev sh -lc 'ygg init /workspace --out /data/project.edn --sync; ygg stop'
-```
+The repository mount is writable because `init` writes its small
+`.ygg/project.edn` reference there. Project registry, XTDB, queues, memory, and
+reports persist below the `/data` mount. Use a disposable data directory when
+you do not want to retain that state.
 
 For worktrees, mount the wrapper/workbench root rather than a nested worktree so
 Git metadata and `repos.json` can be resolved.
@@ -127,7 +132,7 @@ Git metadata and `repos.json` can be resolved.
 Docker release images must include `resources/ygg/report-ui/`; they should
 not need Node installed to run `ygg report`.
 
-## Homebrew
+## Planned Homebrew Release
 
 The formula template lives at:
 
@@ -141,11 +146,11 @@ Release process:
 2. Generate the GitHub source tarball checksum:
    ```sh
    curl -L -o ygg-v0.1.0.tar.gz \
-     https://github.com/OWNER/yggdrasil/archive/refs/tags/v0.1.0.tar.gz
+     https://github.com/coadan/yggdrasil/archive/refs/tags/v0.1.0.tar.gz
    shasum -a 256 ygg-v0.1.0.tar.gz
    ```
 3. Copy the template into a Homebrew tap as `Formula/ygg.rb`.
-4. Replace `OWNER`, version, URL, and `sha256`.
+4. Replace the template placeholders for owner, version, URL, and `sha256`.
 5. Test locally:
    ```sh
    brew install --build-from-source ./Formula/ygg.rb
@@ -156,5 +161,5 @@ Source releases used by Homebrew must include the compiled
 `resources/ygg/report-ui/` assets, or the formula needs to run
 `bb report-ui:build` during source installation.
 
-Do not put release-specific checksums in this repository until the upstream GitHub
-location and first tag are final.
+Until that process produces a tagged and tested formula, Homebrew is not an
+installation channel for users.

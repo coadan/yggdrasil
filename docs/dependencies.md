@@ -1,6 +1,7 @@
 # Dependencies
 
-Yggdrasil is distributed as a native CLI and a Docker image.
+Yggdrasil currently runs from a source checkout or a locally built Docker
+image. Tagged binary and package-manager releases do not exist yet.
 
 ## Runtime
 
@@ -9,15 +10,15 @@ Required for native CLI use:
 - JDK 21+
 - Clojure CLI
 - Git
-- Python 3, for Python AST extraction.
+- Python 3, for the local CLI client and Python AST extraction.
 
 Optional:
 
 - Babashka, for `bb` development shortcuts.
-- Node.js and npm, for rebuilding the React/MDX report viewer assets.
+- Node.js 24+ and npm, for rebuilding the React/MDX report viewer assets.
 - GraalVM `native-image`, for building the standalone server binary.
 - OpenRouter or OpenAI API key, for embedding-backed semantic retrieval.
-- Docker, for zero-install CLI usage.
+- Docker, for building and running the isolated CLI image.
 
 JavaScript, TypeScript, SQL, Terraform/HCL, OpenAPI, dependency manifests,
 selected dependency lockfiles, and container manifests are handled by
