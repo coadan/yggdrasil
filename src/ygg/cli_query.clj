@@ -37,6 +37,10 @@
 (defn- temporal-options [args] (call-dep :temporal-options args))
 (defn- context-packet-options [xtdb args opts] (call-dep :context-packet-options xtdb args opts))
 
+(defn- optional-dep
+  [k]
+  (get *deps* k))
+
 (defn- query-progress-fn
   [args]
   (when-not (some #{"--no-progress"} args)
@@ -541,6 +545,11 @@
    :message (str "The query index is not ready; search is using bounded filesystem evidence. "
                  "Graph-enriched results will become available automatically.")})
 
+(def ^:private cache-warming-fallback-status
+  {:reason :cache-warming
+   :message (str "Enriched query caches are warming; search is using bounded filesystem evidence. "
+                 "Graph-enriched results will become available automatically.")})
+
 (defn- query-index-ready?
   [xtdb project-id repo-id]
   (if-not (store/xtdb-handle? xtdb)
@@ -558,30 +567,85 @@
    :repos [{:id (or repo-id "workspace")
             :root (System/getProperty "user.dir")}]})
 
+(defn- cache-warmup-scope
+  [project-id repo-id]
+  {:project-id project-id
+   :repo-id repo-id})
+
+(defn- active-cache-warmup
+  [scope]
+  (when-let [active-warmup (optional-dep :active-cache-warmup)]
+    (active-warmup scope)))
+
+(defn- cache-warming-required?
+  [xtdb scope]
+  (and (optional-dep :start-cache-warmup!)
+       (not (query/search-corpus-cache-ready? xtdb scope))))
+
+(defn- warm-query-caches!
+  [xtdb query-text {:keys [project-id repo-id]}]
+  (context/context-packet xtdb
+                          query-text
+                          {:project-id project-id
+                           :repo-id repo-id
+                           :retriever :lexical
+                           :output :compact
+                           :persist-query-run? false}))
+
+(defn- start-cache-warmup
+  [xtdb query-text scope]
+  (when-let [start-warmup (optional-dep :start-cache-warmup!)]
+    (start-warmup scope #(warm-query-caches! xtdb query-text scope))))
+
+(defn- attach-fallback-operation
+  [fallback operation]
+  (if operation
+    (assoc-in fallback [:packet :degradation :operation]
+              (fallback-operation operation))
+    fallback))
+
 (defn- filesystem-fallback
   [xtdb args query-text project-id repo-id]
-  (let [operation (active-indexing)
-        status (if operation
-                 (active-fallback-status operation)
-                 (when-not (query-index-ready? xtdb project-id repo-id)
-                   index-unavailable-fallback-status))]
+  (let [indexing-operation (active-indexing)
+        scope (cache-warmup-scope project-id repo-id)
+        index-ready? (or indexing-operation
+                         (query-index-ready? xtdb project-id repo-id))
+        warmup-operation (when (and (not indexing-operation) index-ready?)
+                           (active-cache-warmup scope))
+        cache-cold? (and (not indexing-operation)
+                         index-ready?
+                         (not warmup-operation)
+                         (cache-warming-required? xtdb scope))
+        operation (or indexing-operation warmup-operation)
+        status (cond
+                 indexing-operation
+                 (active-fallback-status indexing-operation)
+
+                 (not index-ready?)
+                 index-unavailable-fallback-status
+
+                 (or warmup-operation cache-cold?)
+                 cache-warming-fallback-status)]
     (when status
       (let [{:keys [reason message]} status
             input (query-input-options args)
             project (or (resolved-project args)
                         (cwd-fallback-project project-id repo-id))]
-        (filesystem-query/search-project
-         project
-         query-text
-         {:repo-id repo-id
-          :retriever (keyword (or (option-value args "--retriever") "auto"))
-          :query-input input
-          :literals (:literals input)
-          :symbols (:symbols input)
-          :limit (or (parse-limit args) query/default-limit)
-          :reason reason
-          :message message
-          :operation (fallback-operation operation)})))))
+        (assoc
+         (filesystem-query/search-project
+          project
+          query-text
+          {:repo-id repo-id
+           :retriever (keyword (or (option-value args "--retriever") "auto"))
+           :query-input input
+           :literals (:literals input)
+           :symbols (:symbols input)
+           :limit (or (parse-limit args) query/default-limit)
+           :reason reason
+           :message message
+           :operation (fallback-operation operation)})
+         :start-cache-warmup? cache-cold?
+         :cache-warmup-scope scope)))))
 
 (defn- print-filesystem-fallback
   [{:keys [rows packet]}]
@@ -602,9 +666,16 @@
     (when (str/blank? query-text)
       (throw (ex-info "Missing query text." {:usage (usage)})))
     (if-let [fallback (filesystem-fallback xtdb args query-text project-id repo-id)]
-      (if (json-output? args)
-        (print-json (:packet fallback))
-        (print-filesystem-fallback fallback))
+      (let [fallback (if (:start-cache-warmup? fallback)
+                       (attach-fallback-operation
+                        fallback
+                        (start-cache-warmup xtdb
+                                            query-text
+                                            (:cache-warmup-scope fallback)))
+                       fallback)]
+        (if (json-output? args)
+          (print-json (:packet fallback))
+          (print-filesystem-fallback fallback)))
       (let [{:keys [retriever embedding-client semantic-status fts-weight]}
             (retrieval-options args)
             temporal (temporal-options args)

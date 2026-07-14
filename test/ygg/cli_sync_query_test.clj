@@ -1731,6 +1731,56 @@
       (is (= "filesystem" (get-in packet [:retrieval :effective])))
       (is (= "index-unavailable" (get-in packet [:retrieval :reason]))))))
 
+(deftest query-routes-to-filesystem-and-starts-enriched-cache-warmup
+  (let [xtdb {:search-corpus-cache (atom {:generation 0
+                                          :clock 0
+                                          :entries {}})}
+        warmup-opts (atom nil)]
+    (with-redefs [store/with-node (fn [_ f] (f xtdb))
+                  store/xtdb-handle? (constantly true)
+                  embedding/search-doc-count (constantly 2)
+                  filesystem-query/search-project
+                  (fn [_ _ opts]
+                    {:rows []
+                     :packet {:schema filesystem-query/schema
+                              :retrieval {:effective :filesystem
+                                          :reason (:reason opts)}
+                              :degradation {:reason (:reason opts)
+                                            :message (:message opts)}}})
+                  context/context-packet
+                  (fn [actual-xtdb query-text opts]
+                    (is (= xtdb actual-xtdb))
+                    (is (= "auth" query-text))
+                    (reset! warmup-opts opts)
+                    {})]
+      (let [out (with-out-str
+                  (binding [cli-query/*deps* {:usage (fn [] "")
+                                              :print-json #(println
+                                                            (json/write-json-str %))
+                                              :temporal-options (fn [_] {})
+                                              :context-packet-options
+                                              (fn [_ _ opts] opts)
+                                              :active-cache-warmup (constantly nil)
+                                              :start-cache-warmup!
+                                              (fn [_ task]
+                                                (task)
+                                                {:schema "ygg.server.query-warmup/v1"
+                                                 :op "query-warmup"
+                                                 :projectId "fixture"
+                                                 :startedAtMs 10})}]
+                    (cli-query/query!
+                     ["auth" "--project" "fixture" "--json"])))
+            packet (read-json-output out)]
+        (is (= "cache-warming" (get-in packet [:retrieval :reason])))
+        (is (= "cache-warming" (get-in packet [:degradation :reason])))
+        (is (= "query-warmup" (get-in packet [:degradation :operation :op])))
+        (is (= {:project-id "fixture"
+                :repo-id nil
+                :retriever :lexical
+                :output :compact
+                :persist-query-run? false}
+               @warmup-opts))))))
+
 (deftest view-json-writes-canonical-export
   (let [written (atom nil)]
     (with-redefs [store/with-node (fn [_ f] (f :xtdb))

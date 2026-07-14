@@ -226,6 +226,46 @@
       (is (= "generated" (:project-id body)))
       (is (not (contains? body :sync-output))))))
 
+(deftest query-cache-warmups-are-deduplicated-by-storage-and-scope
+  (let [executor (java.util.concurrent.Executors/newSingleThreadExecutor)
+        warmups (atom {})
+        started (promise)
+        release (promise)
+        calls (atom 0)
+        ctx {:query-warmup-executor executor
+             :query-warmups warmups}
+        scope {:project-id "fixture"
+               :repo-id "app"}]
+    (try
+      (let [first-operation (#'server/start-query-warmup!
+                             ctx
+                             "/storage/fixture"
+                             scope
+                             (fn []
+                               (swap! calls inc)
+                               (deliver started true)
+                               @release))]
+        @started
+        (let [second-operation (#'server/start-query-warmup!
+                                ctx
+                                "/storage/fixture"
+                                scope
+                                #(swap! calls inc))]
+          (is (= "query-warmup" (:op first-operation)))
+          (is (= (select-keys first-operation [:projectId :repoId :startedAtMs])
+                 (select-keys second-operation [:projectId :repoId :startedAtMs])))
+          (is (not (neg? (:elapsedMs second-operation))))
+          (is (= 1 @calls)))
+        (deliver release true)
+        (loop [attempts 100]
+          (when (and (pos? attempts) (seq @warmups))
+            (Thread/sleep 5)
+            (recur (dec attempts))))
+        (is (empty? @warmups)))
+      (finally
+        (.shutdownNow executor)
+        (.awaitTermination executor 1 java.util.concurrent.TimeUnit/SECONDS)))))
+
 (deftest sync-request-resolves-explicit-project-ref-before-storage
   (let [root (temp-dir "ygg-server-sync-ref")
         checkout (io/file root "checkout")

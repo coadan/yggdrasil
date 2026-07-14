@@ -77,6 +77,9 @@ from the repository while the service is starting—or from another terminal
 while indexing or embedding is active—returns bounded filesystem evidence and
 identifies that fallback in its output. As durable facts and embeddings become
 available, the same `ygg query` command automatically uses richer retrieval.
+Cold enriched-query caches follow the same contract: the first query returns
+filesystem results while one deduplicated background warmup prepares the richer
+path for later queries.
 
 If you need an explicit editable project config, keep it separate from the
 generated project reference:

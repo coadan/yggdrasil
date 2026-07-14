@@ -572,6 +572,18 @@
   (when-not (some #(get read-context %) temporal-read-context-keys)
     [project-id repo-id]))
 
+(defn search-corpus-cache-ready?
+  "Return true when the current, cacheable search corpus scope is already loaded.
+
+  Callers without a managed cache, and temporal reads that intentionally bypass
+  the cache, remain ready because background warming cannot change their path."
+  [xtdb scope]
+  (let [cache (:search-corpus-cache xtdb)
+        cache-key (current-search-corpus-cache-key scope)]
+    (or (nil? cache)
+        (nil? cache-key)
+        (contains? (:entries @cache) cache-key))))
+
 (defn- evict-search-corpus-entry
   [entries]
   (if (<= (count entries) max-search-corpus-cache-entries)
@@ -2609,12 +2621,15 @@
 (defn search-report
   "Return search results and deterministic instrumentation for query-text.
 
-  Persists the query run with instrumentation and returns a report map. Use
+  Persists the query run with instrumentation by default and returns a report
+  map. Pass `:persist-query-run? false` for internal cache warming. Use
   `semantic-query` when only the ranked result rows are needed."
-  [xtdb query-text {:keys [limit retriever embedding-client project-id repo-id]
+  [xtdb query-text {:keys [limit retriever embedding-client project-id repo-id
+                           persist-query-run?]
                     :as opts
                     :or {limit default-limit
-                         retriever default-retriever}}]
+                         retriever default-retriever
+                         persist-query-run? true}}]
   (let [started (now-ns)
         requested-retriever (keyword retriever)
         initial-retriever (retriever-mode requested-retriever embedding-client)
@@ -2876,7 +2891,8 @@
                             :cache-status (:cache-status corpus-data)
                             :result-count (count ranked)
                             :elapsed-ms (:search-total-ms instrumentation)}))
-    (store/commit-query-run! xtdb query-row)
+    (when persist-query-run?
+      (store/commit-query-run! xtdb query-row))
     report))
 
 (defn semantic-query

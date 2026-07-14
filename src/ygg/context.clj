@@ -4248,7 +4248,8 @@
                            output proof-commands? query-input memory-owner
                            fusion-strategy sqlite-fts? diversity-rerank-limit
                            fts-candidate-limit fts-weight embedding-role embedding-roles
-                           exclude-private-memory? active-indexing progress-fn]
+                           exclude-private-memory? active-indexing progress-fn
+                           persist-query-run?]
                     :or {budget default-budget
                          entity-limit default-entity-limit
                          edge-limit default-edge-limit
@@ -4306,6 +4307,10 @@
                                                         :fts-weight fts-weight
                                                         :embedding-role embedding-role
                                                         :embedding-roles embedding-roles
+                                                        :persist-query-run?
+                                                        (if (nil? persist-query-run?)
+                                                          true
+                                                          persist-query-run?)
                                                         :progress-fn progress-fn}))
         results (:results search-report)
         [source-candidate-data timings] (timed-context-step

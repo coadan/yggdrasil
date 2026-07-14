@@ -1115,16 +1115,19 @@
                           :source-line 1
                           :active? true
                           :run-id "run"})]
+        (is (false? (query/search-corpus-cache-ready? xtdb {})))
         (store/execute-tx!
          xtdb
          [(store/put-op (store/table-ref :search-docs)
                         (search-doc "auth" "auth login"))])
+        (is (false? (query/search-corpus-cache-ready? xtdb {})))
         (let [first-report (query/search-report xtdb "auth" query-opts)
               second-report (query/search-report xtdb "auth" query-opts)]
           (is (= :miss (get-in first-report [:instrumentation :search-corpus-cache])))
           (is (= :hit (get-in second-report [:instrumentation :search-corpus-cache])))
           (is (= (get-in first-report [:instrumentation :search-corpus-generation])
                  (get-in second-report [:instrumentation :search-corpus-generation]))))
+        (is (true? (query/search-corpus-cache-ready? xtdb {})))
         (is (= [:search-corpus-load-start
                 :search-corpus-load-complete
                 :search-complete
@@ -1136,9 +1139,20 @@
          xtdb
          [(store/put-op (store/table-ref :search-docs)
                         (search-doc "session" "session token"))])
+        (is (false? (query/search-corpus-cache-ready? xtdb {})))
         (let [report (query/search-report xtdb "session" query-opts)]
           (is (= :miss (get-in report [:instrumentation :search-corpus-cache])))
           (is (= ["node:session"] (mapv :target-id (:results report)))))))))
+
+(deftest search-report-can-warm-without-persisting-a-query-run
+  (store/with-node (temp-dir "ygg-query-non-persisted-warmup-xtdb")
+    (fn [xtdb]
+      (query/search-report xtdb
+                           "warm caches"
+                           {:retriever :lexical
+                            :persist-query-run? false})
+      (is (true? (query/search-corpus-cache-ready? xtdb {})))
+      (is (empty? (store/all-rows xtdb (store/table-ref :query-runs)))))))
 
 (deftest search-corpus-cache-bypasses-temporal-reads
   (store/with-node (temp-dir "ygg-query-corpus-cache-temporal-xtdb")

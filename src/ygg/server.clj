@@ -626,6 +626,60 @@
          :elapsedMs (- (System/currentTimeMillis)
                        (long (:startedAtMs operation)))))
 
+(defn- query-warmup-key
+  [storage-path {:keys [project-id repo-id]}]
+  [(str storage-path) (str project-id) (some-> repo-id str)])
+
+(defn- active-query-warmup
+  [ctx storage-path scope]
+  (when-let [warmups (:query-warmups ctx)]
+    (when-let [operation (get @warmups (query-warmup-key storage-path scope))]
+      (active-operation-status operation))))
+
+(defn- start-query-warmup!
+  [ctx storage-path {:keys [project-id repo-id] :as scope} task]
+  (let [warmups (:query-warmups ctx)
+        executor (:query-warmup-executor ctx)
+        k (query-warmup-key storage-path scope)]
+    (when (and warmups executor)
+      (locking warmups
+        (if-let [operation (get @warmups k)]
+          (active-operation-status operation)
+          (let [operation (cond-> {:schema "ygg.server.query-warmup/v1"
+                                   :op "query-warmup"
+                                   :projectId project-id
+                                   :startedAtMs (System/currentTimeMillis)}
+                            repo-id (assoc :repoId repo-id))
+                runner (bound-fn []
+                         (try
+                           (task)
+                           (catch Throwable t
+                             (log-lifecycle! "query-warmup-error"
+                                             {:projectId project-id
+                                              :repoId repo-id
+                                              :error (or (ex-message t)
+                                                         (.getMessage t))}))
+                           (finally
+                             (swap! warmups
+                                    (fn [current]
+                                      (if (= operation (get current k))
+                                        (dissoc current k)
+                                        current))))))]
+            (swap! warmups assoc k operation)
+            (try
+              (.execute ^ExecutorService executor
+                        (reify Runnable
+                          (run [_]
+                            (runner))))
+              operation
+              (catch RuntimeException e
+                (swap! warmups dissoc k)
+                (log-lifecycle! "query-warmup-rejected"
+                                {:projectId project-id
+                                 :repoId repo-id
+                                 :error (or (ex-message e) (.getMessage e))})
+                nil))))))))
+
 (defn- active-operation-statuses
   [ctx]
   (if-let [active-operations (:active-operations ctx)]
@@ -1268,6 +1322,9 @@
   (let [args (absolutize-path-options (:cwd request) (vec (:args request)))
         cli-args (into [command] args)
         active-indexing (active-indexing-operation-for-query ctx cli-args)
+        warmup-storage-path (when (and (:query-warmups ctx)
+                                       (:query-warmup-executor ctx))
+                              (request-storage-path request cli-args nil))
         progress-fn (query-server-progress-fn ctx args command)
         query-deps (cond-> (cli/query-deps)
                      progress-fn
@@ -1283,7 +1340,16 @@
                                  (context-packet-options
                                   xtdb
                                   args
-                                  (assoc opts :active-indexing active-indexing))))))]
+                                  (assoc opts :active-indexing active-indexing)))))
+                     warmup-storage-path
+                     (assoc :active-cache-warmup
+                            #(active-query-warmup ctx warmup-storage-path %)
+                            :start-cache-warmup!
+                            #(start-query-warmup!
+                              ctx
+                              warmup-storage-path
+                              %1
+                              %2)))]
     (captured-request-storage-response
      ctx
      request
@@ -1499,6 +1565,17 @@
                         (str "ygg-server-request-" (.incrementAndGet counter)))
            (.setDaemon true)))))))
 
+(defn- query-warmup-executor
+  []
+  (let [counter (AtomicLong.)]
+    (Executors/newFixedThreadPool
+     2
+     (reify ThreadFactory
+       (newThread [_ runnable]
+         (doto (Thread. runnable
+                        (str "ygg-query-warmup-" (.incrementAndGet counter)))
+           (.setDaemon true)))))))
+
 (defn- submit-request!
   [{:keys [request-executor] :as ctx} socket]
   (.execute ^ExecutorService request-executor
@@ -1551,6 +1628,8 @@
         server (ServerSocket. port 50 (InetAddress/getByName host))
         running (atom true)
         request-executor (request-executor)
+        query-warmup-executor (query-warmup-executor)
+        query-warmups (atom {})
         request-counter (AtomicLong.)
         operation-locks (atom {})
         active-operations (atom {})
@@ -1561,6 +1640,8 @@
              :running running
              :server server
              :request-executor request-executor
+             :query-warmup-executor query-warmup-executor
+             :query-warmups query-warmups
              :request-counter request-counter
              :operation-locks operation-locks
              :active-operations active-operations
@@ -1600,6 +1681,8 @@
      :node-pool node-pool
      :thread thread
      :request-executor request-executor
+     :query-warmup-executor query-warmup-executor
+     :query-warmups query-warmups
      :request-counter request-counter
      :operation-locks operation-locks
      :active-operations active-operations
@@ -1613,7 +1696,8 @@
      :stopped stopped}))
 
 (defmethod ig/halt-key! :ygg.server/server
-  [_ {:keys [server running thread request-executor scheduler-thread stopped]}]
+  [_ {:keys [server running thread request-executor query-warmup-executor
+             scheduler-thread stopped]}]
   (reset! running false)
   (when (instance? Closeable server)
     (.close ^Closeable server))
@@ -1627,6 +1711,9 @@
   (when request-executor
     (.shutdownNow ^ExecutorService request-executor)
     (.awaitTermination ^ExecutorService request-executor 5 TimeUnit/SECONDS))
+  (when query-warmup-executor
+    (.shutdownNow ^ExecutorService query-warmup-executor)
+    (.awaitTermination ^ExecutorService query-warmup-executor 5 TimeUnit/SECONDS))
   (deliver stopped true)
   nil)
 
