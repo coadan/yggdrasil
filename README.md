@@ -35,6 +35,10 @@ currently a supported host; use WSL or Docker there.
   agents decide what to read next.
 - Compact agent context: `ygg query` returns bounded, graph-grounded evidence
   packets instead of dumping the whole repository into a prompt.
+- Search availability: a cold service, missing index, active sync, or active
+  embedding job routes queries to bounded filesystem search instead of making
+  agents wait for Yggdrasil to become ready. The response states when evidence
+  is degraded; see the [query availability contract](docs/context.md#search-availability-contract).
 - Reviewable trust: answers can cite the files, rows, memories, and corrections
   that supported them.
 - Measured claims: improvements in speed, cost, or effectiveness belong in
@@ -67,6 +71,12 @@ writes a small `.ygg/project.edn` reference in the indexed repository, and
 builds the default query index. Project graph state, corrections, memory,
 queues, and activity live under `YGG_STORAGE_ROOT` or
 `~/.local/share/ygg/projects/<project-id>/`.
+
+Initial indexing is enrichment, not a prerequisite for search. A query issued
+from the repository while the service is starting—or from another terminal
+while indexing or embedding is active—returns bounded filesystem evidence and
+identifies that fallback in its output. As durable facts and embeddings become
+available, the same `ygg query` command automatically uses richer retrieval.
 
 If you need an explicit editable project config, keep it separate from the
 generated project reference:
@@ -152,6 +162,9 @@ ygg query "where is auth handled" --project my-project --provider openrouter
 
 ## Core Ideas
 
+- Reliability before enrichment: repository search remains usable while
+  Yggdrasil starts, indexes, embeds, or rebuilds; graph and semantic evidence
+  improve the answer over time without becoming a query availability gate.
 - Real systems first: Yggdrasil looks beyond source files to the repo evidence
   agents need for real maintenance work. Use
   `ygg sync coverage --project my-project --json` for the current support

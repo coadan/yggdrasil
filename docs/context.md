@@ -12,6 +12,65 @@ capability signal, not a separate query surface. Use `--retriever lexical`,
 `--retriever semantic`, or other overrides only for debugging and benchmark
 ablations.
 
+## Search Availability Contract
+
+Search reliability takes precedence over enrichment. Indexing, embedding,
+graph expansion, cache warming, and maintenance improve retrieval, but they do
+not make `ygg query` unavailable. If the working tree can be searched with
+ripgrep, Yggdrasil returns transient filesystem evidence while richer project
+state is cold, absent, or changing.
+
+| Project state | Query behavior | Structured signal |
+|---|---|---|
+| Service cold or unreachable | Make one zero-wait connection attempt, then search the nearest repository root with bounded ripgrep. | `retrieval.effective: filesystem`; degradation reason `server-unavailable` |
+| Service starting | Search the nearest repository root instead of waiting for startup retries. | degradation reason `server-starting` |
+| Query index absent or unreadable | Search registered repository roots before corpus or context work. | degradation reason `index-unavailable` |
+| Sync, initialization, or embedding active | Search registered repository roots without reading or writing graph query state. | degradation reason `active-indexing` or `active-embedding`; active operation attached |
+| Enrichment ready | Use normal `auto` retrieval and the available lexical, grep, semantic, and graph evidence. | normal retrieval and evidence fields |
+
+The fallback uses one fixed-string ripgrep process per repository, bounded by
+default to 1.5 seconds and 200,000 stdout bytes. It ranks only mechanical
+signals: explicit literals and symbols, query token character shape and length,
+path overlap, and match counts. It does not infer architecture or project
+meaning. Override the process bounds with
+`YGG_FILESYSTEM_QUERY_TIMEOUT_MS` and
+`YGG_FILESYSTEM_QUERY_MAX_STDOUT_BYTES`.
+
+Degraded JSON still uses the compact `ygg.query/v2` schema. Consumers should
+inspect these fields:
+
+```json
+{
+  "retrieval": {
+    "requested": "auto",
+    "effective": "filesystem",
+    "fallback?": true,
+    "reason": "active-indexing"
+  },
+  "degradation": {
+    "schema": "ygg.context.degradation/v1",
+    "status": "degraded",
+    "fallback": "filesystem",
+    "reason": "active-indexing"
+  },
+  "search": {
+    "instrumentation": {
+      "filesystem-processes": 1,
+      "filesystem-search-ms": 12,
+      "filesystem-file-count": 8
+    }
+  }
+}
+```
+
+Here, degraded means the evidence is less rich; it is not a request failure.
+The command exits successfully even when the fallback finds no matches. If the
+service is unavailable, only the nearest repository root is mechanically known;
+a running service can search every registered root in a multi-repository
+project. Absolute latency cannot equal raw `rg` because the wrapper and packet
+format add overhead, so performance claims must compare the same query and
+scope and report that overhead rather than claiming a zero-cost abstraction.
+
 ```sh
 ygg query "where does the API gateway send requests" --project sample --json --budget 4000
 ```
