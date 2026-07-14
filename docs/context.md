@@ -27,6 +27,7 @@ state is cold, absent, or changing.
 | Query index absent or unreadable | Search registered repository roots before corpus or context work. | degradation reason `index-unavailable` |
 | Sync, initialization, or embedding active | Search registered repository roots without reading or writing graph query state. | degradation reason `active-indexing` or `active-embedding`; active operation attached |
 | Enriched query caches cold or warming | Search registered repository roots, start one background warmup per project/repository scope, and keep later queries on the filesystem lane until it completes. | degradation reason `cache-warming`; `query-warmup` operation attached |
+| Enriched query exceeds its response bound | Return filesystem evidence while the requested query continues in the local service. | degradation reason `query-timeout` |
 | Enrichment ready | Use normal `auto` retrieval and the available lexical, grep, semantic, and graph evidence. | normal retrieval and evidence fields |
 
 The fallback uses one fixed-string ripgrep process per repository, bounded by
@@ -41,6 +42,12 @@ Cache warmups are bounded to two server threads and deduplicated by storage,
 project, and repository scope. A warmup performs deterministic lexical/context
 reads, does not persist a query-run telemetry row for results the caller did not
 receive, and is cancelled when the local service stops.
+
+The client waits at most 1.5 seconds for a normal compact query and 5 seconds
+for explicit `--output evidence` or `--output full` before taking the filesystem
+lane. Set `YGG_QUERY_FALLBACK_AFTER_MS` to choose one bound for all query output
+modes. Set it to `0` only when diagnosing an enriched query and intentionally
+waiting up to the general request timeout.
 
 Degraded JSON still uses the compact `ygg.query/v2` schema. Consumers should
 inspect these fields:

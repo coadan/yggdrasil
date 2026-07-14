@@ -40,13 +40,33 @@ class ServerClientRoutingTest(unittest.TestCase):
 
         os.environ["YGG_SERVER_REQUEST_TIMEOUT_MS"] = "0"
         os.environ["YGG_SERVER_CONNECT_TIMEOUT_MS"] = "0"
+        os.environ["YGG_QUERY_FALLBACK_AFTER_MS"] = "0"
         self.assertIsNone(client.request_timeout_seconds())
+        self.assertIsNone(client.response_timeout_seconds("query", []))
         self.assertEqual(0, client.connect_timeout_ms())
 
         os.environ["YGG_SERVER_REQUEST_TIMEOUT_MS"] = "2500"
         os.environ["YGG_SERVER_CONNECT_TIMEOUT_MS"] = "2500"
+        os.environ["YGG_QUERY_FALLBACK_AFTER_MS"] = "900"
         self.assertEqual(2.5, client.request_timeout_seconds())
+        self.assertEqual(0.9, client.response_timeout_seconds("query", []))
         self.assertEqual(2500, client.connect_timeout_ms())
+
+    def test_query_latency_bound_is_larger_for_expanded_output(self):
+        client = load_client()
+
+        self.assertEqual(
+            client.DEFAULT_QUERY_FALLBACK_AFTER_MS,
+            client.query_fallback_after_ms([]),
+        )
+        self.assertEqual(
+            client.DEFAULT_EXPANDED_QUERY_FALLBACK_AFTER_MS,
+            client.query_fallback_after_ms(["--output", "full"]),
+        )
+        self.assertEqual(
+            client.DEFAULT_EXPANDED_QUERY_FALLBACK_AFTER_MS / 1000.0,
+            client.response_timeout_seconds("query", ["--output", "evidence"]),
+        )
 
     def test_invalid_timeout_env_values_use_defaults(self):
         client = load_client()
@@ -272,6 +292,45 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual("ok\n", response["out"])
         self.assertEqual(0, calls[0][2]["connect_timeout_override_ms"])
 
+    def test_query_socket_timeout_returns_structured_fallback_reason(self):
+        client = load_client()
+
+        class TimeoutReader:
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                raise client.socket.timeout()
+
+        class TimeoutSocket:
+            timeout = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def settimeout(self, timeout):
+                self.timeout = timeout
+
+            def sendall(self, _payload):
+                return None
+
+            def makefile(self, *_args, **_kwargs):
+                return TimeoutReader()
+
+        sock = TimeoutSocket()
+        client.connect_socket = lambda *_args, **_kwargs: sock
+        os.environ["YGG_QUERY_FALLBACK_AFTER_MS"] = "125"
+
+        response = client.request_once("query", ["needle"])
+
+        self.assertEqual(0.125, sock.timeout)
+        self.assertEqual("query-timeout", response["data"]["reason"])
+        self.assertEqual(125, response["data"]["timeoutMs"])
+        self.assertEqual("", response["err"])
+
     def test_filesystem_query_patterns_match_mechanical_server_contract(self):
         client = load_client()
 
@@ -361,6 +420,50 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual(0, exit_code)
         self.assertEqual("server-starting\n", out.getvalue())
         self.assertEqual(1, len(request_calls))
+
+    def test_query_routes_to_filesystem_when_enrichment_exceeds_latency_bound(self):
+        client = load_client()
+        client.request = lambda *args, **kwargs: {
+            "exit": 124,
+            "out": "",
+            "err": "",
+            "data": {
+                "reason": "query-timeout",
+                "elapsedMs": 1501,
+                "timeoutMs": 1500,
+            },
+        }
+        fallback_calls = []
+
+        def fake_fallback(args, reason):
+            fallback_calls.append((args, reason))
+            return {"exit": 0, "out": "bounded fallback\n", "err": ""}
+
+        client.filesystem_query_response = fake_fallback
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            exit_code = client.main(["ygg", "query", "needle"])
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("bounded fallback\n", out.getvalue())
+        self.assertEqual([(["needle"], "query-timeout")], fallback_calls)
+
+    def test_query_timeout_packet_explains_that_enrichment_continues(self):
+        client = load_client()
+        client.filesystem_query_root = lambda: pathlib.Path("/workspace/demo")
+        client.run_filesystem_search = lambda _root, _patterns: {
+            "elapsed-ms": 2,
+            "matches": [],
+            "diagnostics": [],
+            "timeout?": False,
+            "truncated?": False,
+        }
+
+        packet = client.filesystem_query_packet(["needle", "--json"], "query-timeout")
+
+        self.assertEqual("query-timeout", packet["degradation"]["reason"])
+        self.assertIn("latency bound", packet["degradation"]["message"])
+        self.assertIn("continues", packet["degradation"]["message"])
 
     def test_request_retries_starting_health_response(self):
         client = load_client()

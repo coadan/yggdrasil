@@ -20,6 +20,8 @@ DEFAULT_STARTING_RETRY_TIMEOUT_MS = 30000
 STARTING_RETRY_INTERVAL_SECONDS = 5.0
 DEFAULT_REQUEST_TIMEOUT_MS = 600000
 DEFAULT_BENCH_AGENT_BASELINE_REQUEST_TIMEOUT_MS = 3600000
+DEFAULT_QUERY_FALLBACK_AFTER_MS = 1500
+DEFAULT_EXPANDED_QUERY_FALLBACK_AFTER_MS = 5000
 SERVER_FRAME_SCHEMA = "ygg.server.frame/v1"
 FILESYSTEM_QUERY_SCHEMA = "ygg.query/v2"
 QUERY_DEGRADATION_SCHEMA = "ygg.context.degradation/v1"
@@ -176,6 +178,30 @@ def request_timeout_seconds(op=None, args=None):
     if timeout_ms <= 0:
         return None
     return timeout_ms / 1000.0
+
+
+def query_fallback_after_ms(args=None):
+    args = args or []
+    output = option_value(args, "--output") or "compact"
+    default = (
+        DEFAULT_EXPANDED_QUERY_FALLBACK_AFTER_MS
+        if output in {"evidence", "full"}
+        else DEFAULT_QUERY_FALLBACK_AFTER_MS
+    )
+    return max(env_int("YGG_QUERY_FALLBACK_AFTER_MS", default), 0)
+
+
+def response_timeout_seconds(op=None, args=None):
+    request_timeout = request_timeout_seconds(op, args)
+    if op != "query":
+        return request_timeout
+    fallback_after_ms = query_fallback_after_ms(args)
+    if fallback_after_ms <= 0:
+        return request_timeout
+    fallback_timeout = fallback_after_ms / 1000.0
+    if request_timeout is None:
+        return fallback_timeout
+    return min(request_timeout, fallback_timeout)
 
 
 def connect_timeout_ms():
@@ -451,6 +477,12 @@ def degradation_message(reason):
         return (
             "Yggdrasil enrichment is starting; search is using bounded filesystem evidence. "
             "Graph-enriched results will become available automatically."
+        )
+    if reason == "query-timeout":
+        return (
+            "Yggdrasil enrichment did not respond within the query latency bound; "
+            "search is using bounded filesystem evidence. The enriched query continues "
+            "in the local service for later requests."
         )
     return (
         "Yggdrasil enrichment is unavailable; search is using bounded filesystem evidence. "
@@ -842,7 +874,7 @@ def request_once(op, args, extra=None, stream=False, render_progress=False, conn
         payload["stream"] = True
     host = server_host()
     port = server_port()
-    timeout_seconds = request_timeout_seconds(op, args)
+    timeout_seconds = response_timeout_seconds(op, args)
     start = time.monotonic()
     sock = connect_socket(host, port, connect_timeout_override_ms)
     if sock is None:
@@ -862,6 +894,17 @@ def request_once(op, args, extra=None, stream=False, render_progress=False, conn
     except socket.timeout:
         elapsed_ms = int((time.monotonic() - start) * 1000)
         timeout_ms = None if timeout_seconds is None else int(timeout_seconds * 1000)
+        if op == "query":
+            return {
+                "exit": 124,
+                "out": "",
+                "err": "",
+                "data": {
+                    "reason": "query-timeout",
+                    "elapsedMs": elapsed_ms,
+                    "timeoutMs": timeout_ms,
+                },
+            }
         return {
             "exit": 124,
             "out": "",
@@ -986,8 +1029,22 @@ def print_response(response):
 
 def server_request(op, args, stream=False, render_progress=False):
     response = request(op, args, stream=stream, render_progress=render_progress)
-    if op == "query" and (response is None or server_starting_response(response)):
-        reason = "server-starting" if server_starting_response(response) else "server-unavailable"
+    response_reason = (
+        response.get("data", {}).get("reason")
+        if isinstance(response, dict) and isinstance(response.get("data"), dict)
+        else None
+    )
+    if op == "query" and (
+        response is None
+        or server_starting_response(response)
+        or response_reason == "query-timeout"
+    ):
+        if response_reason == "query-timeout":
+            reason = "query-timeout"
+        elif server_starting_response(response):
+            reason = "server-starting"
+        else:
+            reason = "server-unavailable"
         return print_response(filesystem_query_response(args, reason))
     if response is None:
         sys.stderr.write(unavailable_message(op, args))
