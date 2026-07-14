@@ -84,12 +84,14 @@ have made filesystem evidence incomplete.
 Cold enriched-query caches follow the same contract: the first query returns
 filesystem results while one deduplicated background warmup prepares the richer
 path for later queries. A reachable but slow enriched query is also bounded;
-the client returns filesystem evidence instead of inheriting the general
-long-running request timeout. If the service is unavailable, the first fallback
-also requests one deduplicated background start so later queries can recover
-without a separate warm-up command. If graph storage is locked or cannot be
-opened, acquisition fails immediately and the reachable service returns
-filesystem evidence until storage becomes available again.
+the client hedges it with filesystem search after a short grace period. A local
+server acknowledgement extends that grace so the server can finish its
+registered-root search without a duplicate client search. If the service is
+unavailable, the first fallback also requests one deduplicated background start
+so later queries can recover without a separate warm-up command. If graph
+storage is locked or cannot be opened, acquisition fails immediately and the
+reachable service returns filesystem evidence until storage becomes available
+again.
 
 If you need an explicit editable project config, keep it separate from the
 generated project reference:

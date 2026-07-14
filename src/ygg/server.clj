@@ -1546,6 +1546,14 @@
                                :error (or (ex-message t) (.getMessage t)))))
         (throw t)))))
 
+(defn- emit-query-accepted!
+  [ctx request]
+  (when (and (= "query" (:op request))
+             (:emit-frame! ctx))
+    ((:emit-frame! ctx) {:schema server-frame-schema
+                         :type "accepted"
+                         :operation "query"})))
+
 (defn handle-request
   "Handle one decoded server protocol request."
   [ctx request]
@@ -1555,9 +1563,11 @@
        :exit 1
        :out ""
        :err "Unauthorized server request.\n"}
-      (if (contains? logged-ops (:op request))
-        (handle-logged-request ctx request)
-        (handle-authorized-request ctx request)))))
+      (do
+        (emit-query-accepted! ctx request)
+        (if (contains? logged-ops (:op request))
+          (handle-logged-request ctx request)
+          (handle-authorized-request ctx request))))))
 
 (defn- handle-socket!
   [ctx ^Socket socket]

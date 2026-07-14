@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import _thread
 import json
 import os
 import pathlib
@@ -22,6 +23,10 @@ DEFAULT_REQUEST_TIMEOUT_MS = 600000
 DEFAULT_BENCH_AGENT_BASELINE_REQUEST_TIMEOUT_MS = 3600000
 DEFAULT_QUERY_FALLBACK_AFTER_MS = 1500
 DEFAULT_EXPANDED_QUERY_FALLBACK_AFTER_MS = 5000
+DEFAULT_QUERY_HEDGE_AFTER_MS = 75
+DEFAULT_EXPANDED_QUERY_HEDGE_AFTER_MS = 250
+DEFAULT_ACKNOWLEDGED_QUERY_HEDGE_AFTER_MS = 300
+DEFAULT_ACKNOWLEDGED_EXPANDED_QUERY_HEDGE_AFTER_MS = 750
 DEFAULT_QUERY_AUTO_START_COOLDOWN_SECONDS = 15
 SERVER_FRAME_SCHEMA = "ygg.server.frame/v1"
 FILESYSTEM_QUERY_SCHEMA = "ygg.query/v2"
@@ -213,6 +218,32 @@ def query_fallback_after_ms(args=None):
         else DEFAULT_QUERY_FALLBACK_AFTER_MS
     )
     return max(env_int("YGG_QUERY_FALLBACK_AFTER_MS", default), 0)
+
+
+def query_hedge_after_ms(args=None):
+    args = args or []
+    output = option_value(args, "--output") or "compact"
+    default = (
+        DEFAULT_EXPANDED_QUERY_HEDGE_AFTER_MS
+        if output in {"evidence", "full"}
+        else DEFAULT_QUERY_HEDGE_AFTER_MS
+    )
+    return max(env_int("YGG_QUERY_HEDGE_AFTER_MS", default), 0)
+
+
+def acknowledged_query_hedge_after_ms(args=None):
+    args = args or []
+    output = option_value(args, "--output") or "compact"
+    default = (
+        DEFAULT_ACKNOWLEDGED_EXPANDED_QUERY_HEDGE_AFTER_MS
+        if output in {"evidence", "full"}
+        else DEFAULT_ACKNOWLEDGED_QUERY_HEDGE_AFTER_MS
+    )
+    return max(
+        query_hedge_after_ms(args),
+        env_int("YGG_QUERY_ACKNOWLEDGED_HEDGE_AFTER_MS", default),
+        0,
+    )
 
 
 def response_timeout_seconds(op=None, args=None):
@@ -600,6 +631,12 @@ def degradation_message(reason):
             "search is using bounded filesystem evidence. The enriched query continues "
             "in the local service for later requests."
         )
+    if reason == "query-hedge":
+        return (
+            "Yggdrasil enrichment did not respond before the filesystem hedge; "
+            "search is using bounded filesystem evidence. The enriched query continues "
+            "in the local service for later requests."
+        )
     if reason == "storage-unavailable":
         return (
             "Yggdrasil graph storage is unavailable; search is using bounded "
@@ -956,15 +993,20 @@ def render_progress_frame(frame, printed_header):
     return printed_header
 
 
-def read_server_response(response_file, render_progress=False):
+def read_server_response(response_file, render_progress=False, on_frame=None):
     printed_header = False
     for line in response_file:
         if not line:
             continue
         response = json.loads(line)
         if response.get("schema") == SERVER_FRAME_SCHEMA:
+            if on_frame is not None:
+                on_frame(response)
             if response.get("type") == "progress" and render_progress:
-                printed_header = render_progress_frame(response, printed_header)
+                if callable(render_progress):
+                    render_progress(response)
+                else:
+                    printed_header = render_progress_frame(response, printed_header)
             continue
         return response
     return None
@@ -983,7 +1025,15 @@ def server_starting_response(response):
     return any(value in {"starting", "server-starting"} for value in values)
 
 
-def request_once(op, args, extra=None, stream=False, render_progress=False, connect_timeout_override_ms=None):
+def request_once(
+    op,
+    args,
+    extra=None,
+    stream=False,
+    render_progress=False,
+    connect_timeout_override_ms=None,
+    on_frame=None,
+):
     payload = {
         "op": op,
         "args": args,
@@ -1017,6 +1067,7 @@ def request_once(op, args, extra=None, stream=False, render_progress=False, conn
             response = read_server_response(
                 sock.makefile("r", encoding="utf-8"),
                 render_progress=render_progress,
+                on_frame=on_frame,
             )
             if response is None:
                 return {"exit": 1, "out": "", "err": "Empty server response.\n"}
@@ -1050,7 +1101,15 @@ def request_once(op, args, extra=None, stream=False, render_progress=False, conn
         return None
 
 
-def request(op, args, extra=None, stream=False, render_progress=False, connect_timeout_override_ms=None):
+def request(
+    op,
+    args,
+    extra=None,
+    stream=False,
+    render_progress=False,
+    connect_timeout_override_ms=None,
+    on_frame=None,
+):
     if op == "query" and connect_timeout_override_ms is None:
         connect_timeout_override_ms = 0
     timeout_ms = starting_retry_timeout_ms()
@@ -1063,6 +1122,7 @@ def request(op, args, extra=None, stream=False, render_progress=False, connect_t
             stream=stream,
             render_progress=render_progress,
             connect_timeout_override_ms=connect_timeout_override_ms,
+            on_frame=on_frame,
         )
         if op == "query" or not server_starting_response(response):
             return response
@@ -1157,30 +1217,127 @@ def print_response(response):
     return int(response.get("exit", 1))
 
 
-def server_request(op, args, stream=False, render_progress=False):
-    response = request(op, args, stream=stream, render_progress=render_progress)
+def query_response_fallback_reason(response):
+    if response is None:
+        return "server-unavailable"
     response_reason = (
         response.get("data", {}).get("reason")
         if isinstance(response, dict) and isinstance(response.get("data"), dict)
         else None
     )
-    if op == "query" and (
-        response is None
-        or server_starting_response(response)
-        or response_reason in {"query-timeout", "storage-unavailable"}
-    ):
-        if response_reason in {"query-timeout", "storage-unavailable"}:
-            reason = response_reason
-        elif server_starting_response(response):
-            reason = "server-starting"
-        else:
-            reason = "server-unavailable"
-        exit_code = print_response(filesystem_query_response(args, reason))
-        if reason == "server-unavailable":
-            sys.stdout.flush()
-            sys.stderr.flush()
-            start_server_in_background()
-        return exit_code
+    if response_reason in {"query-timeout", "storage-unavailable"}:
+        return response_reason
+    if server_starting_response(response):
+        return "server-starting"
+    return None
+
+
+def start_pending_query_request(args, stream, render_progress):
+    completion = _thread.allocate_lock()
+    completion.acquire()
+    state = {}
+    progress_frames = []
+
+    def collect_frame(frame):
+        if frame.get("type") == "accepted":
+            state["acknowledged?"] = True
+        if (frame.get("type") == "progress"
+                and render_progress
+                and len(progress_frames) < 100):
+            progress_frames.append(frame)
+
+    def run_request():
+        try:
+            state["response"] = request(
+                "query",
+                args,
+                stream=stream,
+                render_progress=False,
+                on_frame=collect_frame,
+            )
+        except Exception as exc:
+            state["error"] = exc
+        finally:
+            completion.release()
+
+    _thread.start_new_thread(run_request, ())
+    return {
+        "completion": completion,
+        "state": state,
+        "progress-frames": progress_frames,
+        "render-progress?": render_progress,
+    }
+
+
+def pending_query_ready(pending, timeout_seconds=0):
+    ready = pending["completion"].acquire(timeout=max(0.0, timeout_seconds))
+    if ready:
+        pending["completion"].release()
+    return ready
+
+
+def completed_query_response(pending):
+    error = pending["state"].get("error")
+    if error is not None:
+        raise error
+    if pending["render-progress?"]:
+        printed_header = False
+        for frame in pending["progress-frames"]:
+            printed_header = render_progress_frame(frame, printed_header)
+    return pending["state"].get("response")
+
+
+def hedged_query_request(args, stream, render_progress):
+    hedge_after_ms = query_hedge_after_ms(args)
+    if hedge_after_ms <= 0:
+        return request(
+            "query",
+            args,
+            stream=stream,
+            render_progress=render_progress,
+        ), None
+    pending = start_pending_query_request(args, stream, render_progress)
+    if pending_query_ready(pending, hedge_after_ms / 1000.0):
+        return completed_query_response(pending), None
+    if pending["state"].get("acknowledged?"):
+        acknowledged_after_ms = acknowledged_query_hedge_after_ms(args)
+        remaining_ms = max(0, acknowledged_after_ms - hedge_after_ms)
+        if pending_query_ready(pending, remaining_ms / 1000.0):
+            return completed_query_response(pending), None
+    return None, pending
+
+
+def filesystem_query_exit(args, reason):
+    exit_code = print_response(filesystem_query_response(args, reason))
+    if reason == "server-unavailable":
+        sys.stdout.flush()
+        sys.stderr.flush()
+        start_server_in_background()
+    return exit_code
+
+
+def server_request(op, args, stream=False, render_progress=False):
+    pending = None
+    if op == "query":
+        response, pending = hedged_query_request(args, stream, render_progress)
+    else:
+        response = request(op, args, stream=stream, render_progress=render_progress)
+    if pending is not None:
+        filesystem_response = filesystem_query_response(args, "query-hedge")
+        if pending_query_ready(pending):
+            completed_response = completed_query_response(pending)
+            completed_reason = query_response_fallback_reason(completed_response)
+            if completed_reason is None:
+                return print_response(completed_response)
+            if completed_reason == "server-unavailable":
+                sys.stdout.flush()
+                sys.stderr.flush()
+                start_server_in_background()
+        return print_response(filesystem_response)
+    if op == "query":
+        reason = query_response_fallback_reason(response)
+        if reason is not None:
+            return filesystem_query_exit(args, reason)
     if response is None:
         sys.stderr.write(unavailable_message(op, args))
         return UNAVAILABLE

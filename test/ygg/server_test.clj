@@ -1433,6 +1433,9 @@
                                              :args ["needle" "--project" "demo"]})]
         (is (true? (:ok response)))
         (is (= [{:schema server/server-frame-schema
+                 :type "accepted"
+                 :operation "query"}
+                {:schema server/server-frame-schema
                  :type "progress"
                  :operation "query"
                  :message "demo loading search corpus (cold cache)"
@@ -1440,6 +1443,16 @@
                          :project-id "demo"
                          :cache-status :miss}}]
                @frames))))))
+
+(deftest unauthorized-query-does-not-emit-accepted-frame
+  (let [frames (atom [])
+        response (server/handle-request {:token "expected"
+                                         :emit-frame! #(swap! frames conj %)}
+                                        {:op "query"
+                                         :token "wrong"
+                                         :args ["needle"]})]
+    (is (false? (:ok response)))
+    (is (empty? @frames))))
 
 (deftest locked-command-request-returns-busy-without-waiting
   (let [lock (java.util.concurrent.locks.ReentrantLock.)

@@ -142,13 +142,14 @@ cold Yggdrasil p95 is no slower than raw ripgrep p95. Expect wrapper and JSON
 packet overhead to make that false on small repositories; report the absolute
 overhead as well as the ratio. `contract.sameRipgrepArgv` and
 `oneFilesystemProcessPerRepo` distinguish orchestration overhead from an extra
-repository scan. The command also exits non-zero unless every stalled request
-uses the `query-timeout` filesystem fallback and its p95 stays within the chosen
-query bound plus measured cold-wrapper p95 and a 75 ms scheduling tolerance.
-Use `--query-fallback-after-ms` and `--stalled-bound-tolerance-ms` to make those
-bounds explicit in constrained environments. This lane measures availability
-latency only; it does not support agent-effectiveness or architecture-quality
-claims.
+repository scan. Silent-stalled and acknowledged-stalled lanes must both use
+the `query-hedge` filesystem fallback. Their p95 bounds use the corresponding
+hedge grace plus measured cold-wrapper p95 and a 75 ms scheduling tolerance.
+Use `--query-hedge-after-ms`, `--acknowledged-query-hedge-after-ms`, and
+`--stalled-bound-tolerance-ms` to make those bounds explicit in constrained
+environments. The underlying `--query-fallback-after-ms` remains recorded as
+the hard response timeout. This benchmark measures availability latency only;
+it does not support agent-effectiveness or architecture-quality claims.
 
 ## Headline Suite
 

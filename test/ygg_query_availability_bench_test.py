@@ -45,12 +45,17 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
             {"p95Ms": 12.0},
             {"p95Ms": 35.0},
             {"p95Ms": 140.0},
+            {"p95Ms": 180.0},
         )
 
         self.assertEqual(1.2, result["filesystemLaneToRawP95Ratio"])
         self.assertEqual(25.0, result["coldYggP95OverheadMs"])
         self.assertEqual(14.0, result["stalledYggToRawP95Ratio"])
         self.assertEqual(130.0, result["stalledYggP95OverheadMs"])
+        self.assertEqual(
+            170.0,
+            result["acknowledgedStalledYggP95OverheadMs"],
+        )
         self.assertFalse(result["rawParitySupported"])
 
     def test_contract_requires_bounded_filesystem_fallback_for_every_stall(self):
@@ -63,19 +68,31 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
                 "completed": 3,
                 "timeouts": 0,
                 "p95Ms": 320.0,
-                "degradationReasons": {"query-timeout": 3},
+                "degradationReasons": {"query-hedge": 3},
+            },
+            "acknowledgedStalledYgg": {
+                "completed": 3,
+                "timeouts": 0,
+                "p95Ms": 420.0,
+                "degradationReasons": {"query-hedge": 3},
             },
         }
 
-        contract = bench.availability_contract(lanes, 3, 200)
+        contract = bench.availability_contract(lanes, 3, 200, 300)
 
         self.assertTrue(all(contract.values()))
 
         lanes["stalledYgg"]["p95Ms"] = 331.0
-        lanes["stalledYgg"]["degradationReasons"] = {"query-timeout": 2}
-        contract = bench.availability_contract(lanes, 3, 200)
+        lanes["stalledYgg"]["degradationReasons"] = {"query-hedge": 2}
+        lanes["acknowledgedStalledYgg"]["p95Ms"] = 431.0
+        lanes["acknowledgedStalledYgg"]["degradationReasons"] = {
+            "query-hedge": 2,
+        }
+        contract = bench.availability_contract(lanes, 3, 200, 300)
         self.assertFalse(contract["stalledP95WithinBound"])
         self.assertFalse(contract["stalledQueriesUsedFilesystem"])
+        self.assertFalse(contract["acknowledgedStalledP95WithinBound"])
+        self.assertFalse(contract["acknowledgedStalledQueriesUsedFilesystem"])
 
 
 if __name__ == "__main__":

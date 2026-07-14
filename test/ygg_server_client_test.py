@@ -5,6 +5,7 @@ import json
 import os
 import pathlib
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -67,6 +68,22 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual(
             client.DEFAULT_EXPANDED_QUERY_FALLBACK_AFTER_MS / 1000.0,
             client.response_timeout_seconds("query", ["--output", "evidence"]),
+        )
+        self.assertEqual(
+            client.DEFAULT_QUERY_HEDGE_AFTER_MS,
+            client.query_hedge_after_ms([]),
+        )
+        self.assertEqual(
+            client.DEFAULT_EXPANDED_QUERY_HEDGE_AFTER_MS,
+            client.query_hedge_after_ms(["--output", "full"]),
+        )
+        self.assertEqual(
+            client.DEFAULT_ACKNOWLEDGED_QUERY_HEDGE_AFTER_MS,
+            client.acknowledged_query_hedge_after_ms([]),
+        )
+        self.assertEqual(
+            client.DEFAULT_ACKNOWLEDGED_EXPANDED_QUERY_HEDGE_AFTER_MS,
+            client.acknowledged_query_hedge_after_ms(["--output", "evidence"]),
         )
 
     def test_invalid_timeout_env_values_use_defaults(self):
@@ -227,6 +244,7 @@ class ServerClientRoutingTest(unittest.TestCase):
 
     def test_server_command_routes_to_matching_server_op(self):
         client = load_client()
+        os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "0"
         cases = [
             (["ygg", "status", "--json"], ("status", ["--json"]),
              {"stream": False, "render_progress": False}),
@@ -257,6 +275,7 @@ class ServerClientRoutingTest(unittest.TestCase):
 
     def test_query_json_streams_progress_unless_explicitly_suppressed(self):
         client = load_client()
+        os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "0"
         cases = [
             (["needle", "--json"], True),
             (["needle", "--json", "--no-progress"], False),
@@ -278,6 +297,105 @@ class ServerClientRoutingTest(unittest.TestCase):
                 self.assertTrue(requests[0][2]["stream"])
                 self.assertEqual(expected_render_progress,
                                  requests[0][2]["render_progress"])
+
+    def test_slow_query_hedges_to_filesystem_without_waiting_for_server_timeout(self):
+        client = load_client()
+        release = threading.Event()
+        request_started = threading.Event()
+        fallback_reasons = []
+        os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "10"
+
+        def slow_request(*_args, **_kwargs):
+            request_started.set()
+            release.wait(1)
+            return {"exit": 0, "out": "late enriched\n", "err": ""}
+
+        client.request = slow_request
+        client.filesystem_query_response = lambda _args, reason: (
+            fallback_reasons.append(reason)
+            or {"exit": 0, "out": "hedged filesystem\n", "err": ""}
+        )
+        started = client.time.monotonic()
+        try:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                exit_code = client.main(["ygg", "query", "needle", "--no-progress"])
+        finally:
+            release.set()
+
+        self.assertTrue(request_started.is_set())
+        self.assertEqual(0, exit_code)
+        self.assertEqual("hedged filesystem\n", out.getvalue())
+        self.assertEqual(["query-hedge"], fallback_reasons)
+        self.assertLess(client.time.monotonic() - started, 0.5)
+
+    def test_query_prefers_enriched_response_that_finishes_during_hedge_search(self):
+        client = load_client()
+        os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "5"
+
+        def nearly_ready_request(*_args, **_kwargs):
+            client.time.sleep(0.02)
+            return {"exit": 0, "out": "enriched\n", "err": ""}
+
+        def slower_filesystem(_args, _reason):
+            client.time.sleep(0.04)
+            return {"exit": 0, "out": "filesystem\n", "err": ""}
+
+        client.request = nearly_ready_request
+        client.filesystem_query_response = slower_filesystem
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            exit_code = client.main(["ygg", "query", "needle", "--no-progress"])
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("enriched\n", out.getvalue())
+
+    def test_fast_hedged_query_renders_buffered_server_progress(self):
+        client = load_client()
+        os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "100"
+
+        def ready_request(*_args, **kwargs):
+            kwargs["on_frame"]({
+                "type": "accepted",
+                "operation": "query",
+            })
+            kwargs["on_frame"]({
+                "type": "progress",
+                "operation": "query",
+                "message": "ready evidence",
+            })
+            return {"exit": 0, "out": "enriched\n", "err": ""}
+
+        client.request = ready_request
+        out = io.StringIO()
+        err = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            exit_code = client.main(["ygg", "query", "needle"])
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("enriched\n", out.getvalue())
+        self.assertIn("ready evidence", err.getvalue())
+
+    def test_acknowledged_query_gets_longer_grace_without_duplicate_search(self):
+        client = load_client()
+        os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "5"
+        os.environ["YGG_QUERY_ACKNOWLEDGED_HEDGE_AFTER_MS"] = "100"
+
+        def acknowledged_request(*_args, **kwargs):
+            kwargs["on_frame"]({"type": "accepted", "operation": "query"})
+            client.time.sleep(0.03)
+            return {"exit": 0, "out": "acknowledged enriched\n", "err": ""}
+
+        client.request = acknowledged_request
+        client.filesystem_query_response = lambda *_args: self.fail(
+            "acknowledged request should finish inside its grace period"
+        )
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            exit_code = client.main(["ygg", "query", "needle", "--no-progress"])
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("acknowledged enriched\n", out.getvalue())
 
     def test_query_connection_is_non_blocking_when_server_is_cold(self):
         client = load_client()

@@ -18,7 +18,7 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLIENT_PATH = ROOT / "scripts" / "ygg-server-client.py"
-SCHEMA = "ygg.query-availability.benchmark/v2"
+SCHEMA = "ygg.query-availability.benchmark/v3"
 
 
 def load_client():
@@ -138,6 +138,8 @@ def cold_ygg_sample(
     rg_bin,
     port,
     query_fallback_after_ms=None,
+    query_hedge_after_ms=None,
+    acknowledged_query_hedge_after_ms=None,
 ):
     env = os.environ.copy()
     env.update({
@@ -151,6 +153,12 @@ def cold_ygg_sample(
     })
     if query_fallback_after_ms is not None:
         env["YGG_QUERY_FALLBACK_AFTER_MS"] = str(query_fallback_after_ms)
+    if query_hedge_after_ms is not None:
+        env["YGG_QUERY_HEDGE_AFTER_MS"] = str(query_hedge_after_ms)
+    if acknowledged_query_hedge_after_ms is not None:
+        env["YGG_QUERY_ACKNOWLEDGED_HEDGE_AFTER_MS"] = str(
+            acknowledged_query_hedge_after_ms
+        )
     argv = [
         sys.executable,
         str(CLIENT_PATH),
@@ -173,7 +181,12 @@ def cold_ygg_sample(
         )
         timed_out = wait_process(
             process,
-            max(timeout_ms, query_fallback_after_ms or 0) + 2000,
+            max(
+                timeout_ms,
+                query_fallback_after_ms or 0,
+                query_hedge_after_ms or 0,
+                acknowledged_query_hedge_after_ms or 0,
+            ) + 2000,
         )
         stdout_file.seek(0)
         try:
@@ -189,8 +202,9 @@ def cold_ygg_sample(
 
 
 class StalledQueryServer:
-    def __init__(self, delay_ms):
+    def __init__(self, delay_ms, acknowledge=False):
         self.delay_seconds = delay_ms / 1000.0
+        self.acknowledge = acknowledge
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.listener.bind(("127.0.0.1", 0))
         self.listener.listen()
@@ -227,12 +241,17 @@ class StalledQueryServer:
         with connection:
             try:
                 connection.recv(65536)
+                if self.acknowledge:
+                    connection.sendall(
+                        b'{"schema":"ygg.server.frame/v1","type":"accepted",'
+                        b'"operation":"query"}\n'
+                    )
                 time.sleep(self.delay_seconds)
             except OSError:
                 return
 
 
-def comparison(raw, lane, cold, stalled=None):
+def comparison(raw, lane, cold, stalled=None, acknowledged_stalled=None):
     raw_p95 = raw["p95Ms"]
     lane_p95 = lane["p95Ms"]
     cold_p95 = cold["p95Ms"]
@@ -248,16 +267,27 @@ def comparison(raw, lane, cold, stalled=None):
             "stalledYggToRawP95Ratio": stalled["p95Ms"] / raw_p95 if raw_p95 else None,
             "stalledYggP95OverheadMs": stalled["p95Ms"] - raw_p95,
         })
+    if acknowledged_stalled:
+        result.update({
+            "acknowledgedStalledYggToRawP95Ratio": (
+                acknowledged_stalled["p95Ms"] / raw_p95 if raw_p95 else None
+            ),
+            "acknowledgedStalledYggP95OverheadMs": (
+                acknowledged_stalled["p95Ms"] - raw_p95
+            ),
+        })
     return result
 
 
 def availability_contract(
     lanes,
     iterations,
-    query_fallback_after_ms,
+    query_hedge_after_ms,
+    acknowledged_query_hedge_after_ms,
     stalled_bound_tolerance_ms=0,
 ):
     stalled = lanes["stalledYgg"]
+    acknowledged_stalled = lanes["acknowledgedStalledYgg"]
     cold = lanes["coldYgg"]
     return {
         "sameRipgrepArgv": True,
@@ -267,12 +297,24 @@ def availability_contract(
         ),
         "zeroProcessTimeouts": all(lane["timeouts"] == 0 for lane in lanes.values()),
         "stalledQueriesUsedFilesystem": (
-            stalled.get("degradationReasons") == {"query-timeout": iterations}
+            stalled.get("degradationReasons") == {"query-hedge": iterations}
+        ),
+        "acknowledgedStalledQueriesUsedFilesystem": (
+            acknowledged_stalled.get("degradationReasons")
+            == {"query-hedge": iterations}
         ),
         "stalledP95WithinBound": (
             stalled["p95Ms"]
             <= (
-                query_fallback_after_ms
+                query_hedge_after_ms
+                + cold["p95Ms"]
+                + stalled_bound_tolerance_ms
+            )
+        ),
+        "acknowledgedStalledP95WithinBound": (
+            acknowledged_stalled["p95Ms"]
+            <= (
+                acknowledged_query_hedge_after_ms
                 + cold["p95Ms"]
                 + stalled_bound_tolerance_ms
             )
@@ -294,6 +336,16 @@ def run(args):
         if args.query_fallback_after_ms is not None
         else client.DEFAULT_QUERY_FALLBACK_AFTER_MS
     )
+    query_hedge_after_ms = (
+        args.query_hedge_after_ms
+        if args.query_hedge_after_ms is not None
+        else client.DEFAULT_QUERY_HEDGE_AFTER_MS
+    )
+    acknowledged_query_hedge_after_ms = (
+        args.acknowledged_query_hedge_after_ms
+        if args.acknowledged_query_hedge_after_ms is not None
+        else client.DEFAULT_ACKNOWLEDGED_QUERY_HEDGE_AFTER_MS
+    )
     stalled_server_delay_ms = (
         args.stalled_server_delay_ms
         if args.stalled_server_delay_ms is not None
@@ -301,6 +353,15 @@ def run(args):
     )
     if query_fallback_after_ms < 1:
         raise SystemExit("--query-fallback-after-ms must be at least 1")
+    if query_hedge_after_ms < 1:
+        raise SystemExit("--query-hedge-after-ms must be at least 1")
+    if acknowledged_query_hedge_after_ms < 0:
+        raise SystemExit("--acknowledged-query-hedge-after-ms cannot be negative")
+    if acknowledged_query_hedge_after_ms < query_hedge_after_ms:
+        raise SystemExit(
+            "--acknowledged-query-hedge-after-ms must be at least "
+            "--query-hedge-after-ms"
+        )
     if stalled_server_delay_ms <= query_fallback_after_ms:
         raise SystemExit(
             "--stalled-server-delay-ms must exceed --query-fallback-after-ms"
@@ -308,7 +369,11 @@ def run(args):
     if args.stalled_bound_tolerance_ms < 0:
         raise SystemExit("--stalled-bound-tolerance-ms cannot be negative")
     patterns = client.filesystem_query_patterns(args.query, [])
-    with StalledQueryServer(stalled_server_delay_ms) as stalled_server:
+    with (StalledQueryServer(stalled_server_delay_ms) as stalled_server,
+          StalledQueryServer(
+              stalled_server_delay_ms,
+              acknowledge=True,
+          ) as acknowledged_stalled_server):
         port = closed_loopback_port()
         lane_fns = {
             "rawRipgrep": lambda: raw_ripgrep_sample(
@@ -318,7 +383,15 @@ def run(args):
                 client, repo, patterns, args.timeout_ms, args.rg_bin
             ),
             "coldYgg": lambda: cold_ygg_sample(
-                repo, args.query, args.limit, args.timeout_ms, args.rg_bin, port
+                repo,
+                args.query,
+                args.limit,
+                args.timeout_ms,
+                args.rg_bin,
+                port,
+                query_fallback_after_ms,
+                query_hedge_after_ms,
+                acknowledged_query_hedge_after_ms,
             ),
             "stalledYgg": lambda: cold_ygg_sample(
                 repo,
@@ -328,6 +401,19 @@ def run(args):
                 args.rg_bin,
                 stalled_server.port,
                 query_fallback_after_ms,
+                query_hedge_after_ms,
+                acknowledged_query_hedge_after_ms,
+            ),
+            "acknowledgedStalledYgg": lambda: cold_ygg_sample(
+                repo,
+                args.query,
+                args.limit,
+                args.timeout_ms,
+                args.rg_bin,
+                acknowledged_stalled_server.port,
+                query_fallback_after_ms,
+                query_hedge_after_ms,
+                acknowledged_query_hedge_after_ms,
             ),
         }
         lane_names = list(lane_fns)
@@ -350,6 +436,12 @@ def run(args):
         "timeoutMs": args.timeout_ms,
         "queryFallbackAfterMs": query_fallback_after_ms,
         "clientDefaultQueryFallbackAfterMs": client.DEFAULT_QUERY_FALLBACK_AFTER_MS,
+        "queryHedgeAfterMs": query_hedge_after_ms,
+        "clientDefaultQueryHedgeAfterMs": client.DEFAULT_QUERY_HEDGE_AFTER_MS,
+        "acknowledgedQueryHedgeAfterMs": acknowledged_query_hedge_after_ms,
+        "clientDefaultAcknowledgedQueryHedgeAfterMs": (
+            client.DEFAULT_ACKNOWLEDGED_QUERY_HEDGE_AFTER_MS
+        ),
         "stalledServerDelayMs": stalled_server_delay_ms,
         "stalledBoundToleranceMs": args.stalled_bound_tolerance_ms,
         "lanes": lanes,
@@ -358,11 +450,13 @@ def run(args):
             lanes["filesystemLane"],
             lanes["coldYgg"],
             lanes["stalledYgg"],
+            lanes["acknowledgedStalledYgg"],
         ),
         "contract": availability_contract(
             lanes,
             args.iterations,
-            query_fallback_after_ms,
+            query_hedge_after_ms,
+            acknowledged_query_hedge_after_ms,
             args.stalled_bound_tolerance_ms,
         ),
     }
@@ -384,6 +478,8 @@ def parser():
     value.add_argument("--limit", type=int, default=10)
     value.add_argument("--timeout-ms", type=int, default=1500)
     value.add_argument("--query-fallback-after-ms", type=int)
+    value.add_argument("--query-hedge-after-ms", type=int)
+    value.add_argument("--acknowledged-query-hedge-after-ms", type=int)
     value.add_argument("--stalled-server-delay-ms", type=int)
     value.add_argument("--stalled-bound-tolerance-ms", type=int, default=75)
     value.add_argument("--rg-bin", default="rg")
