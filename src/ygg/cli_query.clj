@@ -11,6 +11,7 @@
                                      remove-option]]
             [ygg.context :as context]
             [ygg.embedding-client :as embedding-client]
+            [ygg.embedding :as embedding]
             [ygg.filesystem-query :as filesystem-query]
             [ygg.graph :as graph]
             [ygg.hash :as hash]
@@ -535,31 +536,52 @@
      :message (str "Indexing is active; search is using bounded filesystem evidence. "
                    "Graph-enriched results will become available automatically.")}))
 
+(def ^:private index-unavailable-fallback-status
+  {:reason :index-unavailable
+   :message (str "The query index is not ready; search is using bounded filesystem evidence. "
+                 "Graph-enriched results will become available automatically.")})
+
+(defn- query-index-ready?
+  [xtdb project-id repo-id]
+  (if-not (store/xtdb-handle? xtdb)
+    true
+    (try
+      (pos? (embedding/search-doc-count xtdb
+                                        {:project-id project-id
+                                         :repo-id repo-id}))
+      (catch Exception _
+        false))))
+
 (defn- cwd-fallback-project
   [project-id repo-id]
   {:id (or project-id "workspace")
    :repos [{:id (or repo-id "workspace")
             :root (System/getProperty "user.dir")}]})
 
-(defn- active-filesystem-fallback
-  [args query-text project-id repo-id]
-  (when-let [operation (active-indexing)]
-    (let [{:keys [reason message]} (active-fallback-status operation)
-          input (query-input-options args)
-          project (or (resolved-project args)
-                      (cwd-fallback-project project-id repo-id))]
-      (filesystem-query/search-project
-       project
-       query-text
-       {:repo-id repo-id
-        :retriever (keyword (or (option-value args "--retriever") "auto"))
-        :query-input input
-        :literals (:literals input)
-        :symbols (:symbols input)
-        :limit (or (parse-limit args) query/default-limit)
-        :reason reason
-        :message message
-        :operation (fallback-operation operation)}))))
+(defn- filesystem-fallback
+  [xtdb args query-text project-id repo-id]
+  (let [operation (active-indexing)
+        status (if operation
+                 (active-fallback-status operation)
+                 (when-not (query-index-ready? xtdb project-id repo-id)
+                   index-unavailable-fallback-status))]
+    (when status
+      (let [{:keys [reason message]} status
+            input (query-input-options args)
+            project (or (resolved-project args)
+                        (cwd-fallback-project project-id repo-id))]
+        (filesystem-query/search-project
+         project
+         query-text
+         {:repo-id repo-id
+          :retriever (keyword (or (option-value args "--retriever") "auto"))
+          :query-input input
+          :literals (:literals input)
+          :symbols (:symbols input)
+          :limit (or (parse-limit args) query/default-limit)
+          :reason reason
+          :message message
+          :operation (fallback-operation operation)})))))
 
 (defn- print-filesystem-fallback
   [{:keys [rows packet]}]
@@ -579,7 +601,7 @@
         {:keys [project-id repo-id]} (project-scope args)]
     (when (str/blank? query-text)
       (throw (ex-info "Missing query text." {:usage (usage)})))
-    (if-let [fallback (active-filesystem-fallback args query-text project-id repo-id)]
+    (if-let [fallback (filesystem-fallback xtdb args query-text project-id repo-id)]
       (if (json-output? args)
         (print-json (:packet fallback))
         (print-filesystem-fallback fallback))

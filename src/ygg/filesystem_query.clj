@@ -128,27 +128,39 @@
        frequencies
        (into (sorted-map))))
 
+(defn- path-pattern-count
+  [patterns path]
+  (let [path (str/lower-case (str path))]
+    (count (filter #(str/includes? path (str/lower-case (str %))) patterns))))
+
 (defn- ranked-matches
-  [searches limit]
+  [searches patterns limit]
   (let [matches (->> searches
                      (mapcat (fn [{:keys [repo-id matches]}]
                                (map #(assoc % :repo-id repo-id) matches)))
                      (sort-by (fn [{:keys [repo-id path count]}]
-                                [(- (long (or count 0)))
+                                [(- (path-pattern-count patterns path))
+                                 (- (long (or count 0)))
                                  (clojure.core/count (str path))
                                  (str repo-id)
                                  (str path)]))
                      (take limit)
                      vec)
-        max-count (reduce max 1 (map #(long (or (:count %) 0)) matches))]
-    (mapv (fn [index {:keys [repo-id path count]}]
+        max-count (reduce max 1 (map #(long (or (:count %) 0)) matches))
+        scores (mapv (fn [{:keys [path count]}]
+                       (+ (path-pattern-count patterns path)
+                          (/ (double (or count 0)) max-count)))
+                     matches)
+        max-score (reduce max 1.0 scores)]
+    (mapv (fn [index {:keys [repo-id path count]} score]
             {:repo-id repo-id
              :path path
              :rank (inc index)
-             :score (/ (double (or count 0)) max-count)
+             :score (/ score max-score)
              :count (long (or count 0))})
           (range)
-          matches)))
+          matches
+          scores)))
 
 (defn- result-row
   [path-id {:keys [repo-id path rank score count]}]
@@ -191,7 +203,7 @@
         patterns (query-patterns query-text opts)
         repos (selected-repos project repo-id)
         searches (mapv #(search-repo % patterns opts) repos)
-        rows (ranked-matches searches (long (or limit default-limit)))
+        rows (ranked-matches searches patterns (long (or limit default-limit)))
         path-rows (map-indexed (fn [index row]
                                  [(str "p" (inc index)) row])
                                rows)

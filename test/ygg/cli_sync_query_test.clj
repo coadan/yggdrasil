@@ -8,6 +8,7 @@
             [ygg.corrections :as corrections]
             [ygg.coverage :as coverage]
             [ygg.dependency-review :as dependency-review]
+            [ygg.embedding :as embedding]
             [ygg.evidence :as evidence]
             [ygg.filesystem-query :as filesystem-query]
             [ygg.graph :as graph]
@@ -1673,6 +1674,38 @@
       (is (= "filesystem" (get-in packet [:retrieval :effective])))
       (is (= "active-embedding" (get-in packet [:degradation :reason])))
       (is (= "embed" (get-in packet [:degradation :operation :op]))))))
+
+(deftest query-routes-to-filesystem-when-index-is-not-ready
+  (with-redefs [store/with-node (fn [_ f] (f :xtdb))
+                store/xtdb-handle? (constantly true)
+                embedding/search-doc-count (fn [xtdb scope]
+                                             (is (= :xtdb xtdb))
+                                             (is (= {:project-id "fixture"
+                                                     :repo-id nil}
+                                                    scope))
+                                             0)
+                filesystem-query/search-project
+                (fn [_ _ opts]
+                  {:rows []
+                   :packet {:schema filesystem-query/schema
+                            :retrieval {:effective :filesystem
+                                        :reason (:reason opts)}}})
+                query/semantic-query (fn [& _]
+                                       (throw (ex-info "graph query should not run" {})))]
+    (let [out (with-out-str
+                (binding [cli-query/*deps* {:usage (fn [] "")
+                                            :print-json #(println
+                                                          (json/write-json-str %))
+                                            :temporal-options (fn [_] {})
+                                            :context-packet-options
+                                            (fn [_ _ opts] opts)}]
+                  (cli-query/query!
+                   ["auth" "--project" "fixture" "--json"])))
+          packet (read-json-output out)]
+      (is (= filesystem-query/schema (:schema packet)))
+      (is (= "filesystem" (get-in packet [:retrieval :effective])))
+      (is (= "index-unavailable" (get-in packet [:retrieval :reason]))))))
+
 (deftest view-json-writes-canonical-export
   (let [written (atom nil)]
     (with-redefs [store/with-node (fn [_ f] (f :xtdb))
