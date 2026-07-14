@@ -146,8 +146,10 @@ repository scan. The active-indexing handoff lane must report
 `active-indexing`, use one filesystem process for the requested scope, and stay
 within measured cold-wrapper p95 plus the scheduling tolerance. Silent-stalled
 and acknowledged-stalled lanes must both use the `query-hedge` filesystem
-fallback. Their p95 bounds use the corresponding hedge grace plus measured
-cold-wrapper p95 and a 75 ms scheduling tolerance.
+fallback. The acknowledged lane must also use repository scope from its accepted
+frame. Their p95 bounds use the corresponding hedge grace plus measured
+cold-wrapper p95 and a 75 ms scheduling tolerance. Filesystem packets expose
+`filesystem-handoff?` so this scope transfer is measured rather than inferred.
 Use `--query-hedge-after-ms`, `--acknowledged-query-hedge-after-ms`, and
 `--stalled-bound-tolerance-ms` to make those bounds explicit in constrained
 environments. The underlying `--query-fallback-after-ms` remains recorded as

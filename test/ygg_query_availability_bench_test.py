@@ -80,6 +80,7 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
                 "timeouts": 0,
                 "p95Ms": 420.0,
                 "degradationReasons": {"query-hedge": 3},
+                "filesystemHandoffCounts": {"true": 3},
             },
             "activeIndexingHandoffYgg": {
                 "completed": 3,
@@ -88,6 +89,7 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
                 "degradationReasons": {"active-indexing": 3},
                 "filesystemProcessCounts": {"1": 3},
                 "filesystemRepoCounts": {"1": 3},
+                "filesystemHandoffCounts": {"true": 3},
             },
         }
 
@@ -101,6 +103,9 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
         lanes["acknowledgedStalledYgg"]["degradationReasons"] = {
             "query-hedge": 2,
         }
+        lanes["acknowledgedStalledYgg"]["filesystemHandoffCounts"] = {
+            "true": 2,
+        }
         lanes["activeIndexingHandoffYgg"]["p95Ms"] = 131.0
         lanes["activeIndexingHandoffYgg"]["degradationReasons"] = {
             "active-indexing": 2,
@@ -109,15 +114,20 @@ class QueryAvailabilityBenchTest(unittest.TestCase):
             "1": 2,
         }
         lanes["activeIndexingHandoffYgg"]["filesystemRepoCounts"] = {"1": 2}
+        lanes["activeIndexingHandoffYgg"]["filesystemHandoffCounts"] = {
+            "true": 2,
+        }
         contract = bench.availability_contract(lanes, 3, 200, 300)
         self.assertFalse(contract["stalledP95WithinBound"])
         self.assertFalse(contract["stalledQueriesUsedFilesystem"])
         self.assertFalse(contract["acknowledgedStalledP95WithinBound"])
         self.assertFalse(contract["acknowledgedStalledQueriesUsedFilesystem"])
+        self.assertFalse(contract["acknowledgedStalledUsedAcceptedHandoff"])
         self.assertFalse(contract["activeIndexingHandoffP95WithinBound"])
         self.assertFalse(contract["activeIndexingHandoffUsedFilesystem"])
         self.assertFalse(contract["activeIndexingHandoffUsedOneProcess"])
         self.assertFalse(contract["activeIndexingHandoffUsedRequestedRepoScope"])
+        self.assertFalse(contract["activeIndexingHandoffUsedAcceptedOrFinalHandoff"])
 
 
 if __name__ == "__main__":

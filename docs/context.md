@@ -28,8 +28,8 @@ state is cold, absent, or changing.
 | Graph storage locked or unavailable | Fail storage acquisition immediately and search registered repository roots. | degradation reason `storage-unavailable` |
 | Sync, initialization, or embedding active | Hand registered repository roots to the client without opening graph storage; the client searches that scope directly. | degradation reason `active-indexing` or `active-embedding` |
 | Enriched query caches cold or warming | Search registered repository roots, start one background warmup per project/repository scope, and keep later queries on the filesystem lane until it completes. | degradation reason `cache-warming`; `query-warmup` operation attached |
-| Connected endpoint remains silent | Start filesystem search after a 75 ms compact-query grace period. | degradation reason `query-hedge` |
-| Local server acknowledges the query but remains slow | Give the server 300 ms for a compact query so its registered-root search can finish without a duplicate client search, then take the filesystem lane. | degradation reason `query-hedge` |
+| Connected endpoint remains silent | Start filesystem search after a 15 ms compact-query grace period. | degradation reason `query-hedge` |
+| Local server acknowledges the query but remains slow | Use registered roots from the accepted frame and start filesystem search at the same 15 ms bound. | degradation reason `query-hedge`; `filesystem-handoff?: true` |
 | Enriched query exceeds its response bound | Return filesystem evidence while the requested query continues in the local service. | degradation reason `query-timeout` |
 | Enrichment ready | Use normal `auto` retrieval and the available lexical, grep, semantic, and graph evidence. | normal retrieval and evidence fields |
 
@@ -57,16 +57,14 @@ temporal reads bypass them. Compact packets expose `package-report-cache`,
 `source-coverage-cache`, and `system-graph-cache` in search instrumentation so
 benchmarks can distinguish retrieval time from project-wide recomputation.
 
-The client hedges a silent compact query after 75 ms and an acknowledged compact
-query after 300 ms. The acknowledged grace lets a healthy local server finish
-its registered-root fallback without launching a duplicate client search.
-During active indexing or embedding, the client declares that it can own the
-fallback; the server returns repository roots immediately and starts no
-filesystem process, so this path does not consume either hedge grace.
-Explicit `--output evidence` and `--output full` queries use 250 ms and 750 ms
-respectively. If the server finishes while the client filesystem search is in
-progress, the client still returns the server response. Configure the grace
-periods with `YGG_QUERY_HEDGE_AFTER_MS` and
+The client hedges compact queries after 15 ms whether or not the local server has
+acknowledged them. A capable server attaches the registered repository roots to
+its accepted frame, allowing an early client search to preserve project scope.
+During active indexing or embedding, the server also returns the explicit
+degraded state and starts no filesystem process. Explicit `--output evidence`
+and `--output full` queries use a 25 ms grace. If the server finishes while the
+client filesystem search is in progress, the client still returns the server
+response. Configure the grace periods with `YGG_QUERY_HEDGE_AFTER_MS` and
 `YGG_QUERY_ACKNOWLEDGED_HEDGE_AFTER_MS`; set `YGG_QUERY_HEDGE_AFTER_MS=0` to
 disable hedging. The underlying hard response bounds remain 1.5 seconds for
 compact output and 5 seconds for expanded output. Override those with

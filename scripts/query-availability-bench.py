@@ -18,7 +18,7 @@ import time
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CLIENT_PATH = ROOT / "scripts" / "ygg-server-client.py"
-SCHEMA = "ygg.query-availability.benchmark/v4"
+SCHEMA = "ygg.query-availability.benchmark/v5"
 
 
 def load_client():
@@ -57,19 +57,26 @@ def summarize(samples):
         summary["degradationReasons"] = degradation_reasons
     filesystem_process_counts = {}
     filesystem_repo_counts = {}
+    filesystem_handoff_counts = {}
     for sample in samples:
         process_count = sample.get("filesystemProcesses")
         repo_count = sample.get("filesystemRepos")
+        handoff = sample.get("filesystemHandoff")
         if process_count is not None:
             key = str(process_count)
             filesystem_process_counts[key] = filesystem_process_counts.get(key, 0) + 1
         if repo_count is not None:
             key = str(repo_count)
             filesystem_repo_counts[key] = filesystem_repo_counts.get(key, 0) + 1
+        if handoff is not None:
+            key = str(bool(handoff)).lower()
+            filesystem_handoff_counts[key] = filesystem_handoff_counts.get(key, 0) + 1
     if filesystem_process_counts:
         summary["filesystemProcessCounts"] = filesystem_process_counts
     if filesystem_repo_counts:
         summary["filesystemRepoCounts"] = filesystem_repo_counts
+    if filesystem_handoff_counts:
+        summary["filesystemHandoffCounts"] = filesystem_handoff_counts
     return summary
 
 
@@ -219,13 +226,17 @@ def cold_ygg_sample(
         "filesystemRepos": packet.get("search", {}).get(
             "instrumentation", {}
         ).get("filesystem-repos"),
+        "filesystemHandoff": packet.get("search", {}).get(
+            "instrumentation", {}
+        ).get("filesystem-handoff?"),
     }
 
 
 class StalledQueryServer:
-    def __init__(self, delay_ms, acknowledge=False):
+    def __init__(self, delay_ms, acknowledge=False, filesystem_handoff=None):
         self.delay_seconds = delay_ms / 1000.0
         self.acknowledge = acknowledge
+        self.filesystem_handoff = filesystem_handoff
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.listener.bind(("127.0.0.1", 0))
         self.listener.listen()
@@ -263,9 +274,15 @@ class StalledQueryServer:
             try:
                 connection.recv(65536)
                 if self.acknowledge:
+                    frame = {
+                        "schema": "ygg.server.frame/v1",
+                        "type": "accepted",
+                        "operation": "query",
+                    }
+                    if self.filesystem_handoff:
+                        frame["filesystemHandoff"] = self.filesystem_handoff
                     connection.sendall(
-                        b'{"schema":"ygg.server.frame/v1","type":"accepted",'
-                        b'"operation":"query"}\n'
+                        (json.dumps(frame, separators=(",", ":")) + "\n").encode()
                     )
                 time.sleep(self.delay_seconds)
             except OSError:
@@ -311,10 +328,18 @@ class ActiveIndexingHandoffServer:
         with connection:
             try:
                 connection.recv(65536)
-                connection.sendall(
-                    b'{"schema":"ygg.server.frame/v1","type":"accepted",'
-                    b'"operation":"query"}\n'
-                )
+                handoff = {
+                    "schema": "ygg.query.filesystem-handoff/v1",
+                    "reason": "active-indexing",
+                    "fallback": "filesystem",
+                    "repos": [{"id": self.repo.name, "root": str(self.repo)}],
+                }
+                connection.sendall((json.dumps({
+                    "schema": "ygg.server.frame/v1",
+                    "type": "accepted",
+                    "operation": "query",
+                    "filesystemHandoff": handoff,
+                }, separators=(",", ":")) + "\n").encode())
                 response = {
                     "ok": True,
                     "exit": 0,
@@ -403,6 +428,10 @@ def availability_contract(
             acknowledged_stalled.get("degradationReasons")
             == {"query-hedge": iterations}
         ),
+        "acknowledgedStalledUsedAcceptedHandoff": (
+            acknowledged_stalled.get("filesystemHandoffCounts")
+            == {"true": iterations}
+        ),
         "activeIndexingHandoffUsedFilesystem": (
             active_handoff.get("degradationReasons")
             == {"active-indexing": iterations}
@@ -412,6 +441,9 @@ def availability_contract(
         ),
         "activeIndexingHandoffUsedRequestedRepoScope": (
             active_handoff.get("filesystemRepoCounts") == {"1": iterations}
+        ),
+        "activeIndexingHandoffUsedAcceptedOrFinalHandoff": (
+            active_handoff.get("filesystemHandoffCounts") == {"true": iterations}
         ),
         "stalledP95WithinBound": (
             stalled["p95Ms"]
@@ -483,10 +515,17 @@ def run(args):
     if args.stalled_bound_tolerance_ms < 0:
         raise SystemExit("--stalled-bound-tolerance-ms cannot be negative")
     patterns = client.filesystem_query_patterns(args.query, [])
+    accepted_handoff = {
+        "schema": "ygg.query.filesystem-handoff/v1",
+        "reason": "query-hedge",
+        "fallback": "filesystem",
+        "repos": [{"id": repo.name, "root": str(repo)}],
+    }
     with (StalledQueryServer(stalled_server_delay_ms) as stalled_server,
           StalledQueryServer(
               stalled_server_delay_ms,
               acknowledge=True,
+              filesystem_handoff=accepted_handoff,
           ) as acknowledged_stalled_server,
           ActiveIndexingHandoffServer(repo) as active_handoff_server):
         port = closed_loopback_port()

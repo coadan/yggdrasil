@@ -23,10 +23,10 @@ DEFAULT_REQUEST_TIMEOUT_MS = 600000
 DEFAULT_BENCH_AGENT_BASELINE_REQUEST_TIMEOUT_MS = 3600000
 DEFAULT_QUERY_FALLBACK_AFTER_MS = 1500
 DEFAULT_EXPANDED_QUERY_FALLBACK_AFTER_MS = 5000
-DEFAULT_QUERY_HEDGE_AFTER_MS = 75
-DEFAULT_EXPANDED_QUERY_HEDGE_AFTER_MS = 250
-DEFAULT_ACKNOWLEDGED_QUERY_HEDGE_AFTER_MS = 300
-DEFAULT_ACKNOWLEDGED_EXPANDED_QUERY_HEDGE_AFTER_MS = 750
+DEFAULT_QUERY_HEDGE_AFTER_MS = 15
+DEFAULT_EXPANDED_QUERY_HEDGE_AFTER_MS = 25
+DEFAULT_ACKNOWLEDGED_QUERY_HEDGE_AFTER_MS = 15
+DEFAULT_ACKNOWLEDGED_EXPANDED_QUERY_HEDGE_AFTER_MS = 25
 DEFAULT_QUERY_AUTO_START_COOLDOWN_SECONDS = 15
 SERVER_FRAME_SCHEMA = "ygg.server.frame/v1"
 FILESYSTEM_QUERY_SCHEMA = "ygg.query/v2"
@@ -858,6 +858,7 @@ def filesystem_query_packet(args, reason, repositories=None):
             "instrumentation": {
                 "filesystem-processes": int(search.get("process-attempted?", True)),
                 "filesystem-repos": len(repositories) if repositories else 1,
+                "filesystem-handoff?": bool(repositories),
                 "filesystem-search-ms": search["elapsed-ms"],
                 "filesystem-total-ms": int((time.monotonic() - started) * 1000),
                 "filesystem-patterns": patterns,
@@ -1362,6 +1363,7 @@ def start_pending_query_request(args, stream, render_progress):
     def collect_frame(frame):
         if frame.get("type") == "accepted":
             state["acknowledged?"] = True
+            state["filesystem-handoff"] = frame.get("filesystemHandoff")
         if (frame.get("type") == "progress"
                 and render_progress
                 and len(progress_frames) < 100):
@@ -1408,6 +1410,21 @@ def completed_query_response(pending):
     return pending["state"].get("response")
 
 
+def pending_query_filesystem_repositories(pending):
+    handoff = pending["state"].get("filesystem-handoff")
+    if not handoff:
+        return []
+    return filesystem_handoff_repositories({"data": handoff})
+
+
+def pending_query_filesystem_reason(pending):
+    handoff = pending["state"].get("filesystem-handoff") or {}
+    reason = handoff.get("reason")
+    if reason in {"active-embedding", "active-indexing"}:
+        return reason
+    return "query-hedge"
+
+
 def hedged_query_request(args, stream, render_progress):
     hedge_after_ms = query_hedge_after_ms(args)
     if hedge_after_ms <= 0:
@@ -1449,7 +1466,13 @@ def server_request(op, args, stream=False, render_progress=False):
     else:
         response = request(op, args, stream=stream, render_progress=render_progress)
     if pending is not None:
-        filesystem_response = filesystem_query_response(args, "query-hedge")
+        repositories = pending_query_filesystem_repositories(pending)
+        reason = pending_query_filesystem_reason(pending)
+        filesystem_response = (
+            filesystem_query_response(args, reason, repositories)
+            if repositories
+            else filesystem_query_response(args, reason)
+        )
         if pending_query_ready(pending):
             completed_response = completed_query_response(pending)
             completed_reason = query_response_fallback_reason(completed_response)

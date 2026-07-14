@@ -16,6 +16,10 @@ Yggdrasil stores concrete facts first. Architecture, ownership, and other
 project meaning enter through auditable corrections and reviewed metadata, not
 hard-coded guesses based on names or paths.
 
+Search availability is a core contract: indexing and embedding enrich results
+over time, but never gate the query path. While richer state is cold or changing,
+Yggdrasil routes to bounded filesystem search and reports that degradation.
+
 ## Project Status
 
 Yggdrasil is in active early development. Data shapes and commands may change
@@ -84,11 +88,11 @@ have made filesystem evidence incomplete.
 Cold enriched-query caches follow the same contract: the first query returns
 filesystem results while one deduplicated background warmup prepares the richer
 path for later queries. A reachable but slow enriched query is also bounded;
-the client hedges it with filesystem search after a short grace period. A local
-server acknowledgement extends that grace so the server can finish its
-registered-root search without a duplicate client search. During active
-indexing or embedding, the server instead hands registered roots to the client
-immediately and starts no competing filesystem search. If the service is
+the client hedges it with filesystem search after a 15 ms compact-query grace.
+The server includes registered roots in its immediate acknowledgement, so this
+early hedge keeps project scope without waiting for enriched retrieval. During
+active indexing or embedding, the server also returns the explicit degraded
+state and starts no competing filesystem search. If the service is
 unavailable, the first fallback also requests one deduplicated background start
 so later queries can recover without a separate warm-up command. If graph
 storage is locked or cannot be opened, acquisition fails immediately and the

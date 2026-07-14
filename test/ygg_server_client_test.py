@@ -329,6 +329,67 @@ class ServerClientRoutingTest(unittest.TestCase):
         self.assertEqual(["query-hedge"], fallback_reasons)
         self.assertLess(client.time.monotonic() - started, 0.5)
 
+    def test_early_hedge_uses_filesystem_scope_from_accepted_frame(self):
+        client = load_client()
+        release = threading.Event()
+        os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "5"
+        with tempfile.TemporaryDirectory() as root:
+            repo = pathlib.Path(root) / "repo"
+            repo.mkdir()
+
+            def acknowledged_request(*_args, **kwargs):
+                kwargs["on_frame"]({
+                    "type": "accepted",
+                    "operation": "query",
+                    "filesystemHandoff": {
+                        "schema": client.FILESYSTEM_HANDOFF_SCHEMA,
+                        "reason": "query-hedge",
+                        "repos": [{"id": "app", "root": str(repo)}],
+                    },
+                })
+                release.wait(1)
+                return {"exit": 0, "out": "late enriched\n", "err": ""}
+
+            client.request = acknowledged_request
+            fallback_calls = []
+            client.filesystem_query_response = (
+                lambda args, reason, repositories: fallback_calls.append(
+                    (args, reason, repositories)
+                ) or {"exit": 0, "out": "scoped filesystem\n", "err": ""}
+            )
+            try:
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    exit_code = client.main([
+                        "ygg", "query", "needle", "--project", "demo", "--no-progress"
+                    ])
+            finally:
+                release.set()
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual("scoped filesystem\n", out.getvalue())
+        self.assertEqual("query-hedge", fallback_calls[0][1])
+        self.assertEqual(
+            [("app", repo.resolve())],
+            [(row["id"], row["root"]) for row in fallback_calls[0][2]],
+        )
+
+    def test_early_hedge_preserves_active_operation_reason(self):
+        client = load_client()
+        pending = {
+            "state": {
+                "filesystem-handoff": {
+                    "schema": client.FILESYSTEM_HANDOFF_SCHEMA,
+                    "reason": "active-indexing",
+                }
+            }
+        }
+
+        self.assertEqual(
+            "active-indexing",
+            client.pending_query_filesystem_reason(pending),
+        )
+
     def test_query_prefers_enriched_response_that_finishes_during_hedge_search(self):
         client = load_client()
         os.environ["YGG_QUERY_HEDGE_AFTER_MS"] = "5"
@@ -613,6 +674,7 @@ class ServerClientRoutingTest(unittest.TestCase):
         )
         self.assertTrue(instrumentation["filesystem-incomplete?"])
         self.assertEqual(1, instrumentation["filesystem-repos"])
+        self.assertFalse(instrumentation["filesystem-handoff?"])
         self.assertIn(client.FILESYSTEM_INCOMPLETE_WARNING, packet["warnings"])
 
     def test_filesystem_handoff_searches_registered_roots_in_one_process(self):
@@ -671,6 +733,7 @@ class ServerClientRoutingTest(unittest.TestCase):
         instrumentation = packet["search"]["instrumentation"]
         self.assertEqual(1, instrumentation["filesystem-processes"])
         self.assertEqual(2, instrumentation["filesystem-repos"])
+        self.assertTrue(instrumentation["filesystem-handoff?"])
 
     def test_plain_filesystem_timeout_warns_that_results_are_incomplete(self):
         client = load_client()

@@ -746,6 +746,26 @@
                     {})))
   (query-with-node! nil args))
 
+(defn query-filesystem-handoff
+  "Return registered repository roots for a client-owned filesystem fallback.
+
+  This bounded handoff does not open graph storage or start filesystem processes.
+  `status` may supply `:reason`, `:message`, and `:operation` fields for the
+  fallback response."
+  [args status]
+  (let [{:keys [project-id repo-id]} (project-scope args)
+        project (or (resolved-project args)
+                    (cwd-fallback-project project-id repo-id))
+        repos (cond->> (:repos project)
+                repo-id (filter #(= (str repo-id) (str (:id %)))))]
+    (cond-> {:schema filesystem-handoff-schema
+             :fallback :filesystem
+             :projectId (:id project)
+             :repos (mapv #(select-keys % [:id :root]) repos)}
+      (:reason status) (assoc :reason (:reason status))
+      (:message status) (assoc :message (:message status))
+      (:operation status) (assoc :operation (:operation status)))))
+
 (defn active-query-filesystem-handoff
   "Return registered repository roots for a client-owned active-indexing fallback.
 
@@ -756,19 +776,9 @@
     (when-not operation
       (throw (ex-info "Active query handoff requires an active indexing operation."
                       {})))
-    (let [{:keys [project-id repo-id]} (project-scope args)
-          project (or (resolved-project args)
-                      (cwd-fallback-project project-id repo-id))
-          {:keys [reason message]} (active-fallback-status operation)
-          repos (cond->> (:repos project)
-                  repo-id (filter #(= (str repo-id) (str (:id %)))))]
-      {:schema filesystem-handoff-schema
-       :reason reason
-       :fallback :filesystem
-       :message message
-       :projectId (:id project)
-       :repos (mapv #(select-keys % [:id :root]) repos)
-       :operation operation})))
+    (query-filesystem-handoff args
+                              (assoc (active-fallback-status operation)
+                                     :operation operation))))
 
 (defn query!
   [args]

@@ -1484,6 +1484,71 @@
                          :cache-status :miss}}]
                @frames))))))
 
+(deftest client-owned-query-accepted-frame-includes-filesystem-scope
+  (let [frames (atom [])]
+    (with-redefs [cli/query-deps (constantly {})
+                  cli-query/query-with-node! (fn [& _])]
+      (let [response (server/handle-request
+                      {:xtdb :xtdb
+                       :token "token"
+                       :running (atom true)
+                       :project-scope-cache
+                       (atom {"demo" {:id "demo"
+                                      :repos [{:id "app"
+                                               :root "/workspace/app"}]}})
+                       :emit-frame! #(swap! frames conj %)}
+                      {:op "query"
+                       :token "token"
+                       :cwd "/workspace/app"
+                       :filesystemFallbackOwner "client"
+                       :args ["needle" "--project" "demo"]})]
+        (is (true? (:ok response)))
+        (is (= [{:schema server/server-frame-schema
+                 :type "accepted"
+                 :operation "query"
+                 :filesystemHandoff
+                 {:schema cli-query/filesystem-handoff-schema
+                  :reason :query-hedge
+                  :fallback :filesystem
+                  :projectId "demo"
+                  :repos [{:id "app" :root "/workspace/app"}]}}]
+               @frames))))))
+
+(deftest client-owned-query-accepted-frame-identifies-active-indexing
+  (let [frames (atom [])
+        operation {:schema "ygg.server.active-operation/v1"
+                   :op "sync"
+                   :projectId "demo"
+                   :startedAtMs (System/currentTimeMillis)}]
+    (with-redefs [cli/query-deps (constantly {})
+                  cli-query/active-query-filesystem-handoff
+                  (fn [_]
+                    {:schema cli-query/filesystem-handoff-schema
+                     :reason :active-indexing
+                     :fallback :filesystem
+                     :projectId "demo"
+                     :repos [{:id "app" :root "/workspace/app"}]})]
+      (let [response (server/handle-request
+                      {:xtdb :xtdb
+                       :token "token"
+                       :running (atom true)
+                       :active-operations (atom {"project:demo" operation})
+                       :project-scope-cache
+                       (atom {"demo" {:id "demo"
+                                      :repos [{:id "app"
+                                               :root "/workspace/app"}]}})
+                       :emit-frame! #(swap! frames conj %)}
+                      {:op "query"
+                       :token "token"
+                       :cwd "/workspace/app"
+                       :filesystemFallbackOwner "client"
+                       :args ["needle" "--project" "demo"]})
+            handoff (:filesystemHandoff (first @frames))]
+        (is (true? (:ok response)))
+        (is (= :active-indexing (:reason handoff)))
+        (is (= [{:id "app" :root "/workspace/app"}] (:repos handoff)))
+        (is (= "sync" (get-in handoff [:operation :op])))))))
+
 (deftest unauthorized-query-does-not-emit-accepted-frame
   (let [frames (atom [])
         response (server/handle-request {:token "expected"

@@ -25,6 +25,7 @@
             PrintWriter StringWriter]
            [java.lang ProcessHandle]
            [java.net InetAddress ServerSocket Socket]
+           [java.nio.file Path]
            [java.util.concurrent ExecutorService Executors ThreadFactory TimeUnit]
            [java.util.concurrent.locks ReentrantLock]
            [java.util.concurrent.atomic AtomicLong]
@@ -975,6 +976,47 @@
                  :error-data (ex-data e)})))
           (sort (keys (registry/projects registry))))))
 
+(defn- registered-project-scope-cache
+  []
+  (try
+    (->> (registered-projects)
+         (keep :project)
+         (map (fn [project]
+                [(str (:id project))
+                 {:id (:id project)
+                  :repos (mapv #(select-keys % [:id :root]) (:repos project))}]))
+         (into {}))
+    (catch Exception _
+      {})))
+
+(defn- normalized-path
+  ^Path [path]
+  (some-> path io/file .toPath .toAbsolutePath .normalize))
+
+(defn- path-below-root?
+  [path root]
+  (try
+    (let [^Path path (normalized-path path)
+          ^Path root (normalized-path root)]
+      (.startsWith path root))
+    (catch Exception _
+      false)))
+
+(defn- cached-project-for-cwd
+  [projects cwd]
+  (->> (vals projects)
+       (mapcat (fn [project]
+                 (map #(assoc % :project project) (:repos project))))
+       (filter #(path-below-root? cwd (:root %)))
+       (sort-by #(count (str (:root %))) >)
+       first
+       :project))
+
+(defn- refresh-project-scope-cache!
+  [ctx]
+  (when-let [project-scope-cache (:project-scope-cache ctx)]
+    (reset! project-scope-cache (registered-project-scope-cache))))
+
 (defn- maintenance-project-status
   [{:keys [project project-id error error-data]}]
   (if project
@@ -1552,13 +1594,49 @@
                                :error (or (ex-message t) (.getMessage t)))))
         (throw t)))))
 
+(defn- query-filesystem-handoff
+  [ctx request]
+  (when (and (client-owned-filesystem-fallback? request)
+             (:project-scope-cache ctx))
+    (let [args (vec (:args request))
+          projects @(:project-scope-cache ctx)
+          project-id (or (:projectId request)
+                         (option-value args "--project"))
+          project (or (get projects (str project-id))
+                      (when-not project-id
+                        (cached-project-for-cwd projects (:cwd request))))
+          repo-id (option-value args "--repo")
+          repos (cond->> (:repos project)
+                  repo-id (filter #(= (str repo-id) (str (:id %)))))
+          operation (when project
+                      (active-indexing-operation-for-query
+                       ctx
+                       (cond-> (into ["query"] args)
+                         (nil? project-id)
+                         (conj "--project" (:id project)))))
+          reason (if operation
+                   (if (= "embed" (str (:op operation)))
+                     :active-embedding
+                     :active-indexing)
+                   :query-hedge)]
+      (when project
+        (cond-> {:schema cli-query/filesystem-handoff-schema
+                 :reason reason
+                 :fallback :filesystem
+                 :projectId (:id project)
+                 :repos (vec repos)}
+          operation (assoc :operation operation))))))
+
 (defn- emit-query-accepted!
   [ctx request]
   (when (and (= "query" (:op request))
              (:emit-frame! ctx))
-    ((:emit-frame! ctx) {:schema server-frame-schema
-                         :type "accepted"
-                         :operation "query"})))
+    (let [filesystem-handoff (query-filesystem-handoff ctx request)]
+      ((:emit-frame! ctx) (cond-> {:schema server-frame-schema
+                                   :type "accepted"
+                                   :operation "query"}
+                            filesystem-handoff
+                            (assoc :filesystemHandoff filesystem-handoff))))))
 
 (defn handle-request
   "Handle one decoded server protocol request."
@@ -1571,9 +1649,13 @@
        :err "Unauthorized server request.\n"}
       (do
         (emit-query-accepted! ctx request)
-        (if (contains? logged-ops (:op request))
-          (handle-logged-request ctx request)
-          (handle-authorized-request ctx request))))))
+        (let [response (if (contains? logged-ops (:op request))
+                         (handle-logged-request ctx request)
+                         (handle-authorized-request ctx request))]
+          (when (and (contains? #{"init" "projects"} (:op request))
+                     (zero? (long (or (:exit response) 1))))
+            (refresh-project-scope-cache! ctx))
+          response)))))
 
 (defn- handle-socket!
   [ctx ^Socket socket]
@@ -1656,6 +1738,7 @@
   (let [{:keys [host port]} (server-endpoint)
         token (server-token)
         started-at-ms (System/currentTimeMillis)
+        project-scope-cache (atom (registered-project-scope-cache))
         server (ServerSocket. port 50 (InetAddress/getByName host))
         running (atom true)
         request-executor (request-executor)
@@ -1676,6 +1759,7 @@
              :request-counter request-counter
              :operation-locks operation-locks
              :active-operations active-operations
+             :project-scope-cache project-scope-cache
              :node-pool node-pool
              :semantic-client-pool semantic-client-pool
              :host host
@@ -1717,6 +1801,7 @@
      :request-counter request-counter
      :operation-locks operation-locks
      :active-operations active-operations
+     :project-scope-cache project-scope-cache
      :scheduler-thread scheduler-thread
      :scheduler-state scheduler-state
      :semantic-client-pool semantic-client-pool
