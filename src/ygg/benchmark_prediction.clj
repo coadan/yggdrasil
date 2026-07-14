@@ -360,7 +360,7 @@
 (def ^:private compact-output-retrieved-source-evidence-head-rank-window
   8)
 (def ^:private compact-output-retrieved-source-evidence-head-sort-rank
-  0.009)
+  0.406)
 (def ^:private compact-output-retrieved-source-evidence-head-sort-step
   0.001)
 (def ^:private compact-output-retrieved-source-evidence-head-limit
@@ -464,9 +464,9 @@
 (def ^:private compact-output-attached-doc-sort-rank
   0.05)
 (def ^:private compact-output-retrieved-path-self-identity-sort-rank
-  0.326)
+  0.0035)
 (def ^:private compact-output-retrieved-path-self-identity-sort-step
-  0.005)
+  0.0005)
 (def ^:private compact-output-retrieved-path-self-identity-limit
   2)
 (def ^:private compact-output-retrieved-path-query-token-sort-rank
@@ -525,6 +525,8 @@
   5)
 (def ^:private compact-output-strong-retrieved-label-doc-token-min
   8)
+(def ^:private compact-output-file-owned-retrieved-doc-sort-rank
+  0.0045)
 (def ^:private source-kind-lane-support-score-ratio
   0.8)
 (def ^:private inspection-direct-file-quota
@@ -3908,6 +3910,18 @@
        (<= compact-output-strong-retrieved-source-boost-min
            (row-metric-double row :repeatedRetrievedSourceBoost))))
 
+(defn- compact-output-file-owned-retrieved-doc-row?
+  [row]
+  (and (< 1 (positive-metric row :docCount))
+       (< 1 (positive-metric row :retrievedSourceCount))
+       (<= compact-output-identity-support-min
+           (positive-metric row :fileIdentitySupportLabelCount))
+       (<= 2 (positive-metric row :retrievedSupportLabelCount))
+       (<= candidate-file-only-query-evidence-token-min
+           (positive-metric row :matchedTokenCount))
+       (<= candidate-file-only-query-evidence-score-min
+           (row-metric-double row :sourceGraphCandidateEvidenceScore))))
+
 (defn- compact-output-direct-support-owner-row?
   [row]
   (and (pos? (positive-metric row :directFileCandidateCount))
@@ -4235,8 +4249,14 @@
 
 (defn- compact-output-retrieved-supported-sort-rank
   [row]
-  (if (compact-output-strong-retrieved-supported-row? row)
+  (cond
+    (compact-output-file-owned-retrieved-doc-row? row)
+    compact-output-file-owned-retrieved-doc-sort-rank
+
+    (compact-output-strong-retrieved-supported-row? row)
     compact-output-strong-retrieved-supported-sort-rank
+
+    :else
     compact-output-default-retrieved-supported-sort-rank))
 
 (defn- compact-output-identity-supported-key
@@ -4510,7 +4530,12 @@
   [row]
   (and (pos? (positive-metric row :docCount))
        (pos? (positive-metric row :retrievedSourceCount))
-       (row-query-matched-path-self-identity? row)))
+       (row-query-matched-path-self-identity? row)
+       (or (pos? (row-metric-double row :retrievedPathSelfIdentityBoost))
+           (and (<= compact-output-doc-source-graph-grep-grep-score-min
+                    (row-metric-double row :candidateGrepScore))
+                (<= compact-output-doc-source-graph-grep-token-min
+                    (positive-metric row :matchedTokenCount))))))
 
 (defn- compact-output-retrieved-path-self-identity-key
   [row]
@@ -4522,10 +4547,9 @@
    (:path row)])
 
 (defn- compact-output-retrieved-path-self-identity-rows
-  [files selected-keys]
+  [files]
   (->> files
-       (filter #(and (not (contains? selected-keys (file-row-key %)))
-                     (compact-output-retrieved-path-self-identity-row? %)))
+       (filter compact-output-retrieved-path-self-identity-row?)
        (sort-by compact-output-retrieved-path-self-identity-key)
        (take compact-output-retrieved-path-self-identity-limit)
        (map-indexed (fn [idx row]
@@ -5183,12 +5207,24 @@
 
 (defn- compact-output-ranked-doc-head-rows
   [files]
-  (->> files
-       (take compact-output-preserved-doc-head-count)
-       (filter compact-output-ranked-doc-head-row?)
-       (map #(assoc %
-                    ::compact-output-sort-rank
-                    (compact-output-ranked-doc-head-sort-rank %)))))
+  (let [candidate-head-source-ranks (->> files
+                                         (filter
+                                          compact-output-candidate-source-graph-head-row?)
+                                         (map row-candidate-source-rank)
+                                         seq)
+        candidate-head-source-rank (when candidate-head-source-ranks
+                                     (apply min candidate-head-source-ranks))]
+    (->> files
+         (take compact-output-preserved-doc-head-count)
+         (filter compact-output-ranked-doc-head-row?)
+         (remove #(and candidate-head-source-rank
+                       (< compact-output-preserved-head-count
+                          (long (or (:rank %) Long/MAX_VALUE)))
+                       (< candidate-head-source-rank
+                          (row-candidate-source-rank %))))
+         (map #(assoc %
+                      ::compact-output-sort-rank
+                      (compact-output-ranked-doc-head-sort-rank %))))))
 
 (defn- compact-output-query-evidence-head-row?
   [row]
@@ -5442,9 +5478,6 @@
                                 compact-output-support-owner-source-graph-sort-rank)
                               (when (compact-output-candidate-source-graph-head-row? row)
                                 compact-output-candidate-source-graph-head-sort-rank)
-                              (when (compact-output-retrieved-path-self-identity-row?
-                                     row)
-                                compact-output-retrieved-path-self-identity-sort-rank)
                               (when (compact-output-retrieved-path-query-token-row?
                                      row)
                                 compact-output-retrieved-path-query-token-sort-rank)
@@ -5457,6 +5490,9 @@
                               (when (compact-output-architecture-supported-row?
                                      row)
                                 compact-output-architecture-supported-sort-rank)
+                              (when (compact-output-strong-retrieved-label-doc-row?
+                                     row)
+                                compact-output-strong-retrieved-label-doc-sort-rank)
                               (when (compact-output-repeated-retrieved-row? row)
                                 (compact-output-retrieved-supported-sort-rank row))
                               (when (compact-output-supported-source-graph-query-evidence-row?
@@ -5675,8 +5711,7 @@
              selected (reduce add-compact-output-row
                               selected
                               (compact-output-retrieved-path-self-identity-rows
-                               files
-                               (:keys selected)))
+                               files))
              selected (reduce add-compact-output-row
                               selected
                               (compact-output-retrieved-path-query-token-rows
