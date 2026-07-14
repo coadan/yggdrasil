@@ -6,11 +6,11 @@
 
 [![CI](https://github.com/coadan/yggdrasil/actions/workflows/ci.yml/badge.svg)](https://github.com/coadan/yggdrasil/actions/workflows/ci.yml)
 
-Yggdrasil is local, auditable codebase memory for coding agents. It builds a
-reviewable graph of source files, dependencies, routes, configuration, docs,
-accepted corrections, and project memory. Queries return bounded evidence
-packets so an agent can inspect relevant context without loading the whole
-repository.
+Yggdrasil is a fully open, MIT-licensed, local, auditable codebase memory for
+coding agents. It builds a reviewable graph of source files, dependencies,
+routes, configuration, docs, accepted corrections, and project memory. Queries
+return bounded evidence packets so an agent can inspect relevant context without
+loading the whole repository.
 
 Yggdrasil stores concrete facts first. Architecture, ownership, and other
 project meaning enter through auditable corrections and reviewed metadata, not
@@ -167,6 +167,79 @@ ygg query "where is auth handled" --project my-project --provider openrouter
   that can be reviewed before they change project memory.
 - Measured claims: improvements in speed, cost, or effectiveness point to
   repeatable comparisons.
+
+## How Yggdrasil Compares
+
+Yggdrasil overlaps with several code-intelligence, documentation, and agent
+context tools, but they do not all solve the same problem. The useful
+distinction is what becomes durable, how evidence reaches an agent, and whether
+the system is an auditable project record or a session-time context helper.
+This is a capability map, not a leaderboard. Feature descriptions link to the
+primary project documentation. “Benchmarked” means that a Yggdrasil benchmark
+lane exists; it does not imply a same-agent, apples-to-apples win.
+
+| Tool or lane | Primary artifact and delivery | Best fit | Difference from Yggdrasil | Status in this project |
+|---|---|---|---|---|
+| **Yggdrasil** | MIT-licensed local project record: XTDB graph facts, file/run bundles, correction and memory facts, queues, plugins, and report data; `ygg query` returns bounded evidence packets. | Durable, auditable, provider-agnostic project memory and agent handoff. | — | System under test; full and quick claim lanes. |
+| Shell-only (`rg`, `git`, `find`, and normal build tools) | Working-tree files and command output, with no shared indexed project record. | Universal, low-dependency exploration and the fairest baseline for agent work. | Yggdrasil adds reusable structured evidence, retrieval, correction history, and queue state while keeping shell proof available. | Measured baseline in shell-only versus Yggdrasil runs. |
+| [Codebase Memory MCP](https://github.com/DeusData/codebase-memory-mcp) | Persistent Tree-sitter/AST knowledge graph exposed through MCP and CLI structural queries. | Fast code-structure, call-chain, impact, and navigation queries. | Yggdrasil covers a broader evidence plane—docs, routes, configuration, dependencies, corrections, bitemporal history, and handoff—not only structural code intelligence. | Deterministic comparison lane; not the same as giving an LLM its MCP tools during an agent run. |
+| [Graphify](https://github.com/Graphify-Labs/graphify) | Queryable graph for code, SQL, R, shell, docs, papers, images, and video; code extraction is local and deterministic, while non-code extraction can use a model. | Mixed-corpus graph exploration through its CLI, skill, or MCP surface. | Yggdrasil keeps concrete parser/evidence rows and accepted semantic corrections auditable in the core; Graphify focuses on graph synthesis and agent-facing graph queries. | Dedicated Graphify comparison lane and historical OSS replay; not a same-agent comparison. |
+| Yggdrasil retrieval ablations | Lexical-only, semantic-only, graph-only, and local `sentence-transformers` vector workers isolate one recall signal at a time. | Diagnose whether a miss comes from vocabulary, embeddings, ranking, or graph evidence. | Yggdrasil’s default `auto` path composes the available signals and reports lexical fallback explicitly; single-signal lanes are controls, not the product default. | Benchmarked ablations. |
+| [OpenWiki](https://github.com/langchain-ai/openwiki) | MIT CLI that writes and maintains a local `openwiki/` repository wiki, updates `AGENTS.md`/`CLAUDE.md`, and can run scheduled CI updates. | Human-readable generated documentation and durable repo orientation. | OpenWiki makes an agent-maintained wiki the main memory surface; Yggdrasil’s primary record is source-backed facts, graph relationships, corrections, and bounded evidence packets. They can complement each other. | Researched; not yet Yggdrasil-benchmarked. |
+| [Serena](https://github.com/oraios/serena) | Open-source MCP toolkit backed by language servers or a JetBrains plugin for symbol retrieval, editing, refactoring, debugging, and memory. | IDE-like semantic editing and symbol-aware agent operations. | Yggdrasil is the evidence and project-memory plane, not a symbol editor or refactoring engine. | Researched; not yet Yggdrasil-benchmarked. |
+| [Aider repository map](https://aider.chat/docs/repomap.html) | A compact, graph-ranked map of repository files, symbols, and signatures sent to a terminal coding agent. | Session-level context for an agent that is already editing a local repository. | Yggdrasil is agent-agnostic and persists project state, evidence provenance, corrections, and cross-repo relationships instead of rebuilding a session map. | Researched; not yet Yggdrasil-benchmarked. |
+| [Repomix](https://repomix.com/guide/) | A git-aware, AI-friendly snapshot that packs a repository into one file with token counting and multiple output formats. | One-shot full-context analysis, review, planning, or documentation generation. | Yggdrasil uses bounded retrieval and durable indexed facts rather than repeatedly sending the whole repository as one prompt artifact. | Researched; not yet Yggdrasil-benchmarked. |
+| [Sourcegraph Code Search and Deep Search](https://sourcegraph.com/docs/code-search) | Hosted/team code search and navigation across repositories, branches, revisions, and code hosts, with an agentic search surface. | Organization-scale cross-repository search and code intelligence. | Yggdrasil is local-first and project-owned, with provider-agnostic storage and local handoff; this is a different deployment and governance tradeoff. | Researched; not yet Yggdrasil-benchmarked. |
+| [GitNexus](https://github.com/nxpatterns/gitnexus) | A zero-server, client-side knowledge graph with an interactive graph-RAG exploration surface. | Interactive code-graph exploration without a hosted server. | Yggdrasil emphasizes durable XTDB facts, corrections, audit history, multi-source evidence, and maintenance queues rather than a browser-first graph view. | Researched; not yet Yggdrasil-benchmarked. |
+
+## Open Platform And Growing Evidence
+
+Yggdrasil is [MIT licensed](LICENSE) and a fully open platform. The source,
+CLI, graph and evidence contracts, local queue, retrieval lanes, MCP surface,
+extractor/report plugin boundaries, and benchmark definitions are inspectable
+and runnable locally. External model and embedding providers are optional
+lanes; no hosted provider is required to own project state.
+
+The openness is also part of the testing loop. Yggdrasil’s benchmark corpus
+replays real historical issue, pull-request, and commit work from other open
+source projects. Cases start from a pre-fix checkout, expose only the task
+input, withhold the fixing diff, and score localization, evidence citations,
+and—when configured—patch behavior. The current full corpus includes [Axios](https://github.com/axios/axios),
+[Bootstrap](https://github.com/twbs/bootstrap), [Dapper](https://github.com/DapperLib/Dapper),
+[Flask](https://github.com/pallets/flask), [Graphify](https://github.com/Graphify-Labs/graphify),
+[JUnit](https://github.com/junit-team/junit-framework), [OpenTelemetry Collector](https://github.com/open-telemetry/opentelemetry-collector),
+[OpenTelemetry Collector Contrib](https://github.com/open-telemetry/opentelemetry-collector-contrib),
+[Supabase Postgres](https://github.com/supabase/postgres), and [Terraform AWS VPC](https://github.com/terraform-aws-modules/terraform-aws-vpc).
+These projects are evaluation inputs, not endorsements or claims that
+Yggdrasil is better than them.
+
+Benchmark evidence is a growing corpus, not a promise of universal coverage.
+New languages, source kinds, and architecture shapes will be added over time.
+The tracked suites and gate definitions live in [benchmarks/](benchmarks/) and
+[docs/benchmarking.md](docs/benchmarking.md); generated reports stay under
+`.dev/ygg/`.
+
+Current evidence snapshot (2026-07-14):
+
+- `bb bench:claim-full --check-only` passed 16/16 cases from the [full historical
+  replay suite](benchmarks/historical-replay-full.edn) across 10 repositories
+  and 12 declared source-kind groups. The report is claim-ready
+  for the measured problem and architecture classes, with file-recall@10 0.97,
+  MRR 0.74, evidence-citation 1.00, and expected-evidence-citation 0.95. This
+  is a Yggdrasil baseline-quality claim, not a claim of superiority over every
+  comparison tool.
+- `bb bench:docs-claim --check-only` passed the docs-handling gate across four
+  documentation cases. The full lane also reports docs claim readiness as
+  supported.
+- The five-case headline shell-only comparison is currently inconclusive:
+  localization and evidence metrics were unchanged, elapsed time improved by
+  247 ms, several result-health metrics regressed, and token/cost telemetry was
+  unavailable. It does not support a broad efficiency-win claim.
+- Codebase Memory, Graphify, local-vector, lexical, semantic, and graph-only
+  runs are explicit comparison or ablation lanes. OpenWiki, Serena, Aider,
+  Repomix, Sourcegraph, and GitNexus are researched here but do not yet have
+  Yggdrasil head-to-head artifacts. Claims should be refreshed as the corpus and
+  lanes grow.
 
 ## Main Workflows
 
