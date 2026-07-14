@@ -395,6 +395,7 @@
         [_ path] path-key
         top-file (top-file-for-path top-file-by-path path-key)
         file-candidate (get file-candidate-by-path path-key)
+        repo-id (some row-repo-key [top-file file-candidate (first rows)])
         candidate (cond-> {:path path
                            :declarations declarations
                            :metrics {:declarationCount (count declarations)
@@ -407,8 +408,8 @@
                                      :kindQueryTokenCount (query-kind-token-count
                                                            query-token-set
                                                            rows)}}
-                    (row-repo-key (or top-file file-candidate (first rows)))
-                    (assoc :repoId (row-repo-key (or top-file file-candidate (first rows))))
+                    repo-id
+                    (assoc :repoId repo-id)
                     top-file
                     (assoc :topFile (select-keys top-file [:rank :path :repoId :repo :confidence]))
                     file-candidate

@@ -1920,10 +1920,12 @@
               :metrics {:declarationCount 1
                         :pathDepth 2
                         :matchedTokenCount 2
+                        :matchedCompoundTokenPairCount 0
                         :kindQueryTokenCount 0}}
              (select-keys candidate [:rank :path :repoId :reason :metrics])))
-      (is (< 0.72 (:confidence candidate) 0.73))
-      (is (= ["prepared-declaration:src/app.clj lines 2-4 kind=function label=\"app/broken\""]
+      (is (< 0.83 (:confidence candidate) 0.85))
+      (is (= ["prepared-declaration:src/app.clj lines 2-4 kind=function label=\"app/broken\""
+              "prepared-top-file:src/app.clj rank=1"]
              (:evidence candidate)))
       (is (= {:rank 1
               :path "src/app.clj"
@@ -1934,7 +1936,8 @@
               :sourceLine 2
               :endLine 4
               :score 2.4
-              :matchedTokens ["app" "broken"]}
+              :matchedTokens ["app" "broken"]
+              :matchedCompoundTokenPairs []}
              declaration)))
     (is (= [{:rank 1
              :path "src/app.clj"
