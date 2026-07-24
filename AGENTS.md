@@ -144,3 +144,12 @@ scanner kind and extractor adapter that emits the canonical graph rows; it
 should not require rebuilding storage, query, or system-inference foundations.
 Use `delete-docs` for graph replacement; do not use `erase-docs` unless
 implementing explicit legal deletion.
+
+## Code Mode Tool Batching
+
+In Code Mode, within each bounded stage, run independent, functions.exec-available tool calls concurrently in one functions.exec call. Use await Promise.allSettled([...]) when partial results are useful, and inspect every result; use await Promise.all([...]) only when any failure should abort the batch. Keep dependencies, waits/resumes, approvals, conflicting or interdependent mutations, and adaptive investigations where each result may change the next step sequential. Do not split otherwise batchable inspections across outer tool calls.
+
+Keep each nested call's output bounded. Prefer focused queries and per-call
+output limits; broad outputs that can truncate task evidence are not a valid
+efficiency gain. If a result is truncated, narrow or page only that result
+instead of rerunning the whole batch.
