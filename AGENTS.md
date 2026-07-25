@@ -160,7 +160,7 @@ output limits; broad outputs that can truncate task evidence are not a valid
 efficiency gain. If a result is truncated, narrow or page only that result
 instead of rerunning the whole batch.
 
-## Minimal Working Rules
+## Context-Efficient Coding
 
 - Understand the task and trace the real flow first. Then stop at the first
   sufficient rung: skip speculative work, reuse repository code, use the
@@ -174,3 +174,45 @@ instead of rerunning the whole batch.
   data-loss/error handling, or accessibility.
 - Leave the smallest runnable regression check for non-trivial logic. Mark a
   deliberate ceiling with a `ponytail:` comment and its upgrade trigger.
+
+### Navigation-First Structure
+
+Structure code for the shortest predictable route from entry point to
+authoritative owner to verification:
+
+- Organize by domain behavior and data ownership. Co-locate code that changes
+  together; separate code with independent reasons to change.
+- Give each concept and invariant one canonical owner. State the rule where it
+  is enforced, make boundary contracts explicit, and keep dependencies
+  directional.
+- Keep entry points thin and named after the behavior they route to. Avoid
+  re-export chains, mirrored representations, and dynamic indirection that
+  hide the owner.
+- Keep focused tests and fixtures beside or directly adjacent to the owner.
+  Name files, namespaces, and symbols after domain behavior; isolate generated
+  and vendor code.
+- Avoid `common`, `shared`, or `utils` dumping grounds and tiny one-use file
+  fragmentation. Shared code should own a stable concept, not convenience.
+- When a flow must cross layers, provide one bounded map or inspection surface
+  that identifies the path without requiring broad repository search.
+
+A representative change should reach its owner and focused verification in at
+most three bounded discovery stages without reading unrelated domain code.
+
+### Evidence Before Restructuring
+
+Optimize for the context needed to make one safe change, not file or line
+count. A large file alone is not evidence. Before a structural change:
+
+1. Trace a representative change through entry point, authoritative behavior
+   and data owner, invariants, callers, shared state, and smallest verification.
+2. Record files and symbols needed, why each is needed, independent change
+   reasons, repeated discovery, failures, and review-driven rework.
+3. Compare current and proposed navigation using available task, review, or
+   session evidence.
+4. Choose the smallest supported intervention: split independent ownership
+   seams; rename or improve routing for discovery; improve inspection for a
+   cohesive owner; extract duplicated policy; otherwise leave code together.
+
+Structural changes require evidence of a clearer ownership or navigation
+boundary. Do not add generic layers merely to shorten files.
