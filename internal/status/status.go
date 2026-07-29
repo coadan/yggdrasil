@@ -8,18 +8,20 @@ import (
 
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/discovery"
+	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/project"
 	"github.com/coadan/yggdrasil/internal/store"
 )
 
 type Result struct {
-	Root      string       `json:"root"`
-	RootID    string       `json:"rootId"`
-	Database  string       `json:"database"`
-	Indexed   bool         `json:"indexed"`
-	Counts    store.Counts `json:"counts"`
-	Freshness Freshness    `json:"freshness"`
-	LatestRun *store.Run   `json:"latestRun,omitempty"`
+	Root      string                `json:"root"`
+	RootID    string                `json:"rootId"`
+	Database  string                `json:"database"`
+	Indexed   bool                  `json:"indexed"`
+	Counts    store.Counts          `json:"counts"`
+	Freshness Freshness             `json:"freshness"`
+	Embedding *store.EmbeddingState `json:"embedding,omitempty"`
+	LatestRun *store.Run            `json:"latestRun,omitempty"`
 }
 
 type Freshness struct {
@@ -54,6 +56,13 @@ func Inspect(ctx context.Context, paths project.Paths, cfg config.Config) (Resul
 	result.LatestRun, err = value.LatestRun(ctx)
 	if err != nil {
 		return Result{}, err
+	}
+	if cfg.Embedding != nil {
+		state, err := value.EmbeddingState(ctx, embedding.Fingerprint(*cfg.Embedding))
+		if err != nil {
+			return Result{}, err
+		}
+		result.Embedding = &state
 	}
 	candidates, err := discovery.Candidates(paths.Root, cfg.IgnoreGlobs)
 	if err != nil {

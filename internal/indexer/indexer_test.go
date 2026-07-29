@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/coadan/yggdrasil/internal/config"
+	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/project"
 	"github.com/coadan/yggdrasil/internal/search"
 	"github.com/coadan/yggdrasil/internal/store"
@@ -96,6 +99,54 @@ func TestRunAddsConfiguredPluginRecords(t *testing.T) {
 	}
 	if len(result.Records) == 0 || result.Records[0].Source != "plugin:helper" {
 		t.Fatalf("plugin record missing: %#v", result.Records)
+	}
+}
+
+func TestRunBuildsConfiguredEmbeddingLane(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Input []string `json:"input"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		data := make([]map[string]any, len(body.Input))
+		for i := range body.Input {
+			data[i] = map[string]any{"index": i, "embedding": []float32{1, 0}}
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": data})
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Embedding = &config.Embedding{
+		Kind: "openai-compatible", Endpoint: server.URL, Model: "test",
+		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 8,
+	}
+	summary, err := Run(context.Background(), paths, cfg, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Embedded == 0 || summary.EmbeddingStatus != "ready" {
+		t.Fatalf("summary=%#v", summary)
+	}
+	value, err := store.Open(context.Background(), paths.Database, paths.Root, paths.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	state, err := value.EmbeddingState(context.Background(), embedding.Fingerprint(*cfg.Embedding))
+	if err != nil || !state.Complete || state.Embedded == 0 {
+		t.Fatalf("state=%#v err=%v", state, err)
 	}
 }
 
