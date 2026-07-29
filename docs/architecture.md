@@ -30,6 +30,10 @@ snapshot of an indexed sibling worktree, retargets the copy, and reconciles
 every discovered file by content hash. Unchanged files keep their records and
 vectors; only added, changed, deleted, or extractor-configuration-invalidated
 files are reprocessed. `ygg index --full` deliberately bypasses this reuse.
+Each index also records the mechanically derived Git common-directory family
+beside its central database. That retained marker lets a later main or task
+worktree reuse the newest same-family database even after the source worktree
+directory has been removed.
 Discovery runs `git ls-files` against the selected worktree, so its tracked
 modifications and untracked files cannot bleed into another worktree's index.
 Reaching the same physical worktree through a symlink resolves to the same

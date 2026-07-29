@@ -174,6 +174,64 @@ func TestLinkedGitWorktreesHaveIsolatedIndexesAndDiscovery(t *testing.T) {
 	assertWorktreeSearch(t, linkedPaths, "primaryuntrackedmarker", false)
 }
 
+func TestNewWorktreeSeedsFromRemovedSiblingIndex(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	base := t.TempDir()
+	primary := filepath.Join(base, "primary")
+	retired := filepath.Join(base, "retired")
+	next := filepath.Join(base, "next")
+	if err := os.Mkdir(primary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, primary, "init", "-q")
+	runGit(t, primary, "config", "user.name", "Ygg Test")
+	runGit(t, primary, "config", "user.email", "ygg@example.test")
+	if err := os.WriteFile(
+		filepath.Join(primary, "stable.txt"), []byte("retainedfamilymarker\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, primary, "add", "stable.txt")
+	runGit(t, primary, "commit", "-qm", "fixture")
+	runGit(t, primary, "worktree", "add", "-qb", "retired", retired)
+
+	t.Setenv("YGG_STORAGE_ROOT", filepath.Join(base, "state"))
+	retiredPaths, err := project.Resolve(retired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := Run(context.Background(), retiredPaths, config.Default(), Options{NoEmbed: true})
+	if err != nil || first.Indexed != 1 {
+		t.Fatalf("first=%#v err=%v", first, err)
+	}
+	if _, err := os.Stat(retiredPaths.FamilyMarker); err != nil {
+		t.Fatalf("family marker: %v", err)
+	}
+	runGit(t, primary, "worktree", "remove", "--force", retired)
+	if _, err := os.Stat(retired); !os.IsNotExist(err) {
+		t.Fatalf("removed worktree still exists: %v", err)
+	}
+	runGit(t, primary, "worktree", "add", "-qb", "next", next)
+	nextPaths, err := project.Resolve(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nextPaths.FamilyID != retiredPaths.FamilyID {
+		t.Fatalf("family mismatch: retired=%#v next=%#v", retiredPaths, nextPaths)
+	}
+	second, err := Run(context.Background(), nextPaths, config.Default(), Options{NoEmbed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.SeededFrom != retiredPaths.Root || second.Reused != 1 ||
+		second.Indexed != 0 || second.Deleted != 0 {
+		t.Fatalf("second=%#v", second)
+	}
+	assertWorktreeSearch(t, nextPaths, "retainedfamilymarker", true)
+}
+
 func runGit(t *testing.T, directory string, args ...string) {
 	t.Helper()
 	command := exec.Command("git", append([]string{"-C", directory}, args...)...)

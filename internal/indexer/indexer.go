@@ -57,6 +57,9 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		return Summary{}, errorsNewIndexBusy()
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	if err := project.RecordIndexFamily(paths); err != nil {
+		return Summary{}, err
+	}
 
 	if opts.Full {
 		for _, path := range []string{paths.Database, paths.Database + "-wal", paths.Database + "-shm"} {
