@@ -37,6 +37,8 @@ var Version = "0.3.0-dev"
 
 const searchIndexWait = 30 * time.Second
 
+var errRepositoryNotIndexed = errors.New("repository is not indexed; run ygg index")
+
 type envelope struct {
 	Schema string     `json:"schema"`
 	OK     bool       `json:"ok"`
@@ -200,39 +202,19 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	if *limit < 1 || *limit > search.MaxResults {
 		return r.fail(true, 2, fmt.Errorf("search limit must be between 1 and %d", search.MaxResults))
 	}
+	started := time.Now()
 	paths, cfg, err := resolve(*root)
 	if err != nil {
 		return r.fail(true, 2, err)
 	}
-	indexLock, err := acquireSearchIndexLock(ctx, paths.IndexLock, searchIndexWait)
-	if err != nil {
-		return r.fail(true, 1, err)
+	indexLock, value, err := prepareSearchIndex(ctx, paths, cfg)
+	if errors.Is(err, errRepositoryNotIndexed) {
+		return r.fail(true, 3, err)
 	}
-	if _, err := os.Stat(paths.Database); errors.Is(err, os.ErrNotExist) {
-		releaseSearchIndexLock(indexLock)
-		seeds, seedErr := project.SiblingIndexes(ctx, paths)
-		if seedErr != nil {
-			return r.fail(true, 1, fmt.Errorf("find worktree index: %w", seedErr))
-		}
-		if len(seeds) == 0 {
-			return r.fail(true, 3, errors.New("repository is not indexed; run ygg index"))
-		}
-		if _, seedErr := indexer.Run(ctx, paths, cfg, indexer.Options{}); seedErr != nil {
-			return r.fail(true, 1, fmt.Errorf("prepare worktree index: %w", seedErr))
-		}
-		indexLock, err = acquireSearchIndexLock(ctx, paths.IndexLock, searchIndexWait)
-		if err != nil {
-			return r.fail(true, 1, err)
-		}
-	} else if err != nil {
-		releaseSearchIndexLock(indexLock)
+	if err != nil {
 		return r.fail(true, 1, err)
 	}
 	defer releaseSearchIndexLock(indexLock)
-	value, err := store.Open(ctx, paths.Database, paths.Root, paths.ID)
-	if err != nil {
-		return r.fail(true, 1, err)
-	}
 	defer value.Close()
 	result, err := search.Run(ctx, value, query, search.Options{
 		Mode: *mode, Limit: *limit, Root: paths.Root,
@@ -244,7 +226,61 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	if err != nil {
 		return r.fail(true, 1, err)
 	}
+	result.ElapsedMS = time.Since(started).Milliseconds()
 	return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
+}
+
+func prepareSearchIndex(
+	ctx context.Context,
+	paths project.Paths,
+	cfg config.Config,
+) (*os.File, *store.Store, error) {
+	for range 3 {
+		indexLock, err := acquireSearchIndexLock(ctx, paths.IndexLock, searchIndexWait)
+		if err != nil {
+			return nil, nil, err
+		}
+		if _, err := os.Stat(paths.Database); errors.Is(err, os.ErrNotExist) {
+			releaseSearchIndexLock(indexLock)
+			seeds, seedErr := project.SiblingIndexes(ctx, paths)
+			if seedErr != nil {
+				return nil, nil, fmt.Errorf("find worktree index: %w", seedErr)
+			}
+			if len(seeds) == 0 {
+				return nil, nil, errRepositoryNotIndexed
+			}
+		} else if err != nil {
+			releaseSearchIndexLock(indexLock)
+			return nil, nil, err
+		} else {
+			value, openErr := store.Open(ctx, paths.Database, paths.Root, paths.ID)
+			if openErr != nil {
+				releaseSearchIndexLock(indexLock)
+				return nil, nil, openErr
+			}
+			current, tokenErr := indexer.FreshnessToken(ctx, paths.Root, cfg)
+			if tokenErr != nil {
+				value.Close()
+				releaseSearchIndexLock(indexLock)
+				return nil, nil, tokenErr
+			}
+			indexed, tokenErr := value.IndexFreshnessToken(ctx)
+			if tokenErr != nil {
+				value.Close()
+				releaseSearchIndexLock(indexLock)
+				return nil, nil, tokenErr
+			}
+			if current == indexed {
+				return indexLock, value, nil
+			}
+			value.Close()
+			releaseSearchIndexLock(indexLock)
+		}
+		if _, err := indexer.Run(ctx, paths, cfg, indexer.Options{Refresh: true}); err != nil {
+			return nil, nil, fmt.Errorf("refresh repository index: %w", err)
+		}
+	}
+	return nil, nil, errors.New("repository changed repeatedly during index refresh; retry search")
 }
 
 func parseInterspersed(flags *flag.FlagSet, args []string) error {

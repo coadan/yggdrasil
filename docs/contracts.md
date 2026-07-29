@@ -168,6 +168,9 @@ or `error`. Search data uses schema `ygg.search.result/v1` and includes the
 requested mode, active mode, fallback reason, timings, and ranked records with
 path/line citations. The optional `--json` flag explicitly confirms this
 canonical format; it does not select a second output path.
+Search validates a mechanical repository freshness token before retrieval and
+incrementally refreshes a changed index. Its `elapsedMs` therefore includes
+root resolution, freshness validation, any required refresh, and retrieval.
 Single structured terms containing separators such as `-`, `_`, `.`, or `#`
 use an exact token-sequence lane in `auto` mode. This keeps symbol and CSS-class
 lookups fast and lets removed identifiers return a reliable empty result instead
