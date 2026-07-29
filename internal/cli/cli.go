@@ -99,12 +99,11 @@ func (r *runner) runPluginCheck(ctx context.Context, args []string) int {
 	}
 	pluginID := args[0]
 	args = discardJSONAssertion(args)
-	flags := flag.NewFlagSet("plugin check", flag.ContinueOnError)
-	flags.SetOutput(r.stderr)
+	flags, flagOutput := newOperationalFlagSet("plugin check")
 	root := flags.String("root", "", "repository root")
 	filePath := flags.String("file", "", "relative file to extract")
 	if err := flags.Parse(args[1:]); err != nil {
-		return flagParseCode(err)
+		return r.flagParseResult(flagOutput, err)
 	}
 	if flags.NArg() != 0 {
 		return r.fail(true, 2, errors.New("plugin check accepts one plugin id"))
@@ -153,13 +152,12 @@ func (r *runner) runPluginCheck(ctx context.Context, args []string) int {
 
 func (r *runner) runIndex(ctx context.Context, args []string) int {
 	args = discardJSONAssertion(args)
-	flags := flag.NewFlagSet("index", flag.ContinueOnError)
-	flags.SetOutput(r.stderr)
+	flags, flagOutput := newOperationalFlagSet("index")
 	root := flags.String("root", "", "repository root")
 	full := flags.Bool("full", false, "rebuild every file")
 	noEmbed := flags.Bool("no-embed", false, "skip embeddings")
 	if err := flags.Parse(args); err != nil {
-		return flagParseCode(err)
+		return r.flagParseResult(flagOutput, err)
 	}
 	if flags.NArg() != 0 {
 		return r.fail(true, 2, errors.New("index accepts no positional arguments"))
@@ -182,13 +180,15 @@ func (r *runner) runIndex(ctx context.Context, args []string) int {
 
 func (r *runner) runSearch(ctx context.Context, args []string) int {
 	args = discardJSONAssertion(args)
-	flags := flag.NewFlagSet("search", flag.ContinueOnError)
-	flags.SetOutput(r.stderr)
+	flags, flagOutput := newOperationalFlagSet("search")
 	root := flags.String("root", "", "repository root, directory, or file scope")
 	limit := flags.Int("limit", 10, "result limit")
 	mode := flags.String("mode", "auto", "auto, lexical, or semantic")
 	if err := parseInterspersed(flags, args); err != nil {
-		return flagParseCode(err)
+		if strings.Contains(err.Error(), "flag provided but not defined: -path") {
+			err = errors.New("--path is not supported; use --root PATH for repository, directory, or file scope")
+		}
+		return r.flagParseResult(flagOutput, err)
 	}
 	query := strings.TrimSpace(strings.Join(flags.Args(), " "))
 	if query == "" {
@@ -337,11 +337,19 @@ func discardJSONAssertion(args []string) []string {
 	return result
 }
 
-func flagParseCode(err error) int {
+func newOperationalFlagSet(name string) (*flag.FlagSet, *strings.Builder) {
+	output := &strings.Builder{}
+	flags := flag.NewFlagSet(name, flag.ContinueOnError)
+	flags.SetOutput(output)
+	return flags, output
+}
+
+func (r *runner) flagParseResult(output *strings.Builder, err error) int {
 	if errors.Is(err, flag.ErrHelp) {
+		fmt.Fprint(r.stderr, output.String())
 		return 0
 	}
-	return 2
+	return r.fail(true, 2, err)
 }
 
 func acquireSearchIndexLock(ctx context.Context, path string, wait time.Duration) (*os.File, error) {
@@ -387,12 +395,11 @@ func releaseSearchIndexLock(lock *os.File) {
 
 func (r *runner) runStatus(ctx context.Context, args []string) int {
 	args = discardJSONAssertion(args)
-	flags := flag.NewFlagSet("status", flag.ContinueOnError)
-	flags.SetOutput(r.stderr)
+	flags, flagOutput := newOperationalFlagSet("status")
 	root := flags.String("root", "", "repository root")
 	check := flags.Bool("check", false, "check the configured embedding provider")
 	if err := flags.Parse(args); err != nil {
-		return flagParseCode(err)
+		return r.flagParseResult(flagOutput, err)
 	}
 	if flags.NArg() != 0 {
 		return r.fail(true, 2, errors.New("status accepts no positional arguments"))

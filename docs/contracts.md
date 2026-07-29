@@ -167,7 +167,9 @@ Operational commands always return JSON with `schema`, `ok`, and either `data`
 or `error`. Search data uses schema `ygg.search.result/v2` and includes the
 requested mode, active mode, fallback reason, timings, and ranked records with
 path/line citations. Records expose navigation evidence, not internal fusion
-scores or retrieval-lane diagnostics.
+scores or retrieval-lane diagnostics. Flag-validation failures use the same CLI
+error envelope without repeating usage text; explicit `--help` remains concise
+usage output.
 Search validates a mechanical repository freshness token before retrieval and
 initializes or incrementally refreshes the repository index as needed. Its
 `elapsedMs` therefore includes root resolution, freshness validation, any
