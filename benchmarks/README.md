@@ -17,13 +17,21 @@ Generated checkouts, indexes, result packets, and reports belong under
 The developer-only `yggbench` runner records:
 
 - a deterministic, match-count-ranked raw-ripgrep file and timing lane;
-- candidate lexical relevance and citations;
+- candidate relevance, citations, and requested/active retrieval mode;
 - full, no-op, and one-file incremental indexing;
-- repeated fresh-process query latency.
+- repeated fresh-process query latency;
+- configured embedding identity, vector coverage, and command-file hashes
+  without recording credentials.
 
 Candidate-versus-legacy comparisons should retain the legacy binary hash and
 revision beside this report. Hybrid and extractor-plugin results are explicit
 ablation runs and are not the default should-win lane.
+
+Benchmark configs mechanically ignore only their injected `.ygg/config.json`,
+so configuration text cannot contaminate configured lanes.
+`embedding-openrouter.json`, `embedding-local-command.json`,
+`embedding-ollama.json`, and `embedding-ollama-qwen3-4b.json` define remote,
+self-contained local, resident-small, and resident-large embedding lanes.
 
 `extractor-parity.json` is the machine-checked inventory of legacy extractor
 kinds. It distinguishes structured coverage from generic text search and

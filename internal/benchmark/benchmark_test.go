@@ -58,7 +58,7 @@ func TestLoadSuiteRejectsUnknownFields(t *testing.T) {
 	}
 }
 
-func TestLoadPluginConfigHashesResolvedExecutables(t *testing.T) {
+func TestLoadBenchmarkConfigHashesResolvedExecutables(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "extractor")
 	if err := os.WriteFile(binary, []byte("fixture"), 0o755); err != nil {
 		t.Fatal(err)
@@ -74,18 +74,51 @@ func TestLoadPluginConfigHashesResolvedExecutables(t *testing.T) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	resolved, hash, evidence, err := loadPluginConfig(path)
+	resolved, hash, evidence, embedding, err := loadBenchmarkConfig(path)
 	if err != nil || len(resolved) == 0 || len(hash) != 71 || len(evidence) != 1 {
 		t.Fatalf("resolved=%q hash=%q evidence=%#v err=%v", resolved, hash, evidence, err)
+	}
+	if embedding != nil {
+		t.Fatalf("embedding=%#v", embedding)
 	}
 	if evidence[0].Binary != binary || len(evidence[0].BinaryHash) != 71 {
 		t.Fatalf("evidence=%#v", evidence)
 	}
 }
 
-func TestInstallPluginConfigDoesNotOverwriteCheckout(t *testing.T) {
+func TestLoadBenchmarkConfigRecordsEmbeddingCommandFiles(t *testing.T) {
+	interpreter := filepath.Join(t.TempDir(), "python")
+	worker := filepath.Join(t.TempDir(), "worker.py")
+	for _, path := range []string{interpreter, worker} {
+		if err := os.WriteFile(path, []byte("fixture"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "embedding.json")
+	data := []byte(`{
+		"schema":"ygg.config/v1",
+		"embedding":{
+			"kind":"command","command":["` + interpreter + `","` + worker + `"],
+			"model":"fixture","dimensions":2
+		}
+	}`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolved, _, plugins, embedding, err := loadBenchmarkConfig(path)
+	if err != nil || len(resolved) == 0 || len(plugins) != 0 || embedding == nil {
+		t.Fatalf("resolved=%q plugins=%#v embedding=%#v err=%v", resolved, plugins, embedding, err)
+	}
+	if len(embedding.CommandFiles) != 2 ||
+		embedding.CommandFiles[0].Path != interpreter ||
+		embedding.CommandFiles[1].Path != worker {
+		t.Fatalf("embedding=%#v", embedding)
+	}
+}
+
+func TestInstallBenchmarkConfigDoesNotOverwriteCheckout(t *testing.T) {
 	root := t.TempDir()
-	cleanup, err := installPluginConfig(root, []byte("{}\n"))
+	cleanup, err := installBenchmarkConfig(root, []byte("{}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +137,7 @@ func TestInstallPluginConfigDoesNotOverwriteCheckout(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".ygg", "config.json"), []byte("tracked"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := installPluginConfig(root, []byte("{}\n")); err == nil {
+	if _, err := installBenchmarkConfig(root, []byte("{}\n")); err == nil {
 		t.Fatal("expected existing config refusal")
 	}
 }

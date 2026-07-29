@@ -63,7 +63,7 @@ func TestHTTPProviderBoundsInputAndRetriesTransientStatus(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		if len([]rune(body.Input[0])) != maxProviderInputChars {
+		if len([]rune(body.Input[0])) != defaultMaxProviderInputChars {
 			t.Errorf("input chars=%d", len([]rune(body.Input[0])))
 		}
 		if body.EncodingFormat != "float" {
@@ -89,7 +89,7 @@ func TestHTTPProviderBoundsInputAndRetriesTransientStatus(t *testing.T) {
 		retryBackoff: time.Millisecond,
 	}
 	values, err := provider.Embed(context.Background(), []Input{{
-		ID: "unicode", Text: strings.Repeat("ø", maxProviderInputChars+10),
+		ID: "unicode", Text: strings.Repeat("ø", defaultMaxProviderInputChars+10),
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -164,6 +164,29 @@ func TestCommandProviderLifecycle(t *testing.T) {
 	}
 }
 
+func TestCommandProviderBoundsInput(t *testing.T) {
+	if os.Getenv("YGG_EMBEDDING_BOUND_HELPER") == "1" {
+		runCommandProviderBoundHelper()
+		return
+	}
+	t.Setenv("YGG_EMBEDDING_BOUND_HELPER", "1")
+	provider, err := New(context.Background(), t.TempDir(), config.Embedding{
+		Kind: "command", Command: []string{os.Args[0], "-test.run=TestCommandProviderBoundsInput"},
+		Model: "test", Dimensions: 2, TimeoutMS: 1_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.Embed(context.Background(), []Input{
+		{ID: "a", Text: strings.Repeat("é", defaultMaxProviderInputChars+10)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestBundledLocalWorkerThroughCommandProvider(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -226,6 +249,36 @@ func runCommandProviderHelper() {
 			}
 			_ = encoder.Encode(map[string]any{
 				"type": "result", "requestId": message.RequestID, "values": values,
+			})
+		case "end":
+			_ = encoder.Encode(map[string]any{"type": "summary"})
+			return
+		}
+	}
+}
+
+func runCommandProviderBoundHelper() {
+	scanner := bufio.NewScanner(os.Stdin)
+	encoder := json.NewEncoder(os.Stdout)
+	for scanner.Scan() {
+		var message struct {
+			Type      string  `json:"type"`
+			RequestID string  `json:"requestId"`
+			Inputs    []Input `json:"inputs"`
+		}
+		if err := json.Unmarshal(scanner.Bytes(), &message); err != nil {
+			os.Exit(2)
+		}
+		switch message.Type {
+		case "hello":
+			_ = encoder.Encode(map[string]any{"type": "ready", "schema": "ygg.embedding/v1"})
+		case "embed":
+			if len(message.Inputs) != 1 || len([]rune(message.Inputs[0].Text)) != defaultMaxProviderInputChars {
+				os.Exit(3)
+			}
+			_ = encoder.Encode(map[string]any{
+				"type": "result", "requestId": message.RequestID,
+				"values": []Value{{ID: message.Inputs[0].ID, Vector: []float32{1, 0}}},
 			})
 		case "end":
 			_ = encoder.Encode(map[string]any{"type": "summary"})

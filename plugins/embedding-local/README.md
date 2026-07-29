@@ -6,6 +6,11 @@ non-empty batch, embeddings are normalized, and configured dimensions are
 checked before results reach SQLite. Python and model dependencies remain
 outside the Go core.
 
+The worker and the `openai-compatible` provider do not impose a model-size
+ceiling. Choose any model the configured process or local server can host and
+set its actual output dimensions. Yggdrasil validates every returned vector
+against that value; model selection and memory ownership remain outside core.
+
 Create an isolated environment:
 
 ```sh

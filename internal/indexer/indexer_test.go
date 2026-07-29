@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
@@ -64,6 +65,102 @@ func TestRunIsIncrementalAndDeletesMissingFiles(t *testing.T) {
 	counts, err := value.Counts(context.Background())
 	if err != nil || counts.Files != 0 {
 		t.Fatalf("counts=%#v err=%v", counts, err)
+	}
+}
+
+func TestLinkedGitWorktreesHaveIsolatedIndexesAndDiscovery(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	base := t.TempDir()
+	primary := filepath.Join(base, "primary")
+	linked := filepath.Join(base, "feature")
+	if err := os.Mkdir(primary, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, primary, "init", "-q")
+	runGit(t, primary, "config", "user.name", "Ygg Test")
+	runGit(t, primary, "config", "user.email", "ygg@example.test")
+	if err := os.WriteFile(filepath.Join(primary, "shared.txt"), []byte("common baseline\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, primary, "add", "shared.txt")
+	runGit(t, primary, "commit", "-qm", "fixture")
+	runGit(t, primary, "worktree", "add", "-qb", "feature", linked)
+
+	if err := os.WriteFile(
+		filepath.Join(primary, "shared.txt"), []byte("primaryworktreemarker\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(linked, "shared.txt"), []byte("linkedworktreemarker\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(primary, "primary-only.txt"), []byte("primaryuntrackedmarker\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(linked, "linked-only.txt"), []byte("linkeduntrackedmarker\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("YGG_STORAGE_ROOT", filepath.Join(base, "state"))
+	primaryPaths, err := project.Resolve(primary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkedPaths, err := project.Resolve(linked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if primaryPaths.ID == linkedPaths.ID || primaryPaths.Database == linkedPaths.Database {
+		t.Fatalf("linked worktrees share state: primary=%#v linked=%#v", primaryPaths, linkedPaths)
+	}
+	cfg := config.Default()
+	for _, paths := range []project.Paths{primaryPaths, linkedPaths} {
+		if _, err := Run(context.Background(), paths, cfg, Options{NoEmbed: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	assertWorktreeSearch(t, primaryPaths, "primaryworktreemarker", true)
+	assertWorktreeSearch(t, primaryPaths, "primaryuntrackedmarker", true)
+	assertWorktreeSearch(t, primaryPaths, "linkedworktreemarker", false)
+	assertWorktreeSearch(t, primaryPaths, "linkeduntrackedmarker", false)
+	assertWorktreeSearch(t, linkedPaths, "linkedworktreemarker", true)
+	assertWorktreeSearch(t, linkedPaths, "linkeduntrackedmarker", true)
+	assertWorktreeSearch(t, linkedPaths, "primaryworktreemarker", false)
+	assertWorktreeSearch(t, linkedPaths, "primaryuntrackedmarker", false)
+}
+
+func runGit(t *testing.T, directory string, args ...string) {
+	t.Helper()
+	command := exec.Command("git", append([]string{"-C", directory}, args...)...)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, output)
+	}
+}
+
+func assertWorktreeSearch(t *testing.T, paths project.Paths, query string, want bool) {
+	t.Helper()
+	value, err := store.Open(context.Background(), paths.Database, paths.Root, paths.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	result, err := search.Run(context.Background(), value, query, search.Options{
+		Mode: "lexical", Limit: 10, Root: paths.Root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(result.Records) > 0; got != want {
+		t.Fatalf("root=%s query=%q found=%v records=%#v", paths.Root, query, got, result.Records)
 	}
 }
 

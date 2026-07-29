@@ -23,6 +23,13 @@ root. Its project id is the first 24 hexadecimal characters of the SHA-256 of
 that root. WAL mode permits readers while the single non-blocking file lock
 serializes index writers.
 
+Linked Git worktrees are separate canonical roots and therefore receive
+separate project ids, databases, locks, file state, and vector coverage.
+Discovery runs `git ls-files` against the selected worktree, so its tracked
+modifications and untracked files cannot bleed into another worktree's index.
+Reaching the same physical worktree through a symlink resolves to the same
+canonical root.
+
 Indexing loads the stored file-state map once and commits at most 128 file
 updates, deletions, or diagnostics in each transaction. File and record writes
 inside a batch use set-based SQL. A failed batch rolls back completely; earlier

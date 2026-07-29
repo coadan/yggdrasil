@@ -20,10 +20,19 @@ Use `-cases id-one,id-two` for a bounded iteration. `-prepare` creates an
 isolated checkout per case under `.dev/bench/repos`; it never changes a working
 repository. Each candidate case starts with a fresh database, then measures a
 full index, no-op index, one-file incremental index, and repeated fresh-process
-lexical searches. It also measures a single-process ripgrep localization lane
+searches in the selected retrieval mode. It also measures a single-process
+ripgrep localization lane
 ranked deterministically by mechanical match count, with path as the tie-break,
 in a fresh process. Reports record the exact candidate and suite hashes plus Go,
 Git, ripgrep, platform, and CPU-count context.
+
+Use `-config` for either extractor or embedding configuration and `-mode` to
+select `lexical`, `auto`, or `semantic`. Configured `auto` runs fail unless
+every case has complete vectors and actually activates hybrid retrieval. The
+report records aggregate and per-case vector coverage, embedding identity,
+active mode, fallback state, and hashes for executable embedding command files.
+The injected `.ygg/config.json` is excluded from discovery so configured and
+unconfigured lanes index the same repository inputs.
 
 Run `make benchmark-check` to fetch and verify every pinned revision and
 ground-truth diff without paying the full indexing cost.
@@ -56,6 +65,22 @@ virtual environment described in the plugin README.
 `make benchmark-terraform` runs the pinned Terraform architecture/config case
 with and without the HCL adapter.
 
+The semantic ablation targets use the complete tracked claim lane:
+
+```sh
+make benchmark-semantic-lexical
+make benchmark-semantic-local-command
+make benchmark-semantic-ollama
+make benchmark-semantic-qwen
+set -a; source /path/to/legacy-yggdrasil/.env; set +a
+make benchmark-semantic-openrouter
+```
+
+The command lane expects the isolated environment from
+`plugins/embedding-local/README.md`. The Ollama lanes expect `all-minilm` or
+`qwen3-embedding:4b` to be installed and the local server to be running.
+Model downloads and server lifecycle are intentionally outside Yggdrasil.
+
 Reports include:
 
 - file recall@10 and mean reciprocal rank;
@@ -63,6 +88,7 @@ Reports include:
 - path-and-line citation rate;
 - full, no-op, and one-file index timing;
 - fresh-process search p50 and p95;
+- requested and active retrieval mode, fallback state, and vector coverage;
 - match-count-ranked ripgrep recall, MRR, p50, and p95 as an explicit raw
   baseline;
 - suite and candidate binary hashes;
