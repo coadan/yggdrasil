@@ -16,6 +16,20 @@ The optional repository configuration is `.ygg/config.json`:
       "command": ["ygg-extract-markdown"],
       "includeGlobs": ["**/*.md"],
       "timeoutMs": 10000
+    },
+    {
+      "id": "go",
+      "version": "0.1.0",
+      "command": ["ygg-extract-go"],
+      "includeGlobs": ["**/*.go"],
+      "timeoutMs": 10000
+    },
+    {
+      "id": "typescript",
+      "version": "0.1.0",
+      "command": ["ygg-extract-typescript"],
+      "includeGlobs": ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx"],
+      "timeoutMs": 10000
     }
   ],
   "embedding": {

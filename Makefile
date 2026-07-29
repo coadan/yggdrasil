@@ -5,15 +5,21 @@ build:
 	go build -trimpath -o bin/ygg ./cmd/ygg
 	go build -trimpath -o bin/yggbench ./cmd/yggbench
 	cd plugins/markdown && go build -trimpath -o ../../bin/ygg-extract-markdown .
+	cd plugins/go && go build -trimpath -o ../../bin/ygg-extract-go .
+	cd plugins/typescript && go build -trimpath -o ../../bin/ygg-extract-typescript .
 
 test:
 	go test ./...
 	cd plugins/markdown && go test ./...
+	cd plugins/go && go test ./...
+	cd plugins/typescript && go test ./...
 
 check:
 	test -z "$$(gofmt -l $$(git ls-files '*.go'))"
 	go vet ./...
 	cd plugins/markdown && go vet ./...
+	cd plugins/go && go vet ./...
+	cd plugins/typescript && go vet ./...
 	$(MAKE) test
 
 benchmark-quick: build
@@ -38,6 +44,7 @@ release:
 
 clean:
 	rm -f bin/ygg bin/yggbench bin/ygg-extract-markdown
+	rm -f bin/ygg-extract-go bin/ygg-extract-typescript
 	rm -f dist/ygg-darwin-arm64 dist/ygg-darwin-amd64
 	rm -f dist/ygg-linux-arm64 dist/ygg-linux-amd64
 	rm -f dist/SHA256SUMS
