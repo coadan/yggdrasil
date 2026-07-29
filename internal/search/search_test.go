@@ -779,20 +779,40 @@ func TestResultExcerptLimitKeepsCommonResponsesBounded(t *testing.T) {
 
 func TestRankedRecordJSONOmitsFusionDiagnostics(t *testing.T) {
 	raw, err := json.Marshal(RankedRecord{
-		Path: "src/router.go", StartLine: 4, EndLine: 8, Kind: "function",
-		Title: "routeRequest", Excerpt: "func routeRequest() {}", Source: "plugin:go",
+		Path: "src/router.go", StartLine: 4, EndLine: 8, Kind: "text-chunk",
+		Title: "src/router.go:4", Excerpt: "func routeRequest() {}", Source: "core",
 		Retrieval: []string{"lexical", "semantic"}, Score: 0.42,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	encoded := string(raw)
-	if strings.Contains(encoded, `"retrieval"`) || strings.Contains(encoded, `"score"`) {
-		t.Fatalf("public search record exposes fusion diagnostics: %s", encoded)
+	for _, field := range []string{`"retrieval"`, `"score"`, `"kind"`, `"title"`, `"source"`} {
+		if strings.Contains(encoded, field) {
+			t.Fatalf("default public record exposes redundant %s: %s", field, encoded)
+		}
 	}
-	for _, field := range []string{`"path"`, `"startLine"`, `"endLine"`, `"kind"`, `"title"`, `"excerpt"`, `"source"`} {
+	for _, field := range []string{`"path"`, `"startLine"`, `"endLine"`, `"excerpt"`} {
 		if !strings.Contains(encoded, field) {
 			t.Fatalf("public search record lacks %s: %s", field, encoded)
+		}
+	}
+}
+
+func TestRankedRecordJSONRetainsExtractorEvidence(t *testing.T) {
+	raw, err := json.Marshal(RankedRecord{
+		Path: "src/router.go", StartLine: 4, EndLine: 8, Kind: "function",
+		Title: "routeRequest", Excerpt: "func routeRequest() {}", Source: "plugin:go",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := string(raw)
+	for _, field := range []string{
+		`"kind":"function"`, `"title":"routeRequest"`, `"source":"plugin:go"`,
+	} {
+		if !strings.Contains(encoded, field) {
+			t.Fatalf("extractor record lacks %s: %s", field, encoded)
 		}
 	}
 }
