@@ -1,4 +1,4 @@
-.PHONY: build check test test-jvm-dotnet benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-python benchmark-jvm-dotnet benchmark-terraform benchmark-semantic-lexical benchmark-semantic-openrouter benchmark-semantic-local-command benchmark-semantic-ollama benchmark-semantic-qwen release clean
+.PHONY: build check test test-jvm-dotnet benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-breyta-session-check benchmark-breyta-session benchmark-python benchmark-jvm-dotnet benchmark-terraform benchmark-semantic-lexical benchmark-semantic-openrouter benchmark-semantic-local-command benchmark-semantic-ollama benchmark-semantic-qwen release clean
 
 build:
 	mkdir -p bin
@@ -58,6 +58,17 @@ benchmark-dogfood-manifest: build
 		-config benchmarks/dogfood-manifest.json \
 		-work .dev/bench/work-dogfood-manifest \
 		-ygg bin/ygg -out .dev/bench/dogfood-manifest-report.json
+
+benchmark-breyta-session-check: build
+	bin/yggbench -prepare -check-only \
+		-suite benchmarks/breyta-session-replay.json -ygg bin/ygg
+
+benchmark-breyta-session: build
+	bin/yggbench -prepare -suite benchmarks/breyta-session-replay.json \
+		-config benchmarks/embedding-ollama.json \
+		-work .dev/bench/work-breyta-session \
+		-ygg bin/ygg -mode auto \
+		-out .dev/bench/breyta-session-report.json
 
 benchmark-python: build
 	bin/yggbench -prepare -suite benchmarks/claim-quick.json \

@@ -1,0 +1,77 @@
+{
+  "schema": "ygg.benchmark.suite/v1",
+  "id": "breyta-session-replay",
+  "description": "Private non-synthetic localization replays derived from completed Breyta agent sessions and their final patches.",
+  "repos": [
+    {
+      "id": "breyta",
+      "url": "https://github.com/breyta/breyta.git"
+    }
+  ],
+  "cases": [
+    {
+      "id": "breyta-growth-plan-usage-dashboard-regression",
+      "repositoryId": "breyta",
+      "revision": "56a280c00cf0500696fbfe8818d229b879c1e869",
+      "fixRevision": "c5d2cfd8859d83feae374d4422adeabe9b3652ee",
+      "sourceUrl": "https://github.com/breyta/breyta/commit/c5d2cfd8859d83feae374d4422adeabe9b3652ee",
+      "query": "repair growth plan usage dashboard billing allowance state and overview analytics schema backfill",
+      "expectedPaths": [
+        "bases/flows-api/src/breyta/flows_api/api/handlers/resource_ui/billing.clj",
+        "bases/flows-worker/src/breyta/flows_worker/maintenance/overview_analytics.clj"
+      ],
+      "sourceKinds": ["clojure"],
+      "problemClasses": ["problem-architecture", "problem-cross-file"],
+      "architectureClasses": ["architecture-data-ownership", "architecture-runtime-boundary"]
+    },
+    {
+      "id": "breyta-stripe-billing-consolidation",
+      "repositoryId": "breyta",
+      "revision": "935debae26744d24f76cf4d89e48071969c47d42",
+      "fixRevision": "e18cfdbde1b3107ff5446cb9efc0bb8be134919a",
+      "sourceUrl": "https://github.com/breyta/breyta/commit/e18cfdbde1b3107ff5446cb9efc0bb8be134919a",
+      "query": "consolidate Stripe billing customers workspace customer ownership webhook repair and fail closed",
+      "expectedPaths": [
+        "bases/flows-api/src/breyta/flows_api/api/billing/workspace_state.clj",
+        "bases/flows-api/src/breyta/flows_api/api/handlers/billing_webhooks.clj",
+        "bases/flows-api/src/breyta/flows_api/api/handlers/resource_ui/billing.clj"
+      ],
+      "sourceKinds": ["clojure"],
+      "problemClasses": ["problem-architecture", "problem-cross-file", "problem-runtime-config"],
+      "architectureClasses": ["architecture-data-ownership", "architecture-runtime-boundary"]
+    },
+    {
+      "id": "breyta-steps-run-llm-schema-shape",
+      "repositoryId": "breyta",
+      "revision": "56a280c00cf0500696fbfe8818d229b879c1e869",
+      "fixRevision": "2312fc75d4016d5a244c46dfe6c87c1b7629a58c",
+      "sourceUrl": "https://github.com/breyta/breyta/commit/2312fc75d4016d5a244c46dfe6c87c1b7629a58c",
+      "query": "preserve steps run LLM schema shape normalization through execution and fanout children",
+      "expectedPaths": [
+        "bases/flows-api/src/breyta/flows_api/api/commands/steps.clj",
+        "bases/flows-api/src/breyta/flows_api/api/handlers/commands.clj",
+        "bases/flows-api/test/breyta/flows_api/api/commands/steps_normalization_test.clj"
+      ],
+      "sourceKinds": ["clojure"],
+      "problemClasses": ["problem-api-contract", "problem-cross-file"],
+      "architectureClasses": ["architecture-data-ownership", "architecture-dependency-flow"]
+    },
+    {
+      "id": "breyta-completed-output-consistency",
+      "repositoryId": "breyta",
+      "revision": "f7f69fcf1c5f161ec9018ba03ed52691873fc5be",
+      "fixRevision": "bd9bc6a3f4304a6b49a248086fc7e35b1d982c9d",
+      "sourceUrl": "https://github.com/breyta/breyta/commit/bd9bc6a3f4304a6b49a248086fc7e35b1d982c9d",
+      "query": "make completed linked run output consistent across resource UI subscriptions workspace presentation and artifact panel",
+      "expectedPaths": [
+        "bases/flows-api/src/breyta/flows_api/api/handlers/resource_ui/runs.clj",
+        "bases/flows-api/src/breyta/flows_api/api/sse/subscriptions.clj",
+        "bases/flows-api/src/breyta/flows_api/views/composites/run_artifact_panel.cljc",
+        "bases/flows-api/src/breyta/flows_api/views/presenters/workspace_data.clj"
+      ],
+      "sourceKinds": ["clojure"],
+      "problemClasses": ["problem-architecture", "problem-cross-file"],
+      "architectureClasses": ["architecture-data-ownership", "architecture-dependency-flow", "architecture-runtime-boundary"]
+    }
+  ]
+}
