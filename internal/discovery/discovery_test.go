@@ -47,3 +47,28 @@ func TestCandidatesAndReadText(t *testing.T) {
 		t.Fatalf("skipped=%#v err=%v", skipped, err)
 	}
 }
+
+func TestDiscoveryDoesNotFollowRepositorySymlinks(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "outside.txt")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := Candidates(root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 0 {
+		t.Fatalf("symlink became candidate: %#v", candidates)
+	}
+	_, skipped, err := Read(root, Candidate{
+		Path: "outside.txt", Size: int64(len("secret")), MTimeNS: 1,
+	}, 1024)
+	if err != nil || skipped == nil || skipped.Reason != "non-regular" {
+		t.Fatalf("skipped=%#v err=%v", skipped, err)
+	}
+}

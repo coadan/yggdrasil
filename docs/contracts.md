@@ -58,6 +58,12 @@ and plugin fingerprints. Plugin values for those fields are rejected.
 Core starts each configured extractor once per index run. Messages are one JSON
 object per line.
 
+Extractor and command-embedding entries execute the configured argv with the
+repository as their working directory. They are trusted local executables, not
+a sandbox boundary. Only configure commands you would run directly. Extractor
+authors must change `version` whenever output behavior changes; that version is
+part of the incremental extraction fingerprint.
+
 Input:
 
 ```json
@@ -86,4 +92,3 @@ length must equal the configured dimensions.
 JSON responses have `schema`, `ok`, and either `data` or `error`. Search data
 uses schema `ygg.search.result/v1` and includes the requested mode, active mode,
 fallback reason, timings, and ranked records with path/line citations.
-

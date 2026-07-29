@@ -262,8 +262,15 @@ func validateRecords(pluginConfig config.Plugin, file discovery.File, records []
 		return nil, fmt.Errorf("plugin %q returned %d records; maximum is %d", pluginConfig.ID, len(records), maxRecords)
 	}
 	lineCount := strings.Count(file.Content, "\n") + 1
+	ids := map[string]bool{}
 	for i := range records {
 		record := &records[i]
+		if record.ID != "" {
+			if ids[record.ID] {
+				return nil, fmt.Errorf("plugin %q returned duplicate record id %q", pluginConfig.ID, record.ID)
+			}
+			ids[record.ID] = true
+		}
 		if record.Source != "" {
 			return nil, fmt.Errorf("plugin %q attempted to set protected source", pluginConfig.ID)
 		}
