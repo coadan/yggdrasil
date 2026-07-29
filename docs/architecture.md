@@ -54,6 +54,10 @@ The Java/.NET adapter is an optional tree-sitter process with a separately
 pinned Python environment. Parser dependencies remain outside the CLI binary
 and the core Go module graph.
 
+The Terraform adapter is a separate Go module around the HCL parser. It has no
+effect on core startup or the core dependency graph unless explicitly built and
+configured.
+
 ## Deliberate non-goals
 
 The search core does not model a general graph, render HTML, generate reports,

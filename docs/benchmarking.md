@@ -53,6 +53,9 @@ claim lane.
 optional tree-sitter adapter. Run `make test-jvm-dotnet` after creating the
 virtual environment described in the plugin README.
 
+`make benchmark-terraform` runs the pinned Terraform architecture/config case
+with and without the HCL adapter.
+
 Reports include:
 
 - file recall@10 and mean reciprocal rank;
