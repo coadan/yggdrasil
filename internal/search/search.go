@@ -87,7 +87,22 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	candidateLimit := max(100, opts.Limit*10)
 	var lanes []lane
 	if opts.Mode != "semantic" {
-		fts, err := value.LexicalCandidates(ctx, ftsQuery(query), candidateLimit)
+		terms := queryTerms(query)
+		if len(terms) > 1 {
+			phrase, err := value.LexicalCandidates(ctx, ftsPhraseQuery(terms), candidateLimit)
+			if err != nil {
+				return Result{}, fmt.Errorf("exact lexical search: %w", err)
+			}
+			all, err := value.LexicalCandidates(ctx, ftsAllQuery(terms), candidateLimit)
+			if err != nil {
+				return Result{}, fmt.Errorf("all-term lexical search: %w", err)
+			}
+			lanes = append(lanes,
+				lane{name: "exact", records: phrase},
+				lane{name: "all-terms", records: all},
+			)
+		}
+		fts, err := value.LexicalCandidates(ctx, ftsAnyQuery(terms), candidateLimit)
 		if err != nil {
 			return Result{}, fmt.Errorf("lexical search: %w", err)
 		}
@@ -210,8 +225,12 @@ func fuse(limit int, lanes []lane) []RankedRecord {
 		}
 	}
 	ordered := make([]*fused, 0, len(values))
+	hasCitedRecord := make(map[string]bool)
 	for _, value := range values {
 		ordered = append(ordered, value)
+		if value.record.Kind != "file" {
+			hasCitedRecord[value.record.Path] = true
+		}
 	}
 	sort.Slice(ordered, func(i, j int) bool {
 		if ordered[i].score != ordered[j].score {
@@ -225,11 +244,14 @@ func fuse(limit int, lanes []lane) []RankedRecord {
 		}
 		return ordered[i].record.ID < ordered[j].record.ID
 	})
-	if len(ordered) > limit {
-		ordered = ordered[:limit]
-	}
-	result := make([]RankedRecord, 0, len(ordered))
+	result := make([]RankedRecord, 0, min(limit, len(ordered)))
 	for _, value := range ordered {
+		if len(result) == limit {
+			break
+		}
+		if value.record.Kind == "file" && hasCitedRecord[value.record.Path] {
+			continue
+		}
 		retrieval := make([]string, 0, len(value.retrieval))
 		for name := range value.retrieval {
 			retrieval = append(retrieval, name)
@@ -252,14 +274,33 @@ func fuse(limit int, lanes []lane) []RankedRecord {
 	return result
 }
 
-func ftsQuery(query string) string {
-	fields := strings.Fields(query)
-	quoted := make([]string, 0, len(fields))
-	for _, field := range fields {
+func queryTerms(query string) []string {
+	return strings.Fields(query)
+}
+
+func quotedTerms(terms []string) []string {
+	quoted := make([]string, 0, len(terms))
+	for _, field := range terms {
 		field = strings.ReplaceAll(field, `"`, `""`)
 		quoted = append(quoted, `"`+field+`"`)
 	}
-	return strings.Join(quoted, " OR ")
+	return quoted
+}
+
+func ftsAnyQuery(terms []string) string {
+	return strings.Join(quotedTerms(terms), " OR ")
+}
+
+func ftsAllQuery(terms []string) string {
+	return strings.Join(quotedTerms(terms), " AND ")
+}
+
+func ftsPhraseQuery(terms []string) string {
+	fields := make([]string, 0, len(terms))
+	for _, field := range terms {
+		fields = append(fields, strings.ReplaceAll(field, `"`, `""`))
+	}
+	return `"` + strings.Join(fields, " ") + `"`
 }
 
 func excerpt(text string) string {

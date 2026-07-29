@@ -47,6 +47,53 @@ func TestLexicalSearchReturnsCitedRecords(t *testing.T) {
 	}
 }
 
+func TestLexicalSearchBoostsExactAndAllTermMatches(t *testing.T) {
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct {
+		path string
+		text string
+	}{
+		{"src/partial.go", "alpha alpha alpha"},
+		{"src/scattered.go", "alpha then beta"},
+		{"src/exact.go", "alpha beta"},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: int64(len(item.text)), MTimeNS: 1},
+			Kind:      "go",
+		}
+		records := []contracts.SearchRecord{
+			{Path: file.Path, StartLine: 1, EndLine: 1, Kind: "file", Title: file.Path, Text: file.Path, Source: "core"},
+			{Path: file.Path, StartLine: 10, EndLine: 12, Kind: "text-chunk", Text: item.text, Source: "core"},
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.text, "fingerprint", records); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := Run(ctx, value, "alpha beta", Options{Mode: "lexical", Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 3 {
+		t.Fatalf("records=%#v", result.Records)
+	}
+	if result.Records[0].Path != "src/exact.go" {
+		t.Fatalf("first record=%#v", result.Records[0])
+	}
+	if got := strings.Join(result.Records[0].Retrieval, ","); got != "all-terms,exact,lexical" {
+		t.Fatalf("retrieval=%q", got)
+	}
+	for _, record := range result.Records {
+		if record.Kind == "file" {
+			t.Fatalf("file record duplicated cited result: %#v", record)
+		}
+	}
+}
+
 func TestAutoReportsSemanticFallback(t *testing.T) {
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
