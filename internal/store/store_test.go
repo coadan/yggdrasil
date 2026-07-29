@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -174,11 +175,75 @@ func TestEmbeddingLaneReturnsNearestRecord(t *testing.T) {
 	if err != nil || !state.Complete || state.Embedded != 2 {
 		t.Fatalf("state=%#v err=%v", state, err)
 	}
-	records, err := value.VectorCandidates(ctx, []float32{1, 0}, 1)
+	records, err := value.VectorCandidates(ctx, []float32{1, 0}, "", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(records) != 1 || records[0].Path != "near.txt" {
+		t.Fatalf("records=%#v", records)
+	}
+}
+
+func TestVectorCandidatesApplyScopeBeforeLimit(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	items := []struct {
+		path   string
+		text   string
+		vector []float32
+	}{
+		{path: "src/app/owner.ts", text: "scoped owner", vector: []float32{0.9, 0.1}},
+	}
+	for index := range 101 {
+		items = append(items, struct {
+			path   string
+			text   string
+			vector []float32
+		}{
+			path:   fmt.Sprintf("scripts/noise-%03d.ts", index),
+			text:   fmt.Sprintf("outside noise %03d", index),
+			vector: []float32{1, 0},
+		})
+	}
+	for _, item := range items {
+		file := discovery.File{
+			Candidate: discovery.Candidate{
+				Path: item.path, Size: int64(len(item.text)), MTimeNS: 1,
+			},
+			Kind: "typescript",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.text, "fingerprint", []contracts.SearchRecord{{
+			Path: item.path, StartLine: 1, EndLine: 1, Kind: "text",
+			Text: item.text, Source: "core",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := value.PrepareEmbeddingLane(ctx, "embed-fp", "model", 2); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, "embed-fp", len(items))
+	if err != nil || len(inputs) != len(items) {
+		t.Fatalf("inputs=%d err=%v", len(inputs), err)
+	}
+	vectors := make([]EmbeddingValue, len(inputs))
+	for index, input := range inputs {
+		vectors[index] = EmbeddingValue{
+			ID: input.ID, InputHash: input.InputHash, Vector: items[index].vector,
+		}
+	}
+	if err := value.UpsertEmbeddings(ctx, "embed-fp", 2, vectors); err != nil {
+		t.Fatal(err)
+	}
+	records, err := value.VectorCandidates(ctx, []float32{1, 0}, "src/app", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Path != "src/app/owner.ts" {
 		t.Fatalf("records=%#v", records)
 	}
 }

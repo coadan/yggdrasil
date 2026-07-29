@@ -121,6 +121,13 @@ func TestLexicalSearchDiversifiesFilesAndCountsPathTerms(t *testing.T) {
 				{Path: "src/route.ts", StartLine: 3, EndLine: 5, Kind: "text-chunk", Text: "route detail", Source: "core"},
 			},
 		},
+		{
+			path: "scripts/world-map-route.ts",
+			records: []contracts.SearchRecord{
+				{Path: "scripts/world-map-route.ts", StartLine: 1, EndLine: 1, Kind: "file", Text: "scripts/world-map-route.ts", Source: "core"},
+				{Path: "scripts/world-map-route.ts", StartLine: 3, EndLine: 5, Kind: "text-chunk", Text: "world map route", Source: "core"},
+			},
+		},
 	} {
 		file := discovery.File{
 			Candidate: discovery.Candidate{Path: item.path, Size: 20, MTimeNS: 1},
@@ -130,7 +137,9 @@ func TestLexicalSearchDiversifiesFilesAndCountsPathTerms(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	result, err := Run(ctx, value, "world map route", Options{Mode: "lexical", Limit: 5})
+	result, err := Run(ctx, value, "world map route", Options{
+		Mode: "lexical", Limit: 5, Scope: "src",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,6 +281,7 @@ func TestLexicalSearchFusesConfiguredExtractorRecords(t *testing.T) {
 	}{
 		{path: "src/core.go", source: "core"},
 		{path: "src/extracted.go", source: "plugin:go"},
+		{path: "scripts/outside.go", source: "plugin:go"},
 	} {
 		file := discovery.File{
 			Candidate: discovery.Candidate{Path: item.path, Size: 20, MTimeNS: 1},
@@ -285,7 +295,7 @@ func TestLexicalSearchFusesConfiguredExtractorRecords(t *testing.T) {
 		}
 	}
 	result, err := Run(ctx, value, "route access", Options{
-		Mode: "lexical", Limit: 5, HasExtractors: true,
+		Mode: "lexical", Limit: 5, Scope: "src", HasExtractors: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -293,6 +303,11 @@ func TestLexicalSearchFusesConfiguredExtractorRecords(t *testing.T) {
 	if result.Records[0].Path != "src/extracted.go" ||
 		!strings.Contains(strings.Join(result.Records[0].Retrieval, ","), "extractor") {
 		t.Fatalf("records=%#v", result.Records)
+	}
+	for _, record := range result.Records {
+		if !strings.HasPrefix(record.Path, "src/") {
+			t.Fatalf("out-of-scope extractor record=%#v", record)
+		}
 	}
 }
 

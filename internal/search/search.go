@@ -34,6 +34,7 @@ type Options struct {
 	Mode          string
 	Limit         int
 	Root          string
+	Scope         string
 	HasExtractors bool
 	Embedding     *config.Embedding
 }
@@ -96,13 +97,17 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		terms := queryTerms(query)
 		structured = structuredTermQuery(query, terms)
 		if len(terms) > 1 {
-			phrase, err := value.LexicalCandidates(ctx, ftsPhraseQuery(terms), candidateLimit)
+			phrase, err := value.LexicalCandidates(
+				ctx, ftsPhraseQuery(terms), opts.Scope, candidateLimit,
+			)
 			if err != nil {
 				return Result{}, fmt.Errorf("exact lexical search: %w", err)
 			}
 			lanes = append(lanes, lane{name: "exact", records: phrase})
 			if !structured {
-				all, err := value.LexicalCandidates(ctx, ftsAllQuery(terms), candidateLimit)
+				all, err := value.LexicalCandidates(
+					ctx, ftsAllQuery(terms), opts.Scope, candidateLimit,
+				)
 				if err != nil {
 					return Result{}, fmt.Errorf("all-term lexical search: %w", err)
 				}
@@ -110,11 +115,15 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 			}
 		}
 		if !structured {
-			fts, err := value.LexicalCandidates(ctx, ftsAnyQuery(terms), candidateLimit)
+			fts, err := value.LexicalCandidates(
+				ctx, ftsAnyQuery(terms), opts.Scope, candidateLimit,
+			)
 			if err != nil {
 				return Result{}, fmt.Errorf("lexical search: %w", err)
 			}
-			paths, err := value.PathCandidates(ctx, pathTerms(query), candidateLimit)
+			paths, err := value.PathCandidates(
+				ctx, pathTerms(query), opts.Scope, candidateLimit,
+			)
 			if err != nil {
 				return Result{}, fmt.Errorf("path search: %w", err)
 			}
@@ -123,14 +132,18 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 				lane{name: "path", records: paths},
 			)
 			if opts.HasExtractors {
-				extracted, err := value.ExtractorCandidates(ctx, ftsAnyQuery(terms), candidateLimit)
+				extracted, err := value.ExtractorCandidates(
+					ctx, ftsAnyQuery(terms), opts.Scope, candidateLimit,
+				)
 				if err != nil {
 					return Result{}, fmt.Errorf("extractor search: %w", err)
 				}
 				lanes = append(lanes, lane{name: "extractor", records: extracted})
 			}
 			for _, anchor := range structuredAnchorQueries(query) {
-				records, err := value.LexicalCandidates(ctx, anchor, candidateLimit)
+				records, err := value.LexicalCandidates(
+					ctx, anchor, opts.Scope, candidateLimit,
+				)
 				if err != nil {
 					return Result{}, fmt.Errorf("structured anchor search: %w", err)
 				}
@@ -197,7 +210,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	if len(values) != 1 || values[0].ID != "query" {
 		return semanticFailure(result, opts, lanes, started, errors.New("provider returned an invalid query embedding"))
 	}
-	vectors, err := value.VectorCandidates(ctx, values[0].Vector, candidateLimit)
+	vectors, err := value.VectorCandidates(ctx, values[0].Vector, opts.Scope, candidateLimit)
 	if err != nil {
 		return Result{}, fmt.Errorf("semantic search: %w", err)
 	}

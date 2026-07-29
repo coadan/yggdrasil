@@ -125,6 +125,11 @@ func TestSearchRepositorySubdirectoryReusesRootIndex(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(
+		filepath.Join(root, "outside.spec.ts"), []byte("subdirectoryrootmarker\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
 	var stdout, stderr bytes.Buffer
 	if code := Main(context.Background(), []string{
 		"index", "--root", root, "--no-embed",
