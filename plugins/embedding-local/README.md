@@ -19,8 +19,9 @@ python3.13 -m venv .dev/local-embedding-venv
   -r plugins/embedding-local/requirements.txt
 ```
 
-Then use absolute paths because embedding commands run with the indexed
-repository as their working directory:
+Then put the provider in `~/.config/ygg/config.json` so every repository and
+worktree uses it. Use absolute paths because embedding commands run with the
+indexed repository as their working directory:
 
 ```json
 {

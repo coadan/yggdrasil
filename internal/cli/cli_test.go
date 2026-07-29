@@ -10,6 +10,7 @@ import (
 )
 
 func TestIndexSearchAndStatus(t *testing.T) {
+	isolateCLIUserConfig(t)
 	root := t.TempDir()
 	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
 	if err := os.WriteFile(filepath.Join(root, "router.go"), []byte("package router\nfunc RegisterRequest() {}\n"), 0o644); err != nil {
@@ -49,6 +50,7 @@ func TestIndexSearchAndStatus(t *testing.T) {
 }
 
 func TestSearchRequiresAnIndex(t *testing.T) {
+	isolateCLIUserConfig(t)
 	root := t.TempDir()
 	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
 	var stdout, stderr bytes.Buffer
@@ -89,6 +91,7 @@ func TestPublicSurfaceRejectsLegacyCommands(t *testing.T) {
 }
 
 func TestSearchRejectsOutOfBoundsLimitBeforeOpeningIndex(t *testing.T) {
+	isolateCLIUserConfig(t)
 	root := t.TempDir()
 	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
 	var stdout, stderr bytes.Buffer
@@ -98,4 +101,10 @@ func TestSearchRejectsOutOfBoundsLimitBeforeOpeningIndex(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
+}
+
+func isolateCLIUserConfig(t *testing.T) {
+	t.Helper()
+	t.Setenv("YGG_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 }

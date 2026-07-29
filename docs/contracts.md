@@ -2,6 +2,27 @@
 
 ## Configuration
 
+The user configuration at `~/.config/ygg/config.json` owns the default
+embedding provider shared by repositories and linked worktrees:
+
+```json
+{
+  "schema": "ygg.config/v1",
+  "embedding": {
+    "kind": "openai-compatible",
+    "endpoint": "http://127.0.0.1:11434/v1/embeddings",
+    "model": "all-minilm:latest",
+    "dimensions": 384,
+    "timeoutMs": 60000,
+    "batchSize": 64,
+    "maxInputChars": 6000
+  }
+}
+```
+
+Only `schema` and `embedding` are valid at user scope. `XDG_CONFIG_HOME`
+relocates the configuration root and `YGG_CONFIG` selects an exact file.
+
 The optional repository configuration is `.ygg/config.json`:
 
 ```json
@@ -50,19 +71,13 @@ The optional repository configuration is `.ygg/config.json`:
       "includeGlobs": ["**/*.py"],
       "timeoutMs": 10000
     }
-  ],
-  "embedding": {
-    "kind": "openai-compatible",
-    "endpoint": "http://127.0.0.1:8080/v1/embeddings",
-    "model": "local-model",
-    "dimensions": 384,
-    "apiKeyEnv": "YGG_EMBEDDING_API_KEY",
-    "timeoutMs": 2000,
-    "batchSize": 64,
-    "maxInputChars": 6000
-  }
+  ]
 }
 ```
+
+Repository configuration inherits the user embedding when the `embedding`
+field is absent. An explicit provider overrides it, and `null` disables it for
+that repository.
 
 Embedding `kind` is either `command` or `openai-compatible`. A command provider
 uses `command` argv instead of `endpoint` and `apiKeyEnv`.
