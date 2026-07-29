@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/coadan/yggdrasil/internal/contracts"
@@ -37,6 +38,19 @@ type FileState struct {
 	MTimeNS               int64
 	ContentHash           string
 	ExtractionFingerprint string
+}
+
+type FileUpdate struct {
+	File                  discovery.File
+	ContentHash           string
+	ExtractionFingerprint string
+	Records               []contracts.SearchRecord
+}
+
+type Diagnostic struct {
+	Path    string
+	Stage   string
+	Message string
 }
 
 type Counts struct {
@@ -258,15 +272,28 @@ func (s *Store) FinishRun(ctx context.Context, runID, status string, summary any
 	return err
 }
 
-func (s *Store) FileState(ctx context.Context, path string) (FileState, bool, error) {
-	var state FileState
-	err := s.db.QueryRowContext(ctx,
-		`SELECT path,size,mtime_ns,content_hash,extraction_fingerprint FROM files WHERE path=?`,
-		path).Scan(&state.Path, &state.Size, &state.MTimeNS, &state.ContentHash, &state.ExtractionFingerprint)
-	if errors.Is(err, sql.ErrNoRows) {
-		return FileState{}, false, nil
+func (s *Store) FileStates(ctx context.Context) (map[string]FileState, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT path,size,mtime_ns,content_hash,extraction_fingerprint FROM files ORDER BY path`)
+	if err != nil {
+		return nil, err
 	}
-	return state, err == nil, err
+	defer rows.Close()
+	result := make(map[string]FileState)
+	for rows.Next() {
+		var state FileState
+		if err := rows.Scan(
+			&state.Path,
+			&state.Size,
+			&state.MTimeNS,
+			&state.ContentHash,
+			&state.ExtractionFingerprint,
+		); err != nil {
+			return nil, err
+		}
+		result[state.Path] = state
+	}
+	return result, rows.Err()
 }
 
 func (s *Store) ReplaceFile(
@@ -281,7 +308,20 @@ func (s *Store) ReplaceFile(
 		return err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `
+	if err := replaceFile(ctx, tx, runID, FileUpdate{
+		File:                  file,
+		ContentHash:           contentHash,
+		ExtractionFingerprint: fingerprint,
+		Records:               records,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func replaceFile(ctx context.Context, tx *sql.Tx, runID string, update FileUpdate) error {
+	file := update.File
+	_, err := tx.ExecContext(ctx, `
 		INSERT INTO files(path,kind,size,mtime_ns,content_hash,extraction_fingerprint,indexed_at_ms,run_id)
 		VALUES(?,?,?,?,?,?,?,?)
 		ON CONFLICT(path) DO UPDATE SET
@@ -289,7 +329,8 @@ func (s *Store) ReplaceFile(
 			content_hash=excluded.content_hash,
 			extraction_fingerprint=excluded.extraction_fingerprint,
 			indexed_at_ms=excluded.indexed_at_ms,run_id=excluded.run_id`,
-		file.Path, file.Kind, file.Size, file.MTimeNS, contentHash, fingerprint, time.Now().UnixMilli(), runID)
+		file.Path, file.Kind, file.Size, file.MTimeNS, update.ContentHash,
+		update.ExtractionFingerprint, time.Now().UnixMilli(), runID)
 	if err != nil {
 		return err
 	}
@@ -300,7 +341,7 @@ func (s *Store) ReplaceFile(
 	if err := deleteFileRecords(ctx, tx, fileID); err != nil {
 		return err
 	}
-	for i, record := range records {
+	for i, record := range update.Records {
 		metadata, err := json.Marshal(record.Metadata)
 		if err != nil {
 			return fmt.Errorf("encode record metadata: %w", err)
@@ -318,7 +359,7 @@ func (s *Store) ReplaceFile(
 			return fmt.Errorf("insert record: %w", err)
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (s *Store) DeleteFile(ctx context.Context, path string) error {
@@ -327,8 +368,15 @@ func (s *Store) DeleteFile(ctx context.Context, path string) error {
 		return err
 	}
 	defer tx.Rollback()
+	if err := deleteFile(ctx, tx, path); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func deleteFile(ctx context.Context, tx *sql.Tx, path string) error {
 	var fileID int64
-	err = tx.QueryRowContext(ctx, `SELECT id FROM files WHERE path=?`, path).Scan(&fileID)
+	err := tx.QueryRowContext(ctx, `SELECT id FROM files WHERE path=?`, path).Scan(&fileID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -341,7 +389,7 @@ func (s *Store) DeleteFile(ctx context.Context, path string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM files WHERE id=?`, fileID); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func deleteFileRecords(ctx context.Context, tx *sql.Tx, fileID int64) error {
@@ -370,28 +418,250 @@ func deleteFileRecords(ctx context.Context, tx *sql.Tx, fileID int64) error {
 	return err
 }
 
-func (s *Store) FilePaths(ctx context.Context) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT path FROM files ORDER BY path`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var result []string
-	for rows.Next() {
-		var path string
-		if err := rows.Scan(&path); err != nil {
-			return nil, err
-		}
-		result = append(result, path)
-	}
-	return result, rows.Err()
-}
-
 func (s *Store) AddDiagnostic(ctx context.Context, runID, path, stage, message string) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO diagnostics(run_id,path,stage,message,created_at_ms)
 		VALUES(?,?,?,?,?)`, runID, path, stage, message, time.Now().UnixMilli())
 	return err
+}
+
+func (s *Store) ApplyBatch(
+	ctx context.Context,
+	runID string,
+	updates []FileUpdate,
+	deletes []string,
+	diagnostics []Diagnostic,
+) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := bulkUpsertFiles(ctx, tx, runID, updates); err != nil {
+		return err
+	}
+	paths := make([]string, 0, len(updates)+len(deletes))
+	for _, update := range updates {
+		paths = append(paths, update.File.Path)
+	}
+	paths = append(paths, deletes...)
+	fileIDs, err := selectFileIDs(ctx, tx, paths)
+	if err != nil {
+		return err
+	}
+	if err := bulkDeleteRecords(ctx, tx, fileIDs); err != nil {
+		return err
+	}
+	if err := bulkDeleteFiles(ctx, tx, deletes); err != nil {
+		return err
+	}
+	if err := bulkInsertRecords(ctx, tx, updates, fileIDs); err != nil {
+		return err
+	}
+	if err := bulkInsertDiagnostics(ctx, tx, runID, diagnostics); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func bulkUpsertFiles(ctx context.Context, tx *sql.Tx, runID string, updates []FileUpdate) error {
+	if len(updates) == 0 {
+		return nil
+	}
+	var query strings.Builder
+	query.WriteString(`
+		INSERT INTO files(path,kind,size,mtime_ns,content_hash,extraction_fingerprint,indexed_at_ms,run_id)
+		VALUES `)
+	args := make([]any, 0, len(updates)*8)
+	indexedAt := time.Now().UnixMilli()
+	for i, update := range updates {
+		if i > 0 {
+			query.WriteByte(',')
+		}
+		query.WriteString("(?,?,?,?,?,?,?,?)")
+		file := update.File
+		args = append(args,
+			file.Path, file.Kind, file.Size, file.MTimeNS, update.ContentHash,
+			update.ExtractionFingerprint, indexedAt, runID,
+		)
+	}
+	query.WriteString(`
+		ON CONFLICT(path) DO UPDATE SET
+			kind=excluded.kind,size=excluded.size,mtime_ns=excluded.mtime_ns,
+			content_hash=excluded.content_hash,
+			extraction_fingerprint=excluded.extraction_fingerprint,
+			indexed_at_ms=excluded.indexed_at_ms,run_id=excluded.run_id`)
+	_, err := tx.ExecContext(ctx, query.String(), args...)
+	return err
+}
+
+func selectFileIDs(ctx context.Context, tx *sql.Tx, paths []string) (map[string]int64, error) {
+	result := make(map[string]int64, len(paths))
+	if len(paths) == 0 {
+		return result, nil
+	}
+	rows, err := tx.QueryContext(
+		ctx,
+		`SELECT path,id FROM files WHERE path IN (`+placeholders(len(paths))+`)`,
+		stringArgs(paths)...,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var path string
+		var id int64
+		if err := rows.Scan(&path, &id); err != nil {
+			return nil, err
+		}
+		result[path] = id
+	}
+	return result, rows.Err()
+}
+
+func bulkDeleteRecords(ctx context.Context, tx *sql.Tx, fileIDs map[string]int64) error {
+	if len(fileIDs) == 0 {
+		return nil
+	}
+	ids := make([]any, 0, len(fileIDs))
+	for _, id := range fileIDs {
+		ids = append(ids, id)
+	}
+	in := placeholders(len(ids))
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM record_vectors
+		 WHERE rowid IN (SELECT id FROM records WHERE file_id IN (`+in+`))`,
+		ids...,
+	); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `DELETE FROM records WHERE file_id IN (`+in+`)`, ids...)
+	return err
+}
+
+func bulkDeleteFiles(ctx context.Context, tx *sql.Tx, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	_, err := tx.ExecContext(
+		ctx,
+		`DELETE FROM files WHERE path IN (`+placeholders(len(paths))+`)`,
+		stringArgs(paths)...,
+	)
+	return err
+}
+
+type recordInsert struct {
+	key      string
+	fileID   int64
+	path     string
+	record   contracts.SearchRecord
+	metadata string
+}
+
+func bulkInsertRecords(
+	ctx context.Context,
+	tx *sql.Tx,
+	updates []FileUpdate,
+	fileIDs map[string]int64,
+) error {
+	var records []recordInsert
+	for _, update := range updates {
+		fileID, ok := fileIDs[update.File.Path]
+		if !ok {
+			return fmt.Errorf("missing stored file id for %s", update.File.Path)
+		}
+		for i, record := range update.Records {
+			metadata, err := json.Marshal(record.Metadata)
+			if err != nil {
+				return fmt.Errorf("encode record metadata: %w", err)
+			}
+			key := fmt.Sprintf(
+				"%s:%s:%d:%d:%s:%d",
+				record.Source,
+				update.File.Path,
+				record.StartLine,
+				record.EndLine,
+				record.Kind,
+				i,
+			)
+			if record.ID != "" {
+				key = record.Source + ":" + update.File.Path + ":" + record.ID
+			}
+			records = append(records, recordInsert{
+				key: key, fileID: fileID, path: update.File.Path,
+				record: record, metadata: string(metadata),
+			})
+		}
+	}
+	const recordsPerStatement = 128
+	for start := 0; start < len(records); start += recordsPerStatement {
+		end := min(start+recordsPerStatement, len(records))
+		var query strings.Builder
+		query.WriteString(`
+			INSERT INTO records(
+				record_key,file_id,path,start_line,end_line,kind,title,text,metadata_json,source,input_hash
+			) VALUES `)
+		args := make([]any, 0, (end-start)*11)
+		for i, item := range records[start:end] {
+			if i > 0 {
+				query.WriteByte(',')
+			}
+			query.WriteString("(?,?,?,?,?,?,?,?,?,?,?)")
+			record := item.record
+			args = append(args,
+				item.key, item.fileID, item.path, record.StartLine, record.EndLine,
+				record.Kind, record.Title, record.Text, item.metadata, record.Source,
+				recordInputHash(record.Title, record.Text),
+			)
+		}
+		if _, err := tx.ExecContext(ctx, query.String(), args...); err != nil {
+			return fmt.Errorf("insert records: %w", err)
+		}
+	}
+	return nil
+}
+
+func bulkInsertDiagnostics(
+	ctx context.Context,
+	tx *sql.Tx,
+	runID string,
+	diagnostics []Diagnostic,
+) error {
+	if len(diagnostics) == 0 {
+		return nil
+	}
+	var query strings.Builder
+	query.WriteString(`
+		INSERT INTO diagnostics(run_id,path,stage,message,created_at_ms)
+		VALUES `)
+	args := make([]any, 0, len(diagnostics)*5)
+	createdAt := time.Now().UnixMilli()
+	for i, diagnostic := range diagnostics {
+		if i > 0 {
+			query.WriteByte(',')
+		}
+		query.WriteString("(?,?,?,?,?)")
+		args = append(args, runID, diagnostic.Path, diagnostic.Stage, diagnostic.Message, createdAt)
+	}
+	_, err := tx.ExecContext(ctx, query.String(), args...)
+	return err
+}
+
+func placeholders(count int) string {
+	if count <= 0 {
+		return ""
+	}
+	return strings.TrimSuffix(strings.Repeat("?,", count), ",")
+}
+
+func stringArgs(values []string) []any {
+	result := make([]any, len(values))
+	for i, value := range values {
+		result[i] = value
+	}
+	return result
 }
 
 func (s *Store) Counts(ctx context.Context) (Counts, error) {

@@ -69,13 +69,14 @@ func Inspect(ctx context.Context, paths project.Paths, cfg config.Config) (Resul
 		return Result{}, err
 	}
 	fingerprint := config.ExtractionFingerprint(cfg)
+	states, err := value.FileStates(ctx)
+	if err != nil {
+		return Result{}, err
+	}
 	present := make(map[string]bool, len(candidates))
 	for _, candidate := range candidates {
 		present[candidate.Path] = true
-		state, exists, err := value.FileState(ctx, candidate.Path)
-		if err != nil {
-			return Result{}, err
-		}
+		state, exists := states[candidate.Path]
 		switch {
 		case !exists:
 			result.Freshness.New++
@@ -87,11 +88,7 @@ func Inspect(ctx context.Context, paths project.Paths, cfg config.Config) (Resul
 			result.Freshness.Unchanged++
 		}
 	}
-	existing, err := value.FilePaths(ctx)
-	if err != nil {
-		return Result{}, err
-	}
-	for _, path := range existing {
+	for path := range states {
 		if !present[path] {
 			result.Freshness.Deleted++
 		}

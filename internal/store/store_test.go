@@ -40,6 +40,76 @@ func TestReplaceAndDeleteFileOwnsRecords(t *testing.T) {
 	}
 }
 
+func TestApplyBatchCommitsFilesDeletesAndDiagnostics(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	first := discovery.File{
+		Candidate: discovery.Candidate{Path: "old.txt", Size: 3, MTimeNS: 1},
+		Kind:      "txt",
+	}
+	if err := value.ReplaceFile(ctx, "run-1", first, "old", "fingerprint", []contracts.SearchRecord{{
+		Path: first.Path, StartLine: 1, EndLine: 1, Kind: "text", Text: "old", Source: "core",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	second := discovery.File{
+		Candidate: discovery.Candidate{Path: "new.txt", Size: 3, MTimeNS: 2},
+		Kind:      "txt",
+	}
+	if err := value.ApplyBatch(ctx, "run-2", []FileUpdate{{
+		File: second, ContentHash: "new", ExtractionFingerprint: "fingerprint",
+		Records: []contracts.SearchRecord{{
+			Path: second.Path, StartLine: 1, EndLine: 1, Kind: "text", Text: "new", Source: "core",
+		}},
+	}}, []string{first.Path}, []Diagnostic{{
+		Path: second.Path, Stage: "test", Message: "bounded diagnostic",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	states, err := value.FileStates(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(states) != 1 || states[second.Path].ContentHash != "new" {
+		t.Fatalf("states=%#v", states)
+	}
+	counts, err := value.Counts(ctx)
+	if err != nil || counts.Files != 1 || counts.Records != 1 || counts.Diagnostics != 1 {
+		t.Fatalf("counts=%#v err=%v", counts, err)
+	}
+}
+
+func TestApplyBatchRollsBackAllFilesOnFailure(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	file := discovery.File{
+		Candidate: discovery.Candidate{Path: "bad.txt", Size: 3, MTimeNS: 1},
+		Kind:      "txt",
+	}
+	duplicate := contracts.SearchRecord{
+		ID: "same", Path: file.Path, StartLine: 1, EndLine: 1, Kind: "text", Text: "bad", Source: "core",
+	}
+	err = value.ApplyBatch(ctx, "run", []FileUpdate{{
+		File: file, ContentHash: "bad", ExtractionFingerprint: "fingerprint",
+		Records: []contracts.SearchRecord{duplicate, duplicate},
+	}}, nil, nil)
+	if err == nil {
+		t.Fatal("expected duplicate record failure")
+	}
+	counts, countErr := value.Counts(ctx)
+	if countErr != nil || counts.Files != 0 || counts.Records != 0 {
+		t.Fatalf("counts=%#v err=%v", counts, countErr)
+	}
+}
+
 func TestOpenRejectsAnotherRoot(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "search.sqlite3")
@@ -110,5 +180,51 @@ func TestEmbeddingLaneReturnsNearestRecord(t *testing.T) {
 	}
 	if len(records) != 1 || records[0].Path != "near.txt" {
 		t.Fatalf("records=%#v", records)
+	}
+}
+
+func TestApplyBatchInvalidatesReplacedEmbeddings(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	file := discovery.File{
+		Candidate: discovery.Candidate{Path: "replace.txt", Size: 3, MTimeNS: 1},
+		Kind:      "txt",
+	}
+	if err := value.ReplaceFile(ctx, "run-1", file, "old", "fingerprint", []contracts.SearchRecord{{
+		Path: file.Path, StartLine: 1, EndLine: 1, Kind: "text", Text: "old", Source: "core",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := value.PrepareEmbeddingLane(ctx, "embed-fp", "model", 2); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, "embed-fp", 10)
+	if err != nil || len(inputs) != 1 {
+		t.Fatalf("inputs=%#v err=%v", inputs, err)
+	}
+	if err := value.UpsertEmbeddings(ctx, "embed-fp", 2, []EmbeddingValue{{
+		ID: inputs[0].ID, InputHash: inputs[0].InputHash, Vector: []float32{1, 0},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	file.MTimeNS = 2
+	if err := value.ApplyBatch(ctx, "run-2", []FileUpdate{{
+		File: file, ContentHash: "new", ExtractionFingerprint: "fingerprint",
+		Records: []contracts.SearchRecord{{
+			Path: file.Path, StartLine: 1, EndLine: 1, Kind: "text", Text: "new", Source: "core",
+		}},
+	}}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	state, err := value.EmbeddingState(ctx, "embed-fp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Records != 1 || state.Embedded != 0 || state.Complete {
+		t.Fatalf("state=%#v", state)
 	}
 }

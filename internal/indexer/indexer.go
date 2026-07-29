@@ -39,6 +39,8 @@ type Summary struct {
 	ElapsedMS       int64  `json:"elapsedMs"`
 }
 
+const writeBatchSize = 128
+
 func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Options) (summary Summary, err error) {
 	started := time.Now()
 	if err := os.MkdirAll(paths.StateDir, 0o755); err != nil {
@@ -88,6 +90,10 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	}
 	summary.Scanned = len(candidates)
 	fingerprint := config.ExtractionFingerprint(cfg)
+	states, err := value.FileStates(ctx)
+	if err != nil {
+		return summary, err
+	}
 	plugins := plugin.NewManager(ctx, paths.Root, cfg.Plugins)
 	pluginsClosed := false
 	defer func() {
@@ -96,12 +102,30 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		}
 	}()
 	present := make(map[string]bool, len(candidates))
+	var updates []store.FileUpdate
+	var deletes []string
+	var diagnostics []store.Diagnostic
+	flush := func() error {
+		if len(updates)+len(deletes)+len(diagnostics) == 0 {
+			return nil
+		}
+		if err := value.ApplyBatch(ctx, summary.RunID, updates, deletes, diagnostics); err != nil {
+			return err
+		}
+		updates = updates[:0]
+		deletes = deletes[:0]
+		diagnostics = diagnostics[:0]
+		return nil
+	}
+	flushIfFull := func() error {
+		if len(updates)+len(deletes)+len(diagnostics) < writeBatchSize {
+			return nil
+		}
+		return flush()
+	}
 	for _, candidate := range candidates {
 		present[candidate.Path] = true
-		state, exists, err := value.FileState(ctx, candidate.Path)
-		if err != nil {
-			return summary, err
-		}
+		state, exists := states[candidate.Path]
 		if !opts.Full && exists &&
 			state.Size == candidate.Size &&
 			state.MTimeNS == candidate.MTimeNS &&
@@ -112,18 +136,22 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		file, skipped, err := discovery.Read(paths.Root, candidate, cfg.MaxFileBytes)
 		if err != nil {
 			summary.Diagnostics++
-			if diagnosticErr := value.AddDiagnostic(ctx, summary.RunID, candidate.Path, "read", err.Error()); diagnosticErr != nil {
-				return summary, diagnosticErr
+			diagnostics = append(diagnostics, store.Diagnostic{
+				Path: candidate.Path, Stage: "read", Message: err.Error(),
+			})
+			if err := flushIfFull(); err != nil {
+				return summary, err
 			}
 			continue
 		}
 		if skipped != nil {
 			summary.Skipped++
 			if exists {
-				if err := value.DeleteFile(ctx, candidate.Path); err != nil {
-					return summary, err
-				}
+				deletes = append(deletes, candidate.Path)
 				summary.Deleted++
+			}
+			if err := flushIfFull(); err != nil {
+				return summary, err
 			}
 			continue
 		}
@@ -135,47 +163,46 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		records = append(records, pluginRecords...)
 		for _, diagnostic := range pluginDiagnostics {
 			summary.Diagnostics++
-			if err := value.AddDiagnostic(
-				ctx,
-				summary.RunID,
-				diagnostic.Path,
-				"extractor-plugin:"+diagnostic.Plugin+":"+diagnostic.Stage,
-				diagnostic.Message,
-			); err != nil {
-				return summary, err
-			}
+			diagnostics = append(diagnostics, store.Diagnostic{
+				Path:    diagnostic.Path,
+				Stage:   "extractor-plugin:" + diagnostic.Plugin + ":" + diagnostic.Stage,
+				Message: diagnostic.Message,
+			})
 		}
-		if err := value.ReplaceFile(ctx, summary.RunID, file, contentHash, fingerprint, records); err != nil {
+		updates = append(updates, store.FileUpdate{
+			File: file, ContentHash: contentHash, ExtractionFingerprint: fingerprint, Records: records,
+		})
+		if err := flushIfFull(); err != nil {
 			return summary, err
 		}
 		summary.Indexed++
 	}
-	existing, err := value.FilePaths(ctx)
-	if err != nil {
-		return summary, err
+	existing := make([]string, 0, len(states))
+	for path := range states {
+		existing = append(existing, path)
 	}
 	sort.Strings(existing)
 	for _, path := range existing {
 		if !present[path] {
-			if err := value.DeleteFile(ctx, path); err != nil {
+			deletes = append(deletes, path)
+			summary.Deleted++
+			if err := flushIfFull(); err != nil {
 				return summary, err
 			}
-			summary.Deleted++
 		}
 	}
 	for _, diagnostic := range plugins.Close() {
 		summary.Diagnostics++
-		if err := value.AddDiagnostic(
-			ctx,
-			summary.RunID,
-			diagnostic.Path,
-			"extractor-plugin:"+diagnostic.Plugin+":"+diagnostic.Stage,
-			diagnostic.Message,
-		); err != nil {
-			return summary, err
-		}
+		diagnostics = append(diagnostics, store.Diagnostic{
+			Path:    diagnostic.Path,
+			Stage:   "extractor-plugin:" + diagnostic.Plugin + ":" + diagnostic.Stage,
+			Message: diagnostic.Message,
+		})
 	}
 	pluginsClosed = true
+	if err := flush(); err != nil {
+		return summary, err
+	}
 	summary.EmbeddingStatus = "unconfigured"
 	if opts.NoEmbed {
 		summary.EmbeddingStatus = "skipped"
