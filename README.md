@@ -92,12 +92,17 @@ semantic lane with reciprocal-rank fusion. Missing, incomplete, or failed
 semantic recall is reported explicitly and lexical results remain available.
 Use `--mode lexical` or `--mode semantic` only for ablation and diagnosis.
 
-The reference Markdown extractor builds as `ygg-extract-markdown`:
+The repository includes three optional, dependency-free extractor executables:
 
 ```sh
 make build
 bin/ygg plugin check markdown --root /path/to/configured/repository
 ```
+
+`ygg-extract-markdown` emits sections and fences, `ygg-extract-go` uses the Go
+parser for declarations and imports, and `ygg-extract-typescript` emits
+top-level JavaScript/TypeScript declarations and module links. None are linked
+into the core CLI.
 
 See [contracts](docs/contracts.md) for the extractor, configuration, and result
 schemas.
