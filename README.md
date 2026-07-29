@@ -87,10 +87,14 @@ processed. The JSON index summary reports `seededFrom` and `reused`.
 
 ## Optional extraction and semantic recall
 
-An optional `.ygg/config.json` enables executable extractor plugins and one
-embedding provider. Core always emits mechanically chunked text records.
-Plugins add parser-owned records over a bounded JSONL protocol and are started
-once per index run.
+User-level `~/.config/ygg/config.json` owns the default embedding provider for
+every repository and linked worktree. Set `XDG_CONFIG_HOME` to relocate the
+config root or `YGG_CONFIG` to select an exact file. Repository-local
+`.ygg/config.json` owns repository-specific extractor plugins and ignore
+settings; an explicit repository embedding overrides the user default, while
+`"embedding": null` disables it for that repository. Core always emits
+mechanically chunked text records. Plugins add parser-owned records over a
+bounded JSONL protocol and are started once per index run.
 
 `search --mode auto` uses lexical and path recall by default. When every current
 record has a vector for the configured embedding fingerprint, it fuses the

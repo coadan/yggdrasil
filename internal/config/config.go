@@ -50,6 +50,11 @@ type Config struct {
 	Embedding    *Embedding `json:"embedding,omitempty"`
 }
 
+type userConfig struct {
+	Schema    string     `json:"schema"`
+	Embedding *Embedding `json:"embedding,omitempty"`
+}
+
 func Default() Config {
 	return Config{
 		Schema:       contracts.ConfigSchema,
@@ -58,31 +63,87 @@ func Default() Config {
 }
 
 func Load(root string) (Config, error) {
+	cfg := Default()
+	userPath, err := userConfigPath()
+	if err != nil {
+		return Config{}, err
+	}
+	if userEmbedding, found, err := loadUserEmbedding(userPath); err != nil {
+		return Config{}, err
+	} else if found {
+		cfg.Embedding = userEmbedding
+	}
 	path := filepath.Join(root, ".ygg", "config.json")
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Default(), nil
+		return cfg, nil
 	}
 	if err != nil {
 		return Config{}, fmt.Errorf("read config: %w", err)
 	}
-	cfg := Default()
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&cfg); err != nil {
-		return Config{}, fmt.Errorf("decode %s: %w", path, err)
-	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		if err == nil {
-			err = errors.New("multiple JSON values")
-		}
+	if err := decodeOne(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("decode %s: %w", path, err)
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+func userConfigPath() (string, error) {
+	if path := os.Getenv("YGG_CONFIG"); path != "" {
+		absolute, err := filepath.Abs(path)
+		if err != nil {
+			return "", fmt.Errorf("resolve YGG_CONFIG: %w", err)
+		}
+		return absolute, nil
+	}
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if base == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolve user config home: %w", err)
+		}
+		base = filepath.Join(home, ".config")
+	}
+	return filepath.Join(base, "ygg", "config.json"), nil
+}
+
+func loadUserEmbedding(path string) (*Embedding, bool, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("read user config %s: %w", path, err)
+	}
+	var user userConfig
+	if err := decodeOne(data, &user); err != nil {
+		return nil, false, fmt.Errorf("decode user config %s: %w", path, err)
+	}
+	cfg := Default()
+	cfg.Schema = user.Schema
+	cfg.Embedding = user.Embedding
+	if err := cfg.Validate(); err != nil {
+		return nil, false, fmt.Errorf("%s: %w", path, err)
+	}
+	return cfg.Embedding, true, nil
+}
+
+func decodeOne(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = errors.New("multiple JSON values")
+		}
+		return err
+	}
+	return nil
 }
 
 func (c *Config) Validate() error {
