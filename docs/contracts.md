@@ -175,6 +175,10 @@ records from one file contribute, the citation uses the bounded source window
 with the densest query-term evidence; `startLine`, `endLine`, and a line-based
 title identify that localized window. Semantic-only results retain their
 highest-ranked semantic record.
+The first `limit` files include citations. When additional bounded candidates
+exist, `morePaths` contains up to twenty subsequent ranked paths without
+excerpts so callers can choose a narrower follow-up without doubling the
+default context payload.
 When `search --root` names a repository subdirectory or file, that relative
 path is a mechanical prefix or exact-file scope applied before candidate limits
 in lexical, path, extractor, and semantic retrieval. Returned citations remain

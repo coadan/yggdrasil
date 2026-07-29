@@ -48,6 +48,45 @@ func TestLexicalSearchReturnsCitedRecords(t *testing.T) {
 	}
 }
 
+func TestSearchReturnsBoundedOverflowPathsWithoutExtraCitations(t *testing.T) {
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for index := range 30 {
+		path := fmt.Sprintf("src/owner-%02d.go", index)
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: path, Size: 20, MTimeNS: 1},
+			Kind:      "go",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, path, "fingerprint", []contracts.SearchRecord{{
+			Path: path, StartLine: 1, EndLine: 1, Kind: "text-chunk",
+			Text: "overflow marker", Source: "core",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := Run(ctx, value, "overflow marker", Options{Mode: "lexical", Limit: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 3 || len(result.MorePaths) != maxMorePaths {
+		t.Fatalf("records=%d more=%d", len(result.Records), len(result.MorePaths))
+	}
+	seen := make(map[string]bool)
+	for _, record := range result.Records {
+		seen[record.Path] = true
+	}
+	for _, path := range result.MorePaths {
+		if seen[path] {
+			t.Fatalf("duplicate overflow path %q", path)
+		}
+		seen[path] = true
+	}
+}
+
 func TestLexicalSearchBoostsExactAndAllTermMatches(t *testing.T) {
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
@@ -512,7 +551,7 @@ func TestQueryTermsSplitStructuredIdentifiers(t *testing.T) {
 
 func TestExcerptPreservesUTF8Boundary(t *testing.T) {
 	got := excerpt(strings.Repeat("é", 401))
-	if !utf8.ValidString(got) || utf8.RuneCountInString(got) != 401 || !strings.HasSuffix(got, "…") {
+	if !utf8.ValidString(got) || utf8.RuneCountInString(got) != 281 || !strings.HasSuffix(got, "…") {
 		t.Fatalf("invalid excerpt: runes=%d valid=%v suffix=%v", utf8.RuneCountInString(got), utf8.ValidString(got), strings.HasSuffix(got, "…"))
 	}
 }
