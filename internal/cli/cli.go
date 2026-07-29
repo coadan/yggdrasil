@@ -27,10 +27,10 @@ import (
 
 const usage = `Usage:
   ygg version
-  ygg index [--root PATH] [--full] [--no-embed] [--json]
-  ygg search [--root PATH] [--limit N] [--mode auto|lexical|semantic] [--json] QUERY
-  ygg status [--root PATH] [--check] [--json]
-  ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH] [--json]
+  ygg index [--root PATH] [--full] [--no-embed]
+  ygg search [--root PATH] [--limit N] [--mode auto|lexical|semantic] QUERY
+  ygg status [--root PATH] [--check]
+  ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH]
 `
 
 var Version = "0.3.0-dev"
@@ -99,16 +99,13 @@ func (r *runner) runPluginCheck(ctx context.Context, args []string) int {
 		return r.fail(true, 2, errors.New("plugin id is required before plugin check flags"))
 	}
 	pluginID := args[0]
+	args = discardJSONAssertion(args)
 	flags := flag.NewFlagSet("plugin check", flag.ContinueOnError)
 	flags.SetOutput(r.stderr)
 	root := flags.String("root", "", "repository root")
 	filePath := flags.String("file", "", "relative file to extract")
-	jsonOutput := jsonFormatFlag(flags)
 	if err := flags.Parse(args[1:]); err != nil {
-		return 2
-	}
-	if !*jsonOutput {
-		return r.fail(true, 2, errors.New("operational command output is always JSON"))
+		return flagParseCode(err)
 	}
 	if flags.NArg() != 0 {
 		return r.fail(true, 2, errors.New("plugin check accepts one plugin id"))
@@ -156,17 +153,14 @@ func (r *runner) runPluginCheck(ctx context.Context, args []string) int {
 }
 
 func (r *runner) runIndex(ctx context.Context, args []string) int {
+	args = discardJSONAssertion(args)
 	flags := flag.NewFlagSet("index", flag.ContinueOnError)
 	flags.SetOutput(r.stderr)
 	root := flags.String("root", "", "repository root")
 	full := flags.Bool("full", false, "rebuild every file")
 	noEmbed := flags.Bool("no-embed", false, "skip embeddings")
-	jsonOutput := jsonFormatFlag(flags)
 	if err := flags.Parse(args); err != nil {
-		return 2
-	}
-	if !*jsonOutput {
-		return r.fail(true, 2, errors.New("operational command output is always JSON"))
+		return flagParseCode(err)
 	}
 	if flags.NArg() != 0 {
 		return r.fail(true, 2, errors.New("index accepts no positional arguments"))
@@ -188,17 +182,14 @@ func (r *runner) runIndex(ctx context.Context, args []string) int {
 }
 
 func (r *runner) runSearch(ctx context.Context, args []string) int {
+	args = discardJSONAssertion(args)
 	flags := flag.NewFlagSet("search", flag.ContinueOnError)
 	flags.SetOutput(r.stderr)
 	root := flags.String("root", "", "repository root, directory, or file scope")
 	limit := flags.Int("limit", 10, "result limit")
 	mode := flags.String("mode", "auto", "auto, lexical, or semantic")
-	jsonOutput := jsonFormatFlag(flags)
 	if err := parseInterspersed(flags, args); err != nil {
-		return 2
-	}
-	if !*jsonOutput {
-		return r.fail(true, 2, errors.New("operational command output is always JSON"))
+		return flagParseCode(err)
 	}
 	query := strings.TrimSpace(strings.Join(flags.Args(), " "))
 	if query == "" {
@@ -328,8 +319,23 @@ func parseInterspersed(flags *flag.FlagSet, args []string) error {
 	return flags.Parse(append(append(options, "--"), positional...))
 }
 
-func jsonFormatFlag(flags *flag.FlagSet) *bool {
-	return flags.Bool("json", true, "confirm JSON output")
+// discardJSONAssertion keeps already-running agents working while leaving the
+// redundant format assertion out of the canonical help and parser surface.
+func discardJSONAssertion(args []string) []string {
+	result := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg != "--json" && arg != "-json" {
+			result = append(result, arg)
+		}
+	}
+	return result
+}
+
+func flagParseCode(err error) int {
+	if errors.Is(err, flag.ErrHelp) {
+		return 0
+	}
+	return 2
 }
 
 func acquireSearchIndexLock(ctx context.Context, path string, wait time.Duration) (*os.File, error) {
@@ -374,16 +380,13 @@ func releaseSearchIndexLock(lock *os.File) {
 }
 
 func (r *runner) runStatus(ctx context.Context, args []string) int {
+	args = discardJSONAssertion(args)
 	flags := flag.NewFlagSet("status", flag.ContinueOnError)
 	flags.SetOutput(r.stderr)
 	root := flags.String("root", "", "repository root")
 	check := flags.Bool("check", false, "check the configured embedding provider")
-	jsonOutput := jsonFormatFlag(flags)
 	if err := flags.Parse(args); err != nil {
-		return 2
-	}
-	if !*jsonOutput {
-		return r.fail(true, 2, errors.New("operational command output is always JSON"))
+		return flagParseCode(err)
 	}
 	if flags.NArg() != 0 {
 		return r.fail(true, 2, errors.New("status accepts no positional arguments"))

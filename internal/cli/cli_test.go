@@ -92,7 +92,7 @@ func TestSearchRequiresAnIndex(t *testing.T) {
 	}
 }
 
-func TestSearchAcceptsFlagsAfterQuery(t *testing.T) {
+func TestSearchAcceptsFlagsAfterQueryAndLegacyJSONAssertion(t *testing.T) {
 	isolateCLIUserConfig(t)
 	root := t.TempDir()
 	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
@@ -549,7 +549,27 @@ func TestSearchRejectsOutOfBoundsLimitBeforeOpeningIndex(t *testing.T) {
 	}
 }
 
-func TestOperationalCommandsRejectNonJSONOutput(t *testing.T) {
+func TestOperationalHelpOmitsRedundantJSONFlagAndSucceeds(t *testing.T) {
+	for _, args := range [][]string{
+		{"index", "--help"},
+		{"search", "--help"},
+		{"status", "--help"},
+		{"plugin", "check", "example", "--help"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := Main(context.Background(), args, &stdout, &stderr)
+		if code != 0 || stdout.Len() != 0 || strings.Contains(stderr.String(), "json") {
+			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", args, code, stdout.String(), stderr.String())
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{"help"}, &stdout, &stderr); code != 0 ||
+		strings.Contains(stdout.String(), "--json") || stderr.Len() != 0 {
+		t.Fatalf("top-level help code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestOperationalCommandsRejectNonJSONOutputSelector(t *testing.T) {
 	for _, args := range [][]string{
 		{"index", "--json=false"},
 		{"search", "query", "--json=false"},
@@ -558,8 +578,8 @@ func TestOperationalCommandsRejectNonJSONOutput(t *testing.T) {
 	} {
 		var stdout, stderr bytes.Buffer
 		code := Main(context.Background(), args, &stdout, &stderr)
-		if code != 2 || !strings.Contains(stdout.String(), "operational command output is always JSON") ||
-			stderr.Len() != 0 {
+		if code != 2 || stdout.Len() != 0 ||
+			!strings.Contains(stderr.String(), "flag provided but not defined: -json") {
 			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", args, code, stdout.String(), stderr.String())
 		}
 	}
