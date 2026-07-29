@@ -239,12 +239,19 @@ func TestVectorCandidatesApplyScopeBeforeLimit(t *testing.T) {
 	if err := value.UpsertEmbeddings(ctx, "embed-fp", 2, vectors); err != nil {
 		t.Fatal(err)
 	}
-	records, err := value.VectorCandidates(ctx, []float32{1, 0}, "src/app", 1)
+	records, err := value.VectorCandidates(ctx, []float32{1, 0}, "src/app/", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(records) != 1 || records[0].Path != "src/app/owner.ts" {
 		t.Fatalf("records=%#v", records)
+	}
+	records, err = value.VectorCandidates(ctx, []float32{1, 0}, "src/app/owner.ts", 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Path != "src/app/owner.ts" {
+		t.Fatalf("file-scoped records=%#v", records)
 	}
 }
 

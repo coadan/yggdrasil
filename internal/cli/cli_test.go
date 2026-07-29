@@ -120,8 +120,9 @@ func TestSearchRepositorySubdirectoryReusesRootIndex(t *testing.T) {
 	}
 	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
 	cliRunGit(t, root, "init", "-q")
+	ownerPath := filepath.Join(nested, "owner.spec.ts")
 	if err := os.WriteFile(
-		filepath.Join(nested, "owner.spec.ts"), []byte("subdirectoryrootmarker\n"), 0o644,
+		ownerPath, []byte("subdirectoryrootmarker\n"), 0o644,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -169,6 +170,15 @@ func TestSearchRepositorySubdirectoryReusesRootIndex(t *testing.T) {
 		response.Data.Records[0].Path != "tests/browser/owner.spec.ts" {
 		t.Fatalf("response=%s", stdout.String())
 	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "subdirectoryrootmarker", "--root", ownerPath, "--mode", "lexical",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("file search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	assertSearchPaths(t, stdout.Bytes(), []string{"tests/browser/owner.spec.ts"})
 }
 
 func TestSearchRefreshesModifiedAndDeletedFiles(t *testing.T) {

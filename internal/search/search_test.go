@@ -138,7 +138,7 @@ func TestLexicalSearchDiversifiesFilesAndCountsPathTerms(t *testing.T) {
 		}
 	}
 	result, err := Run(ctx, value, "world map route", Options{
-		Mode: "lexical", Limit: 5, Scope: "src",
+		Mode: "lexical", Limit: 5, Scope: "src/",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -295,7 +295,7 @@ func TestLexicalSearchFusesConfiguredExtractorRecords(t *testing.T) {
 		}
 	}
 	result, err := Run(ctx, value, "route access", Options{
-		Mode: "lexical", Limit: 5, Scope: "src", HasExtractors: true,
+		Mode: "lexical", Limit: 5, Scope: "src/", HasExtractors: true,
 	})
 	if err != nil {
 		t.Fatal(err)
