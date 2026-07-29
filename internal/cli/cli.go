@@ -187,6 +187,8 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	if err := parseInterspersed(flags, args); err != nil {
 		if strings.Contains(err.Error(), "flag provided but not defined: -path") {
 			err = errors.New("--path is not supported; use --root PATH for repository, directory, or file scope")
+		} else if strings.Contains(err.Error(), "flag provided but not defined:") {
+			err = fmt.Errorf("%w; place -- before a query that begins with '-'", err)
 		}
 		return r.flagParseResult(flagOutput, err)
 	}
@@ -329,10 +331,15 @@ func parseInterspersed(flags *flag.FlagSet, args []string) error {
 // redundant format assertion out of the canonical help and parser surface.
 func discardJSONAssertion(args []string) []string {
 	result := make([]string, 0, len(args))
+	afterTerminator := false
 	for _, arg := range args {
-		if arg != "--json" && arg != "-json" {
-			result = append(result, arg)
+		if arg == "--" {
+			afterTerminator = true
 		}
+		if !afterTerminator && (arg == "--json" || arg == "-json") {
+			continue
+		}
+		result = append(result, arg)
 	}
 	return result
 }
