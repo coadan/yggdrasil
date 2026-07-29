@@ -58,6 +58,57 @@ func TestLoadSuiteRejectsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestLoadPluginConfigHashesResolvedExecutables(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "extractor")
+	if err := os.WriteFile(binary, []byte("fixture"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "plugins.json")
+	data := []byte(`{
+		"schema":"ygg.config/v1",
+		"plugins":[{
+			"id":"fixture","version":"1","command":["` + binary + `"],
+			"includeGlobs":["**/*.go"]
+		}]
+	}`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolved, hash, evidence, err := loadPluginConfig(path)
+	if err != nil || len(resolved) == 0 || len(hash) != 71 || len(evidence) != 1 {
+		t.Fatalf("resolved=%q hash=%q evidence=%#v err=%v", resolved, hash, evidence, err)
+	}
+	if evidence[0].Binary != binary || len(evidence[0].BinaryHash) != 71 {
+		t.Fatalf("evidence=%#v", evidence)
+	}
+}
+
+func TestInstallPluginConfigDoesNotOverwriteCheckout(t *testing.T) {
+	root := t.TempDir()
+	cleanup, err := installPluginConfig(root, []byte("{}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".ygg", "config.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".ygg")); !os.IsNotExist(err) {
+		t.Fatalf("temporary directory remains: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".ygg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".ygg", "config.json"), []byte("tracked"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installPluginConfig(root, []byte("{}\n")); err == nil {
+		t.Fatal("expected existing config refusal")
+	}
+}
+
 func TestPercentileUsesNearestRank(t *testing.T) {
 	values := []float64{4, 1, 3, 2}
 	if got := percentile(values, 0.50); got != 2 {

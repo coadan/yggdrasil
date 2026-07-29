@@ -200,7 +200,8 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	}
 	defer value.Close()
 	result, err := search.Run(ctx, value, query, search.Options{
-		Mode: *mode, Limit: *limit, Root: paths.Root, Embedding: cfg.Embedding,
+		Mode: *mode, Limit: *limit, Root: paths.Root,
+		HasExtractors: len(cfg.Plugins) > 0, Embedding: cfg.Embedding,
 	})
 	if errors.Is(err, search.ErrSemanticUnavailable) {
 		return r.fail(*jsonOutput, 3, err)

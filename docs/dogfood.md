@@ -68,3 +68,20 @@ Before release, rerun the dogfood commands with the exact release binary, run
 the complete replay suite, and retain its hash-bearing JSON report under
 `.dev/bench/`. `make release` must then produce the four CGO-free platform
 binaries and `dist/SHA256SUMS`.
+
+## Extractor ablation
+
+The Go and TypeScript extractors remain opt-in. On the same candidate binary
+(`sha256:47bd59b1…`), the July 2026 extractor ablation produced:
+
+| Suite/lane | Recall@10 | MRR | Full index p50 | Search p50 | Search p95 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Dogfood default | 0.292 | 0.500 | 218 ms | 23.8 ms | 43.2 ms |
+| Dogfood + extractors | 0.354 | 0.470 | 771 ms | 28.7 ms | 134.9 ms |
+| Broad default | 0.810 | 0.821 | 205 ms | 16.5 ms | 98.4 ms |
+| Broad + extractors | 0.790 | 0.696 | 193 ms | 18.1 ms | 235.9 ms |
+
+The dogfood recall gain is real, but the broad relevance and tail-latency
+regressions mean this is not evidence for enabling extractors by default.
+Reports retain the full candidate, suite, config, and extractor binary hashes;
+the abbreviated hash above is only a readable pointer.

@@ -20,6 +20,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/coadan/yggdrasil/internal/config"
 )
 
 const SuiteSchema = "ygg.benchmark.suite/v1"
@@ -52,29 +54,41 @@ type Case struct {
 }
 
 type Options struct {
-	SuitePath  string
-	ReposDir   string
-	WorkDir    string
-	Binary     string
-	Prepare    bool
-	CheckOnly  bool
-	Iterations int
-	CaseIDs    []string
+	SuitePath        string
+	ReposDir         string
+	WorkDir          string
+	Binary           string
+	Prepare          bool
+	CheckOnly        bool
+	Iterations       int
+	CaseIDs          []string
+	PluginConfigPath string
+	pluginConfigData []byte
 }
 
 type Report struct {
-	Schema      string       `json:"schema"`
-	SuiteID     string       `json:"suiteId"`
-	SuiteHash   string       `json:"suiteHash"`
-	Binary      string       `json:"binary"`
-	BinaryHash  string       `json:"binaryHash"`
-	GeneratedAt string       `json:"generatedAt"`
-	Platform    string       `json:"platform"`
-	CheckOnly   bool         `json:"checkOnly"`
-	Environment Environment  `json:"environment"`
-	Coverage    Coverage     `json:"coverage"`
-	Aggregate   Aggregate    `json:"aggregate"`
-	Cases       []CaseReport `json:"cases"`
+	Schema           string           `json:"schema"`
+	SuiteID          string           `json:"suiteId"`
+	SuiteHash        string           `json:"suiteHash"`
+	Binary           string           `json:"binary"`
+	BinaryHash       string           `json:"binaryHash"`
+	PluginConfigHash string           `json:"pluginConfigHash,omitempty"`
+	Plugins          []PluginEvidence `json:"plugins,omitempty"`
+	GeneratedAt      string           `json:"generatedAt"`
+	Platform         string           `json:"platform"`
+	CheckOnly        bool             `json:"checkOnly"`
+	Environment      Environment      `json:"environment"`
+	Coverage         Coverage         `json:"coverage"`
+	Aggregate        Aggregate        `json:"aggregate"`
+	Cases            []CaseReport     `json:"cases"`
+}
+
+type PluginEvidence struct {
+	ID           string   `json:"id"`
+	Version      string   `json:"version"`
+	Binary       string   `json:"binary"`
+	BinaryHash   string   `json:"binaryHash"`
+	IncludeGlobs []string `json:"includeGlobs"`
 }
 
 type Environment struct {
@@ -280,6 +294,13 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
+	if opts.PluginConfigPath != "" {
+		opts.pluginConfigData, report.PluginConfigHash, report.Plugins, err =
+			loadPluginConfig(opts.PluginConfigPath)
+		if err != nil {
+			return Report{}, err
+		}
+	}
 	for _, item := range suite.Cases {
 		repoRoot := filepath.Join(opts.ReposDir, item.ID)
 		if opts.Prepare {
@@ -359,7 +380,16 @@ func verifyCheckout(ctx context.Context, root, revision string) error {
 	return nil
 }
 
-func runCase(ctx context.Context, opts Options, item Case, root string) (CaseReport, error) {
+func runCase(ctx context.Context, opts Options, item Case, root string) (report CaseReport, err error) {
+	cleanup, err := installPluginConfig(root, opts.pluginConfigData)
+	if err != nil {
+		return CaseReport{}, err
+	}
+	defer func() {
+		if cleanupErr := cleanup(); err == nil && cleanupErr != nil {
+			err = cleanupErr
+		}
+	}()
 	stateRoot := filepath.Join(opts.WorkDir, item.ID, "state")
 	if err := os.MkdirAll(stateRoot, 0o755); err != nil {
 		return CaseReport{}, err
@@ -439,6 +469,108 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (CaseRep
 		RawFileRecallAt10: rawRecall, RawMRR: rawMRR, RawRipgrepMS: rawMS,
 		FullIndexMS: fullMS, NoopIndexMS: noopMS, OneFileIncrementalMS: incrementalMS,
 		SearchSamplesMS: samples,
+	}, nil
+}
+
+func loadPluginConfig(path string) ([]byte, string, []PluginEvidence, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	var cfg config.Config
+	if err := decodeStrictJSON(data, &cfg); err != nil {
+		return nil, "", nil, fmt.Errorf("decode plugin benchmark config: %w", err)
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, "", nil, fmt.Errorf("plugin benchmark config: %w", err)
+	}
+	if len(cfg.Plugins) == 0 || len(cfg.IgnoreGlobs) != 0 || cfg.Embedding != nil {
+		return nil, "", nil, errors.New(
+			"plugin benchmark config requires plugins and cannot change ignores or embeddings",
+		)
+	}
+	evidence := make([]PluginEvidence, 0, len(cfg.Plugins))
+	for index := range cfg.Plugins {
+		plugin := &cfg.Plugins[index]
+		command, err := resolveExecutable(plugin.Command[0])
+		if err != nil {
+			return nil, "", nil, fmt.Errorf("plugin %q: %w", plugin.ID, err)
+		}
+		plugin.Command[0] = command
+		hash, err := fileHash(command)
+		if err != nil {
+			return nil, "", nil, fmt.Errorf("plugin %q: %w", plugin.ID, err)
+		}
+		evidence = append(evidence, PluginEvidence{
+			ID: plugin.ID, Version: plugin.Version, Binary: command,
+			BinaryHash: hash, IncludeGlobs: plugin.IncludeGlobs,
+		})
+	}
+	resolved, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	resolved = append(resolved, '\n')
+	sum := sha256.Sum256(data)
+	return resolved, "sha256:" + hex.EncodeToString(sum[:]), evidence, nil
+}
+
+func resolveExecutable(value string) (string, error) {
+	var path string
+	var err error
+	if filepath.IsAbs(value) {
+		path = filepath.Clean(value)
+	} else if strings.ContainsAny(value, `/\`) {
+		path, err = filepath.Abs(value)
+	} else {
+		path, err = exec.LookPath(value)
+	}
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return "", fmt.Errorf("executable is unavailable: %s", path)
+	}
+	return path, nil
+}
+
+func installPluginConfig(root string, data []byte) (func() error, error) {
+	if len(data) == 0 {
+		return func() error { return nil }, nil
+	}
+	directory := filepath.Join(root, ".ygg")
+	path := filepath.Join(directory, "config.json")
+	if _, err := os.Lstat(path); err == nil {
+		return nil, errors.New("benchmark checkout already contains .ygg/config.json")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	createdDirectory := false
+	if _, err := os.Stat(directory); errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			return nil, err
+		}
+		createdDirectory = true
+	} else if err != nil {
+		return nil, err
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		if createdDirectory {
+			_ = os.Remove(directory)
+		}
+		return nil, err
+	}
+	return func() error {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if createdDirectory {
+			if err := os.Remove(directory); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+		return nil
 	}, nil
 }
 

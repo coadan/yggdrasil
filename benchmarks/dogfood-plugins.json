@@ -1,0 +1,20 @@
+{
+  "schema": "ygg.config/v1",
+  "maxFileBytes": 4194304,
+  "plugins": [
+    {
+      "id": "go",
+      "version": "0.1.0",
+      "command": ["bin/ygg-extract-go"],
+      "includeGlobs": ["**/*.go"],
+      "timeoutMs": 10000
+    },
+    {
+      "id": "typescript",
+      "version": "0.1.0",
+      "command": ["bin/ygg-extract-typescript"],
+      "includeGlobs": ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx"],
+      "timeoutMs": 10000
+    }
+  ]
+}

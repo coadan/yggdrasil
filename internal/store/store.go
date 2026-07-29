@@ -199,6 +199,12 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 			content_rowid='id',
 			tokenize='unicode61'
 		)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS extractor_fts USING fts5(
+			path, title, text,
+			content='records',
+			content_rowid='id',
+			tokenize='unicode61'
+		)`,
 		`CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records BEGIN
 			INSERT INTO record_fts(rowid, path, title, text)
 			VALUES (new.id, new.path, new.title, new.text);
@@ -212,6 +218,26 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 			INSERT INTO record_fts(record_fts, rowid, path, title, text)
 			VALUES ('delete', old.id, old.path, old.title, old.text);
 			INSERT INTO record_fts(rowid, path, title, text)
+			VALUES (new.id, new.path, new.title, new.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_extractor_ai AFTER INSERT ON records
+		WHEN new.source LIKE 'plugin:%' BEGIN
+			INSERT INTO extractor_fts(rowid, path, title, text)
+			VALUES (new.id, new.path, new.title, new.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_extractor_ad AFTER DELETE ON records
+		WHEN old.source LIKE 'plugin:%' BEGIN
+			INSERT INTO extractor_fts(extractor_fts, rowid, path, title, text)
+			VALUES ('delete', old.id, old.path, old.title, old.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_extractor_au_delete AFTER UPDATE ON records
+		WHEN old.source LIKE 'plugin:%' BEGIN
+			INSERT INTO extractor_fts(extractor_fts, rowid, path, title, text)
+			VALUES ('delete', old.id, old.path, old.title, old.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_extractor_au_insert AFTER UPDATE ON records
+		WHEN new.source LIKE 'plugin:%' BEGIN
+			INSERT INTO extractor_fts(rowid, path, title, text)
 			VALUES (new.id, new.path, new.title, new.text);
 		END`,
 		`CREATE TABLE IF NOT EXISTS diagnostics (
@@ -239,6 +265,27 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		return err
 	case version != schemaVersion:
 		return fmt.Errorf("index schema %s is incompatible with %s; run ygg index --full", version, schemaVersion)
+	}
+	var extractorFTSVersion string
+	err = s.db.QueryRowContext(
+		ctx, `SELECT value FROM meta WHERE key='extractor_fts_version'`,
+	).Scan(&extractorFTSVersion)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		if _, err := s.db.ExecContext(ctx, `
+			INSERT INTO extractor_fts(rowid,path,title,text)
+			SELECT id,path,title,text FROM records WHERE source LIKE 'plugin:%'`); err != nil {
+			return fmt.Errorf("build extractor index: %w", err)
+		}
+		if _, err := s.db.ExecContext(
+			ctx, `INSERT INTO meta(key,value) VALUES('extractor_fts_version','1')`,
+		); err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	case extractorFTSVersion != "1":
+		return fmt.Errorf("unsupported extractor index version %s", extractorFTSVersion)
 	}
 	var storedID, storedRoot string
 	err = s.db.QueryRowContext(ctx, `SELECT root_id, root FROM repository WHERE id=1`).Scan(&storedID, &storedRoot)
@@ -686,6 +733,20 @@ func (s *Store) LexicalCandidates(ctx context.Context, query string, limit int) 
 		JOIN records r ON r.id=record_fts.rowid
 		WHERE record_fts MATCH ?
 		ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
+		LIMIT ?`, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanRecords(rows)
+}
+
+func (s *Store) ExtractorCandidates(ctx context.Context, query string, limit int) ([]Record, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+		FROM extractor_fts
+		JOIN records r ON r.id=extractor_fts.rowid
+		WHERE extractor_fts MATCH ?
+		ORDER BY bm25(extractor_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
 		LIMIT ?`, query, limit)
 	if err != nil {
 		return nil, err
