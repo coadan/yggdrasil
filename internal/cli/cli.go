@@ -195,7 +195,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	limit := flags.Int("limit", 10, "result limit")
 	mode := flags.String("mode", "auto", "auto, lexical, or semantic")
 	jsonOutput := flags.Bool("json", false, "write JSON")
-	if err := flags.Parse(args); err != nil {
+	if err := parseInterspersed(flags, args); err != nil {
 		return 2
 	}
 	query := strings.TrimSpace(strings.Join(flags.Args(), " "))
@@ -259,6 +259,46 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		fmt.Fprintf(r.stdout, "%s:%d-%d\t%s\n", record.Path, record.StartLine, record.EndLine, record.Excerpt)
 	}
 	return 0
+}
+
+func parseInterspersed(flags *flag.FlagSet, args []string) error {
+	options := make([]string, 0, len(args))
+	positional := make([]string, 0, len(args))
+	afterTerminator := false
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if afterTerminator {
+			positional = append(positional, arg)
+			continue
+		}
+		if arg == "--" {
+			afterTerminator = true
+			continue
+		}
+		if arg == "-" || !strings.HasPrefix(arg, "-") {
+			positional = append(positional, arg)
+			continue
+		}
+
+		options = append(options, arg)
+		name := strings.TrimLeft(arg, "-")
+		if separator := strings.IndexByte(name, '='); separator >= 0 {
+			name = name[:separator]
+		}
+		value := flags.Lookup(name)
+		if value == nil || strings.Contains(arg, "=") {
+			continue
+		}
+		boolValue, isBool := value.Value.(interface{ IsBoolFlag() bool })
+		if isBool && boolValue.IsBoolFlag() {
+			continue
+		}
+		if index+1 < len(args) {
+			index++
+			options = append(options, args[index])
+		}
+	}
+	return flags.Parse(append(append(options, "--"), positional...))
 }
 
 func acquireSearchIndexLock(ctx context.Context, path string, wait time.Duration) (*os.File, error) {
