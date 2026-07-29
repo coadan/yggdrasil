@@ -19,6 +19,7 @@ import (
 
 const rrfK = 60.0
 const maxPathTerms = 6
+const extractorLaneWeight = 0.5
 
 const (
 	MaxResults    = 100
@@ -29,10 +30,11 @@ const (
 var ErrSemanticUnavailable = errors.New("semantic search is unavailable")
 
 type Options struct {
-	Mode      string
-	Limit     int
-	Root      string
-	Embedding *config.Embedding
+	Mode          string
+	Limit         int
+	Root          string
+	HasExtractors bool
+	Embedding     *config.Embedding
 }
 
 type Result struct {
@@ -116,6 +118,13 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 			lane{name: "lexical", records: fts},
 			lane{name: "path", records: paths},
 		)
+		if opts.HasExtractors {
+			extracted, err := value.ExtractorCandidates(ctx, ftsAnyQuery(terms), candidateLimit)
+			if err != nil {
+				return Result{}, fmt.Errorf("extractor search: %w", err)
+			}
+			lanes = append(lanes, lane{name: "extractor", records: extracted})
+		}
 	}
 	result := Result{
 		Schema:        contracts.SearchSchema,
@@ -219,6 +228,9 @@ func fuse(limit int, lanes []lane) []RankedRecord {
 	for _, candidateLane := range lanes {
 		for rank, record := range candidateLane.records {
 			score := 1.0 / (rrfK + float64(rank+1))
+			if candidateLane.name == "extractor" {
+				score *= extractorLaneWeight
+			}
 			if candidateLane.name == "path" {
 				pathEvidence[record.Path] = &fused{record: record, score: score}
 				continue

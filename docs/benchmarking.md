@@ -34,6 +34,13 @@ results in `.dev/bench/dogfood-report.json`. These use isolated, pinned
 checkouts rather than whichever revisions happen to be present in local working
 copies.
 
+`make benchmark-dogfood-plugins` runs the same cases with
+`benchmarks/dogfood-plugins.json`. The harness resolves each extractor
+executable, writes the config only into its isolated checkout for the duration
+of the case, and records the config and executable hashes. It refuses to
+overwrite a checkout that already has `.ygg/config.json`. The default and plugin
+reports are therefore an explicit ablation pair.
+
 Reports include:
 
 - file recall@10 and mean reciprocal rank;

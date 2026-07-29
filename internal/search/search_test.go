@@ -144,6 +144,43 @@ func TestLexicalSearchDiversifiesFilesAndCountsPathTerms(t *testing.T) {
 	}
 }
 
+func TestLexicalSearchFusesConfiguredExtractorRecords(t *testing.T) {
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct {
+		path   string
+		source string
+	}{
+		{path: "src/core.go", source: "core"},
+		{path: "src/extracted.go", source: "plugin:go"},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: 20, MTimeNS: 1},
+			Kind:      "go",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", []contracts.SearchRecord{{
+			Path: item.path, StartLine: 3, EndLine: 3, Kind: "declaration",
+			Text: "route access", Source: item.source,
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := Run(ctx, value, "route access", Options{
+		Mode: "lexical", Limit: 5, HasExtractors: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Records[0].Path != "src/extracted.go" ||
+		!strings.Contains(strings.Join(result.Records[0].Retrieval, ","), "extractor") {
+		t.Fatalf("records=%#v", result.Records)
+	}
+}
+
 func TestAutoReportsSemanticFallback(t *testing.T) {
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
