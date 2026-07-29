@@ -48,6 +48,12 @@ type Config struct {
 	MaxFileBytes int64      `json:"maxFileBytes,omitempty"`
 	Plugins      []Plugin   `json:"plugins,omitempty"`
 	Embedding    *Embedding `json:"embedding,omitempty"`
+
+	UserConfigPath       string `json:"-"`
+	UserConfigLoaded     bool   `json:"-"`
+	RepositoryConfigPath string `json:"-"`
+	EmbeddingSource      string `json:"-"`
+	EmbeddingDisabled    bool   `json:"-"`
 }
 
 type userConfig struct {
@@ -68,10 +74,15 @@ func Load(root string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	cfg.UserConfigPath = userPath
 	if userEmbedding, found, err := loadUserEmbedding(userPath); err != nil {
 		return Config{}, err
 	} else if found {
+		cfg.UserConfigLoaded = true
 		cfg.Embedding = userEmbedding
+		if userEmbedding != nil {
+			cfg.EmbeddingSource = userPath
+		}
 	}
 	path := filepath.Join(root, ".ygg", "config.json")
 	data, err := os.ReadFile(path)
@@ -81,8 +92,20 @@ func Load(root string) (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("read config: %w", err)
 	}
+	cfg.RepositoryConfigPath = path
 	if err := decodeOne(data, &cfg); err != nil {
 		return Config{}, fmt.Errorf("decode %s: %w", path, err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return Config{}, fmt.Errorf("decode %s fields: %w", path, err)
+	}
+	if _, explicit := fields["embedding"]; explicit {
+		cfg.EmbeddingSource = ""
+		cfg.EmbeddingDisabled = cfg.Embedding == nil
+		if cfg.Embedding != nil {
+			cfg.EmbeddingSource = path
+		}
 	}
 	if err := cfg.Validate(); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)

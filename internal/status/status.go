@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"time"
 
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/discovery"
@@ -14,14 +15,44 @@ import (
 )
 
 type Result struct {
-	Root      string                `json:"root"`
-	RootID    string                `json:"rootId"`
-	Database  string                `json:"database"`
-	Indexed   bool                  `json:"indexed"`
-	Counts    store.Counts          `json:"counts"`
-	Freshness Freshness             `json:"freshness"`
-	Embedding *store.EmbeddingState `json:"embedding,omitempty"`
-	LatestRun *store.Run            `json:"latestRun,omitempty"`
+	Version           string                `json:"version"`
+	Root              string                `json:"root"`
+	RootID            string                `json:"rootId"`
+	Database          string                `json:"database"`
+	Indexed           bool                  `json:"indexed"`
+	Counts            store.Counts          `json:"counts"`
+	Freshness         Freshness             `json:"freshness"`
+	Configuration     Configuration         `json:"configuration"`
+	GitFamily         GitFamily             `json:"gitFamily"`
+	Embedding         *store.EmbeddingState `json:"embedding,omitempty"`
+	EmbeddingProvider *ProviderCheck        `json:"embeddingProvider,omitempty"`
+	LatestRun         *store.Run            `json:"latestRun,omitempty"`
+}
+
+type Options struct {
+	Version       string
+	CheckProvider bool
+}
+
+type Configuration struct {
+	UserPath          string `json:"userPath"`
+	UserLoaded        bool   `json:"userLoaded"`
+	RepositoryPath    string `json:"repositoryPath,omitempty"`
+	EmbeddingSource   string `json:"embeddingSource,omitempty"`
+	EmbeddingDisabled bool   `json:"embeddingDisabled"`
+}
+
+type GitFamily struct {
+	ID             string `json:"id"`
+	Head           string `json:"head,omitempty"`
+	AvailableSeeds int    `json:"availableSeeds"`
+}
+
+type ProviderCheck struct {
+	Checked   bool   `json:"checked"`
+	Available bool   `json:"available"`
+	ElapsedMS int64  `json:"elapsedMs"`
+	Error     string `json:"error,omitempty"`
 }
 
 type Freshness struct {
@@ -31,8 +62,29 @@ type Freshness struct {
 	Unchanged int `json:"unchanged"`
 }
 
-func Inspect(ctx context.Context, paths project.Paths, cfg config.Config) (Result, error) {
-	result := Result{Root: paths.Root, RootID: paths.ID, Database: paths.Database}
+func Inspect(ctx context.Context, paths project.Paths, cfg config.Config, opts Options) (Result, error) {
+	result := Result{
+		Version:  opts.Version,
+		Root:     paths.Root,
+		RootID:   paths.ID,
+		Database: paths.Database,
+		Configuration: Configuration{
+			UserPath:          cfg.UserConfigPath,
+			UserLoaded:        cfg.UserConfigLoaded,
+			RepositoryPath:    cfg.RepositoryConfigPath,
+			EmbeddingSource:   cfg.EmbeddingSource,
+			EmbeddingDisabled: cfg.EmbeddingDisabled,
+		},
+		GitFamily: GitFamily{ID: paths.FamilyID, Head: paths.Head},
+	}
+	seeds, err := project.SiblingIndexes(ctx, paths)
+	if err != nil {
+		return Result{}, err
+	}
+	result.GitFamily.AvailableSeeds = len(seeds)
+	if opts.CheckProvider {
+		result.EmbeddingProvider = checkProvider(ctx, paths.Root, cfg.Embedding)
+	}
 	if _, err := os.Stat(paths.Database); errors.Is(err, os.ErrNotExist) {
 		candidates, discoverErr := discovery.Candidates(paths.Root, cfg.IgnoreGlobs)
 		if discoverErr != nil {
@@ -97,4 +149,34 @@ func Inspect(ctx context.Context, paths project.Paths, cfg config.Config) (Resul
 		}
 	}
 	return result, nil
+}
+
+func checkProvider(ctx context.Context, root string, cfg *config.Embedding) *ProviderCheck {
+	started := time.Now()
+	result := &ProviderCheck{Checked: true}
+	defer func() { result.ElapsedMS = time.Since(started).Milliseconds() }()
+	if cfg == nil {
+		result.Error = "unconfigured"
+		return result
+	}
+	provider, err := embedding.New(ctx, root, *cfg)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	values, embedErr := provider.Embed(ctx, []embedding.Input{{
+		ID: "status-check", Text: "local embedding provider readiness",
+	}})
+	closeErr := provider.Close()
+	switch {
+	case embedErr != nil:
+		result.Error = embedErr.Error()
+	case closeErr != nil:
+		result.Error = closeErr.Error()
+	case len(values) != 1 || values[0].ID != "status-check":
+		result.Error = "provider returned an invalid readiness response"
+	default:
+		result.Available = true
+	}
+	return result
 }

@@ -173,3 +173,10 @@ of partial path-stem matches. Explicit `semantic` mode remains semantic-only.
 If a retired identifier remains in a negative assertion, search correctly
 returns that citation; a focused test, not retrieval alone, proves the asserted
 absence.
+
+Status data reports the binary version, configuration provenance, Git-family
+identity and available seed count, freshness, vector coverage, and the latest
+index run. `status --check` additionally returns `embeddingProvider` with
+`checked`, `available`, elapsed time, and a bounded provider error when
+unavailable. Provider unavailability is diagnostic data and does not make the
+status command fail.
