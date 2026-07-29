@@ -47,6 +47,12 @@ type FileUpdate struct {
 	Records               []contracts.SearchRecord
 }
 
+type FileRefresh struct {
+	Path    string
+	Size    int64
+	MTimeNS int64
+}
+
 type Diagnostic struct {
 	Path    string
 	Stage   string
@@ -106,13 +112,7 @@ func Open(ctx context.Context, path, root, rootID string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create state directory: %w", err)
 	}
-	uri := (&url.URL{Scheme: "file", Path: path}).String()
-	db, err := driver.Open(uri+"?_pragma=busy_timeout(1000)", func(conn *sqlite3.Conn) error {
-		if err := fts5.Register(conn); err != nil {
-			return err
-		}
-		return vec1.Register(conn)
-	})
+	db, err := openDatabase(path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
@@ -123,6 +123,100 @@ func Open(ctx context.Context, path, root, rootID string) (*Store, error) {
 		return nil, err
 	}
 	return value, nil
+}
+
+// CloneDatabase creates a transactionally consistent snapshot and gives the
+// copy a new repository identity. Records and vectors remain intact.
+func CloneDatabase(
+	ctx context.Context,
+	source, sourceRoot, destination, root, rootID string,
+) (err error) {
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return fmt.Errorf("create seed state directory: %w", err)
+	}
+	sourceDB, err := openDatabase(source)
+	if err != nil {
+		return fmt.Errorf("open seed index: %w", err)
+	}
+	defer sourceDB.Close()
+	connection, err := sourceDB.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("open seed connection: %w", err)
+	}
+	defer connection.Close()
+	destinationURI := (&url.URL{Scheme: "file", Path: destination}).String()
+	defer func() {
+		if err != nil {
+			for _, path := range []string{destination, destination + "-wal", destination + "-shm"} {
+				_ = os.Remove(path)
+			}
+		}
+	}()
+	if err := connection.Raw(func(raw any) error {
+		return raw.(driver.Conn).Raw().Backup("main", destinationURI)
+	}); err != nil {
+		return fmt.Errorf("snapshot seed index: %w", err)
+	}
+	copyDB, err := openDatabase(destination)
+	if err != nil {
+		return fmt.Errorf("open seeded index: %w", err)
+	}
+	defer copyDB.Close()
+	tx, err := copyDB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin seed retarget: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(
+		ctx, `UPDATE repository SET root_id=?,root=? WHERE id=1`, rootID, root,
+	); err != nil {
+		return fmt.Errorf("retarget seeded index: %w", err)
+	}
+	for _, table := range []string{"diagnostics", "index_runs"} {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table); err != nil {
+			return fmt.Errorf("clear seeded %s: %w", table, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO meta(key,value) VALUES('worktree_seed_source',?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, sourceRoot); err != nil {
+		return fmt.Errorf("mark seed reconciliation: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit seed retarget: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) PendingSeed(ctx context.Context) (string, error) {
+	var source string
+	err := s.db.QueryRowContext(
+		ctx, `SELECT value FROM meta WHERE key='worktree_seed_source'`,
+	).Scan(&source)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return source, err
+}
+
+func (s *Store) CompleteSeed(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `DELETE FROM meta WHERE key='worktree_seed_source'`)
+	return err
+}
+
+func openDatabase(path string) (*sql.DB, error) {
+	uri := (&url.URL{Scheme: "file", Path: path}).String()
+	db, err := driver.Open(uri+"?_pragma=busy_timeout(1000)", func(conn *sqlite3.Conn) error {
+		if err := fts5.Register(conn); err != nil {
+			return err
+		}
+		return vec1.Register(conn)
+	})
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	return db, nil
 }
 
 func (s *Store) Close() error {
@@ -476,6 +570,7 @@ func (s *Store) AddDiagnostic(ctx context.Context, runID, path, stage, message s
 func (s *Store) ApplyBatch(
 	ctx context.Context,
 	runID string,
+	refreshes []FileRefresh,
 	updates []FileUpdate,
 	deletes []string,
 	diagnostics []Diagnostic,
@@ -485,6 +580,9 @@ func (s *Store) ApplyBatch(
 		return err
 	}
 	defer tx.Rollback()
+	if err := bulkRefreshFiles(ctx, tx, runID, refreshes); err != nil {
+		return err
+	}
 	if err := bulkUpsertFiles(ctx, tx, runID, updates); err != nil {
 		return err
 	}
@@ -510,6 +608,38 @@ func (s *Store) ApplyBatch(
 		return err
 	}
 	return tx.Commit()
+}
+
+func bulkRefreshFiles(ctx context.Context, tx *sql.Tx, runID string, refreshes []FileRefresh) error {
+	if len(refreshes) == 0 {
+		return nil
+	}
+	const refreshesPerStatement = 128
+	indexedAt := time.Now().UnixMilli()
+	for start := 0; start < len(refreshes); start += refreshesPerStatement {
+		end := min(start+refreshesPerStatement, len(refreshes))
+		var query strings.Builder
+		query.WriteString(`WITH refreshed(path,size,mtime_ns) AS (VALUES `)
+		args := make([]any, 0, (end-start)*3+2)
+		for i, refresh := range refreshes[start:end] {
+			if i > 0 {
+				query.WriteByte(',')
+			}
+			query.WriteString("(?,?,?)")
+			args = append(args, refresh.Path, refresh.Size, refresh.MTimeNS)
+		}
+		query.WriteString(`)
+			UPDATE files SET
+				size=(SELECT size FROM refreshed WHERE refreshed.path=files.path),
+				mtime_ns=(SELECT mtime_ns FROM refreshed WHERE refreshed.path=files.path),
+				indexed_at_ms=?,run_id=?
+			WHERE path IN (SELECT path FROM refreshed)`)
+		args = append(args, indexedAt, runID)
+		if _, err := tx.ExecContext(ctx, query.String(), args...); err != nil {
+			return fmt.Errorf("refresh files: %w", err)
+		}
+	}
+	return nil
 }
 
 func bulkUpsertFiles(ctx context.Context, tx *sql.Tx, runID string, updates []FileUpdate) error {

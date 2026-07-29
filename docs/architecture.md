@@ -25,6 +25,11 @@ serializes index writers.
 
 Linked Git worktrees are separate canonical roots and therefore receive
 separate project ids, databases, locks, file state, and vector coverage.
+When a worktree has no database yet, Yggdrasil takes a consistent SQLite
+snapshot of an indexed sibling worktree, retargets the copy, and reconciles
+every discovered file by content hash. Unchanged files keep their records and
+vectors; only added, changed, deleted, or extractor-configuration-invalidated
+files are reprocessed. `ygg index --full` deliberately bypasses this reuse.
 Discovery runs `git ls-files` against the selected worktree, so its tracked
 modifications and untracked files cannot bleed into another worktree's index.
 Reaching the same physical worktree through a symlink resolves to the same

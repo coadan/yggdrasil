@@ -28,9 +28,11 @@ type Options struct {
 
 type Summary struct {
 	RunID           string `json:"runId"`
+	SeededFrom      string `json:"seededFrom,omitempty"`
 	Scanned         int    `json:"scanned"`
 	Indexed         int    `json:"indexed"`
 	Unchanged       int    `json:"unchanged"`
+	Reused          int    `json:"reused"`
 	Deleted         int    `json:"deleted"`
 	Skipped         int    `json:"skipped"`
 	Embedded        int    `json:"embedded"`
@@ -63,11 +65,43 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 			}
 		}
 	}
+	cloned := false
+	if !opts.Full {
+		if _, statErr := os.Stat(paths.Database); os.IsNotExist(statErr) {
+			seeds, seedErr := project.SiblingIndexes(ctx, paths)
+			if seedErr != nil {
+				return Summary{}, fmt.Errorf("find worktree seed: %w", seedErr)
+			}
+			if len(seeds) > 0 {
+				var seedErr error
+				for _, seed := range seeds {
+					seedErr = store.CloneDatabase(
+						ctx, seed.Database, seed.Root, paths.Database, paths.Root, paths.ID,
+					)
+					if seedErr == nil {
+						cloned = true
+						break
+					}
+				}
+				if !cloned {
+					return Summary{}, fmt.Errorf("seed worktree index: %w", seedErr)
+				}
+			}
+		} else if statErr != nil {
+			return Summary{}, fmt.Errorf("stat index: %w", statErr)
+		}
+	}
 	value, err := store.Open(ctx, paths.Database, paths.Root, paths.ID)
 	if err != nil {
 		return Summary{}, err
 	}
 	defer value.Close()
+	seedSource, err := value.PendingSeed(ctx)
+	if err != nil {
+		return Summary{}, fmt.Errorf("read worktree seed state: %w", err)
+	}
+	seeded := seedSource != ""
+	summary.SeededFrom = seedSource
 
 	summary.RunID = fmt.Sprintf("run-%d", time.Now().UnixNano())
 	if err := value.BeginRun(ctx, summary.RunID); err != nil {
@@ -103,22 +137,26 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	}()
 	present := make(map[string]bool, len(candidates))
 	var updates []store.FileUpdate
+	var refreshes []store.FileRefresh
 	var deletes []string
 	var diagnostics []store.Diagnostic
 	flush := func() error {
-		if len(updates)+len(deletes)+len(diagnostics) == 0 {
+		if len(refreshes)+len(updates)+len(deletes)+len(diagnostics) == 0 {
 			return nil
 		}
-		if err := value.ApplyBatch(ctx, summary.RunID, updates, deletes, diagnostics); err != nil {
+		if err := value.ApplyBatch(
+			ctx, summary.RunID, refreshes, updates, deletes, diagnostics,
+		); err != nil {
 			return err
 		}
+		refreshes = refreshes[:0]
 		updates = updates[:0]
 		deletes = deletes[:0]
 		diagnostics = diagnostics[:0]
 		return nil
 	}
 	flushIfFull := func() error {
-		if len(updates)+len(deletes)+len(diagnostics) < writeBatchSize {
+		if len(refreshes)+len(updates)+len(deletes)+len(diagnostics) < writeBatchSize {
 			return nil
 		}
 		return flush()
@@ -126,7 +164,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	for _, candidate := range candidates {
 		present[candidate.Path] = true
 		state, exists := states[candidate.Path]
-		if !opts.Full && exists &&
+		if !opts.Full && !seeded && exists &&
 			state.Size == candidate.Size &&
 			state.MTimeNS == candidate.MTimeNS &&
 			state.ExtractionFingerprint == fingerprint {
@@ -158,6 +196,19 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		hash := sha256.Sum256([]byte(file.Content))
 		contentHash := "sha256:" + hex.EncodeToString(hash[:])
 		file.ContentHash = contentHash
+		if seeded && exists &&
+			state.ContentHash == contentHash &&
+			state.ExtractionFingerprint == fingerprint {
+			refreshes = append(refreshes, store.FileRefresh{
+				Path: candidate.Path, Size: candidate.Size, MTimeNS: candidate.MTimeNS,
+			})
+			summary.Unchanged++
+			summary.Reused++
+			if err := flushIfFull(); err != nil {
+				return summary, err
+			}
+			continue
+		}
 		records := chunk.Records(file)
 		pluginRecords, pluginDiagnostics := plugins.Extract(file)
 		records = append(records, pluginRecords...)
@@ -202,6 +253,11 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	pluginsClosed = true
 	if err := flush(); err != nil {
 		return summary, err
+	}
+	if seeded {
+		if err := value.CompleteSeed(ctx); err != nil {
+			return summary, fmt.Errorf("complete worktree seed: %w", err)
+		}
 	}
 	summary.EmbeddingStatus = "unconfigured"
 	if opts.NoEmbed {
