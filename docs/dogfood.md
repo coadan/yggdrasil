@@ -5,6 +5,17 @@ Yggdrasil is dogfooded against two local repositories with different shapes:
 - `breyta-workbench`: a mixed Go, Python, and Clojure tool repository;
 - `void2`: a larger TypeScript/TSX repository with thousands of files.
 
+Two complementary lanes are retained:
+
+- the commands below measure indexing and freshness against current local
+  working copies;
+- `make benchmark-dogfood` measures relevance and latency against eight pinned
+  parent/fix replays from the public repositories.
+
+The replay lane is reproducible and is the required comparison for ranking or
+extractor changes. The current-checkout lane catches scale and freshness
+regressions but does not establish relevance.
+
 Dogfood state must use a fresh central directory outside either repository.
 The repositories are inputs only: the run must not add configuration, indexes,
 or reports to them.

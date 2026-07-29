@@ -82,6 +82,21 @@ func TestTrackedClaimSuiteHasBroadManualCoverage(t *testing.T) {
 	}
 }
 
+func TestTrackedDogfoodSuiteHasManualCoverage(t *testing.T) {
+	suite, _, err := LoadSuite(filepath.Join("..", "..", "benchmarks", "dogfood-replay.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := coverage(suite)
+	if got.Cases != 8 || got.Repositories != 2 {
+		t.Fatalf("coverage=%#v", got)
+	}
+	if len(got.SourceKinds) < 3 || len(got.ProblemClasses) < 3 ||
+		len(got.ArchitectureClasses) < 3 {
+		t.Fatalf("manual class coverage=%#v", got)
+	}
+}
+
 func TestAggregateIncludesRawBaselineTiming(t *testing.T) {
 	got := aggregate([]CaseReport{
 		{RawFileRecallAt10: 0.5, RawMRR: 0.25, RawRipgrepMS: 4},
