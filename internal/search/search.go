@@ -296,17 +296,23 @@ func fuse(limit int, lanes []lane) []RankedRecord {
 		}
 		return ordered[i].record.ID < ordered[j].record.ID
 	})
-	result := make([]RankedRecord, 0, min(limit, len(ordered)))
+	eligible := make([]*fused, 0, len(ordered))
 	selectedPaths := make(map[string]bool)
 	for _, value := range ordered {
-		if len(result) == limit {
-			break
-		}
 		if selectedPaths[value.record.Path] {
 			continue
 		}
 		if value.record.Kind == "file" && hasCitedRecord[value.record.Path] {
 			continue
+		}
+		eligible = append(eligible, value)
+		selectedPaths[value.record.Path] = true
+	}
+	promoteThirdRoot(eligible)
+	result := make([]RankedRecord, 0, min(limit, len(eligible)))
+	for _, value := range eligible {
+		if len(result) == limit {
+			break
 		}
 		retrieval := make([]string, 0, len(value.retrieval))
 		for name := range value.retrieval {
@@ -326,9 +332,34 @@ func fuse(limit int, lanes []lane) []RankedRecord {
 			Score:      value.score,
 			internalID: value.record.ID,
 		})
-		selectedPaths[value.record.Path] = true
 	}
 	return result
+}
+
+func promoteThirdRoot(values []*fused) {
+	if len(values) < 3 {
+		return
+	}
+	firstRoot := pathRoot(values[0].record.Path)
+	if pathRoot(values[1].record.Path) != firstRoot {
+		return
+	}
+	for index := 2; index < len(values); index++ {
+		if pathRoot(values[index].record.Path) == firstRoot {
+			continue
+		}
+		value := values[index]
+		copy(values[3:index+1], values[2:index])
+		values[2] = value
+		return
+	}
+}
+
+func pathRoot(value string) string {
+	if index := strings.IndexByte(value, '/'); index >= 0 {
+		return value[:index]
+	}
+	return "."
 }
 
 func queryTerms(query string) []string {
