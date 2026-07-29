@@ -90,40 +90,44 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	}
 	candidateLimit := max(100, opts.Limit*10)
 	var lanes []lane
+	structured := false
 	if opts.Mode != "semantic" {
 		terms := queryTerms(query)
+		structured = structuredTermQuery(query, terms)
 		if len(terms) > 1 {
 			phrase, err := value.LexicalCandidates(ctx, ftsPhraseQuery(terms), candidateLimit)
 			if err != nil {
 				return Result{}, fmt.Errorf("exact lexical search: %w", err)
 			}
-			all, err := value.LexicalCandidates(ctx, ftsAllQuery(terms), candidateLimit)
+			lanes = append(lanes, lane{name: "exact", records: phrase})
+			if !structured {
+				all, err := value.LexicalCandidates(ctx, ftsAllQuery(terms), candidateLimit)
+				if err != nil {
+					return Result{}, fmt.Errorf("all-term lexical search: %w", err)
+				}
+				lanes = append(lanes, lane{name: "all-terms", records: all})
+			}
+		}
+		if !structured {
+			fts, err := value.LexicalCandidates(ctx, ftsAnyQuery(terms), candidateLimit)
 			if err != nil {
-				return Result{}, fmt.Errorf("all-term lexical search: %w", err)
+				return Result{}, fmt.Errorf("lexical search: %w", err)
+			}
+			paths, err := value.PathCandidates(ctx, pathTerms(query), candidateLimit)
+			if err != nil {
+				return Result{}, fmt.Errorf("path search: %w", err)
 			}
 			lanes = append(lanes,
-				lane{name: "exact", records: phrase},
-				lane{name: "all-terms", records: all},
+				lane{name: "lexical", records: fts},
+				lane{name: "path", records: paths},
 			)
-		}
-		fts, err := value.LexicalCandidates(ctx, ftsAnyQuery(terms), candidateLimit)
-		if err != nil {
-			return Result{}, fmt.Errorf("lexical search: %w", err)
-		}
-		paths, err := value.PathCandidates(ctx, pathTerms(query), candidateLimit)
-		if err != nil {
-			return Result{}, fmt.Errorf("path search: %w", err)
-		}
-		lanes = append(lanes,
-			lane{name: "lexical", records: fts},
-			lane{name: "path", records: paths},
-		)
-		if opts.HasExtractors {
-			extracted, err := value.ExtractorCandidates(ctx, ftsAnyQuery(terms), candidateLimit)
-			if err != nil {
-				return Result{}, fmt.Errorf("extractor search: %w", err)
+			if opts.HasExtractors {
+				extracted, err := value.ExtractorCandidates(ctx, ftsAnyQuery(terms), candidateLimit)
+				if err != nil {
+					return Result{}, fmt.Errorf("extractor search: %w", err)
+				}
+				lanes = append(lanes, lane{name: "extractor", records: extracted})
 			}
-			lanes = append(lanes, lane{name: "extractor", records: extracted})
 		}
 	}
 	result := Result{
@@ -133,6 +137,11 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		ActiveMode:    "lexical",
 	}
 	if opts.Mode == "lexical" {
+		result.Records = fuse(opts.Limit, lanes)
+		result.ElapsedMS = time.Since(started).Milliseconds()
+		return result, nil
+	}
+	if structured && opts.Mode == "auto" {
 		result.Records = fuse(opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
@@ -323,7 +332,16 @@ func fuse(limit int, lanes []lane) []RankedRecord {
 }
 
 func queryTerms(query string) []string {
-	return strings.Fields(query)
+	return strings.FieldsFunc(query, func(value rune) bool {
+		return !unicode.IsLetter(value) && !unicode.IsDigit(value)
+	})
+}
+
+func structuredTermQuery(query string, terms []string) bool {
+	if len(strings.Fields(query)) != 1 || len(terms) < 2 {
+		return false
+	}
+	return strings.ContainsAny(query, "-_.:/#")
 }
 
 func pathTerms(query string) []string {
