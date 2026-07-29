@@ -64,6 +64,11 @@ ygg search --root /path/to/repository "where is request routing configured"
 ygg status --root /path/to/repository
 ```
 
+For a mechanically bounded search, pass a repository subdirectory such as
+`--root /path/to/repository/src/app`. Yggdrasil reuses the repository's one
+index, filters every retrieval lane to that subtree, and keeps citations
+repository-relative (`src/app/...`).
+
 If `search` starts in a fresh linked worktree and a same-family index exists,
 Yggdrasil snapshots and reconciles that index before answering. Every search
 also refreshes modified, deleted, renamed, and untracked files when repository

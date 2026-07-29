@@ -19,6 +19,7 @@ import (
 
 type Paths struct {
 	Root         string
+	Scope        string
 	ID           string
 	FamilyID     string
 	Head         string
@@ -47,11 +48,11 @@ type indexFamily struct {
 
 func ResolveRoot(explicit string) (string, error) {
 	if explicit != "" {
-		root, err := canonicalDir(explicit)
+		requested, err := canonicalDir(explicit)
 		if err != nil {
 			return "", err
 		}
-		return gitRoot(root)
+		return gitRoot(requested)
 	}
 	if output, err := exec.Command("git", "rev-parse", "--show-toplevel").Output(); err == nil {
 		return canonicalDir(strings.TrimSpace(string(output)))
@@ -88,7 +89,24 @@ func Resolve(explicit string) (Paths, error) {
 	if output, gitErr := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output(); gitErr == nil {
 		head = strings.TrimSpace(string(output))
 	}
-	return pathsForRoot(root, storageRoot, hashID(familyRoot), head), nil
+	paths := pathsForRoot(root, storageRoot, hashID(familyRoot), head)
+	if explicit != "" {
+		requested, requestedErr := canonicalDir(explicit)
+		if requestedErr != nil {
+			return Paths{}, requestedErr
+		}
+		if requested != root {
+			scope, relErr := filepath.Rel(root, requested)
+			if relErr != nil {
+				return Paths{}, fmt.Errorf("resolve repository scope: %w", relErr)
+			}
+			if scope == ".." || strings.HasPrefix(scope, ".."+string(filepath.Separator)) {
+				return Paths{}, errors.New("repository scope is outside the resolved root")
+			}
+			paths.Scope = filepath.ToSlash(scope)
+		}
+	}
+	return paths, nil
 }
 
 func RecordIndexFamily(paths Paths) error {

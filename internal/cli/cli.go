@@ -185,7 +185,7 @@ func (r *runner) runIndex(ctx context.Context, args []string) int {
 func (r *runner) runSearch(ctx context.Context, args []string) int {
 	flags := flag.NewFlagSet("search", flag.ContinueOnError)
 	flags.SetOutput(r.stderr)
-	root := flags.String("root", "", "repository root")
+	root := flags.String("root", "", "repository root or directory scope")
 	limit := flags.Int("limit", 10, "result limit")
 	mode := flags.String("mode", "auto", "auto, lexical, or semantic")
 	jsonOutput := jsonFormatFlag(flags)
@@ -217,7 +217,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	defer releaseSearchIndexLock(indexLock)
 	defer value.Close()
 	result, err := search.Run(ctx, value, query, search.Options{
-		Mode: *mode, Limit: *limit, Root: paths.Root,
+		Mode: *mode, Limit: *limit, Root: paths.Root, Scope: paths.Scope,
 		HasExtractors: len(cfg.Plugins) > 0, Embedding: cfg.Embedding,
 	})
 	if errors.Is(err, search.ErrSemanticUnavailable) {

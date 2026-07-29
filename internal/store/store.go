@@ -880,35 +880,50 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 	return counts, nil
 }
 
-func (s *Store) LexicalCandidates(ctx context.Context, query string, limit int) ([]Record, error) {
+const recordScopePredicate = `(?='' OR substr(r.path,1,length(?)+1)=?||'/')`
+
+func (s *Store) LexicalCandidates(
+	ctx context.Context,
+	query, scope string,
+	limit int,
+) ([]Record, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 		FROM record_fts
 		JOIN records r ON r.id=record_fts.rowid
-		WHERE record_fts MATCH ?
+		WHERE record_fts MATCH ? AND `+recordScopePredicate+`
 		ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
-		LIMIT ?`, query, limit)
+		LIMIT ?`, query, scope, scope, scope, limit)
 	if err != nil {
 		return nil, err
 	}
 	return scanRecords(rows)
 }
 
-func (s *Store) ExtractorCandidates(ctx context.Context, query string, limit int) ([]Record, error) {
+func (s *Store) ExtractorCandidates(
+	ctx context.Context,
+	query, scope string,
+	limit int,
+) ([]Record, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 		FROM extractor_fts
 		JOIN records r ON r.id=extractor_fts.rowid
-		WHERE extractor_fts MATCH ?
+		WHERE extractor_fts MATCH ? AND `+recordScopePredicate+`
 		ORDER BY bm25(extractor_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
-		LIMIT ?`, query, limit)
+		LIMIT ?`, query, scope, scope, scope, limit)
 	if err != nil {
 		return nil, err
 	}
 	return scanRecords(rows)
 }
 
-func (s *Store) PathCandidates(ctx context.Context, terms []string, limit int) ([]Record, error) {
+func (s *Store) PathCandidates(
+	ctx context.Context,
+	terms []string,
+	scope string,
+	limit int,
+) ([]Record, error) {
 	if len(terms) == 0 {
 		return nil, nil
 	}
@@ -917,7 +932,7 @@ func (s *Store) PathCandidates(ctx context.Context, terms []string, limit int) (
 		SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
 		FROM (
 			SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source,`)
-	args := make([]any, 0, len(terms)+1)
+	args := make([]any, 0, len(terms)+4)
 	for index, term := range terms {
 		if index > 0 {
 			query.WriteByte('+')
@@ -926,12 +941,13 @@ func (s *Store) PathCandidates(ctx context.Context, terms []string, limit int) (
 		args = append(args, term)
 	}
 	query.WriteString(` AS matches
-			FROM records
-			WHERE kind='file'
+			FROM records r
+			WHERE kind='file' AND ` + recordScopePredicate + `
 		)
 		WHERE matches > 0
 		ORDER BY matches DESC,length(path),path,id
 		LIMIT ?`)
+	args = append(args, scope, scope, scope)
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, query.String(), args...)
 	if err != nil {
@@ -1109,13 +1125,25 @@ func (s *Store) EmbeddingState(ctx context.Context, fingerprint string) (Embeddi
 func (s *Store) VectorCandidates(
 	ctx context.Context,
 	vector []float32,
+	scope string,
 	limit int,
 ) ([]Record, error) {
+	vectorLimit := limit
+	if scope != "" {
+		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM record_vectors`).Scan(&vectorLimit); err != nil {
+			return nil, err
+		}
+		if vectorLimit == 0 {
+			return nil, nil
+		}
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 		FROM record_vectors(?,?) v
-		JOIN records r ON r.id=v.rowid`,
-		encodeVector(vector), limit)
+		JOIN records r ON r.id=v.rowid
+		WHERE `+recordScopePredicate+`
+		LIMIT ?`,
+		encodeVector(vector), vectorLimit, scope, scope, scope, limit)
 	if err != nil {
 		return nil, err
 	}

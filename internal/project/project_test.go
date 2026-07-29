@@ -57,6 +57,9 @@ func TestResolveCanonicalizesRepositorySubdirectory(t *testing.T) {
 	if nestedPaths.Root != rootPaths.Root {
 		t.Fatalf("nested root = %q, want %q", nestedPaths.Root, rootPaths.Root)
 	}
+	if nestedPaths.Scope != "tests/browser" {
+		t.Fatalf("nested scope = %q, want tests/browser", nestedPaths.Scope)
+	}
 	if nestedPaths.ID != rootPaths.ID || nestedPaths.Database != rootPaths.Database {
 		t.Fatalf("nested paths = %#v, want repository identity %#v", nestedPaths, rootPaths)
 	}
