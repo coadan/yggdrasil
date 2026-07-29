@@ -78,6 +78,12 @@ under `$YGG_STORAGE_ROOT/indexes/`, or `~/.local/share/ygg/indexes/` by default.
 `index --full` replaces an incompatible or intentionally stale database; normal
 indexing is incremental.
 
+Linked Git worktrees remain isolated without paying for a second full index.
+On a worktree's first normal index, Yggdrasil snapshots an indexed sibling,
+then content-hash reconciles the copy. Unchanged records and vectors are reused;
+only the worktree's added, changed, deleted, or extractor-invalidated files are
+processed. The JSON index summary reports `seededFrom` and `reused`.
+
 ## Optional extraction and semantic recall
 
 An optional `.ygg/config.json` enables executable extractor plugins and one

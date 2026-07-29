@@ -60,7 +60,7 @@ func TestApplyBatchCommitsFilesDeletesAndDiagnostics(t *testing.T) {
 		Candidate: discovery.Candidate{Path: "new.txt", Size: 3, MTimeNS: 2},
 		Kind:      "txt",
 	}
-	if err := value.ApplyBatch(ctx, "run-2", []FileUpdate{{
+	if err := value.ApplyBatch(ctx, "run-2", nil, []FileUpdate{{
 		File: second, ContentHash: "new", ExtractionFingerprint: "fingerprint",
 		Records: []contracts.SearchRecord{{
 			Path: second.Path, StartLine: 1, EndLine: 1, Kind: "text", Text: "new", Source: "core",
@@ -97,7 +97,7 @@ func TestApplyBatchRollsBackAllFilesOnFailure(t *testing.T) {
 	duplicate := contracts.SearchRecord{
 		ID: "same", Path: file.Path, StartLine: 1, EndLine: 1, Kind: "text", Text: "bad", Source: "core",
 	}
-	err = value.ApplyBatch(ctx, "run", []FileUpdate{{
+	err = value.ApplyBatch(ctx, "run", nil, []FileUpdate{{
 		File: file, ContentHash: "bad", ExtractionFingerprint: "fingerprint",
 		Records: []contracts.SearchRecord{duplicate, duplicate},
 	}}, nil, nil)
@@ -212,7 +212,7 @@ func TestApplyBatchInvalidatesReplacedEmbeddings(t *testing.T) {
 		t.Fatal(err)
 	}
 	file.MTimeNS = 2
-	if err := value.ApplyBatch(ctx, "run-2", []FileUpdate{{
+	if err := value.ApplyBatch(ctx, "run-2", nil, []FileUpdate{{
 		File: file, ContentHash: "new", ExtractionFingerprint: "fingerprint",
 		Records: []contracts.SearchRecord{{
 			Path: file.Path, StartLine: 1, EndLine: 1, Kind: "text", Text: "new", Source: "core",

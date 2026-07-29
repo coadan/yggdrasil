@@ -84,7 +84,10 @@ func TestLinkedGitWorktreesHaveIsolatedIndexesAndDiscovery(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(primary, "shared.txt"), []byte("common baseline\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	runGit(t, primary, "add", "shared.txt")
+	if err := os.WriteFile(filepath.Join(primary, "stable.txt"), []byte("stableworktreemarker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, primary, "add", "shared.txt", "stable.txt")
 	runGit(t, primary, "commit", "-qm", "fixture")
 	runGit(t, primary, "worktree", "add", "-qb", "feature", linked)
 
@@ -121,18 +124,51 @@ func TestLinkedGitWorktreesHaveIsolatedIndexesAndDiscovery(t *testing.T) {
 	if primaryPaths.ID == linkedPaths.ID || primaryPaths.Database == linkedPaths.Database {
 		t.Fatalf("linked worktrees share state: primary=%#v linked=%#v", primaryPaths, linkedPaths)
 	}
-	cfg := config.Default()
-	for _, paths := range []project.Paths{primaryPaths, linkedPaths} {
-		if _, err := Run(context.Background(), paths, cfg, Options{NoEmbed: true}); err != nil {
-			t.Fatal(err)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Input []string `json:"input"`
 		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		data := make([]map[string]any, len(body.Input))
+		for i := range body.Input {
+			data[i] = map[string]any{"index": i, "embedding": []float32{1, 0}}
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": data})
+	}))
+	defer server.Close()
+	cfg := config.Default()
+	cfg.Embedding = &config.Embedding{
+		Kind: "openai-compatible", Endpoint: server.URL, Model: "worktree-test",
+		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 64,
+	}
+	primarySummary, err := Run(context.Background(), primaryPaths, cfg, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if primarySummary.SeededFrom != "" || primarySummary.Indexed != 3 ||
+		primarySummary.Embedded != 6 {
+		t.Fatalf("primary summary=%#v", primarySummary)
+	}
+	linkedSummary, err := Run(context.Background(), linkedPaths, cfg, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if linkedSummary.SeededFrom != primaryPaths.Root || linkedSummary.Reused != 1 ||
+		linkedSummary.Indexed != 2 || linkedSummary.Deleted != 1 ||
+		linkedSummary.Embedded != 4 || linkedSummary.EmbeddingStatus != "ready" {
+		t.Fatalf("linked summary=%#v", linkedSummary)
 	}
 
+	assertWorktreeSearch(t, primaryPaths, "stableworktreemarker", true)
 	assertWorktreeSearch(t, primaryPaths, "primaryworktreemarker", true)
 	assertWorktreeSearch(t, primaryPaths, "primaryuntrackedmarker", true)
 	assertWorktreeSearch(t, primaryPaths, "linkedworktreemarker", false)
 	assertWorktreeSearch(t, primaryPaths, "linkeduntrackedmarker", false)
 	assertWorktreeSearch(t, linkedPaths, "linkedworktreemarker", true)
+	assertWorktreeSearch(t, linkedPaths, "stableworktreemarker", true)
 	assertWorktreeSearch(t, linkedPaths, "linkeduntrackedmarker", true)
 	assertWorktreeSearch(t, linkedPaths, "primaryworktreemarker", false)
 	assertWorktreeSearch(t, linkedPaths, "primaryuntrackedmarker", false)
