@@ -27,6 +27,31 @@ func TestIndexSearchAndStatus(t *testing.T) {
 	if code := Main(context.Background(), []string{"index", "--root", root}, &stdout, &stderr); code != 0 {
 		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latestBefore := latestRunID(t, paths)
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{"index", "--root", root}, &stdout, &stderr); code != 0 {
+		t.Fatalf("current index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var indexResponse struct {
+		Data struct {
+			RunID    string `json:"runId"`
+			UpToDate bool   `json:"upToDate"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &indexResponse); err != nil {
+		t.Fatal(err)
+	}
+	if !indexResponse.Data.UpToDate || indexResponse.Data.RunID != "" {
+		t.Fatalf("unexpected current index response: %s", stdout.String())
+	}
+	if latestAfter := latestRunID(t, paths); latestAfter != latestBefore {
+		t.Fatalf("current index created run %q after %q", latestAfter, latestBefore)
+	}
 	stdout.Reset()
 	stderr.Reset()
 	if code := Main(context.Background(), []string{"search", "--root", root, "--mode", "lexical", "RegisterRequest"}, &stdout, &stderr); code != 0 {
