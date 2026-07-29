@@ -144,6 +144,56 @@ func TestLexicalSearchDiversifiesFilesAndCountsPathTerms(t *testing.T) {
 	}
 }
 
+func TestAutoTreatsStructuredTermsAsExactAndReturnsNoPartialPathNoise(t *testing.T) {
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct {
+		path string
+		text string
+	}{
+		{"catalog/archetype-progression.ts", "archetype progression"},
+		{"src/component.css", ".active-progression-card { display: block; }"},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: int64(len(item.text)), MTimeNS: 1},
+			Kind:      "text",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", []contracts.SearchRecord{{
+			Path: item.path, StartLine: 1, EndLine: 1, Kind: "text-chunk",
+			Text: item.text, Source: "core",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := config.Embedding{
+		Kind: "openai-compatible", Endpoint: "http://127.0.0.1:1",
+		Model: "must-not-run", Dimensions: 2, TimeoutMS: 1,
+	}
+	result, err := Run(ctx, value, "retired-progression-card", Options{
+		Mode: "auto", Limit: 10, Embedding: &cfg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ActiveMode != "lexical" || len(result.Records) != 0 {
+		t.Fatalf("retired result=%#v", result)
+	}
+	result, err = Run(ctx, value, "active-progression-card", Options{
+		Mode: "auto", Limit: 10, Embedding: &cfg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 1 || result.Records[0].Path != "src/component.css" ||
+		strings.Join(result.Records[0].Retrieval, ",") != "exact" {
+		t.Fatalf("active result=%#v", result)
+	}
+}
+
 func TestLexicalSearchFusesConfiguredExtractorRecords(t *testing.T) {
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
@@ -269,6 +319,13 @@ func TestPathTermsAreMechanicalAndBounded(t *testing.T) {
 	want := []string{"three", "four", "five", "seven", "eight", "nine"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("path terms=%q want=%q", got, want)
+	}
+}
+
+func TestQueryTermsSplitStructuredIdentifiers(t *testing.T) {
+	got := queryTerms(".retired-progression_card")
+	if strings.Join(got, ",") != "retired,progression,card" {
+		t.Fatalf("terms=%q", got)
 	}
 }
 
