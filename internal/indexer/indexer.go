@@ -23,13 +23,15 @@ import (
 )
 
 type Options struct {
-	Full    bool
-	NoEmbed bool
-	Refresh bool
+	Full             bool
+	NoEmbed          bool
+	EnsureCurrent    bool
+	EnsureEmbeddings bool
 }
 
 type Summary struct {
 	RunID           string `json:"runId"`
+	UpToDate        bool   `json:"upToDate,omitempty"`
 	SeededFrom      string `json:"seededFrom,omitempty"`
 	Scanned         int    `json:"scanned"`
 	Indexed         int    `json:"indexed"`
@@ -58,7 +60,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		return Summary{}, fmt.Errorf("open index lock: %w", err)
 	}
 	defer lock.Close()
-	if err := acquireIndexLock(ctx, lock, opts.Refresh); err != nil {
+	if err := acquireIndexLock(ctx, lock, opts.EnsureCurrent); err != nil {
 		return Summary{}, err
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
@@ -66,21 +68,40 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	if err != nil {
 		return Summary{}, err
 	}
-	if opts.Refresh {
+	if opts.EnsureCurrent {
 		if _, statErr := os.Stat(paths.Database); statErr == nil {
 			value, openErr := store.Open(ctx, paths.Database, paths.Root, paths.ID)
 			if openErr != nil {
 				return Summary{}, openErr
 			}
 			indexedFreshness, tokenErr := value.IndexFreshnessToken(ctx)
-			closeErr := value.Close()
 			if tokenErr != nil {
+				value.Close()
 				return Summary{}, tokenErr
 			}
+			current := indexedFreshness == startFreshness
+			summary.EmbeddingStatus = "unconfigured"
+			if opts.NoEmbed {
+				summary.EmbeddingStatus = "skipped"
+			} else if cfg.Embedding != nil {
+				summary.EmbeddingStatus = "ready"
+				if opts.EnsureEmbeddings {
+					state, stateErr := value.EmbeddingState(
+						ctx, embedding.Fingerprint(*cfg.Embedding),
+					)
+					if stateErr != nil {
+						value.Close()
+						return Summary{}, stateErr
+					}
+					current = current && state.Complete
+				}
+			}
+			closeErr := value.Close()
 			if closeErr != nil {
 				return Summary{}, closeErr
 			}
-			if indexedFreshness == startFreshness {
+			if current {
+				summary.UpToDate = true
 				summary.ElapsedMS = time.Since(started).Milliseconds()
 				return summary, nil
 			}

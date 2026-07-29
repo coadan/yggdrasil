@@ -175,7 +175,12 @@ func (r *runner) runIndex(ctx context.Context, args []string) int {
 	if err != nil {
 		return r.fail(true, 2, err)
 	}
-	summary, err := indexer.Run(ctx, paths, cfg, indexer.Options{Full: *full, NoEmbed: *noEmbed})
+	summary, err := indexer.Run(ctx, paths, cfg, indexer.Options{
+		Full:             *full,
+		NoEmbed:          *noEmbed,
+		EnsureCurrent:    !*full,
+		EnsureEmbeddings: !*noEmbed,
+	})
 	if err != nil {
 		return r.fail(true, 1, err)
 	}
@@ -276,7 +281,7 @@ func prepareSearchIndex(
 			value.Close()
 			releaseSearchIndexLock(indexLock)
 		}
-		if _, err := indexer.Run(ctx, paths, cfg, indexer.Options{Refresh: true}); err != nil {
+		if _, err := indexer.Run(ctx, paths, cfg, indexer.Options{EnsureCurrent: true}); err != nil {
 			return nil, nil, fmt.Errorf("refresh repository index: %w", err)
 		}
 	}

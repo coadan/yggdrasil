@@ -459,6 +459,60 @@ func TestRunBuildsConfiguredEmbeddingLane(t *testing.T) {
 	}
 }
 
+func TestEnsureCurrentCompletesSkippedEmbeddingsThenNoOps(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		var body struct {
+			Input []string `json:"input"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		data := make([]map[string]any, len(body.Input))
+		for i := range body.Input {
+			data[i] = map[string]any{"index": i, "embedding": []float32{1, 0}}
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": data})
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Embedding = &config.Embedding{
+		Kind: "openai-compatible", Endpoint: server.URL, Model: "test",
+		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 8,
+	}
+	first, err := Run(context.Background(), paths, cfg, Options{NoEmbed: true})
+	if err != nil || first.EmbeddingStatus != "skipped" {
+		t.Fatalf("first=%#v err=%v", first, err)
+	}
+	second, err := Run(context.Background(), paths, cfg, Options{
+		EnsureCurrent: true, EnsureEmbeddings: true,
+	})
+	if err != nil || second.UpToDate || second.Embedded == 0 || second.EmbeddingStatus != "ready" {
+		t.Fatalf("second=%#v err=%v", second, err)
+	}
+	firstRequests := requests
+	third, err := Run(context.Background(), paths, cfg, Options{
+		EnsureCurrent: true, EnsureEmbeddings: true,
+	})
+	if err != nil || !third.UpToDate || third.RunID != "" || third.EmbeddingStatus != "ready" {
+		t.Fatalf("third=%#v err=%v", third, err)
+	}
+	if requests != firstRequests {
+		t.Fatalf("current index called provider: requests %d -> %d", firstRequests, requests)
+	}
+}
+
 func runIndexerPluginHelper() {
 	scanner := bufio.NewScanner(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
