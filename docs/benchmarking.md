@@ -80,6 +80,10 @@ The command lane expects the isolated environment from
 `plugins/embedding-local/README.md`. The Ollama lanes expect `all-minilm` or
 `qwen3-embedding:4b` to be installed and the local server to be running.
 Model downloads and server lifecycle are intentionally outside Yggdrasil.
+Injected benchmark configs are paired with hash markers outside each checkout,
+so a later run can safely reclaim an untracked temporary config left by an
+interrupted run. Tracked, changed, or unmarked checkout configs are never
+overwritten.
 
 Reports include:
 

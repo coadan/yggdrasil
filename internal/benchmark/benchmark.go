@@ -448,7 +448,12 @@ func verifyCheckout(ctx context.Context, root, revision string) error {
 }
 
 func runCase(ctx context.Context, opts Options, item Case, root string) (report CaseReport, err error) {
-	cleanup, err := installBenchmarkConfig(root, opts.configData)
+	stateRoot := filepath.Join(opts.WorkDir, item.ID, "state")
+	if err := os.MkdirAll(stateRoot, 0o755); err != nil {
+		return CaseReport{}, err
+	}
+	configMarker := filepath.Join(opts.ReposDir, ".yggbench-injected", item.ID+".sha256")
+	cleanup, err := installBenchmarkConfig(root, configMarker, opts.configData)
 	if err != nil {
 		return CaseReport{}, err
 	}
@@ -457,10 +462,6 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 			err = cleanupErr
 		}
 	}()
-	stateRoot := filepath.Join(opts.WorkDir, item.ID, "state")
-	if err := os.MkdirAll(stateRoot, 0o755); err != nil {
-		return CaseReport{}, err
-	}
 	env := append(os.Environ(), "YGG_STORAGE_ROOT="+stateRoot)
 	fullArgs := []string{"index", "--root", root, "--full", "--json"}
 	if !opts.embeddingConfigured {
@@ -724,14 +725,28 @@ func resolveExecutable(value string) (string, error) {
 	return path, nil
 }
 
-func installBenchmarkConfig(root string, data []byte) (func() error, error) {
+func installBenchmarkConfig(root, marker string, data []byte) (func() error, error) {
 	if len(data) == 0 {
 		return func() error { return nil }, nil
 	}
 	directory := filepath.Join(root, ".ygg")
 	path := filepath.Join(directory, "config.json")
 	if _, err := os.Lstat(path); err == nil {
-		return nil, errors.New("benchmark checkout already contains .ygg/config.json")
+		existing, readErr := os.ReadFile(path)
+		markerData, markerErr := os.ReadFile(marker)
+		sum := sha256.Sum256(existing)
+		marked := readErr == nil && markerErr == nil &&
+			strings.TrimSpace(string(markerData)) == hex.EncodeToString(sum[:])
+		tracked, trackedErr := gitTracks(root, ".ygg/config.json")
+		if !marked || trackedErr != nil || tracked {
+			return nil, errors.New("benchmark checkout already contains .ygg/config.json")
+		}
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
+		if err := os.Remove(marker); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
@@ -744,7 +759,15 @@ func installBenchmarkConfig(root string, data []byte) (func() error, error) {
 	} else if err != nil {
 		return nil, err
 	}
+	if err := os.MkdirAll(filepath.Dir(marker), 0o755); err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(data)
+	if err := os.WriteFile(marker, []byte(hex.EncodeToString(sum[:])+"\n"), 0o600); err != nil {
+		return nil, err
+	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
+		_ = os.Remove(marker)
 		if createdDirectory {
 			_ = os.Remove(directory)
 		}
@@ -754,6 +777,9 @@ func installBenchmarkConfig(root string, data []byte) (func() error, error) {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
+		if err := os.Remove(marker); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 		if createdDirectory {
 			if err := os.Remove(directory); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
@@ -761,6 +787,19 @@ func installBenchmarkConfig(root string, data []byte) (func() error, error) {
 		}
 		return nil
 	}, nil
+}
+
+func gitTracks(root, path string) (bool, error) {
+	command := exec.Command("git", "-C", root, "ls-files", "--error-unmatch", "--", path)
+	err := command.Run()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, err
 }
 
 func timedCommand(ctx context.Context, dir string, env []string, name string, args ...string) (float64, []byte, error) {
