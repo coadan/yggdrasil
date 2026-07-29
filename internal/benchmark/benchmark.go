@@ -199,6 +199,15 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	if info, err := os.Stat(binary); err != nil || info.IsDir() {
 		return Report{}, fmt.Errorf("candidate binary is not executable: %s", binary)
 	}
+	opts.Binary = binary
+	opts.ReposDir, err = filepath.Abs(opts.ReposDir)
+	if err != nil {
+		return Report{}, err
+	}
+	opts.WorkDir, err = filepath.Abs(opts.WorkDir)
+	if err != nil {
+		return Report{}, err
+	}
 	if err := os.MkdirAll(opts.ReposDir, 0o755); err != nil {
 		return Report{}, err
 	}
@@ -365,7 +374,11 @@ func command(ctx context.Context, dir string, env []string, name string, args ..
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = strings.TrimSpace(stdout.String())
+		}
+		return nil, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, detail)
 	}
 	return stdout.Bytes(), nil
 }
