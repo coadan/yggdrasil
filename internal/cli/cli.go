@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
@@ -32,6 +34,8 @@ const usage = `Usage:
 `
 
 var Version = "0.3.0-dev"
+
+const searchIndexWait = 30 * time.Second
 
 type envelope struct {
 	Schema string     `json:"schema"`
@@ -205,7 +209,12 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	if err != nil {
 		return r.fail(*jsonOutput, 2, err)
 	}
+	indexLock, err := acquireSearchIndexLock(ctx, paths.IndexLock, searchIndexWait)
+	if err != nil {
+		return r.fail(*jsonOutput, 1, err)
+	}
 	if _, err := os.Stat(paths.Database); errors.Is(err, os.ErrNotExist) {
+		releaseSearchIndexLock(indexLock)
 		seeds, seedErr := project.SiblingIndexes(ctx, paths)
 		if seedErr != nil {
 			return r.fail(*jsonOutput, 1, fmt.Errorf("find worktree index: %w", seedErr))
@@ -216,9 +225,15 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		if _, seedErr := indexer.Run(ctx, paths, cfg, indexer.Options{}); seedErr != nil {
 			return r.fail(*jsonOutput, 1, fmt.Errorf("prepare worktree index: %w", seedErr))
 		}
+		indexLock, err = acquireSearchIndexLock(ctx, paths.IndexLock, searchIndexWait)
+		if err != nil {
+			return r.fail(*jsonOutput, 1, err)
+		}
 	} else if err != nil {
+		releaseSearchIndexLock(indexLock)
 		return r.fail(*jsonOutput, 1, err)
 	}
+	defer releaseSearchIndexLock(indexLock)
 	value, err := store.Open(ctx, paths.Database, paths.Root, paths.ID)
 	if err != nil {
 		return r.fail(*jsonOutput, 1, err)
@@ -244,6 +259,47 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		fmt.Fprintf(r.stdout, "%s:%d-%d\t%s\n", record.Path, record.StartLine, record.EndLine, record.Excerpt)
 	}
 	return 0
+}
+
+func acquireSearchIndexLock(ctx context.Context, path string, wait time.Duration) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, fmt.Errorf("create index state directory: %w", err)
+	}
+	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open index lock: %w", err)
+	}
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		err = syscall.Flock(int(lock.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
+		if err == nil {
+			return lock, nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			lock.Close()
+			return nil, fmt.Errorf("lock index for search: %w", err)
+		}
+		select {
+		case <-ctx.Done():
+			lock.Close()
+			return nil, ctx.Err()
+		case <-timer.C:
+			lock.Close()
+			return nil, errors.New("index is still running; retry search")
+		case <-ticker.C:
+		}
+	}
+}
+
+func releaseSearchIndexLock(lock *os.File) {
+	if lock == nil {
+		return
+	}
+	_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	_ = lock.Close()
 }
 
 func (r *runner) runStatus(ctx context.Context, args []string) int {
