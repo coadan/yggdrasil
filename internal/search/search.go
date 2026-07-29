@@ -452,10 +452,7 @@ func locateEvidence(text, query string) citationEvidence {
 		return citationEvidence{terms: 1, line: line, literal: true}
 	}
 	lines := strings.Split(text, "\n")
-	terms := make(map[string]bool)
-	for _, term := range evidenceTerms(query) {
-		terms[term] = true
-	}
+	groups := evidenceTermGroups(query)
 	lineTerms := make([]map[string]bool, len(lines))
 	for index, line := range lines {
 		lineTerms[index] = make(map[string]bool)
@@ -468,12 +465,21 @@ func locateEvidence(text, query string) citationEvidence {
 		start := max(0, line-2)
 		end := min(len(lines), line+3)
 		matched := 0
-		for term := range terms {
-			for _, candidate := range lineTerms[start:end] {
-				if candidate[term] {
-					matched++
+		for _, group := range groups {
+			found := false
+			for _, term := range group {
+				for _, candidate := range lineTerms[start:end] {
+					if candidate[term] {
+						found = true
+						break
+					}
+				}
+				if found {
 					break
 				}
+			}
+			if found {
+				matched++
 			}
 		}
 		if matched > best.terms {
@@ -498,6 +504,35 @@ func literalEvidenceLine(text, query string) int {
 func evidenceTerms(value string) []string {
 	seen := make(map[string]bool)
 	var result []string
+	for _, group := range evidenceTermGroups(value) {
+		for _, term := range group {
+			if seen[term] {
+				continue
+			}
+			seen[term] = true
+			result = append(result, term)
+		}
+	}
+	return result
+}
+
+func evidenceTermGroups(value string) [][]string {
+	seen := make(map[string]bool)
+	var result [][]string
+	for _, token := range queryTerms(value) {
+		key := strings.ToLower(token)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, tokenEvidenceTerms(token))
+	}
+	return result
+}
+
+func tokenEvidenceTerms(token string) []string {
+	seen := make(map[string]bool)
+	var result []string
 	add := func(term string) {
 		term = strings.ToLower(term)
 		if term == "" || seen[term] {
@@ -506,22 +541,20 @@ func evidenceTerms(value string) []string {
 		seen[term] = true
 		result = append(result, term)
 	}
-	for _, token := range queryTerms(value) {
-		add(token)
-		runes := []rune(token)
-		start := 0
-		for index := 1; index < len(runes); index++ {
-			boundary := unicode.IsUpper(runes[index]) &&
-				(unicode.IsLower(runes[index-1]) ||
-					(index+1 < len(runes) && unicode.IsLower(runes[index+1])))
-			if !boundary {
-				continue
-			}
-			add(string(runes[start:index]))
-			start = index
+	add(token)
+	runes := []rune(token)
+	start := 0
+	for index := 1; index < len(runes); index++ {
+		boundary := unicode.IsUpper(runes[index]) &&
+			(unicode.IsLower(runes[index-1]) ||
+				(index+1 < len(runes) && unicode.IsLower(runes[index+1])))
+		if !boundary {
+			continue
 		}
-		add(string(runes[start:]))
+		add(string(runes[start:index]))
+		start = index
 	}
+	add(string(runes[start:]))
 	return result
 }
 

@@ -687,3 +687,15 @@ func TestCitationEvidenceUsesTokenBoundariesInsteadOfIdentifierSubstrings(t *tes
 		t.Fatalf("start=%d title=%q excerpt=%q evidence=%#v", startLine, title, got, evidence)
 	}
 }
+
+func TestCitationEvidenceCountsCamelCaseComponentsAsOneQueryTerm(t *testing.T) {
+	text := "import { FactList } from './FactList';\n" +
+		strings.Repeat("const unrelated = true;\n", 7) +
+		"<FactList\n" +
+		strings.Repeat("  items={values}\n", 5) +
+		"  layout=\"ledger\"\n/>"
+	evidence := locateEvidence(text, "FactList ledger layout")
+	if evidence.line < 10 || evidence.terms != 2 {
+		t.Fatalf("evidence=%#v", evidence)
+	}
+}
