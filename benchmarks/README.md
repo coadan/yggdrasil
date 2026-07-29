@@ -11,7 +11,7 @@ Generated checkouts, indexes, result packets, and reports belong under
 
 The developer-only `yggbench` runner records:
 
-- a deterministic, unranked raw-ripgrep file and timing lane;
+- a deterministic, match-count-ranked raw-ripgrep file and timing lane;
 - candidate lexical relevance and citations;
 - full, no-op, and one-file incremental indexing;
 - repeated fresh-process query latency.
