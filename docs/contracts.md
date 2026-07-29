@@ -187,8 +187,10 @@ Single structured terms containing separators such as `-`, `_`, `.`, or `#`
 use an exact token-sequence lane in `auto` mode. This keeps symbol and CSS-class
 lookups fast and lets removed identifiers return a reliable empty result instead
 of partial path-stem matches. Explicit `semantic` mode remains semantic-only.
-Broad queries containing two or more structured anchors also retain bounded
-per-anchor lexical lanes, so separate exact owners remain represented.
+Broad queries containing a mixed-case identifier or two or more other structured
+anchors also retain bounded per-anchor lexical lanes. This keeps an exact symbol
+represented among surrounding conceptual terms without treating one natural
+hyphenated phrase as code.
 If a retired identifier remains in a negative assertion, search correctly
 returns that citation; a focused test, not retrieval alone, proves the asserted
 absence.

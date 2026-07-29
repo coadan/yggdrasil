@@ -307,6 +307,62 @@ func TestMixedStructuredAnchorsRetainEachOwner(t *testing.T) {
 	}
 }
 
+func TestMixedSingleStructuredAnchorPromotesExactOwner(t *testing.T) {
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	items := []struct {
+		path string
+		text string
+	}{
+		{"src/ui/DetailCallout.tsx", "export function DetailCallout() {}"},
+	}
+	for index := range 8 {
+		items = append(items, struct {
+			path string
+			text string
+		}{
+			path: fmt.Sprintf("docs/shared-semantic-rewards-environment-journal-%d.md", index),
+			text: "shared semantic rewards environment journal",
+		})
+	}
+	for _, item := range items {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: int64(len(item.text)), MTimeNS: 1},
+			Kind:      "text",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", []contracts.SearchRecord{
+			{
+				Path: item.path, StartLine: 1, EndLine: 1, Kind: "file",
+				Title: item.path, Text: item.path, Source: "core",
+			},
+			{
+				Path: item.path, StartLine: 1, EndLine: 1, Kind: "text-chunk",
+				Text: item.text, Source: "core",
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := Run(
+		ctx,
+		value,
+		"DetailCallout shared semantic rewards environment journal",
+		Options{Mode: "lexical", Limit: 5},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) == 0 ||
+		result.Records[0].Path != "src/ui/DetailCallout.tsx" ||
+		!strings.Contains(strings.Join(result.Records[0].Retrieval, ","), "anchor") {
+		t.Fatalf("exact owner not promoted: %#v", result.Records)
+	}
+}
+
 func TestLexicalSearchFusesConfiguredExtractorRecords(t *testing.T) {
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
@@ -546,6 +602,16 @@ func TestQueryTermsSplitStructuredIdentifiers(t *testing.T) {
 	got := queryTerms(".retired-progression_card")
 	if strings.Join(got, ",") != "retired,progression,card" {
 		t.Fatalf("terms=%q", got)
+	}
+}
+
+func TestMixedQueryRequiresTwoNonIdentifierAnchors(t *testing.T) {
+	if got := structuredAnchorQueries("reuse selector-free flow test"); len(got) != 0 {
+		t.Fatalf("single natural anchor=%q", got)
+	}
+	got := structuredAnchorQueries("reuse selector-free exact-content flow test")
+	if len(got) != 2 {
+		t.Fatalf("multiple structured anchors=%q", got)
 	}
 }
 
