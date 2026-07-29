@@ -314,6 +314,31 @@ func TestSearchRejectsUnboundedInputs(t *testing.T) {
 	}
 }
 
+func TestPromoteThirdRootPreservesTopTwoResults(t *testing.T) {
+	values := []*fused{
+		{record: store.Record{Path: "docs/first.md"}},
+		{record: store.Record{Path: "docs/second.md"}},
+		{record: store.Record{Path: "docs/third.md"}},
+		{record: store.Record{Path: "src/owner.go"}},
+		{record: store.Record{Path: "tests/owner_test.go"}},
+	}
+	promoteThirdRoot(values)
+	got := make([]string, 0, len(values))
+	for _, value := range values {
+		got = append(got, value.record.Path)
+	}
+	want := []string{
+		"docs/first.md",
+		"docs/second.md",
+		"src/owner.go",
+		"docs/third.md",
+		"tests/owner_test.go",
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got=%v want=%v", got, want)
+	}
+}
+
 func TestPathTermsAreMechanicalAndBounded(t *testing.T) {
 	got := pathTerms("ONE two three four-five FIVE six seven eight nine ten eleven")
 	want := []string{"three", "four", "five", "seven", "eight", "nine"}
