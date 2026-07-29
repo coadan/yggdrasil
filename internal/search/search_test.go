@@ -516,3 +516,22 @@ func TestExcerptPreservesUTF8Boundary(t *testing.T) {
 		t.Fatalf("invalid excerpt: runes=%d valid=%v suffix=%v", utf8.RuneCountInString(got), utf8.ValidString(got), strings.HasSuffix(got, "…"))
 	}
 }
+
+func TestCitationEvidenceUsesTokenBoundariesInsteadOfIdentifierSubstrings(t *testing.T) {
+	const path = "src/EnvironmentPanel.tsx"
+	text := "function installJournalizedConsumerismComponentship() {}\n" +
+		strings.Repeat("unrelated props\n", 10) +
+		`<DetailCallout data-kind="environment">`
+	record := store.Record{
+		Path: path, StartLine: 1, EndLine: 12, Kind: "text-chunk",
+		Title: path + ":1", Text: text, Source: "core",
+	}
+	evidence := locateEvidence(
+		record.Text,
+		"all DetailCallout consumer components in journal and environment",
+	)
+	startLine, _, title, got := localizedCitation(record, evidence)
+	if startLine <= 5 || title == path+":1" || !strings.Contains(got, "DetailCallout") {
+		t.Fatalf("start=%d title=%q excerpt=%q evidence=%#v", startLine, title, got, evidence)
+	}
+}

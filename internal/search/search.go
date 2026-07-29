@@ -420,16 +420,26 @@ func citationLanePriority(retrieval map[string]bool) int {
 }
 
 func locateEvidence(text, query string) citationEvidence {
-	lines := strings.Split(strings.ToLower(text), "\n")
-	terms := queryTerms(strings.ToLower(query))
+	lines := strings.Split(text, "\n")
+	terms := make(map[string]bool)
+	for _, term := range evidenceTerms(query) {
+		terms[term] = true
+	}
+	lineTerms := make([]map[string]bool, len(lines))
+	for index, line := range lines {
+		lineTerms[index] = make(map[string]bool)
+		for _, term := range evidenceTerms(line) {
+			lineTerms[index][term] = true
+		}
+	}
 	best := citationEvidence{line: -1}
 	for line := range lines {
 		start := max(0, line-2)
 		end := min(len(lines), line+3)
 		matched := 0
-		for _, term := range terms {
-			for _, candidate := range lines[start:end] {
-				if strings.Contains(candidate, term) {
+		for term := range terms {
+			for _, candidate := range lineTerms[start:end] {
+				if candidate[term] {
 					matched++
 					break
 				}
@@ -440,6 +450,36 @@ func locateEvidence(text, query string) citationEvidence {
 		}
 	}
 	return best
+}
+
+func evidenceTerms(value string) []string {
+	seen := make(map[string]bool)
+	var result []string
+	add := func(term string) {
+		term = strings.ToLower(term)
+		if term == "" || seen[term] {
+			return
+		}
+		seen[term] = true
+		result = append(result, term)
+	}
+	for _, token := range queryTerms(value) {
+		add(token)
+		runes := []rune(token)
+		start := 0
+		for index := 1; index < len(runes); index++ {
+			boundary := unicode.IsUpper(runes[index]) &&
+				(unicode.IsLower(runes[index-1]) ||
+					(index+1 < len(runes) && unicode.IsLower(runes[index+1])))
+			if !boundary {
+				continue
+			}
+			add(string(runes[start:index]))
+			start = index
+		}
+		add(string(runes[start:]))
+	}
+	return result
 }
 
 func localizedCitation(
