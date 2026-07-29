@@ -199,7 +199,10 @@ Single structured terms containing syntax such as `-`, `.`, `#`, `<`, `=`, or `(
 use a case-sensitive literal lane in `auto` mode. An FTS token prefilter keeps
 the bounded substring check local. This makes JSX tags, selectors, and removed
 identifiers exact instead of discarding their punctuation or admitting partial
-path-stem matches. Explicit `semantic` mode remains semantic-only.
+path-stem matches. A single case-marked code identifier such as `ContentStack`,
+`Metric`, `runTask`, or `API` uses the same literal lane, while lowercase
+conceptual terms retain normal hybrid retrieval. Explicit `semantic` mode
+remains semantic-only.
 Broad queries containing a mixed-case identifier or two or more other structured
 anchors also retain bounded per-anchor lexical lanes. This keeps an exact symbol
 represented among surrounding conceptual terms without treating one natural
