@@ -38,7 +38,8 @@ semantic lane with reciprocal-rank fusion. Missing or failed semantic recall is
 reported explicitly and lexical results remain available. Use `--mode lexical`
 or `--mode semantic` only for ablation and diagnosis.
 
-See [contracts](docs/contracts.md), [architecture](docs/architecture.md), and
+See [contracts](docs/contracts.md), [architecture](docs/architecture.md),
+[supersession scope](docs/supersession.md), and
 [benchmarking](docs/benchmarking.md).
 
 ## Development
