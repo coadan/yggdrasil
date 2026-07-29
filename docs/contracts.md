@@ -66,6 +66,23 @@ The optional repository configuration is `.ygg/config.json`:
 Embedding `kind` is either `command` or `openai-compatible`. A command provider
 uses `command` argv instead of `endpoint` and `apiKeyEnv`.
 
+The bundled local worker is one command-provider implementation. Use absolute
+paths because the command's working directory is the repository being indexed:
+
+```json
+{
+  "kind": "command",
+  "command": [
+    "/path/to/yggdrasil/.dev/local-embedding-venv/bin/python",
+    "/path/to/yggdrasil/plugins/embedding-local/ygg-embed-local"
+  ],
+  "model": "sentence-transformers/all-MiniLM-L6-v2",
+  "dimensions": 384,
+  "timeoutMs": 60000,
+  "batchSize": 64
+}
+```
+
 Remote providers receive at most 6,000 Unicode characters per record. The HTTP
 adapter requests float encoding and performs one bounded retry with backoff for
 transport errors, HTTP 429/529, and 5xx responses. Configure a remote-appropriate

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -156,6 +158,46 @@ func TestCommandProviderLifecycle(t *testing.T) {
 	}
 	if len(values) != 2 || values[0].ID != "a" || values[1].ID != "b" {
 		t.Fatalf("values=%#v", values)
+	}
+	if err := provider.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBundledLocalWorkerThroughCommandProvider(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 is not installed")
+	}
+	worker, err := filepath.Abs(filepath.Join("..", "..", "plugins", "embedding-local", "ygg-embed-local"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YGG_LOCAL_EMBEDDING_BACKEND", "deterministic-test")
+	provider, err := New(context.Background(), t.TempDir(), config.Embedding{
+		Kind: "command", Command: []string{python, worker},
+		Model: "protocol-fixture", Dimensions: 8, TimeoutMS: 1_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, err := provider.Embed(context.Background(), []Input{
+		{ID: "b", Text: "second"}, {ID: "a", Text: "first"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 2 || values[0].ID != "b" || values[1].ID != "a" {
+		t.Fatalf("values=%#v", values)
+	}
+	for _, value := range values {
+		var squaredMagnitude float64
+		for _, coordinate := range value.Vector {
+			squaredMagnitude += float64(coordinate * coordinate)
+		}
+		if squaredMagnitude < 0.999 || squaredMagnitude > 1.001 {
+			t.Fatalf("embedding %q is not normalized: squared magnitude %f", value.ID, squaredMagnitude)
+		}
 	}
 	if err := provider.Close(); err != nil {
 		t.Fatal(err)
