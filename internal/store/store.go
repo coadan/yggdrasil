@@ -1129,25 +1129,47 @@ func (s *Store) VectorCandidates(
 	limit int,
 ) ([]Record, error) {
 	vectorLimit := limit
+	total := limit
 	if scope != "" {
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM record_vectors`).Scan(&vectorLimit); err != nil {
+		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM record_vectors`).Scan(&total); err != nil {
 			return nil, err
 		}
-		if vectorLimit == 0 {
+		var scoped int
+		if err := s.db.QueryRowContext(
+			ctx,
+			`SELECT count(*) FROM records r WHERE `+recordScopePredicate,
+			scope, scope, scope,
+		).Scan(&scoped); err != nil {
+			return nil, err
+		}
+		if total == 0 || scoped == 0 {
 			return nil, nil
 		}
+		// Start from the scope's mechanical share of records, then expand until
+		// enough globally ordered neighbors survive the scope predicate.
+		estimated := (total*limit + scoped - 1) / scoped
+		vectorLimit = min(total, max(limit, estimated*2))
 	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
-		FROM record_vectors(?,?) v
-		JOIN records r ON r.id=v.rowid
-		WHERE `+recordScopePredicate+`
-		LIMIT ?`,
-		encodeVector(vector), vectorLimit, scope, scope, scope, limit)
-	if err != nil {
-		return nil, err
+	for {
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+			FROM record_vectors(?,?) v
+			JOIN records r ON r.id=v.rowid
+			WHERE `+recordScopePredicate+`
+			LIMIT ?`,
+			encodeVector(vector), vectorLimit, scope, scope, scope, limit)
+		if err != nil {
+			return nil, err
+		}
+		records, err := scanRecords(rows)
+		if err != nil {
+			return nil, err
+		}
+		if scope == "" || len(records) == limit || vectorLimit == total {
+			return records, nil
+		}
+		vectorLimit = min(total, vectorLimit*2)
 	}
-	return scanRecords(rows)
 }
 
 func recordInputHash(title, text string) string {
