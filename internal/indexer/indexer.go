@@ -202,6 +202,13 @@ func embedRecords(
 	if _, err := value.PrepareEmbeddingLane(ctx, fingerprint, cfg.Model, cfg.Dimensions); err != nil {
 		return 0, "", fmt.Errorf("prepare embedding lane: %w", err)
 	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, fingerprint, cfg.BatchSize)
+	if err != nil {
+		return 0, "", err
+	}
+	if len(inputs) == 0 {
+		return 0, "ready", nil
+	}
 	provider, err := embedding.New(ctx, paths.Root, cfg)
 	if err != nil {
 		return 0, embeddingDiagnostic(ctx, value, runID, diagnostics, "provider", err), nil
@@ -214,13 +221,6 @@ func embedRecords(
 	}()
 	embedded := 0
 	for {
-		inputs, err := value.MissingEmbeddingInputs(ctx, fingerprint, cfg.BatchSize)
-		if err != nil {
-			return embedded, "", err
-		}
-		if len(inputs) == 0 {
-			break
-		}
 		request := make([]embedding.Input, len(inputs))
 		byID := make(map[string]store.EmbeddingInput, len(inputs))
 		for i, input := range inputs {
@@ -252,6 +252,13 @@ func embedRecords(
 			return embedded, "", err
 		}
 		embedded += len(values)
+		inputs, err = value.MissingEmbeddingInputs(ctx, fingerprint, cfg.BatchSize)
+		if err != nil {
+			return embedded, "", err
+		}
+		if len(inputs) == 0 {
+			break
+		}
 	}
 	if err := provider.Close(); err != nil {
 		closed = true

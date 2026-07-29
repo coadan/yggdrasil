@@ -103,7 +103,9 @@ func TestRunAddsConfiguredPluginRecords(t *testing.T) {
 }
 
 func TestRunBuildsConfiguredEmbeddingLane(t *testing.T) {
+	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
 		var body struct {
 			Input []string `json:"input"`
 		}
@@ -147,6 +149,17 @@ func TestRunBuildsConfiguredEmbeddingLane(t *testing.T) {
 	state, err := value.EmbeddingState(context.Background(), embedding.Fingerprint(*cfg.Embedding))
 	if err != nil || !state.Complete || state.Embedded == 0 {
 		t.Fatalf("state=%#v err=%v", state, err)
+	}
+	if requests == 0 {
+		t.Fatal("embedding provider was not called")
+	}
+	firstRequests := requests
+	second, err := Run(context.Background(), paths, cfg, Options{})
+	if err != nil || second.Embedded != 0 || second.EmbeddingStatus != "ready" {
+		t.Fatalf("second=%#v err=%v", second, err)
+	}
+	if requests != firstRequests {
+		t.Fatalf("no-op index called provider: requests %d -> %d", firstRequests, requests)
 	}
 }
 
