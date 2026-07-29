@@ -94,3 +94,20 @@ remained at full recall. This supports Python-localization value for these two
 problem classes only. The interpreter and AST work add about 40 ms to the
 smaller one-file incremental p50, and the two-case lane is too small for a broad
 startup or agent-efficiency claim.
+
+The committed candidate was also run across the complete tracked claim lane:
+10 cases, seven repositories, nine source kinds, seven measured problem-class
+groups, and six measured architecture/audit-class groups.
+
+| Broad lane | Recall@10 | MRR | Full index p50 | No-op p50 | Incremental p50 | Search p50 | Search p95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Default | 0.810 | 0.821 | 213.2 ms | 15.7 ms | 26.4 ms | 15.2 ms | 101.5 ms |
+| Python AST | 0.910 | 0.831 | 196.3 ms | 17.2 ms | 21.8 ms | 16.8 ms | 102.0 ms |
+
+Both reports used candidate
+`sha256:b23673f265b33bb50612f93381805d30f9cb62c65314248feb3e8a2d234cf8e9`
+and suite
+`sha256:8293905d96f46bb52948428cb42a24dda5e01331009db3887524e3ee3bb0b524`.
+The Python adapter improved the Flask case and did not regress the other nine
+cases. This is broad localization evidence for the tracked suite, not a general
+agent-speed claim.
