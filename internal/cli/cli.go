@@ -27,7 +27,7 @@ const usage = `Usage:
   ygg version
   ygg index [--root PATH] [--full] [--no-embed] [--json]
   ygg search [--root PATH] [--limit N] [--mode auto|lexical|semantic] [--json] QUERY
-  ygg status [--root PATH] [--json]
+  ygg status [--root PATH] [--check] [--json]
   ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH] [--json]
 `
 
@@ -250,6 +250,7 @@ func (r *runner) runStatus(ctx context.Context, args []string) int {
 	flags := flag.NewFlagSet("status", flag.ContinueOnError)
 	flags.SetOutput(r.stderr)
 	root := flags.String("root", "", "repository root")
+	check := flags.Bool("check", false, "check the configured embedding provider")
 	jsonOutput := flags.Bool("json", false, "write JSON")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -261,7 +262,9 @@ func (r *runner) runStatus(ctx context.Context, args []string) int {
 	if err != nil {
 		return r.fail(*jsonOutput, 2, err)
 	}
-	result, err := status.Inspect(ctx, paths, cfg)
+	result, err := status.Inspect(ctx, paths, cfg, status.Options{
+		Version: Version, CheckProvider: *check,
+	})
 	if err != nil {
 		return r.fail(*jsonOutput, 1, err)
 	}
@@ -270,12 +273,31 @@ func (r *runner) runStatus(ctx context.Context, args []string) int {
 	}
 	if !result.Indexed {
 		fmt.Fprintf(r.stdout, "Not indexed: %s (%d files discovered).\n", result.Root, result.Freshness.New)
-		return 0
+	} else {
+		fmt.Fprintf(r.stdout,
+			"%s: %d files, %d records; drift +%d ~%d -%d.\n",
+			result.Root, result.Counts.Files, result.Counts.Records,
+			result.Freshness.New, result.Freshness.Modified, result.Freshness.Deleted)
 	}
-	fmt.Fprintf(r.stdout,
-		"%s: %d files, %d records; drift +%d ~%d -%d.\n",
-		result.Root, result.Counts.Files, result.Counts.Records,
-		result.Freshness.New, result.Freshness.Modified, result.Freshness.Deleted)
+	switch {
+	case result.Configuration.EmbeddingDisabled:
+		fmt.Fprintln(r.stdout, "Embedding: disabled by repository config.")
+	case result.Configuration.EmbeddingSource != "":
+		fmt.Fprintf(r.stdout, "Embedding config: %s.\n", result.Configuration.EmbeddingSource)
+	default:
+		fmt.Fprintln(r.stdout, "Embedding: unconfigured.")
+	}
+	fmt.Fprintf(r.stdout, "Related seed indexes: %d.\n", result.GitFamily.AvailableSeeds)
+	if result.EmbeddingProvider != nil {
+		if result.EmbeddingProvider.Available {
+			fmt.Fprintf(
+				r.stdout, "Embedding provider: ready in %d ms.\n",
+				result.EmbeddingProvider.ElapsedMS,
+			)
+		} else {
+			fmt.Fprintf(r.stdout, "Embedding provider: unavailable (%s).\n", result.EmbeddingProvider.Error)
+		}
+	}
 	return 0
 }
 

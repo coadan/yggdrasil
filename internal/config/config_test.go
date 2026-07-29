@@ -102,7 +102,9 @@ func TestLoadUsesUserEmbeddingAcrossRepositories(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.Embedding == nil || cfg.Embedding.Model != "all-minilm:latest" ||
-		cfg.Embedding.BatchSize != DefaultBatchSize || len(cfg.Plugins) != 1 {
+		cfg.Embedding.BatchSize != DefaultBatchSize || len(cfg.Plugins) != 1 ||
+		!cfg.UserConfigLoaded || cfg.EmbeddingSource != filepath.Join(directory, "config.json") ||
+		cfg.RepositoryConfigPath != filepath.Join(root, ".ygg", "config.json") {
 		t.Fatalf("config=%#v", cfg)
 	}
 }
@@ -139,8 +141,9 @@ func TestRepositoryCanDisableUserEmbedding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Embedding != nil {
-		t.Fatalf("embedding=%#v", cfg.Embedding)
+	if cfg.Embedding != nil || !cfg.EmbeddingDisabled ||
+		cfg.RepositoryConfigPath != filepath.Join(root, ".ygg", "config.json") {
+		t.Fatalf("config=%#v", cfg)
 	}
 }
 
