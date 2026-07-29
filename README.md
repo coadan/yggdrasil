@@ -67,6 +67,7 @@ ygg status --root /path/to/repository
 The complete public surface is:
 
 ```text
+ygg version
 ygg index
 ygg search
 ygg status
