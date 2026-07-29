@@ -24,12 +24,14 @@ benchmark-check: build
 
 release:
 	mkdir -p dist
-	GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/ygg-darwin-arm64 ./cmd/ygg
-	GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/ygg-darwin-amd64 ./cmd/ygg
-	GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/ygg-linux-arm64 ./cmd/ygg
-	GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/ygg-linux-amd64 ./cmd/ygg
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/ygg-darwin-arm64 ./cmd/ygg
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/ygg-darwin-amd64 ./cmd/ygg
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/ygg-linux-arm64 ./cmd/ygg
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/ygg-linux-amd64 ./cmd/ygg
+	cd dist && shasum -a 256 ygg-* > SHA256SUMS
 
 clean:
 	rm -f bin/ygg bin/yggbench bin/ygg-extract-markdown
 	rm -f dist/ygg-darwin-arm64 dist/ygg-darwin-amd64
 	rm -f dist/ygg-linux-arm64 dist/ygg-linux-amd64
+	rm -f dist/SHA256SUMS

@@ -5,7 +5,7 @@ Yggdrasil has one product path:
 ```text
 git-aware discovery
     -> bounded generic chunks + explicit extractor records
-    -> one per-file SQLite transaction
+    -> bounded SQLite write batches
     -> FTS5/path retrieval (+ optional Vec1 retrieval)
     -> reciprocal-rank fusion
     -> cited search records
@@ -23,11 +23,17 @@ root. Its project id is the first 24 hexadecimal characters of the SHA-256 of
 that root. WAL mode permits readers while the single non-blocking file lock
 serializes index writers.
 
-Each file replacement deletes its prior records and vectors and inserts the
-complete new record bundle in one transaction. FTS5 is an external-content
-index over canonical records. Vec1 stores float32 vectors keyed by the same
-record ids. Embedding fingerprints include all provider configuration, and an
-embedding lane is eligible only when every current record hash is covered.
+Indexing loads the stored file-state map once and commits at most 128 file
+updates, deletions, or diagnostics in each transaction. File and record writes
+inside a batch use set-based SQL. A failed batch rolls back completely; earlier
+batches remain durable, so restart progress and memory stay bounded. Each file
+replacement deletes its prior records and vectors before inserting its complete
+new record bundle.
+
+FTS5 is an external-content index over canonical records. Vec1 stores float32
+vectors keyed by the same record ids. Embedding fingerprints include all
+provider configuration, and an embedding lane is eligible only when every
+current record hash is covered.
 
 ## Dependency boundaries
 

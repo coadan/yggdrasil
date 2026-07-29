@@ -23,4 +23,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ygg-binaries
-          path: dist/ygg-*
+          path: dist/*

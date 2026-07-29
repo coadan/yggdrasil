@@ -40,7 +40,8 @@ or `--mode semantic` only for ablation and diagnosis.
 
 See [contracts](docs/contracts.md), [architecture](docs/architecture.md),
 [supersession scope](docs/supersession.md), and
-[benchmarking](docs/benchmarking.md).
+[benchmarking](docs/benchmarking.md). The
+[dogfood protocol](docs/dogfood.md) records the real-repository release check.
 
 ## Development
 
