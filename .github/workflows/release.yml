@@ -19,6 +19,10 @@ jobs:
           cache-dependency-path: |
             go.sum
             plugins/markdown/go.mod
+      - name: Install benchmark prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
       - run: make check
       - run: make benchmark-dogfood
       - run: make benchmark-check
