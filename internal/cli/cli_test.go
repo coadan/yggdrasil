@@ -86,7 +86,7 @@ func TestSearchAcceptsFlagsAfterQuery(t *testing.T) {
 	stderr.Reset()
 	if code := Main(context.Background(), []string{
 		"search", "trailingflagmarker", "--root", root,
-		"--mode", "lexical", "--limit", "1",
+		"--mode", "lexical", "--limit", "1", "--json",
 	}, &stdout, &stderr); code != 0 {
 		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
@@ -299,16 +299,17 @@ func TestSearchRejectsOutOfBoundsLimitBeforeOpeningIndex(t *testing.T) {
 	}
 }
 
-func TestOperationalCommandsRejectRemovedJSONFlag(t *testing.T) {
+func TestOperationalCommandsRejectNonJSONOutput(t *testing.T) {
 	for _, args := range [][]string{
-		{"index", "--json"},
-		{"search", "query", "--json"},
-		{"status", "--json"},
-		{"plugin", "check", "example", "--json"},
+		{"index", "--json=false"},
+		{"search", "query", "--json=false"},
+		{"status", "--json=false"},
+		{"plugin", "check", "example", "--json=false"},
 	} {
 		var stdout, stderr bytes.Buffer
 		code := Main(context.Background(), args, &stdout, &stderr)
-		if code != 2 || !strings.Contains(stderr.String(), "flag provided but not defined: -json") {
+		if code != 2 || !strings.Contains(stdout.String(), "operational command output is always JSON") ||
+			stderr.Len() != 0 {
 			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", args, code, stdout.String(), stderr.String())
 		}
 	}
