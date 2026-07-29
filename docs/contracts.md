@@ -58,7 +58,8 @@ The optional repository configuration is `.ygg/config.json`:
     "dimensions": 384,
     "apiKeyEnv": "YGG_EMBEDDING_API_KEY",
     "timeoutMs": 2000,
-    "batchSize": 64
+    "batchSize": 64,
+    "maxInputChars": 6000
   }
 }
 ```
@@ -83,8 +84,11 @@ paths because the command's working directory is the repository being indexed:
 }
 ```
 
-Remote providers receive at most 6,000 Unicode characters per record. The HTTP
-adapter requests float encoding and performs one bounded retry with backoff for
+Embedding providers receive at most `maxInputChars` Unicode characters per
+record. The default is 6,000, and the configured value participates in vector
+invalidation. Lower it when a local model runner has a smaller measured stable
+request ceiling. The HTTP adapter requests float encoding and performs one
+bounded retry with backoff for
 transport errors, HTTP 429/529, and 5xx responses. Configure a remote-appropriate
 timeout explicitly; the short default is intended for local endpoints.
 

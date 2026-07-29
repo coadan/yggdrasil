@@ -1,0 +1,16 @@
+{
+  "schema": "ygg.config/v1",
+  "ignoreGlobs": [".ygg/config.json"],
+  "maxFileBytes": 4194304,
+  "embedding": {
+    "kind": "command",
+    "command": [
+      ".dev/local-embedding-venv/bin/python",
+      "plugins/embedding-local/ygg-embed-local"
+    ],
+    "model": "sentence-transformers/all-MiniLM-L6-v2",
+    "dimensions": 384,
+    "timeoutMs": 60000,
+    "batchSize": 64
+  }
+}

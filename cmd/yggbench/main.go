@@ -19,7 +19,8 @@ func main() {
 	repos := flag.String("repos", ".dev/bench/repos", "prepared checkout directory")
 	work := flag.String("work", ".dev/bench/work", "generated state directory")
 	binary := flag.String("ygg", "bin/ygg", "candidate ygg binary")
-	pluginConfig := flag.String("plugin-config", "", "optional extractor-only benchmark config")
+	benchmarkConfig := flag.String("config", "", "optional extractor or embedding benchmark config")
+	mode := flag.String("mode", "lexical", "lexical, auto, or semantic search mode")
 	out := flag.String("out", ".dev/bench/report.json", "report output")
 	prepare := flag.Bool("prepare", false, "clone and pin missing benchmark checkouts")
 	checkOnly := flag.Bool("check-only", false, "verify revisions and ground truth without running searches")
@@ -28,8 +29,8 @@ func main() {
 	flag.Parse()
 	report, err := benchmark.Run(context.Background(), benchmark.Options{
 		SuitePath: *suite, ReposDir: *repos, WorkDir: *work, Binary: *binary,
-		PluginConfigPath: *pluginConfig,
-		Prepare:          *prepare, CheckOnly: *checkOnly,
+		ConfigPath: *benchmarkConfig, SearchMode: *mode,
+		Prepare: *prepare, CheckOnly: *checkOnly,
 		Iterations: *iterations, CaseIDs: splitIDs(*caseIDs),
 	})
 	if err != nil {

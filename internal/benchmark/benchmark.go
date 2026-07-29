@@ -54,33 +54,37 @@ type Case struct {
 }
 
 type Options struct {
-	SuitePath        string
-	ReposDir         string
-	WorkDir          string
-	Binary           string
-	Prepare          bool
-	CheckOnly        bool
-	Iterations       int
-	CaseIDs          []string
-	PluginConfigPath string
-	pluginConfigData []byte
+	SuitePath           string
+	ReposDir            string
+	WorkDir             string
+	Binary              string
+	Prepare             bool
+	CheckOnly           bool
+	Iterations          int
+	CaseIDs             []string
+	ConfigPath          string
+	SearchMode          string
+	configData          []byte
+	embeddingConfigured bool
 }
 
 type Report struct {
-	Schema           string           `json:"schema"`
-	SuiteID          string           `json:"suiteId"`
-	SuiteHash        string           `json:"suiteHash"`
-	Binary           string           `json:"binary"`
-	BinaryHash       string           `json:"binaryHash"`
-	PluginConfigHash string           `json:"pluginConfigHash,omitempty"`
-	Plugins          []PluginEvidence `json:"plugins,omitempty"`
-	GeneratedAt      string           `json:"generatedAt"`
-	Platform         string           `json:"platform"`
-	CheckOnly        bool             `json:"checkOnly"`
-	Environment      Environment      `json:"environment"`
-	Coverage         Coverage         `json:"coverage"`
-	Aggregate        Aggregate        `json:"aggregate"`
-	Cases            []CaseReport     `json:"cases"`
+	Schema      string             `json:"schema"`
+	SuiteID     string             `json:"suiteId"`
+	SuiteHash   string             `json:"suiteHash"`
+	Binary      string             `json:"binary"`
+	BinaryHash  string             `json:"binaryHash"`
+	ConfigHash  string             `json:"configHash,omitempty"`
+	Plugins     []PluginEvidence   `json:"plugins,omitempty"`
+	Embedding   *EmbeddingEvidence `json:"embedding,omitempty"`
+	SearchMode  string             `json:"searchMode"`
+	GeneratedAt string             `json:"generatedAt"`
+	Platform    string             `json:"platform"`
+	CheckOnly   bool               `json:"checkOnly"`
+	Environment Environment        `json:"environment"`
+	Coverage    Coverage           `json:"coverage"`
+	Aggregate   Aggregate          `json:"aggregate"`
+	Cases       []CaseReport       `json:"cases"`
 }
 
 type PluginEvidence struct {
@@ -89,6 +93,19 @@ type PluginEvidence struct {
 	Binary       string   `json:"binary"`
 	BinaryHash   string   `json:"binaryHash"`
 	IncludeGlobs []string `json:"includeGlobs"`
+}
+
+type EmbeddingEvidence struct {
+	Kind         string                `json:"kind"`
+	Model        string                `json:"model"`
+	Dimensions   int                   `json:"dimensions"`
+	Endpoint     string                `json:"endpoint,omitempty"`
+	CommandFiles []CommandFileEvidence `json:"commandFiles,omitempty"`
+}
+
+type CommandFileEvidence struct {
+	Path string `json:"path"`
+	Hash string `json:"hash"`
 }
 
 type Environment struct {
@@ -120,6 +137,9 @@ type Aggregate struct {
 	RawMRR         float64 `json:"rawMrr"`
 	RawSearchP50MS float64 `json:"rawSearchP50Ms"`
 	RawSearchP95MS float64 `json:"rawSearchP95Ms"`
+	VectorRecords  int     `json:"vectorRecords"`
+	IndexedRecords int     `json:"indexedRecords"`
+	VectorCoverage float64 `json:"vectorCoverage"`
 }
 
 type CaseReport struct {
@@ -142,6 +162,14 @@ type CaseReport struct {
 	NoopIndexMS          float64   `json:"noopIndexMs"`
 	OneFileIncrementalMS float64   `json:"oneFileIncrementalMs"`
 	SearchSamplesMS      []float64 `json:"searchSamplesMs"`
+	RequestedMode        string    `json:"requestedMode"`
+	ActiveMode           string    `json:"activeMode"`
+	FallbackReason       string    `json:"fallbackReason,omitempty"`
+	EmbeddingStatus      string    `json:"embeddingStatus"`
+	Embedded             int       `json:"embedded"`
+	VectorRecords        int       `json:"vectorRecords"`
+	IndexedRecords       int       `json:"indexedRecords"`
+	VectorCoverage       float64   `json:"vectorCoverage"`
 }
 
 type searchRecord struct {
@@ -150,14 +178,43 @@ type searchRecord struct {
 	EndLine   int    `json:"endLine"`
 }
 
-type cliEnvelope struct {
+type cliError struct {
+	Message string `json:"message"`
+}
+
+type searchEnvelope struct {
 	OK   bool `json:"ok"`
 	Data struct {
-		Records []searchRecord `json:"records"`
+		RequestedMode  string         `json:"requestedMode"`
+		ActiveMode     string         `json:"activeMode"`
+		FallbackReason string         `json:"fallbackReason"`
+		Records        []searchRecord `json:"records"`
 	} `json:"data"`
-	Error *struct {
-		Message string `json:"message"`
-	} `json:"error"`
+	Error *cliError `json:"error"`
+}
+
+type indexEnvelope struct {
+	OK   bool `json:"ok"`
+	Data struct {
+		Embedded        int    `json:"embedded"`
+		EmbeddingStatus string `json:"embeddingStatus"`
+	} `json:"data"`
+	Error *cliError `json:"error"`
+}
+
+type statusEnvelope struct {
+	OK   bool `json:"ok"`
+	Data struct {
+		Counts struct {
+			Records int `json:"records"`
+		} `json:"counts"`
+		Embedding *struct {
+			Records  int  `json:"records"`
+			Embedded int  `json:"embedded"`
+			Complete bool `json:"complete"`
+		} `json:"embedding"`
+	} `json:"data"`
+	Error *cliError `json:"error"`
 }
 
 func LoadSuite(path string) (Suite, string, error) {
@@ -227,6 +284,12 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	if opts.Iterations <= 0 {
 		opts.Iterations = 5
 	}
+	if opts.SearchMode == "" {
+		opts.SearchMode = "lexical"
+	}
+	if opts.SearchMode != "lexical" && opts.SearchMode != "auto" && opts.SearchMode != "semantic" {
+		return Report{}, fmt.Errorf("unsupported benchmark search mode %q", opts.SearchMode)
+	}
 	suite, suiteHash, err := LoadSuite(opts.SuitePath)
 	if err != nil {
 		return Report{}, err
@@ -277,7 +340,7 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	report := Report{
 		Schema: ReportSchema, SuiteID: suite.ID, SuiteHash: suiteHash,
 		Binary: binary, GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		Platform:    runtime.GOOS + "/" + runtime.GOARCH,
+		Platform: runtime.GOOS + "/" + runtime.GOARCH, SearchMode: opts.SearchMode,
 		CheckOnly:   opts.CheckOnly,
 		Environment: Environment{GoVersion: runtime.Version(), CPUs: runtime.NumCPU()},
 		Coverage:    coverage(suite),
@@ -294,12 +357,16 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	if opts.PluginConfigPath != "" {
-		opts.pluginConfigData, report.PluginConfigHash, report.Plugins, err =
-			loadPluginConfig(opts.PluginConfigPath)
+	if opts.ConfigPath != "" {
+		opts.configData, report.ConfigHash, report.Plugins, report.Embedding, err =
+			loadBenchmarkConfig(opts.ConfigPath)
 		if err != nil {
 			return Report{}, err
 		}
+		opts.embeddingConfigured = report.Embedding != nil
+	}
+	if opts.SearchMode != "lexical" && !opts.embeddingConfigured {
+		return Report{}, fmt.Errorf("benchmark search mode %q requires an embedding config", opts.SearchMode)
 	}
 	for _, item := range suite.Cases {
 		repoRoot := filepath.Join(opts.ReposDir, item.ID)
@@ -381,7 +448,7 @@ func verifyCheckout(ctx context.Context, root, revision string) error {
 }
 
 func runCase(ctx context.Context, opts Options, item Case, root string) (report CaseReport, err error) {
-	cleanup, err := installPluginConfig(root, opts.pluginConfigData)
+	cleanup, err := installBenchmarkConfig(root, opts.configData)
 	if err != nil {
 		return CaseReport{}, err
 	}
@@ -395,12 +462,28 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 		return CaseReport{}, err
 	}
 	env := append(os.Environ(), "YGG_STORAGE_ROOT="+stateRoot)
-	fullMS, _, err := timedCommand(ctx, root, env, opts.Binary, "index", "--root", root, "--full", "--no-embed", "--json")
+	fullArgs := []string{"index", "--root", root, "--full", "--json"}
+	if !opts.embeddingConfigured {
+		fullArgs = append(fullArgs, "--no-embed")
+	}
+	fullMS, fullOutput, err := timedCommand(ctx, root, env, opts.Binary, fullArgs...)
 	if err != nil {
 		return CaseReport{}, err
 	}
-	noopMS, _, err := timedCommand(ctx, root, env, opts.Binary, "index", "--root", root, "--no-embed", "--json")
+	var indexed indexEnvelope
+	if err := decodeIndexEnvelope(fullOutput, "full", opts.embeddingConfigured, &indexed); err != nil {
+		return CaseReport{}, err
+	}
+	noopArgs := []string{"index", "--root", root, "--json"}
+	if !opts.embeddingConfigured {
+		noopArgs = append(noopArgs, "--no-embed")
+	}
+	noopMS, noopOutput, err := timedCommand(ctx, root, env, opts.Binary, noopArgs...)
 	if err != nil {
+		return CaseReport{}, err
+	}
+	var noopIndex indexEnvelope
+	if err := decodeIndexEnvelope(noopOutput, "no-op", opts.embeddingConfigured, &noopIndex); err != nil {
 		return CaseReport{}, err
 	}
 	touchPath := filepath.Join(root, filepath.FromSlash(item.ExpectedPaths[0]))
@@ -412,35 +495,76 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 	if err := os.Chtimes(touchPath, now, now); err != nil {
 		return CaseReport{}, err
 	}
-	incrementalMS, _, err := timedCommand(ctx, root, env, opts.Binary, "index", "--root", root, "--no-embed", "--json")
+	incrementalMS, incrementalOutput, err := timedCommand(ctx, root, env, opts.Binary, noopArgs...)
 	if err != nil {
+		return CaseReport{}, err
+	}
+	var incrementalIndex indexEnvelope
+	if err := decodeIndexEnvelope(
+		incrementalOutput, "incremental", opts.embeddingConfigured, &incrementalIndex,
+	); err != nil {
 		return CaseReport{}, err
 	}
 	_ = os.Chtimes(touchPath, info.ModTime(), info.ModTime())
 
 	var records []searchRecord
 	var samples []float64
+	activeMode := ""
+	fallbackReason := ""
 	for range opts.Iterations {
 		elapsed, output, err := timedCommand(
 			ctx, root, env, opts.Binary,
-			"search", "--root", root, "--mode", "lexical", "--limit", "20", "--json", item.Query,
+			"search", "--root", root, "--mode", opts.SearchMode, "--limit", "20", "--json", item.Query,
 		)
 		if err != nil {
 			return CaseReport{}, err
 		}
-		var envelope cliEnvelope
+		var envelope searchEnvelope
 		if err := json.Unmarshal(output, &envelope); err != nil {
 			return CaseReport{}, fmt.Errorf("decode search output: %w", err)
 		}
 		if !envelope.OK {
-			message := "search failed"
-			if envelope.Error != nil {
-				message = envelope.Error.Message
-			}
-			return CaseReport{}, errors.New(message)
+			return CaseReport{}, errors.New(envelopeError(envelope.Error, "search failed"))
+		}
+		if activeMode == "" {
+			activeMode = envelope.Data.ActiveMode
+			fallbackReason = envelope.Data.FallbackReason
+		} else if activeMode != envelope.Data.ActiveMode || fallbackReason != envelope.Data.FallbackReason {
+			return CaseReport{}, errors.New("search retrieval state changed between iterations")
 		}
 		records = envelope.Data.Records
 		samples = append(samples, elapsed)
+	}
+	if opts.embeddingConfigured && opts.SearchMode == "auto" && activeMode != "hybrid" {
+		return CaseReport{}, fmt.Errorf(
+			"configured auto lane used %q instead of hybrid (fallback %q)",
+			activeMode, fallbackReason,
+		)
+	}
+	_, statusOutput, err := timedCommand(ctx, root, env, opts.Binary, "status", "--root", root, "--json")
+	if err != nil {
+		return CaseReport{}, err
+	}
+	var state statusEnvelope
+	if err := json.Unmarshal(statusOutput, &state); err != nil {
+		return CaseReport{}, fmt.Errorf("decode status output: %w", err)
+	}
+	if !state.OK {
+		return CaseReport{}, errors.New(envelopeError(state.Error, "status failed"))
+	}
+	vectorRecords := 0
+	vectorCoverage := 0.0
+	if state.Data.Embedding != nil {
+		vectorRecords = state.Data.Embedding.Embedded
+		if state.Data.Embedding.Records > 0 {
+			vectorCoverage = float64(vectorRecords) / float64(state.Data.Embedding.Records)
+		}
+		if opts.embeddingConfigured && !state.Data.Embedding.Complete {
+			return CaseReport{}, fmt.Errorf(
+				"embedding coverage is incomplete: %d of %d",
+				state.Data.Embedding.Embedded, state.Data.Embedding.Records,
+			)
+		}
 	}
 	paths := uniquePaths(records)
 	rawStarted := time.Now()
@@ -469,24 +593,36 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 		RawFileRecallAt10: rawRecall, RawMRR: rawMRR, RawRipgrepMS: rawMS,
 		FullIndexMS: fullMS, NoopIndexMS: noopMS, OneFileIncrementalMS: incrementalMS,
 		SearchSamplesMS: samples,
+		RequestedMode:   opts.SearchMode, ActiveMode: activeMode, FallbackReason: fallbackReason,
+		EmbeddingStatus: indexed.Data.EmbeddingStatus, Embedded: indexed.Data.Embedded,
+		VectorRecords: vectorRecords, IndexedRecords: state.Data.Counts.Records,
+		VectorCoverage: vectorCoverage,
 	}, nil
 }
 
-func loadPluginConfig(path string) ([]byte, string, []PluginEvidence, error) {
+func loadBenchmarkConfig(
+	path string,
+) ([]byte, string, []PluginEvidence, *EmbeddingEvidence, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, "", nil, nil, err
 	}
 	var cfg config.Config
 	if err := decodeStrictJSON(data, &cfg); err != nil {
-		return nil, "", nil, fmt.Errorf("decode plugin benchmark config: %w", err)
+		return nil, "", nil, nil, fmt.Errorf("decode benchmark config: %w", err)
 	}
 	if err := cfg.Validate(); err != nil {
-		return nil, "", nil, fmt.Errorf("plugin benchmark config: %w", err)
+		return nil, "", nil, nil, fmt.Errorf("benchmark config: %w", err)
 	}
-	if len(cfg.Plugins) == 0 || len(cfg.IgnoreGlobs) != 0 || cfg.Embedding != nil {
-		return nil, "", nil, errors.New(
-			"plugin benchmark config requires plugins and cannot change ignores or embeddings",
+	if len(cfg.Plugins) == 0 && cfg.Embedding == nil {
+		return nil, "", nil, nil, errors.New(
+			"benchmark config requires plugins or an embedding provider",
+		)
+	}
+	if len(cfg.IgnoreGlobs) > 1 ||
+		(len(cfg.IgnoreGlobs) == 1 && cfg.IgnoreGlobs[0] != ".ygg/config.json") {
+		return nil, "", nil, nil, errors.New(
+			"benchmark config can only ignore its injected .ygg/config.json",
 		)
 	}
 	evidence := make([]PluginEvidence, 0, len(cfg.Plugins))
@@ -494,25 +630,78 @@ func loadPluginConfig(path string) ([]byte, string, []PluginEvidence, error) {
 		plugin := &cfg.Plugins[index]
 		command, err := resolveExecutable(plugin.Command[0])
 		if err != nil {
-			return nil, "", nil, fmt.Errorf("plugin %q: %w", plugin.ID, err)
+			return nil, "", nil, nil, fmt.Errorf("plugin %q: %w", plugin.ID, err)
 		}
 		plugin.Command[0] = command
 		hash, err := fileHash(command)
 		if err != nil {
-			return nil, "", nil, fmt.Errorf("plugin %q: %w", plugin.ID, err)
+			return nil, "", nil, nil, fmt.Errorf("plugin %q: %w", plugin.ID, err)
 		}
 		evidence = append(evidence, PluginEvidence{
 			ID: plugin.ID, Version: plugin.Version, Binary: command,
 			BinaryHash: hash, IncludeGlobs: plugin.IncludeGlobs,
 		})
 	}
+	var embeddingEvidence *EmbeddingEvidence
+	if cfg.Embedding != nil {
+		embeddingEvidence = &EmbeddingEvidence{
+			Kind: cfg.Embedding.Kind, Model: cfg.Embedding.Model,
+			Dimensions: cfg.Embedding.Dimensions, Endpoint: cfg.Embedding.Endpoint,
+		}
+		if cfg.Embedding.Kind == "command" {
+			resolved, files, err := resolveCommandFiles(cfg.Embedding.Command)
+			if err != nil {
+				return nil, "", nil, nil, fmt.Errorf("embedding command: %w", err)
+			}
+			cfg.Embedding.Command = resolved
+			embeddingEvidence.CommandFiles = files
+		}
+	}
 	resolved, err := json.Marshal(cfg)
 	if err != nil {
-		return nil, "", nil, err
+		return nil, "", nil, nil, err
 	}
 	resolved = append(resolved, '\n')
 	sum := sha256.Sum256(data)
-	return resolved, "sha256:" + hex.EncodeToString(sum[:]), evidence, nil
+	return resolved, "sha256:" + hex.EncodeToString(sum[:]), evidence, embeddingEvidence, nil
+}
+
+func resolveCommandFiles(command []string) ([]string, []CommandFileEvidence, error) {
+	resolved := append([]string(nil), command...)
+	executable, err := resolveExecutable(command[0])
+	if err != nil {
+		return nil, nil, err
+	}
+	resolved[0] = executable
+	files := []CommandFileEvidence{{Path: executable}}
+	files[0].Hash, err = fileHash(executable)
+	if err != nil {
+		return nil, nil, err
+	}
+	for index := 1; index < len(resolved); index++ {
+		value := resolved[index]
+		if !filepath.IsAbs(value) && !strings.ContainsAny(value, `/\`) {
+			continue
+		}
+		candidate := filepath.Clean(value)
+		if !filepath.IsAbs(candidate) {
+			candidate, err = filepath.Abs(candidate)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		info, statErr := os.Stat(candidate)
+		if statErr != nil || info.IsDir() {
+			continue
+		}
+		resolved[index] = candidate
+		hash, err := fileHash(candidate)
+		if err != nil {
+			return nil, nil, err
+		}
+		files = append(files, CommandFileEvidence{Path: candidate, Hash: hash})
+	}
+	return resolved, files, nil
 }
 
 func resolveExecutable(value string) (string, error) {
@@ -535,7 +724,7 @@ func resolveExecutable(value string) (string, error) {
 	return path, nil
 }
 
-func installPluginConfig(root string, data []byte) (func() error, error) {
+func installBenchmarkConfig(root string, data []byte) (func() error, error) {
 	if len(data) == 0 {
 		return func() error { return nil }, nil
 	}
@@ -597,6 +786,34 @@ func command(ctx context.Context, dir string, env []string, name string, args ..
 		return nil, fmt.Errorf("%s %s: %w: %s", name, strings.Join(args, " "), err, detail)
 	}
 	return stdout.Bytes(), nil
+}
+
+func envelopeError(value *cliError, fallback string) string {
+	if value != nil && value.Message != "" {
+		return value.Message
+	}
+	return fallback
+}
+
+func decodeIndexEnvelope(
+	output []byte,
+	stage string,
+	requireEmbedding bool,
+	envelope *indexEnvelope,
+) error {
+	if err := json.Unmarshal(output, envelope); err != nil {
+		return fmt.Errorf("decode %s index output: %w", stage, err)
+	}
+	if !envelope.OK {
+		return errors.New(envelopeError(envelope.Error, stage+" index failed"))
+	}
+	if requireEmbedding && envelope.Data.EmbeddingStatus != "ready" {
+		return fmt.Errorf(
+			"%s index embedding status is %q, want ready",
+			stage, envelope.Data.EmbeddingStatus,
+		)
+	}
+	return nil
 }
 
 func ripgrepPaths(ctx context.Context, root, query string) ([]string, error) {
@@ -773,6 +990,8 @@ func aggregate(cases []CaseReport) Aggregate {
 		incremental = append(incremental, item.OneFileIncrementalMS)
 		search = append(search, item.SearchSamplesMS...)
 		raw = append(raw, item.RawRipgrepMS)
+		result.VectorRecords += item.VectorRecords
+		result.IndexedRecords += item.IndexedRecords
 	}
 	count := float64(len(cases))
 	if count > 0 {
@@ -790,6 +1009,9 @@ func aggregate(cases []CaseReport) Aggregate {
 	result.SearchP95MS = percentile(search, 0.95)
 	result.RawSearchP50MS = percentile(raw, 0.50)
 	result.RawSearchP95MS = percentile(raw, 0.95)
+	if result.IndexedRecords > 0 {
+		result.VectorCoverage = float64(result.VectorRecords) / float64(result.IndexedRecords)
+	}
 	return result
 }
 

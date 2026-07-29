@@ -1,4 +1,4 @@
-.PHONY: build check test test-jvm-dotnet benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-python benchmark-jvm-dotnet benchmark-terraform release clean
+.PHONY: build check test test-jvm-dotnet benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-python benchmark-jvm-dotnet benchmark-terraform benchmark-semantic-lexical benchmark-semantic-openrouter benchmark-semantic-local-command benchmark-semantic-ollama benchmark-semantic-qwen release clean
 
 build:
 	mkdir -p bin
@@ -49,13 +49,13 @@ benchmark-dogfood-check: build
 
 benchmark-dogfood-plugins: build
 	bin/yggbench -prepare -suite benchmarks/dogfood-replay.json \
-		-plugin-config benchmarks/dogfood-plugins.json \
+		-config benchmarks/dogfood-plugins.json \
 		-work .dev/bench/work-dogfood-plugins \
 		-ygg bin/ygg -out .dev/bench/dogfood-plugin-report.json
 
 benchmark-dogfood-manifest: build
 	bin/yggbench -prepare -suite benchmarks/dogfood-replay.json \
-		-plugin-config benchmarks/dogfood-manifest.json \
+		-config benchmarks/dogfood-manifest.json \
 		-work .dev/bench/work-dogfood-manifest \
 		-ygg bin/ygg -out .dev/bench/dogfood-manifest-report.json
 
@@ -66,7 +66,7 @@ benchmark-python: build
 		-ygg bin/ygg -out .dev/bench/python-default-report.json
 	bin/yggbench -prepare -suite benchmarks/claim-quick.json \
 		-cases flask-autoescape-case-insensitive,graphify-read-glob-hook-extension-boundary \
-		-plugin-config benchmarks/python-plugins.json \
+		-config benchmarks/python-plugins.json \
 		-work .dev/bench/work-python-plugin \
 		-ygg bin/ygg -out .dev/bench/python-plugin-report.json
 
@@ -78,7 +78,7 @@ benchmark-jvm-dotnet: build
 	PATH="$(CURDIR)/.dev/jvm-dotnet-venv/bin:$$PATH" \
 		bin/yggbench -prepare -suite benchmarks/claim-quick.json \
 		-cases dapper-prefer-enum-type-handlers \
-		-plugin-config benchmarks/jvm-dotnet-plugins.json \
+		-config benchmarks/jvm-dotnet-plugins.json \
 		-work .dev/bench/work-jvm-dotnet-plugin \
 		-ygg bin/ygg -out .dev/bench/jvm-dotnet-plugin-report.json
 
@@ -89,9 +89,43 @@ benchmark-terraform: build
 		-ygg bin/ygg -out .dev/bench/terraform-default-report.json
 	bin/yggbench -prepare -suite benchmarks/claim-quick.json \
 		-cases terraform-vpc-endpoint-dns-record-ip-type \
-		-plugin-config benchmarks/terraform-plugins.json \
+		-config benchmarks/terraform-plugins.json \
 		-work .dev/bench/work-terraform-plugin \
 		-ygg bin/ygg -out .dev/bench/terraform-plugin-report.json
+
+benchmark-semantic-lexical: build
+	bin/yggbench -suite benchmarks/claim-quick.json \
+		-work .dev/bench/semantic-lexical \
+		-ygg bin/ygg -mode lexical \
+		-out .dev/bench/semantic-lexical.json
+
+benchmark-semantic-openrouter: build
+	bin/yggbench -suite benchmarks/claim-quick.json \
+		-config benchmarks/embedding-openrouter.json \
+		-work .dev/bench/semantic-openrouter \
+		-ygg bin/ygg -mode auto \
+		-out .dev/bench/semantic-openrouter.json
+
+benchmark-semantic-local-command: build
+	bin/yggbench -suite benchmarks/claim-quick.json \
+		-config benchmarks/embedding-local-command.json \
+		-work .dev/bench/semantic-local-command \
+		-ygg bin/ygg -mode auto \
+		-out .dev/bench/semantic-local-command.json
+
+benchmark-semantic-ollama: build
+	bin/yggbench -suite benchmarks/claim-quick.json \
+		-config benchmarks/embedding-ollama.json \
+		-work .dev/bench/semantic-ollama \
+		-ygg bin/ygg -mode auto \
+		-out .dev/bench/semantic-ollama.json
+
+benchmark-semantic-qwen: build
+	bin/yggbench -suite benchmarks/claim-quick.json \
+		-config benchmarks/embedding-ollama-qwen3-4b.json \
+		-work .dev/bench/semantic-qwen3-4b \
+		-ygg bin/ygg -mode auto \
+		-out .dev/bench/semantic-qwen3-4b.json
 
 release:
 	mkdir -p dist

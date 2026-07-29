@@ -1,0 +1,14 @@
+{
+  "schema": "ygg.config/v1",
+  "ignoreGlobs": [".ygg/config.json"],
+  "maxFileBytes": 4194304,
+  "embedding": {
+    "kind": "openai-compatible",
+    "endpoint": "https://openrouter.ai/api/v1/embeddings",
+    "model": "openai/text-embedding-3-small",
+    "dimensions": 1536,
+    "apiKeyEnv": "YGG_OPENROUTER_API_KEY",
+    "timeoutMs": 60000,
+    "batchSize": 64
+  }
+}

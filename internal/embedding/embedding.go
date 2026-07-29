@@ -26,7 +26,7 @@ import (
 const maxProviderResponse = 16 * 1024 * 1024
 const maxProviderStderr = 1024 * 1024
 const maxProviderError = 8 * 1024
-const maxProviderInputChars = 6000
+const defaultMaxProviderInputChars = 6000
 const embeddingBehaviorVersion = "v2"
 
 type Input struct {
@@ -84,7 +84,7 @@ type httpProvider struct {
 func (p *httpProvider) Embed(ctx context.Context, inputs []Input) ([]Value, error) {
 	texts := make([]string, len(inputs))
 	for i := range inputs {
-		texts[i] = truncateChars(inputs[i].Text, maxProviderInputChars)
+		texts[i] = truncateChars(inputs[i].Text, providerInputLimit(p.cfg))
 	}
 	payload, err := json.Marshal(map[string]any{
 		"model": p.cfg.Model, "input": texts, "encoding_format": "float",
@@ -191,6 +191,13 @@ func truncateChars(value string, limit int) string {
 	return string(runes[:limit])
 }
 
+func providerInputLimit(cfg config.Embedding) int {
+	if cfg.MaxInputChars > 0 {
+		return cfg.MaxInputChars
+	}
+	return defaultMaxProviderInputChars
+}
+
 type commandProvider struct {
 	cfg       config.Embedding
 	cmd       *exec.Cmd
@@ -259,8 +266,12 @@ func startCommand(ctx context.Context, root string, cfg config.Embedding) (*comm
 func (p *commandProvider) Embed(ctx context.Context, inputs []Input) ([]Value, error) {
 	p.requests++
 	requestID := fmt.Sprintf("%d", p.requests)
+	bounded := make([]Input, len(inputs))
+	for index, input := range inputs {
+		bounded[index] = Input{ID: input.ID, Text: truncateChars(input.Text, providerInputLimit(p.cfg))}
+	}
 	if err := p.encoder.Encode(map[string]any{
-		"type": "embed", "requestId": requestID, "model": p.cfg.Model, "inputs": inputs,
+		"type": "embed", "requestId": requestID, "model": p.cfg.Model, "inputs": bounded,
 	}); err != nil {
 		return nil, err
 	}

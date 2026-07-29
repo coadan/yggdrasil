@@ -31,14 +31,15 @@ type Plugin struct {
 }
 
 type Embedding struct {
-	Kind       string   `json:"kind"`
-	Command    []string `json:"command,omitempty"`
-	Endpoint   string   `json:"endpoint,omitempty"`
-	Model      string   `json:"model"`
-	Dimensions int      `json:"dimensions"`
-	APIKeyEnv  string   `json:"apiKeyEnv,omitempty"`
-	TimeoutMS  int      `json:"timeoutMs,omitempty"`
-	BatchSize  int      `json:"batchSize,omitempty"`
+	Kind          string   `json:"kind"`
+	Command       []string `json:"command,omitempty"`
+	Endpoint      string   `json:"endpoint,omitempty"`
+	Model         string   `json:"model"`
+	Dimensions    int      `json:"dimensions"`
+	APIKeyEnv     string   `json:"apiKeyEnv,omitempty"`
+	TimeoutMS     int      `json:"timeoutMs,omitempty"`
+	BatchSize     int      `json:"batchSize,omitempty"`
+	MaxInputChars int      `json:"maxInputChars,omitempty"`
 }
 
 type Config struct {
@@ -133,6 +134,12 @@ func (c *Config) Validate() error {
 		}
 		if e.BatchSize <= 0 {
 			e.BatchSize = DefaultBatchSize
+		}
+		if e.MaxInputChars <= 0 {
+			e.MaxInputChars = 6_000
+		}
+		if e.MaxInputChars > 100_000 {
+			return errors.New("embedding maxInputChars cannot exceed 100000")
 		}
 	}
 	return nil

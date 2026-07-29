@@ -1,5 +1,6 @@
 {
   "schema": "ygg.config/v1",
+  "ignoreGlobs": [".ygg/config.json"],
   "maxFileBytes": 4194304,
   "plugins": [
     {
