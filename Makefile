@@ -1,4 +1,4 @@
-.PHONY: build check test test-jvm-dotnet benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-breyta-session-check benchmark-breyta-session benchmark-python benchmark-jvm-dotnet benchmark-terraform benchmark-semantic-lexical benchmark-semantic-openrouter benchmark-semantic-local-command benchmark-semantic-ollama benchmark-semantic-qwen release clean
+.PHONY: build check test test-jvm-dotnet test-clojure benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-breyta-session-check benchmark-breyta-session benchmark-breyta-clojure benchmark-python benchmark-jvm-dotnet benchmark-terraform benchmark-semantic-lexical benchmark-semantic-openrouter benchmark-semantic-local-command benchmark-semantic-ollama benchmark-semantic-qwen release clean
 
 build:
 	mkdir -p bin
@@ -19,11 +19,16 @@ test:
 	cd plugins/terraform && go test ./...
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s plugins/python -p 'test_*.py'
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s plugins/jvm-dotnet -p 'test_*.py'
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s plugins/clojure -p 'test_*.py'
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s plugins/embedding-local -p 'test_*.py'
 
 test-jvm-dotnet:
 	PYTHONDONTWRITEBYTECODE=1 .dev/jvm-dotnet-venv/bin/python \
 		-m unittest discover -s plugins/jvm-dotnet -p 'test_*.py'
+
+test-clojure:
+	PYTHONDONTWRITEBYTECODE=1 .dev/clojure-venv/bin/python \
+		-m unittest discover -s plugins/clojure -p 'test_*.py'
 
 check:
 	test -z "$$(gofmt -l $$(git ls-files '*.go'))"
@@ -69,6 +74,14 @@ benchmark-breyta-session: build
 		-work .dev/bench/work-breyta-session \
 		-ygg bin/ygg -mode auto \
 		-out .dev/bench/breyta-session-report.json
+
+benchmark-breyta-clojure: build
+	PATH="$(CURDIR)/.dev/clojure-venv/bin:$$PATH" \
+		bin/yggbench -prepare -suite benchmarks/breyta-session-replay.json \
+		-config benchmarks/breyta-clojure-plugins.json \
+		-work .dev/bench/work-breyta-clojure \
+		-ygg bin/ygg -mode auto \
+		-out .dev/bench/breyta-clojure-report.json
 
 benchmark-python: build
 	bin/yggbench -prepare -suite benchmarks/claim-quick.json \

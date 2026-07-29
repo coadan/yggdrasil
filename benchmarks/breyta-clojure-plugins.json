@@ -1,0 +1,22 @@
+{
+  "schema": "ygg.config/v1",
+  "ignoreGlobs": [".ygg/config.json"],
+  "maxFileBytes": 4194304,
+  "plugins": [
+    {
+      "id": "clojure",
+      "version": "0.1.0",
+      "command": ["plugins/clojure/ygg-extract-clojure"],
+      "includeGlobs": ["**/*.clj", "**/*.cljc", "**/*.cljs", "**/*.bb", "**/*.cljd"],
+      "timeoutMs": 10000
+    }
+  ],
+  "embedding": {
+    "kind": "openai-compatible",
+    "endpoint": "http://127.0.0.1:11434/v1/embeddings",
+    "model": "all-minilm:latest",
+    "dimensions": 384,
+    "timeoutMs": 60000,
+    "batchSize": 64
+  }
+}
