@@ -47,12 +47,24 @@ type indexFamily struct {
 
 func ResolveRoot(explicit string) (string, error) {
 	if explicit != "" {
-		return canonicalDir(explicit)
+		root, err := canonicalDir(explicit)
+		if err != nil {
+			return "", err
+		}
+		return gitRoot(root)
 	}
 	if output, err := exec.Command("git", "rev-parse", "--show-toplevel").Output(); err == nil {
 		return canonicalDir(strings.TrimSpace(string(output)))
 	}
 	return canonicalDir(".")
+}
+
+func gitRoot(root string) (string, error) {
+	output, err := exec.Command("git", "-C", root, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return root, nil
+	}
+	return canonicalDir(strings.TrimSpace(string(output)))
 }
 
 func Resolve(explicit string) (Paths, error) {

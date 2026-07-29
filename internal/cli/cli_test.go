@@ -108,6 +108,64 @@ func TestSearchAcceptsFlagsAfterQuery(t *testing.T) {
 	}
 }
 
+func TestSearchRepositorySubdirectoryReusesRootIndex(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	nested := filepath.Join(root, "tests", "browser")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	cliRunGit(t, root, "init", "-q")
+	if err := os.WriteFile(
+		filepath.Join(nested, "owner.spec.ts"), []byte("subdirectoryrootmarker\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"index", "--root", root, "--no-embed",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	rootPaths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nestedPaths, err := project.Resolve(nested)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nestedPaths.Database != rootPaths.Database {
+		t.Fatalf("nested database=%q root database=%q", nestedPaths.Database, rootPaths.Database)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "subdirectoryrootmarker", "--root", nested, "--mode", "lexical",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var response struct {
+		Data struct {
+			Records []struct {
+				Path string `json:"path"`
+			} `json:"records"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Data.Records) != 1 ||
+		response.Data.Records[0].Path != "tests/browser/owner.spec.ts" {
+		t.Fatalf("response=%s", stdout.String())
+	}
+}
+
 func TestSearchLazilySeedsLinkedWorktreeIndex(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
