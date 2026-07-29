@@ -40,7 +40,7 @@ That uses the same provider as OpenRouter but keeps requests on the configured
 local endpoint. The bundled command worker remains useful for a self-contained
 workflow with no Yggdrasil-owned daemon.
 
-### Measured local smoke
+### Measured local evidence
 
 On 2026-07-29, Apple arm64 with Python 3.12,
 `sentence-transformers==5.6.0`, and cached
@@ -57,10 +57,42 @@ The initial uncached run, including model download, took 39,121.366 ms for the
 first batch. A real CLI smoke indexed three files and six records with six
 vectors in 7,194 ms. Fresh-process `auto` search returned `activeMode: hybrid`,
 with lexical-and-semantic citations, in 6,806 ms. These measurements prove the
-local path and quantify its startup cost; they are not retrieval-quality
-evidence.
+local path and quantify its startup cost.
+
+The complete 10-case claim suite then compared matched lexical, command-local,
+and resident-local lanes on candidate
+`sha256:ac3409cb03e8cdfe1043fdd0300b9e400bee4744025766f03a531171d27d35b3`
+and suite
+`sha256:8293905d96f46bb52948428cb42a24dda5e01331009db3887524e3ee3bb0b524`.
+It covered seven repositories, nine source kinds, seven manually tagged problem
+classes, and six architecture/audit classes:
+
+| Lane | Recall@10 | MRR | Full index p50 | No-op p50 | Incremental p50 | Search p50 | Search p95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Lexical | 0.810 | 0.821 | 223 ms | 17 ms | 26 ms | 17 ms | 116 ms |
+| MiniLM command | 0.980 | 0.710 | 8,642 ms | 27 ms | 6,201 ms | 6,171 ms | 7,009 ms |
+| MiniLM via Ollama | 0.980 | 0.710 | 4,521 ms | 23 ms | 71 ms | 41 ms | 196 ms |
+
+Both semantic lanes had complete `47,724 / 47,724` vector coverage and identical
+retrieval quality. The resident provider isolates the command lane's repeated
+Python/model startup cost. Hybrid recall found more expected files, but lower
+MRR means the current fusion needs ranking work before semantic retrieval can
+be called an unconditional improvement. Resident local MiniLM is the practical
+development lane; command-local MiniLM remains the zero-daemon ablation.
+
+The larger `qwen3-embedding:4b` model was also exercised locally through Ollama
+with 2,560-dimensional vectors, batch size 1, and 4,000-character inputs. A
+single real Terraform architecture case reached complete `358 / 358` coverage,
+recall@10 `1.0`, and MRR `0.5`, but full indexing took 152 seconds. Larger
+inputs caused measured Ollama runner failures on this machine. This focused
+negative result supports configurable local models, but not Qwen 4B as the
+default or a broad benchmark lane.
 
 ## OpenRouter
+
+OpenRouter remains a compatibility option, not the current development or
+benchmark default. Local providers avoid credential, network, and hosted
+first-index costs.
 
 Keep the credential in the environment; never put it in `.ygg/config.json`:
 

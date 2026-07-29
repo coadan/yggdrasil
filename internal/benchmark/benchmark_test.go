@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
@@ -118,7 +119,9 @@ func TestLoadBenchmarkConfigRecordsEmbeddingCommandFiles(t *testing.T) {
 
 func TestInstallBenchmarkConfigDoesNotOverwriteCheckout(t *testing.T) {
 	root := t.TempDir()
-	cleanup, err := installBenchmarkConfig(root, []byte("{}\n"))
+	benchmarkRunGit(t, root, "init", "-q")
+	marker := filepath.Join(t.TempDir(), "fixture.sha256")
+	cleanup, err := installBenchmarkConfig(root, marker, []byte("{}\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,14 +134,46 @@ func TestInstallBenchmarkConfigDoesNotOverwriteCheckout(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".ygg")); !os.IsNotExist(err) {
 		t.Fatalf("temporary directory remains: %v", err)
 	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("temporary marker remains: %v", err)
+	}
 	if err := os.MkdirAll(filepath.Join(root, ".ygg"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, ".ygg", "config.json"), []byte("tracked"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := installBenchmarkConfig(root, []byte("{}\n")); err == nil {
+	benchmarkRunGit(t, root, "add", ".ygg/config.json")
+	if _, err := installBenchmarkConfig(root, marker, []byte("{}\n")); err == nil {
 		t.Fatal("expected existing config refusal")
+	}
+}
+
+func TestInstallBenchmarkConfigRecoversMarkedInterruptedWrite(t *testing.T) {
+	root := t.TempDir()
+	benchmarkRunGit(t, root, "init", "-q")
+	marker := filepath.Join(t.TempDir(), "fixture.sha256")
+	if _, err := installBenchmarkConfig(root, marker, []byte("{\"first\":true}\n")); err != nil {
+		t.Fatal(err)
+	}
+	cleanup, err := installBenchmarkConfig(root, marker, []byte("{\"second\":true}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".ygg", "config.json"))
+	if err != nil || string(data) != "{\"second\":true}\n" {
+		t.Fatalf("data=%q err=%v", data, err)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func benchmarkRunGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	command := exec.Command("git", append([]string{"-C", root}, args...)...)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, output)
 	}
 }
 
