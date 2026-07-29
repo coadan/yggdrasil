@@ -8,14 +8,13 @@
 [![Release](https://img.shields.io/github/v/release/coadan/yggdrasil)](https://github.com/coadan/yggdrasil/releases/latest)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-Yggdrasil is a fully open, MIT-licensed, local repository search tool for
-coding agents and humans. It indexes mechanical repository evidence into
-SQLite and returns bounded results with repository-relative path and line
-citations.
+Yggdrasil gives coding agents and humans fast, local search across a
+repository. It turns source files, declarations, imports, and documentation
+into compact results with exact path and line citations, so the next relevant
+piece of code is quick to find and easy to verify.
 
-The product is deliberately narrow: one Go CLI, one local database per
-repository, optional extractor and embedding subprocesses, and no daemon,
-HTML UI, report generator, or general graph-analysis surface.
+It is open source, MIT licensed, and built for a short iteration loop: index a
+working tree, search it immediately, and refresh only the files that changed.
 
 ## Project status
 
