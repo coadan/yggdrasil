@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -107,6 +109,88 @@ func TestSearchInitializesAnUnindexedRepository(t *testing.T) {
 	}
 	if _, err := os.Stat(paths.Database); err != nil {
 		t.Fatalf("search did not initialize the index: %v", err)
+	}
+}
+
+func TestAutoSearchCompletesConfiguredEmbeddingsButLexicalDoesNot(t *testing.T) {
+	isolateCLIUserConfig(t)
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests++
+		var body struct {
+			Input []string `json:"input"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		data := make([]map[string]any, len(body.Input))
+		for index := range body.Input {
+			data[index] = map[string]any{"index": index, "embedding": []float32{1, 0}}
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"data": data})
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(
+		filepath.Join(root, "owner.txt"), []byte("embeddingreadinessmarker\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, ".ygg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rawConfig, err := json.Marshal(map[string]any{
+		"schema": "ygg.config/v1",
+		"embedding": map[string]any{
+			"kind": "openai-compatible", "endpoint": server.URL, "model": "test",
+			"dimensions": 2, "timeoutMs": 1_000, "batchSize": 8,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".ygg", "config.json"), rawConfig, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"index", "--root", root, "--no-embed",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "--mode", "lexical", "embeddingreadinessmarker",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("lexical code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if requests != 0 {
+		t.Fatalf("lexical search called embedding provider %d times", requests)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "embedding readiness",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("auto code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var response struct {
+		Data struct {
+			ActiveMode     string `json:"activeMode"`
+			FallbackReason string `json:"fallbackReason"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Data.ActiveMode != "hybrid" || response.Data.FallbackReason != "" || requests < 2 {
+		t.Fatalf("requests=%d response=%s", requests, stdout.String())
 	}
 }
 
