@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -182,6 +183,7 @@ func TestNewWorktreeSeedsFromRemovedSiblingIndex(t *testing.T) {
 	primary := filepath.Join(base, "primary")
 	retired := filepath.Join(base, "retired")
 	next := filepath.Join(base, "next")
+	busy := filepath.Join(base, "busy")
 	if err := os.Mkdir(primary, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -226,10 +228,70 @@ func TestNewWorktreeSeedsFromRemovedSiblingIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	if second.SeededFrom != retiredPaths.Root || second.Reused != 1 ||
-		second.Indexed != 0 || second.Deleted != 0 {
+		second.Indexed != 0 || second.Deleted != 0 ||
+		second.PrunedIndexes != 1 || second.PrunedBytes == 0 {
 		t.Fatalf("second=%#v", second)
 	}
+	if _, err := os.Stat(retiredPaths.Database); !os.IsNotExist(err) {
+		t.Fatalf("retired database survived pruning: %v", err)
+	}
 	assertWorktreeSearch(t, nextPaths, "retainedfamilymarker", true)
+
+	runGit(t, primary, "worktree", "add", "-qb", "busy", busy)
+	busyPaths, err := project.Resolve(busy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(context.Background(), busyPaths, config.Default(), Options{NoEmbed: true}); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, primary, "worktree", "remove", "--force", busy)
+	if err := os.Mkdir(busy, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	current, err := Run(context.Background(), nextPaths, config.Default(), Options{
+		NoEmbed: true, EnsureCurrent: true,
+	})
+	if err != nil || !current.UpToDate || current.PrunedIndexes != 0 ||
+		current.PruneSkipped != 0 {
+		t.Fatalf("existing detached root prune=%#v err=%v", current, err)
+	}
+	if _, err := os.Stat(busyPaths.Database); err != nil {
+		t.Fatalf("detached-root database was pruned: %v", err)
+	}
+	if err := os.Remove(busy); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(busyPaths.IndexLock, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	current, err = Run(context.Background(), nextPaths, config.Default(), Options{
+		NoEmbed: true, EnsureCurrent: true,
+	})
+	if err != nil || !current.UpToDate || current.PruneSkipped != 1 ||
+		current.PrunedIndexes != 0 {
+		t.Fatalf("busy prune=%#v err=%v", current, err)
+	}
+	if _, err := os.Stat(busyPaths.Database); err != nil {
+		t.Fatalf("busy database was pruned: %v", err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	current, err = Run(context.Background(), nextPaths, config.Default(), Options{
+		NoEmbed: true, EnsureCurrent: true,
+	})
+	if err != nil || current.PrunedIndexes != 1 || current.PrunedBytes == 0 {
+		t.Fatalf("unlocked prune=%#v err=%v", current, err)
+	}
+	if _, err := os.Stat(busyPaths.Database); !os.IsNotExist(err) {
+		t.Fatalf("unlocked retired database survived pruning: %v", err)
+	}
 }
 
 func runGit(t *testing.T, directory string, args ...string) {

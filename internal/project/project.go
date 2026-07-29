@@ -36,6 +36,15 @@ type IndexSeed struct {
 	UpdatedAtMS int64
 }
 
+type RetiredIndex struct {
+	Root         string
+	StateDir     string
+	Database     string
+	IndexLock    string
+	FamilyMarker string
+	Bytes        int64
+}
+
 const indexFamilySchema = "ygg.index-family/v1"
 
 type indexFamily struct {
@@ -160,36 +169,12 @@ func RecordIndexFamily(paths Paths) error {
 // SiblingIndexes returns existing indexes for other linked worktrees, preferring
 // a worktree at the same commit so the seed requires the least reconciliation.
 func SiblingIndexes(ctx context.Context, paths Paths) ([]IndexSeed, error) {
-	output, err := exec.CommandContext(
-		ctx, "git", "-C", paths.Root, "worktree", "list", "--porcelain", "-z",
-	).Output()
-	type worktree struct {
-		root string
-		head string
-	}
-	var worktrees []worktree
-	var current worktree
-	var item worktree
-	if err == nil {
-		for _, field := range strings.Split(string(output), "\x00") {
-			switch {
-			case strings.HasPrefix(field, "worktree "):
-				item.root = strings.TrimPrefix(field, "worktree ")
-			case strings.HasPrefix(field, "HEAD "):
-				item.head = strings.TrimPrefix(field, "HEAD ")
-			case field == "":
-				if item.root != "" {
-					root, canonicalErr := canonicalDir(item.root)
-					if canonicalErr == nil {
-						item.root = root
-						worktrees = append(worktrees, item)
-						if root == paths.Root {
-							current = item
-						}
-					}
-					item = worktree{}
-				}
-			}
+	worktrees, _ := linkedWorktrees(ctx, paths.Root)
+	var current linkedWorktree
+	for _, item := range worktrees {
+		if item.root == paths.Root {
+			current = item
+			break
 		}
 	}
 	storage := filepath.Dir(filepath.Dir(paths.StateDir))
@@ -260,6 +245,116 @@ func SiblingIndexes(ctx context.Context, paths Paths) ([]IndexSeed, error) {
 	result := append(sameHead, retainedSameHead...)
 	result = append(result, other...)
 	return append(result, retainedOther...), nil
+}
+
+// RetiredIndexes returns marked indexes in the same Git family whose worktree
+// is no longer registered and whose root no longer exists. Unmarked, foreign,
+// active, and merely detached directories are never maintenance candidates.
+func RetiredIndexes(ctx context.Context, paths Paths) ([]RetiredIndex, error) {
+	worktrees, err := linkedWorktrees(ctx, paths.Root)
+	if err != nil {
+		return nil, nil
+	}
+	active := make(map[string]bool, len(worktrees))
+	for _, item := range worktrees {
+		active[item.root] = true
+	}
+	storage := filepath.Dir(filepath.Dir(paths.StateDir))
+	entries, err := os.ReadDir(filepath.Join(storage, "indexes"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read retained indexes: %w", err)
+	}
+	var result []RetiredIndex
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		stateDir := filepath.Join(storage, "indexes", entry.Name())
+		if stateDir == paths.StateDir {
+			continue
+		}
+		family, err := readIndexFamily(filepath.Join(stateDir, "family.json"))
+		if err != nil || family.FamilyID != paths.FamilyID || active[family.Root] {
+			continue
+		}
+		if _, err := os.Stat(family.Root); err == nil || !errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		database := filepath.Join(stateDir, "search.sqlite3")
+		info, err := os.Stat(database)
+		if err != nil || info.IsDir() || info.Size() == 0 {
+			continue
+		}
+		candidate := RetiredIndex{
+			Root: family.Root, StateDir: stateDir, Database: database,
+			IndexLock:    filepath.Join(stateDir, "index.lock"),
+			FamilyMarker: filepath.Join(stateDir, "family.json"),
+		}
+		for _, path := range []string{database, database + "-wal", database + "-shm"} {
+			if info, err := os.Stat(path); err == nil && !info.IsDir() {
+				candidate.Bytes += info.Size()
+			}
+		}
+		result = append(result, candidate)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].StateDir < result[j].StateDir
+	})
+	return result, nil
+}
+
+type linkedWorktree struct {
+	root string
+	head string
+}
+
+func linkedWorktrees(ctx context.Context, root string) ([]linkedWorktree, error) {
+	output, err := exec.CommandContext(
+		ctx, "git", "-C", root, "worktree", "list", "--porcelain", "-z",
+	).Output()
+	if err != nil {
+		return nil, fmt.Errorf("list Git worktrees: %w", err)
+	}
+	var result []linkedWorktree
+	var item linkedWorktree
+	for _, field := range strings.Split(string(output), "\x00") {
+		switch {
+		case strings.HasPrefix(field, "worktree "):
+			item.root = strings.TrimPrefix(field, "worktree ")
+		case strings.HasPrefix(field, "HEAD "):
+			item.head = strings.TrimPrefix(field, "HEAD ")
+		case field == "":
+			if item.root != "" {
+				canonical, err := canonicalDir(item.root)
+				if err == nil {
+					item.root = canonical
+					result = append(result, item)
+				}
+				item = linkedWorktree{}
+			}
+		}
+	}
+	return result, nil
+}
+
+func readIndexFamily(path string) (indexFamily, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return indexFamily{}, err
+	}
+	var family indexFamily
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&family); err != nil {
+		return indexFamily{}, err
+	}
+	if family.Schema != indexFamilySchema || family.FamilyID == "" || family.Root == "" {
+		return indexFamily{}, errors.New("invalid index family marker")
+	}
+	return family, nil
 }
 
 func sortSeedsNewestFirst(seeds []IndexSeed) {
