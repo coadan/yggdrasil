@@ -7,9 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/coadan/yggdrasil/internal/project"
+	"github.com/coadan/yggdrasil/internal/store"
 )
 
 func TestIndexSearchAndStatus(t *testing.T) {
@@ -124,6 +127,90 @@ func TestSearchLazilySeedsLinkedWorktreeIndex(t *testing.T) {
 	if !response.OK || len(response.Data.Records) != 1 ||
 		response.Data.Records[0].Path != "owner.txt" {
 		t.Fatalf("response=%s", stdout.String())
+	}
+}
+
+func TestSearchWaitsForConcurrentIndexCommit(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(filepath.Join(root, "retired-owner.txt"), []byte("retired-owner\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"index", "--root", root, "--no-embed", "--json",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(paths.IndexLock, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	locked := true
+	defer func() {
+		if locked {
+			_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		}
+	}()
+
+	stdout.Reset()
+	stderr.Reset()
+	done := make(chan int, 1)
+	go func() {
+		done <- Main(context.Background(), []string{
+			"search", "--root", root, "--mode", "lexical", "--json", "retired-owner",
+		}, &stdout, &stderr)
+	}()
+	select {
+	case code := <-done:
+		t.Fatalf("search returned before index commit: code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	value, err := store.Open(context.Background(), paths.Database, paths.Root, paths.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := value.DeleteFile(context.Background(), "retired-owner.txt"); err != nil {
+		value.Close()
+		t.Fatal(err)
+	}
+	if err := value.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	locked = false
+
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("search did not resume after index commit")
+	}
+	var response struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Records []json.RawMessage `json:"records"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.OK || len(response.Data.Records) != 0 {
+		t.Fatalf("search observed stale records: %s", stdout.String())
 	}
 }
 
