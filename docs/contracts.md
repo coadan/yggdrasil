@@ -170,6 +170,11 @@ path/line citations.
 Search validates a mechanical repository freshness token before retrieval and
 incrementally refreshes a changed index. Its `elapsedMs` therefore includes
 root resolution, freshness validation, any required refresh, and retrieval.
+Fusion ranks files independently from their returned citation. When multiple
+records from one file contribute, the citation uses the bounded source window
+with the densest query-term evidence; `startLine`, `endLine`, and a line-based
+title identify that localized window. Semantic-only results retain their
+highest-ranked semantic record.
 When `search --root` names a repository subdirectory or file, that relative
 path is a mechanical prefix or exact-file scope applied before candidate limits
 in lexical, path, extractor, and semantic retrieval. Returned citations remain
