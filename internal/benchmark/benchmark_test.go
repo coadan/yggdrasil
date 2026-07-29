@@ -92,3 +92,14 @@ func TestAggregateIncludesRawBaselineTiming(t *testing.T) {
 		t.Fatalf("aggregate=%#v", got)
 	}
 }
+
+func TestParseRipgrepCountsSupportsNewlinesInPaths(t *testing.T) {
+	got, err := parseRipgrepCounts([]byte("normal.go\x003\nodd\nname.go\x002\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].path != "normal.go" || got[0].count != 3 ||
+		got[1].path != "odd\nname.go" || got[1].count != 2 {
+		t.Fatalf("scores=%#v", got)
+	}
+}

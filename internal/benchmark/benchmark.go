@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -467,11 +468,14 @@ func command(ctx context.Context, dir string, env []string, name string, args ..
 }
 
 func ripgrepPaths(ctx context.Context, root, query string) ([]string, error) {
-	args := []string{"-l", "-i", "--no-messages", "--sort", "path", "--glob", "!.git/**"}
+	args := []string{
+		"--count-matches", "--null", "-i", "--no-messages", "--sort", "path",
+		"--glob", "!.git/**",
+	}
 	for _, token := range queryTokens(query) {
 		args = append(args, "-e", token)
 	}
-	if len(args) == 7 {
+	if len(args) == 8 {
 		return nil, nil
 	}
 	args = append(args, ".")
@@ -483,18 +487,52 @@ func ripgrepPaths(ctx context.Context, root, query string) ([]string, error) {
 		}
 		return nil, err
 	}
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	var paths []string
-	for _, line := range lines {
-		line = strings.TrimPrefix(filepath.ToSlash(line), "./")
-		if line != "" {
-			paths = append(paths, line)
+	scores, err := parseRipgrepCounts(output)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(scores, func(i, j int) bool {
+		if scores[i].count != scores[j].count {
+			return scores[i].count > scores[j].count
 		}
-		if len(paths) == 20 {
-			break
-		}
+		return scores[i].path < scores[j].path
+	})
+	if len(scores) > 20 {
+		scores = scores[:20]
+	}
+	paths := make([]string, len(scores))
+	for i, value := range scores {
+		paths[i] = value.path
 	}
 	return paths, nil
+}
+
+type ripgrepScore struct {
+	path  string
+	count int
+}
+
+func parseRipgrepCounts(output []byte) ([]ripgrepScore, error) {
+	var result []ripgrepScore
+	for len(output) > 0 {
+		nul := bytes.IndexByte(output, 0)
+		if nul < 0 {
+			return nil, errors.New("ripgrep count output omitted path delimiter")
+		}
+		pathValue := strings.TrimPrefix(filepath.ToSlash(string(output[:nul])), "./")
+		output = output[nul+1:]
+		newline := bytes.IndexByte(output, '\n')
+		if newline < 0 {
+			return nil, errors.New("ripgrep count output omitted count delimiter")
+		}
+		count, err := strconv.Atoi(string(output[:newline]))
+		if err != nil || count < 1 || pathValue == "" {
+			return nil, errors.New("ripgrep returned an invalid path count")
+		}
+		result = append(result, ripgrepScore{path: pathValue, count: count})
+		output = output[newline+1:]
+	}
+	return result, nil
 }
 
 func queryTokens(query string) []string {
