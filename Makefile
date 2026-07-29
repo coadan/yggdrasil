@@ -1,4 +1,4 @@
-.PHONY: build check test benchmark-quick release clean
+.PHONY: build check test benchmark-check benchmark-quick release clean
 
 build:
 	mkdir -p bin
@@ -18,6 +18,9 @@ check:
 
 benchmark-quick: build
 	bin/yggbench -prepare -suite benchmarks/claim-quick.json -ygg bin/ygg
+
+benchmark-check: build
+	bin/yggbench -prepare -check-only -suite benchmarks/claim-quick.json -ygg bin/ygg
 
 release:
 	mkdir -p dist

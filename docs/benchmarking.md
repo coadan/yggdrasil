@@ -1,9 +1,11 @@
 # Benchmarking
 
 `yggbench` replays tracked localization questions against repositories checked
-out at the exact parent revisions of real fixes. Ground truth, source kinds,
-problem classes, and architecture classes are reviewable in
-`benchmarks/claim-quick.json`.
+out at the exact parent revisions of real fixes. Every case records the upstream
+issue or commit URL and fixing revision. Preparation fetches both revisions and
+refuses the case unless every curated ground-truth path is changed by that
+upstream fix. Ground truth, source kinds, problem classes, and architecture
+classes are reviewable in `benchmarks/claim-quick.json`.
 
 ```sh
 make build
@@ -18,7 +20,12 @@ Use `-cases id-one,id-two` for a bounded iteration. `-prepare` creates an
 isolated checkout per case under `.dev/bench/repos`; it never changes a working
 repository. Each candidate case starts with a fresh database, then measures a
 full index, no-op index, one-file incremental index, and repeated fresh-process
-lexical searches. It also captures an unranked ripgrep localization lane.
+lexical searches. It also measures a deterministically ordered, unranked
+ripgrep localization lane in a fresh process. Reports record the exact candidate
+and suite hashes plus Go, Git, ripgrep, platform, and CPU-count context.
+
+Run `make benchmark-check` to fetch and verify every pinned revision and
+ground-truth diff without paying the full indexing cost.
 
 Reports include:
 
@@ -27,6 +34,7 @@ Reports include:
 - path-and-line citation rate;
 - full, no-op, and one-file index timing;
 - fresh-process search p50 and p95;
+- raw-ripgrep recall, MRR, p50, and p95 as an explicit unranked baseline;
 - suite and candidate binary hashes;
 - manually tagged repository, source-kind, problem-class, and
   architecture-class coverage.

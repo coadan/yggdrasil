@@ -21,12 +21,14 @@ func main() {
 	binary := flag.String("ygg", "bin/ygg", "candidate ygg binary")
 	out := flag.String("out", ".dev/bench/report.json", "report output")
 	prepare := flag.Bool("prepare", false, "clone and pin missing benchmark checkouts")
+	checkOnly := flag.Bool("check-only", false, "verify revisions and ground truth without running searches")
 	iterations := flag.Int("iterations", 5, "fresh-process searches per case")
 	caseIDs := flag.String("cases", "", "optional comma-separated case ids")
 	flag.Parse()
 	report, err := benchmark.Run(context.Background(), benchmark.Options{
 		SuitePath: *suite, ReposDir: *repos, WorkDir: *work, Binary: *binary,
-		Prepare: *prepare, Iterations: *iterations, CaseIDs: splitIDs(*caseIDs),
+		Prepare: *prepare, CheckOnly: *checkOnly,
+		Iterations: *iterations, CaseIDs: splitIDs(*caseIDs),
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -45,6 +47,10 @@ func main() {
 	if err := os.WriteFile(*out, data, 0o644); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	if report.CheckOnly {
+		fmt.Printf("%d cases verified\n", report.Coverage.Cases)
+		return
 	}
 	fmt.Printf(
 		"%d cases: recall@10 %.3f, MRR %.3f, search p50 %.2f ms, p95 %.2f ms\n",

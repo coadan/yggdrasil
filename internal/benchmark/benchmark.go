@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,6 +41,8 @@ type Case struct {
 	ID                  string   `json:"id"`
 	RepositoryID        string   `json:"repositoryId"`
 	Revision            string   `json:"revision"`
+	FixRevision         string   `json:"fixRevision"`
+	SourceURL           string   `json:"sourceUrl"`
 	Query               string   `json:"query"`
 	ExpectedPaths       []string `json:"expectedPaths"`
 	SourceKinds         []string `json:"sourceKinds"`
@@ -52,6 +56,7 @@ type Options struct {
 	WorkDir    string
 	Binary     string
 	Prepare    bool
+	CheckOnly  bool
 	Iterations int
 	CaseIDs    []string
 }
@@ -64,9 +69,18 @@ type Report struct {
 	BinaryHash  string       `json:"binaryHash"`
 	GeneratedAt string       `json:"generatedAt"`
 	Platform    string       `json:"platform"`
+	CheckOnly   bool         `json:"checkOnly"`
+	Environment Environment  `json:"environment"`
 	Coverage    Coverage     `json:"coverage"`
 	Aggregate   Aggregate    `json:"aggregate"`
 	Cases       []CaseReport `json:"cases"`
+}
+
+type Environment struct {
+	GoVersion      string `json:"goVersion"`
+	CPUs           int    `json:"cpus"`
+	GitVersion     string `json:"gitVersion"`
+	RipgrepVersion string `json:"ripgrepVersion"`
 }
 
 type Coverage struct {
@@ -87,12 +101,18 @@ type Aggregate struct {
 	OneFileP50MS   float64 `json:"oneFileIncrementalP50Ms"`
 	SearchP50MS    float64 `json:"searchP50Ms"`
 	SearchP95MS    float64 `json:"searchP95Ms"`
+	RawRecallAt10  float64 `json:"rawFileRecallAt10"`
+	RawMRR         float64 `json:"rawMrr"`
+	RawSearchP50MS float64 `json:"rawSearchP50Ms"`
+	RawSearchP95MS float64 `json:"rawSearchP95Ms"`
 }
 
 type CaseReport struct {
 	ID                   string    `json:"id"`
 	RepositoryID         string    `json:"repositoryId"`
 	Revision             string    `json:"revision"`
+	FixRevision          string    `json:"fixRevision"`
+	SourceURL            string    `json:"sourceUrl"`
 	ExpectedPaths        []string  `json:"expectedPaths"`
 	ResultPaths          []string  `json:"resultPaths"`
 	RawRipgrepPaths      []string  `json:"rawRipgrepPaths"`
@@ -102,6 +122,7 @@ type CaseReport struct {
 	CitationRate         float64   `json:"citationRate"`
 	RawFileRecallAt10    float64   `json:"rawFileRecallAt10"`
 	RawMRR               float64   `json:"rawMrr"`
+	RawRipgrepMS         float64   `json:"rawRipgrepMs"`
 	FullIndexMS          float64   `json:"fullIndexMs"`
 	NoopIndexMS          float64   `json:"noopIndexMs"`
 	OneFileIncrementalMS float64   `json:"oneFileIncrementalMs"`
@@ -130,7 +151,7 @@ func LoadSuite(path string) (Suite, string, error) {
 		return Suite{}, "", err
 	}
 	var suite Suite
-	if err := json.Unmarshal(data, &suite); err != nil {
+	if err := decodeStrictJSON(data, &suite); err != nil {
 		return Suite{}, "", fmt.Errorf("decode suite: %w", err)
 	}
 	if err := suite.Validate(); err != nil {
@@ -152,6 +173,10 @@ func (s Suite) Validate() error {
 		if repo.ID == "" || repo.URL == "" || repos[repo.ID] {
 			return fmt.Errorf("invalid or duplicate repository %q", repo.ID)
 		}
+		parsed, err := url.Parse(repo.URL)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" {
+			return fmt.Errorf("repository %q requires an https URL", repo.ID)
+		}
 		repos[repo.ID] = true
 	}
 	cases := map[string]bool{}
@@ -160,8 +185,24 @@ func (s Suite) Validate() error {
 			return fmt.Errorf("invalid case %q", item.ID)
 		}
 		cases[item.ID] = true
-		if item.Revision == "" || strings.TrimSpace(item.Query) == "" || len(item.ExpectedPaths) == 0 {
-			return fmt.Errorf("case %q lacks revision, query, or expected paths", item.ID)
+		if !fullSHA(item.Revision) || !fullSHA(item.FixRevision) ||
+			strings.TrimSpace(item.Query) == "" || len(item.ExpectedPaths) == 0 ||
+			len(item.SourceKinds) == 0 || len(item.ProblemClasses) == 0 ||
+			len(item.ArchitectureClasses) == 0 {
+			return fmt.Errorf("case %q lacks revisions, query, expected paths, or manual classes", item.ID)
+		}
+		source, err := url.Parse(item.SourceURL)
+		if err != nil || source.Scheme != "https" || source.Host == "" {
+			return fmt.Errorf("case %q requires an https sourceUrl", item.ID)
+		}
+		expected := map[string]bool{}
+		for _, expectedPath := range item.ExpectedPaths {
+			clean := filepath.ToSlash(filepath.Clean(expectedPath))
+			if filepath.IsAbs(expectedPath) || clean == "." || clean == ".." ||
+				strings.HasPrefix(clean, "../") || clean != expectedPath || expected[clean] {
+				return fmt.Errorf("case %q has invalid or duplicate expected path %q", item.ID, expectedPath)
+			}
+			expected[clean] = true
 		}
 	}
 	return nil
@@ -221,8 +262,18 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 	report := Report{
 		Schema: ReportSchema, SuiteID: suite.ID, SuiteHash: suiteHash,
 		Binary: binary, GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		Platform: runtime.GOOS + "/" + runtime.GOARCH,
-		Coverage: coverage(suite),
+		Platform:    runtime.GOOS + "/" + runtime.GOARCH,
+		CheckOnly:   opts.CheckOnly,
+		Environment: Environment{GoVersion: runtime.Version(), CPUs: runtime.NumCPU()},
+		Coverage:    coverage(suite),
+	}
+	report.Environment.GitVersion, err = toolVersion(ctx, "git")
+	if err != nil {
+		return Report{}, err
+	}
+	report.Environment.RipgrepVersion, err = toolVersion(ctx, "rg")
+	if err != nil {
+		return Report{}, err
 	}
 	report.BinaryHash, err = fileHash(binary)
 	if err != nil {
@@ -237,6 +288,12 @@ func Run(ctx context.Context, opts Options) (Report, error) {
 		}
 		if err := verifyCheckout(ctx, repoRoot, item.Revision); err != nil {
 			return Report{}, fmt.Errorf("%s: %w (run with -prepare)", item.ID, err)
+		}
+		if err := verifyGroundTruth(ctx, repoRoot, item); err != nil {
+			return Report{}, fmt.Errorf("%s: %w (run with -prepare)", item.ID, err)
+		}
+		if opts.CheckOnly {
+			continue
 		}
 		value, err := runCase(ctx, opts, item, repoRoot)
 		if err != nil {
@@ -259,11 +316,34 @@ func prepare(ctx context.Context, repo Repository, item Case, root string) error
 	} else if err != nil {
 		return err
 	}
-	if _, err := command(ctx, root, nil, "git", "fetch", "--depth=1", "origin", item.Revision); err != nil {
+	if _, err := command(
+		ctx, root, nil, "git", "fetch", "--depth=1", "origin", item.Revision, item.FixRevision,
+	); err != nil {
 		return err
 	}
 	_, err := command(ctx, root, nil, "git", "checkout", "--detach", "--force", item.Revision)
 	return err
+}
+
+func verifyGroundTruth(ctx context.Context, root string, item Case) error {
+	output, err := command(
+		ctx, root, nil, "git", "diff", "--name-only", item.Revision, item.FixRevision, "--",
+	)
+	if err != nil {
+		return errors.New("fix revision is missing")
+	}
+	changed := map[string]bool{}
+	for _, path := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if path != "" {
+			changed[filepath.ToSlash(path)] = true
+		}
+	}
+	for _, expected := range item.ExpectedPaths {
+		if !changed[expected] {
+			return fmt.Errorf("ground-truth path %s is not changed by fixing revision", expected)
+		}
+	}
+	return nil
 }
 
 func verifyCheckout(ctx context.Context, root, revision string) error {
@@ -332,7 +412,9 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (CaseRep
 		samples = append(samples, elapsed)
 	}
 	paths := uniquePaths(records)
+	rawStarted := time.Now()
 	rawPaths, err := ripgrepPaths(ctx, root, item.Query)
+	rawMS := float64(time.Since(rawStarted).Microseconds()) / 1000
 	if err != nil {
 		return CaseReport{}, err
 	}
@@ -350,9 +432,10 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (CaseRep
 	}
 	return CaseReport{
 		ID: item.ID, RepositoryID: item.RepositoryID, Revision: item.Revision,
+		FixRevision: item.FixRevision, SourceURL: item.SourceURL,
 		ExpectedPaths: item.ExpectedPaths, ResultPaths: paths, RawRipgrepPaths: rawPaths,
 		FileRecallAt10: recall, MRR: mrr, NoiseAt20: noise, CitationRate: citationRate,
-		RawFileRecallAt10: rawRecall, RawMRR: rawMRR,
+		RawFileRecallAt10: rawRecall, RawMRR: rawMRR, RawRipgrepMS: rawMS,
 		FullIndexMS: fullMS, NoopIndexMS: noopMS, OneFileIncrementalMS: incrementalMS,
 		SearchSamplesMS: samples,
 	}, nil
@@ -384,11 +467,11 @@ func command(ctx context.Context, dir string, env []string, name string, args ..
 }
 
 func ripgrepPaths(ctx context.Context, root, query string) ([]string, error) {
-	args := []string{"-l", "-i", "--no-messages", "--glob", "!.git/**"}
+	args := []string{"-l", "-i", "--no-messages", "--sort", "path", "--glob", "!.git/**"}
 	for _, token := range queryTokens(query) {
 		args = append(args, "-e", token)
 	}
-	if len(args) == 5 {
+	if len(args) == 7 {
 		return nil, nil
 	}
 	args = append(args, ".")
@@ -426,9 +509,6 @@ func queryTokens(query string) []string {
 		}
 		seen[field] = true
 		result = append(result, field)
-		if len(result) == 12 {
-			break
-		}
 	}
 	return result
 }
@@ -510,16 +590,19 @@ func coverage(suite Suite) Coverage {
 
 func aggregate(cases []CaseReport) Aggregate {
 	var result Aggregate
-	var full, noop, incremental, search []float64
+	var full, noop, incremental, search, raw []float64
 	for _, item := range cases {
 		result.FileRecallAt10 += item.FileRecallAt10
 		result.MRR += item.MRR
 		result.NoiseAt20 += item.NoiseAt20
 		result.CitationRate += item.CitationRate
+		result.RawRecallAt10 += item.RawFileRecallAt10
+		result.RawMRR += item.RawMRR
 		full = append(full, item.FullIndexMS)
 		noop = append(noop, item.NoopIndexMS)
 		incremental = append(incremental, item.OneFileIncrementalMS)
 		search = append(search, item.SearchSamplesMS...)
+		raw = append(raw, item.RawRipgrepMS)
 	}
 	count := float64(len(cases))
 	if count > 0 {
@@ -527,12 +610,16 @@ func aggregate(cases []CaseReport) Aggregate {
 		result.MRR /= count
 		result.NoiseAt20 /= count
 		result.CitationRate /= count
+		result.RawRecallAt10 /= count
+		result.RawMRR /= count
 	}
 	result.FullIndexP50MS = percentile(full, 0.50)
 	result.NoopIndexP50MS = percentile(noop, 0.50)
 	result.OneFileP50MS = percentile(incremental, 0.50)
 	result.SearchP50MS = percentile(search, 0.50)
 	result.SearchP95MS = percentile(search, 0.95)
+	result.RawSearchP50MS = percentile(raw, 0.50)
+	result.RawSearchP95MS = percentile(raw, 0.95)
 	return result
 }
 
@@ -563,4 +650,37 @@ func fileHash(path string) (string, error) {
 	}
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func decodeStrictJSON(data []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+func fullSHA(value string) bool {
+	if len(value) != 40 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func toolVersion(ctx context.Context, name string) (string, error) {
+	output, err := command(ctx, "", nil, name, "--version")
+	if err != nil {
+		return "", err
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(string(output)), "\n")
+	return line, nil
 }
