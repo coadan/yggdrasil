@@ -234,9 +234,15 @@ This is a capability map, not a leaderboard.
 
 ```sh
 make check
-make release
-make benchmark-quick
+make benchmark-dogfood
+make benchmark-check
+make release VERSION=0.3.0-rc.1
 ```
+
+The release target stamps the requested version into all four CGO-free
+macOS/Linux binaries, writes their checksums under `dist/`, and executes the
+native artifact to verify its version. Pushing a `v*` tag reruns these gates and
+publishes the binaries, checksums, and dogfood report as GitHub release assets.
 
 The core module has one direct dependency: the pure-Go SQLite implementation
 providing SQLite, FTS5, and Vec1. Extractor plugins are separate Go modules so

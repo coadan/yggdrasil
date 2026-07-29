@@ -1,5 +1,8 @@
 .PHONY: build check test test-jvm-dotnet test-clojure benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-breyta-session-check benchmark-breyta-session benchmark-breyta-clojure benchmark-python benchmark-jvm-dotnet benchmark-terraform benchmark-semantic-lexical benchmark-semantic-openrouter benchmark-semantic-local-command benchmark-semantic-ollama benchmark-semantic-qwen release clean
 
+VERSION ?= 0.3.0-dev
+RELEASE_LDFLAGS = -s -w -X github.com/coadan/yggdrasil/internal/cli.Version=$(VERSION)
+
 build:
 	mkdir -p bin
 	go build -buildvcs=false -trimpath -o bin/ygg ./cmd/ygg
@@ -153,10 +156,11 @@ benchmark-semantic-qwen: build
 
 release:
 	mkdir -p dist
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o dist/ygg-darwin-arm64 ./cmd/ygg
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o dist/ygg-darwin-amd64 ./cmd/ygg
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o dist/ygg-linux-arm64 ./cmd/ygg
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o dist/ygg-linux-amd64 ./cmd/ygg
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags="$(RELEASE_LDFLAGS)" -o dist/ygg-darwin-arm64 ./cmd/ygg
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags="$(RELEASE_LDFLAGS)" -o dist/ygg-darwin-amd64 ./cmd/ygg
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags="$(RELEASE_LDFLAGS)" -o dist/ygg-linux-arm64 ./cmd/ygg
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags="$(RELEASE_LDFLAGS)" -o dist/ygg-linux-amd64 ./cmd/ygg
+	test "$$(dist/ygg-$$(go env GOOS)-$$(go env GOARCH) version)" = "ygg $(VERSION)"
 	cd dist && shasum -a 256 ygg-* > SHA256SUMS
 
 clean:
