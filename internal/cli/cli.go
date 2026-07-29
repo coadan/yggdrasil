@@ -24,11 +24,14 @@ import (
 )
 
 const usage = `Usage:
+  ygg version
   ygg index [--root PATH] [--full] [--no-embed] [--json]
   ygg search [--root PATH] [--limit N] [--mode auto|lexical|semantic] [--json] QUERY
   ygg status [--root PATH] [--json]
   ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH] [--json]
 `
+
+var Version = "0.3.0-dev"
 
 type envelope struct {
 	Schema string     `json:"schema"`
@@ -55,7 +58,20 @@ func (r *runner) run(ctx context.Context, args []string) int {
 		fmt.Fprint(r.stdout, usage)
 		return 0
 	}
+	if args[0] == "--version" || args[0] == "-version" {
+		if len(args) != 1 {
+			return r.fail(false, 2, errors.New("version accepts no arguments"))
+		}
+		fmt.Fprintf(r.stdout, "ygg %s\n", Version)
+		return 0
+	}
 	switch args[0] {
+	case "version":
+		if len(args) != 1 {
+			return r.fail(false, 2, errors.New("version accepts no arguments"))
+		}
+		fmt.Fprintf(r.stdout, "ygg %s\n", Version)
+		return 0
 	case "index":
 		return r.runIndex(ctx, args[1:])
 	case "search":

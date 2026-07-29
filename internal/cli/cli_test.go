@@ -58,6 +58,18 @@ func TestSearchRequiresAnIndex(t *testing.T) {
 	}
 }
 
+func TestVersionProbes(t *testing.T) {
+	for _, args := range [][]string{{"--version"}, {"-version"}, {"version"}} {
+		var stdout, stderr bytes.Buffer
+		if code := Main(context.Background(), args, &stdout, &stderr); code != 0 {
+			t.Fatalf("args=%v code=%d stderr=%s", args, code, stderr.String())
+		}
+		if got, want := stdout.String(), "ygg "+Version+"\n"; got != want {
+			t.Fatalf("args=%v output=%q want=%q", args, got, want)
+		}
+	}
+}
+
 func TestPublicSurfaceRejectsLegacyCommands(t *testing.T) {
 	for _, command := range []string{
 		"start", "init", "sync", "query", "view", "report", "packages",
