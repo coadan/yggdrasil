@@ -562,6 +562,7 @@ func structuredAnchorQueries(query string) []string {
 	}
 	seen := make(map[string]bool)
 	var result []string
+	singleIdentifier := false
 	for _, field := range strings.Fields(query) {
 		terms := queryTerms(field)
 		if len(terms) == 0 || !structuredAnchorField(field, terms) {
@@ -573,11 +574,12 @@ func structuredAnchorQueries(query string) []string {
 		}
 		seen[anchor] = true
 		result = append(result, anchor)
+		singleIdentifier = structuredIdentifierField(field)
 		if len(result) == maxStructuredAnchors {
 			break
 		}
 	}
-	if len(result) < 2 {
+	if len(result) == 1 && !singleIdentifier {
 		return nil
 	}
 	return result
@@ -587,6 +589,10 @@ func structuredAnchorField(field string, terms []string) bool {
 	if len(terms) > 1 && strings.ContainsAny(field, "-_.:/#") {
 		return true
 	}
+	return structuredIdentifierField(field)
+}
+
+func structuredIdentifierField(field string) bool {
 	hasLower := false
 	hasInternalUpper := false
 	for index, value := range field {
