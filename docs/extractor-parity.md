@@ -67,11 +67,17 @@ for Java and C#: packages/namespaces, imports/usings, nested declarations,
 methods, constructors, properties, line ranges, and diagnostics.
 The parser dependency is pinned in that plugin rather than added to core.
 
+`plugins/clojure/test_extractor.py` verifies the sparse Clojure boundary:
+one bounded file summary containing parser-owned namespace, require, and
+top-level definition facts plus explicit syntax diagnostics. The adapter is an
+optional source-specific enrichment; it does not change the exhaustive legacy
+kind inventory above.
+
 ## Next structured gaps
 
 The next adapters should be selected using real replay misses, startup cost, and
-search-quality ablations. The largest known source-language gaps are Rust,
-Clojure, and the remaining baseline-only languages. The largest formal-format
+search-quality ablations. The largest known source-language gaps are Rust and
+the remaining baseline-only languages. The largest formal-format
 gaps are GraphQL, Protobuf, OpenAPI, and SQL. Manifest grammar expansion should
 follow observed repository coverage rather than recreating the legacy router
 wholesale.
@@ -169,6 +175,30 @@ and suite
 The adapter remains an explicit experimental ablation until ranking or record
 selection can retain its parser facts without displacing stronger core
 evidence.
+
+## Clojure ablation
+
+The Clojure adapter was derived from the four-case Breyta session replay, whose
+tracked source kind is Clojure. An initial row-per-namespace/require/definition
+shape generated approximately 46,000 additional records for 2,133 files and
+left the third local embedding pass incomplete after more than 12 minutes. That
+shape was rejected.
+
+The retained adapter emits one bounded summary per file. On the pinned
+`breyta-growth-plan-usage-dashboard-regression` case, the same candidate binary
+produced:
+
+| Growth/analytics lane | Recall@10 | MRR | Records | Full index | No-op index | Incremental index | Search p50 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Default | 0.000 | 0.000 | 14,392 | 73.6 s | 69.9 ms | 70.2 ms | 160.4 ms |
+| Sparse Clojure summary | 0.000 | 0.000 | 16,525 | 87.7 s | 83.4 ms | 97.0 ms | 175.6 ms |
+
+Both lanes used candidate
+`sha256:cc657f9310271adbe06ceab5d31f2ca036a0712c48c9d170245cd383`.
+The sparse run emitted exactly 2,133 `plugin:clojure` records, covered every
+record with a current vector, and recorded zero diagnostics. This proves the
+bounded parser contract and its cost on one architecture-class case; it does
+not support enabling the plugin by default or claiming a relevance gain.
 
 The Terraform parity fixture is `plugins/terraform/main_test.go`. It covers
 nested blocks, labels, attributes, expression traversals, exact line ranges, and

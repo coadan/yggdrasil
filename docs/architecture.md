@@ -70,6 +70,11 @@ The Java/.NET adapter is an optional tree-sitter process with a separately
 pinned Python environment. Parser dependencies remain outside the CLI binary
 and the core Go module graph.
 
+The Clojure adapter uses the same isolated parser boundary but emits one bounded
+summary record per file. Namespace, require, and definition facts remain
+explicit metadata while vector and FTS row growth stays proportional to the
+number of source files.
+
 The Terraform adapter is a separate Go module around the HCL parser. It has no
 effect on core startup or the core dependency graph unless explicitly built and
 configured.

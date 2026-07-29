@@ -1,0 +1,290 @@
+#!/usr/bin/env python3
+"""Emit Clojure parser facts through ygg.extractor/v1."""
+
+import json
+import pathlib
+import re
+import sys
+
+SCHEMA = "ygg.extractor/v1"
+MAX_REQUIRES = 128
+MAX_DEFINITIONS = 128
+SUFFIXES = (".clj", ".cljc", ".cljs", ".bb", ".cljd")
+DEFINITION_FORMS = {
+    "def": "value",
+    "defonce": "value",
+    "defn": "function",
+    "defn-": "function",
+    "defmacro": "macro",
+    "defmulti": "multimethod",
+    "defmethod": "method",
+    "defprotocol": "protocol",
+    "defrecord": "record",
+    "deftype": "type",
+}
+
+
+def node_kind(node):
+    value = getattr(node, "kind", None)
+    return value() if callable(value) else str(value)
+
+
+def children(node):
+    value = getattr(node, "children", None)
+    if value is not None:
+        return list(value)
+    count = getattr(node, "child_count", 0)
+    count = count() if callable(count) else count
+    child = getattr(node, "child")
+    return [child(index) for index in range(int(count or 0))]
+
+
+def walk(node):
+    yield node
+    for child in children(node):
+        yield from walk(child)
+
+
+def point(node, name):
+    value = getattr(node, name)
+    return value() if callable(value) else value
+
+
+def offset(node, name):
+    value = getattr(node, name)
+    return int(value() if callable(value) else value)
+
+
+def node_text(source_bytes, node):
+    return source_bytes[offset(node, "start_byte") : offset(node, "end_byte")].decode(
+        "utf-8", errors="replace"
+    )
+
+
+def start_line(node):
+    return int(point(node, "start_position").row) + 1
+
+
+def end_line(node):
+    return int(point(node, "end_position").row) + 1
+
+
+def direct_children(node, kind):
+    return [child for child in children(node) if node_kind(child) == kind]
+
+
+def first_descendant(node, kind):
+    for child in walk(node):
+        if child is not node and node_kind(child) == kind:
+            return child
+    return None
+
+
+def symbol_name(source_bytes, node):
+    names = [
+        node_text(source_bytes, child)
+        for child in walk(node)
+        if node_kind(child) == "sym_name"
+    ]
+    return names[-1] if names else node_text(source_bytes, node)
+
+
+def identifier_words(value):
+    value = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", value)
+    return re.sub(r"[/_.\-]+", " ", value).lower()
+
+
+def source_line(source, number):
+    lines = source.splitlines()
+    return lines[number - 1].strip() if 0 < number <= len(lines) else ""
+
+
+def make_record(kind, title, node, source, metadata=None):
+    line = start_line(node)
+    result = {
+        "id": f"{kind}:{line}:{title}",
+        "startLine": line,
+        "endLine": max(line, end_line(node)),
+        "kind": kind,
+        "title": title,
+        "text": f"{source_line(source, line)}\n{identifier_words(title)}",
+    }
+    if metadata:
+        result["metadata"] = metadata
+    return result
+
+
+def list_head(source_bytes, node):
+    symbols = direct_children(node, "sym_lit")
+    return symbol_name(source_bytes, symbols[0]) if symbols else ""
+
+
+def namespace_record(source, source_bytes, root):
+    for form in children(root):
+        if node_kind(form) != "list_lit" or list_head(source_bytes, form) != "ns":
+            continue
+        symbols = direct_children(form, "sym_lit")
+        if len(symbols) >= 2:
+            return make_record(
+                "clojure-namespace",
+                symbol_name(source_bytes, symbols[1]),
+                symbols[1],
+                source,
+            )
+    return None
+
+
+def require_records(source, source_bytes, root):
+    records = []
+    for form in children(root):
+        if node_kind(form) != "list_lit" or list_head(source_bytes, form) != "ns":
+            continue
+        for clause in walk(form):
+            if node_kind(clause) != "list_lit":
+                continue
+            keywords = direct_children(clause, "kwd_lit")
+            if not keywords or node_text(source_bytes, keywords[0]) != ":require":
+                continue
+            for spec in direct_children(clause, "vec_lit"):
+                target = first_descendant(spec, "sym_lit")
+                if target is None:
+                    continue
+                title = symbol_name(source_bytes, target)
+                if title:
+                    records.append(
+                        make_record("clojure-require", title, spec, source)
+                    )
+    return records
+
+
+def definition_records(source, source_bytes, root):
+    records = []
+    for form in children(root):
+        if node_kind(form) != "list_lit":
+            continue
+        head = list_head(source_bytes, form)
+        definition_kind = DEFINITION_FORMS.get(head)
+        if not definition_kind:
+            continue
+        symbols = direct_children(form, "sym_lit")
+        if len(symbols) < 2:
+            continue
+        title = symbol_name(source_bytes, symbols[1])
+        if title:
+            records.append(
+                make_record(
+                    "clojure-definition",
+                    title,
+                    form,
+                    source,
+                    {"definitionKind": definition_kind},
+                )
+            )
+    return records
+
+
+def extract(path, source):
+    if not path.lower().endswith(SUFFIXES):
+        return [], [{"message": "unsupported parser grammar"}]
+    try:
+        from tree_sitter_language_pack import get_parser
+
+        parser = get_parser("clojure")
+    except Exception as error:
+        return [], [{"message": f"clojure parser unavailable: {error}"}]
+    source_bytes = source.encode("utf-8")
+    tree = parser.parse(source)
+    root = tree.root_node
+    if callable(root):
+        root = root()
+    has_error = getattr(root, "has_error", False)
+    has_error = has_error() if callable(has_error) else has_error
+    diagnostics = []
+    if has_error:
+        diagnostics.append({"message": "tree-sitter reported parse errors"})
+    namespace = namespace_record(source, source_bytes, root)
+    requires = require_records(source, source_bytes, root)
+    definitions = definition_records(source, source_bytes, root)
+    if namespace is None and not requires and not definitions:
+        return [], diagnostics
+    kept_requires = requires[:MAX_REQUIRES]
+    kept_definitions = definitions[:MAX_DEFINITIONS]
+    title = (
+        namespace["title"]
+        if namespace is not None
+        else pathlib.PurePosixPath(path).name
+    )
+    facts = ([namespace] if namespace is not None else []) + kept_requires + kept_definitions
+    text_parts = [f"namespace {title}"]
+    if kept_requires:
+        text_parts.append(
+            "requires " + " ".join(record["title"] for record in kept_requires)
+        )
+    if kept_definitions:
+        text_parts.append(
+            "definitions "
+            + " ".join(record["title"] for record in kept_definitions)
+        )
+    metadata = {
+        "namespace": namespace["title"] if namespace is not None else "",
+        "requires": [record["title"] for record in kept_requires],
+        "definitions": [
+            {
+                "name": record["title"],
+                "definitionKind": record["metadata"]["definitionKind"],
+            }
+            for record in kept_definitions
+        ],
+        "truncated": len(requires) > MAX_REQUIRES
+        or len(definitions) > MAX_DEFINITIONS,
+    }
+    return [
+        {
+            "id": f"clojure-file:{title}",
+            "startLine": min(record["startLine"] for record in facts),
+            "endLine": max(record["endLine"] for record in facts),
+            "kind": "clojure-file",
+            "title": title,
+            "text": "\n".join(text_parts),
+            "metadata": metadata,
+        }
+    ], diagnostics
+
+
+def emit(value):
+    sys.stdout.write(json.dumps(value, separators=(",", ":")) + "\n")
+    sys.stdout.flush()
+
+
+def main():
+    files = 0
+    record_count = 0
+    for raw in sys.stdin:
+        value = json.loads(raw)
+        message_type = value.get("type")
+        if message_type == "hello":
+            if value.get("schema") != SCHEMA:
+                raise ValueError(f"unsupported schema {value.get('schema')!r}")
+            emit({"type": "ready", "schema": SCHEMA})
+        elif message_type == "file":
+            file = value["file"]
+            records, diagnostics = extract(file["path"], file["content"])
+            files += 1
+            record_count += len(records)
+            emit(
+                {
+                    "type": "result",
+                    "requestId": value["requestId"],
+                    "records": records,
+                    "diagnostics": diagnostics,
+                }
+            )
+        elif message_type == "end":
+            emit({"type": "summary", "files": files, "records": record_count})
+            return
+        else:
+            raise ValueError(f"unsupported message type {message_type!r}")
+
+
+if __name__ == "__main__":
+    main()
