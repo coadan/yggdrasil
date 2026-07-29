@@ -10,9 +10,9 @@ Generated checkouts, indexes, result packets, and reports belong under
 The benchmark runner compares:
 
 - raw ripgrep
-- pinned Yggdrasil 1
-- Yggdrasil 2 lexical
-- Yggdrasil 2 hybrid
+- pinned legacy Yggdrasil
+- candidate Yggdrasil lexical
+- candidate Yggdrasil hybrid
 - extractor-plugin ablations
 
 Release quality gates use file recall@10, MRR, noise@20, and path citations.
