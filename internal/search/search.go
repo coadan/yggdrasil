@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/coadan/yggdrasil/internal/config"
@@ -17,6 +18,7 @@ import (
 )
 
 const rrfK = 60.0
+const maxPathTerms = 6
 
 const (
 	MaxResults    = 100
@@ -106,7 +108,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		if err != nil {
 			return Result{}, fmt.Errorf("lexical search: %w", err)
 		}
-		paths, err := value.PathCandidates(ctx, query, candidateLimit)
+		paths, err := value.PathCandidates(ctx, pathTerms(query), candidateLimit)
 		if err != nil {
 			return Result{}, fmt.Errorf("path search: %w", err)
 		}
@@ -213,16 +215,45 @@ type fused struct {
 
 func fuse(limit int, lanes []lane) []RankedRecord {
 	values := map[int64]*fused{}
+	pathEvidence := make(map[string]*fused)
 	for _, candidateLane := range lanes {
 		for rank, record := range candidateLane.records {
+			score := 1.0 / (rrfK + float64(rank+1))
+			if candidateLane.name == "path" {
+				pathEvidence[record.Path] = &fused{record: record, score: score}
+				continue
+			}
 			value := values[record.ID]
 			if value == nil {
 				value = &fused{record: record, retrieval: map[string]bool{}}
 				values[record.ID] = value
 			}
-			value.score += 1.0 / (rrfK + float64(rank+1))
+			value.score += score
 			value.retrieval[candidateLane.name] = true
 		}
+	}
+	for path, evidence := range pathEvidence {
+		var best *fused
+		for _, value := range values {
+			if value.record.Path != path || value.record.Kind == "file" {
+				continue
+			}
+			if best == nil || value.score > best.score ||
+				(value.score == best.score && value.record.StartLine < best.record.StartLine) ||
+				(value.score == best.score && value.record.StartLine == best.record.StartLine &&
+					value.record.ID < best.record.ID) {
+				best = value
+			}
+		}
+		if best == nil {
+			best = values[evidence.record.ID]
+			if best == nil {
+				best = &fused{record: evidence.record, retrieval: map[string]bool{}}
+				values[evidence.record.ID] = best
+			}
+		}
+		best.score += evidence.score
+		best.retrieval["path"] = true
 	}
 	ordered := make([]*fused, 0, len(values))
 	hasCitedRecord := make(map[string]bool)
@@ -245,9 +276,13 @@ func fuse(limit int, lanes []lane) []RankedRecord {
 		return ordered[i].record.ID < ordered[j].record.ID
 	})
 	result := make([]RankedRecord, 0, min(limit, len(ordered)))
+	selectedPaths := make(map[string]bool)
 	for _, value := range ordered {
 		if len(result) == limit {
 			break
+		}
+		if selectedPaths[value.record.Path] {
+			continue
 		}
 		if value.record.Kind == "file" && hasCitedRecord[value.record.Path] {
 			continue
@@ -270,12 +305,31 @@ func fuse(limit int, lanes []lane) []RankedRecord {
 			Score:      value.score,
 			internalID: value.record.ID,
 		})
+		selectedPaths[value.record.Path] = true
 	}
 	return result
 }
 
 func queryTerms(query string) []string {
 	return strings.Fields(query)
+}
+
+func pathTerms(query string) []string {
+	seen := make(map[string]bool)
+	var result []string
+	for _, field := range strings.FieldsFunc(strings.ToLower(query), func(value rune) bool {
+		return !unicode.IsLetter(value) && !unicode.IsDigit(value)
+	}) {
+		if utf8.RuneCountInString(field) < 4 || seen[field] {
+			continue
+		}
+		seen[field] = true
+		result = append(result, field)
+		if len(result) == maxPathTerms {
+			break
+		}
+	}
+	return result
 }
 
 func quotedTerms(terms []string) []string {

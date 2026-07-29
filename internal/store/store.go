@@ -179,6 +179,7 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 			source TEXT NOT NULL
 			,input_hash TEXT NOT NULL
 		)`,
+		`CREATE INDEX IF NOT EXISTS records_path_file_idx ON records(path) WHERE kind='file'`,
 		`CREATE TABLE IF NOT EXISTS embedding_lane (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			fingerprint TEXT NOT NULL,
@@ -692,15 +693,32 @@ func (s *Store) LexicalCandidates(ctx context.Context, query string, limit int) 
 	return scanRecords(rows)
 }
 
-func (s *Store) PathCandidates(ctx context.Context, query string, limit int) ([]Record, error) {
-	rows, err := s.db.QueryContext(ctx, `
+func (s *Store) PathCandidates(ctx context.Context, terms []string, limit int) ([]Record, error) {
+	if len(terms) == 0 {
+		return nil, nil
+	}
+	var query strings.Builder
+	query.WriteString(`
 		SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
-		FROM records
-		WHERE kind='file' AND instr(lower(path),lower(?)) > 0
-		ORDER BY
-			CASE WHEN lower(path)=lower(?) THEN 0 ELSE 1 END,
-			length(path),path,id
-		LIMIT ?`, query, query, limit)
+		FROM (
+			SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source,`)
+	args := make([]any, 0, len(terms)+1)
+	for index, term := range terms {
+		if index > 0 {
+			query.WriteByte('+')
+		}
+		query.WriteString(`CASE WHEN instr(lower(path),lower(?)) > 0 THEN 1 ELSE 0 END`)
+		args = append(args, term)
+	}
+	query.WriteString(` AS matches
+			FROM records
+			WHERE kind='file'
+		)
+		WHERE matches > 0
+		ORDER BY matches DESC,length(path),path,id
+		LIMIT ?`)
+	args = append(args, limit)
+	rows, err := s.db.QueryContext(ctx, query.String(), args...)
 	if err != nil {
 		return nil, err
 	}

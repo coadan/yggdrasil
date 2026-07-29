@@ -94,6 +94,56 @@ func TestLexicalSearchBoostsExactAndAllTermMatches(t *testing.T) {
 	}
 }
 
+func TestLexicalSearchDiversifiesFilesAndCountsPathTerms(t *testing.T) {
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct {
+		path    string
+		records []contracts.SearchRecord
+	}{
+		{
+			path: "src/world-map-route-access.ts",
+			records: []contracts.SearchRecord{
+				{Path: "src/world-map-route-access.ts", StartLine: 1, EndLine: 1, Kind: "file", Text: "src/world-map-route-access.ts", Source: "core"},
+				{Path: "src/world-map-route-access.ts", StartLine: 3, EndLine: 5, Kind: "text-chunk", Text: "route detail", Source: "core"},
+				{Path: "src/world-map-route-access.ts", StartLine: 8, EndLine: 10, Kind: "text-chunk", Text: "route state", Source: "core"},
+			},
+		},
+		{
+			path: "src/route.ts",
+			records: []contracts.SearchRecord{
+				{Path: "src/route.ts", StartLine: 1, EndLine: 1, Kind: "file", Text: "src/route.ts", Source: "core"},
+				{Path: "src/route.ts", StartLine: 3, EndLine: 5, Kind: "text-chunk", Text: "route detail", Source: "core"},
+			},
+		},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: 20, MTimeNS: 1},
+			Kind:      "typescript",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", item.records); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := Run(ctx, value, "world map route", Options{Mode: "lexical", Limit: 5})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 2 {
+		t.Fatalf("records=%#v", result.Records)
+	}
+	if result.Records[0].Path != "src/world-map-route-access.ts" {
+		t.Fatalf("first record=%#v", result.Records[0])
+	}
+	if got := strings.Join(result.Records[0].Retrieval, ","); !strings.Contains(got, "path") {
+		t.Fatalf("retrieval=%q", got)
+	}
+}
+
 func TestAutoReportsSemanticFallback(t *testing.T) {
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
@@ -174,6 +224,14 @@ func TestSearchRejectsUnboundedInputs(t *testing.T) {
 	}
 	if _, err := Run(ctx, nil, strings.Repeat("word ", MaxQueryTerms+1), Options{}); err == nil {
 		t.Fatal("expected query term limit error")
+	}
+}
+
+func TestPathTermsAreMechanicalAndBounded(t *testing.T) {
+	got := pathTerms("ONE two three four-five FIVE six seven eight nine ten eleven")
+	want := []string{"three", "four", "five", "seven", "eight", "nine"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("path terms=%q want=%q", got, want)
 	}
 }
 
