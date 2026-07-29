@@ -680,10 +680,30 @@ func TestOperationalCommandsRejectNonJSONOutputSelector(t *testing.T) {
 	} {
 		var stdout, stderr bytes.Buffer
 		code := Main(context.Background(), args, &stdout, &stderr)
-		if code != 2 || stdout.Len() != 0 ||
-			!strings.Contains(stderr.String(), "flag provided but not defined: -json") {
+		if code != 2 || stderr.Len() != 0 ||
+			!strings.Contains(stdout.String(), `"ok":false`) ||
+			!strings.Contains(stdout.String(), "flag provided but not defined: -json") {
 			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", args, code, stdout.String(), stderr.String())
 		}
+	}
+}
+
+func TestSearchRejectsPathAliasWithCanonicalScopeGuidance(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Main(
+		context.Background(),
+		[]string{"search", "query", "--path", "src"},
+		&stdout,
+		&stderr,
+	)
+	if code != 2 || stderr.Len() != 0 ||
+		!strings.Contains(stdout.String(), `"ok":false`) ||
+		!strings.Contains(
+			stdout.String(),
+			"--path is not supported; use --root PATH for repository, directory, or file scope",
+		) ||
+		strings.Contains(stdout.String(), "Usage of search") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 }
 
