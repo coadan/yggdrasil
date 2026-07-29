@@ -613,7 +613,7 @@ func queryTerms(query string) []string {
 func literalTermQuery(query string, terms []string) bool {
 	return len(strings.Fields(query)) == 1 &&
 		len(terms) > 0 &&
-		strings.ContainsAny(query, "-_.:/#<>=\"'`")
+		strings.ContainsAny(query, "-_.:/#<>=()\"'`")
 }
 
 func structuredAnchorQueries(query string) []string {

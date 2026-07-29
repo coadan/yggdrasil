@@ -243,7 +243,7 @@ func TestAutoTreatsStructuredTermsAsExactAndReturnsNoPartialPathNoise(t *testing
 	}
 }
 
-func TestAutoTreatsJSXTagQueryAsCaseSensitiveLiteral(t *testing.T) {
+func TestAutoTreatsSyntaxQueryAsCaseSensitiveLiteral(t *testing.T) {
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
 	if err != nil {
@@ -262,6 +262,8 @@ func TestAutoTreatsJSXTagQueryAsCaseSensitiveLiteral(t *testing.T) {
 				"<DetailEntry title={item.title}>",
 		},
 		{"src/wrong-case.tsx", "<detailentry>"},
+		{"src/call-import.ts", "import { runTask } from './task';"},
+		{"src/call.ts", "const result = runTask(value);"},
 		{"tests/use.tsx", "<DetailEntry title={fixture.title}>"},
 	} {
 		file := discovery.File{
@@ -287,6 +289,17 @@ func TestAutoTreatsJSXTagQueryAsCaseSensitiveLiteral(t *testing.T) {
 		!strings.Contains(result.Records[0].Excerpt, "<DetailEntry") ||
 		strings.Join(result.Records[0].Retrieval, ",") != "literal" {
 		t.Fatalf("literal result=%#v", result)
+	}
+	result, err = Run(ctx, value, "runTask(", Options{
+		Mode: "auto", Limit: 10, Scope: "src/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 1 ||
+		result.Records[0].Path != "src/call.ts" ||
+		strings.Join(result.Records[0].Retrieval, ",") != "literal" {
+		t.Fatalf("call result=%#v", result)
 	}
 }
 

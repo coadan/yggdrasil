@@ -185,7 +185,7 @@ When `search --root` names a repository subdirectory or file, that relative
 path is a mechanical prefix or exact-file scope applied before candidate limits
 in lexical, path, extractor, and semantic retrieval. Returned citations remain
 relative to the repository root rather than the scoped path.
-Single structured terms containing syntax such as `-`, `.`, `#`, `<`, or `=`
+Single structured terms containing syntax such as `-`, `.`, `#`, `<`, `=`, or `(`
 use a case-sensitive literal lane in `auto` mode. An FTS token prefilter keeps
 the bounded substring check local. This makes JSX tags, selectors, and removed
 identifiers exact instead of discarding their punctuation or admitting partial
