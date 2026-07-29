@@ -36,8 +36,8 @@ it is not migrated or loaded by the Go CLI.
 - **Bounded cited evidence.** Every result carries a repository-relative path
   and line range instead of asking an agent to ingest the whole repository.
 - **Progressive disclosure.** The highest-ranked files include compact
-  excerpts; subsequent bounded candidate paths remain available for focused
-  follow-up without another broad result dump.
+  excerpts sharing a bounded context budget; subsequent bounded candidate paths
+  remain available for focused follow-up without another broad result dump.
 - **Fast iteration.** Search detects Git HEAD and working-tree drift, refreshes
   only changed records, and reuses existing vectors before returning results.
 - **Explicit retrieval state.** `auto` uses hybrid retrieval when complete

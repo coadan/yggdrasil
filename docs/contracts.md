@@ -177,6 +177,9 @@ title identify that localized window. Semantic-only results retain their
 highest-ranked semantic record. A compound identifier contributes one query
 term to citation density; its components are match alternatives, not extra
 votes that can make an import outrank a usage matching other query terms.
+Citation excerpts share a 2,400-rune target budget based on the requested
+result limit, bounded between 120 and 280 runes each. Increasing `--limit`
+therefore adds citations without multiplying excerpt payload linearly.
 The first `limit` files include citations. When additional bounded candidates
 exist, `morePaths` contains up to twenty subsequent ranked paths without
 excerpts so callers can choose a narrower follow-up without doubling the
