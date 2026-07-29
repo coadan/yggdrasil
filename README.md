@@ -79,12 +79,12 @@ ygg status
 ygg plugin check
 ```
 
-Pass `--json` for stable versioned envelopes. Indexes live outside repositories
-under `$YGG_STORAGE_ROOT/indexes/`, or `~/.local/share/ygg/indexes/` by default.
-`index --full` replaces an incompatible or intentionally stale database; normal
-indexing is incremental.
+Every operational command returns a stable versioned JSON envelope. Indexes
+live outside repositories under `$YGG_STORAGE_ROOT/indexes/`, or
+`~/.local/share/ygg/indexes/` by default. `index --full` replaces an
+incompatible or intentionally stale database; normal indexing is incremental.
 
-`ygg status --json` reports the binary version, resolved user/repository
+`ygg status` reports the binary version, resolved user/repository
 configuration paths, embedding source and coverage, Git-family identity, and
 the number of related seed indexes. Add `--check` to send one bounded embedding
 request and report provider readiness; ordinary status remains network-free.

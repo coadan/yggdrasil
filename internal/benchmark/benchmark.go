@@ -463,7 +463,7 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 		}
 	}()
 	env := append(os.Environ(), "YGG_STORAGE_ROOT="+stateRoot)
-	fullArgs := []string{"index", "--root", root, "--full", "--json"}
+	fullArgs := []string{"index", "--root", root, "--full"}
 	if !opts.embeddingConfigured {
 		fullArgs = append(fullArgs, "--no-embed")
 	}
@@ -475,7 +475,7 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 	if err := decodeIndexEnvelope(fullOutput, "full", opts.embeddingConfigured, &indexed); err != nil {
 		return CaseReport{}, err
 	}
-	noopArgs := []string{"index", "--root", root, "--json"}
+	noopArgs := []string{"index", "--root", root}
 	if !opts.embeddingConfigured {
 		noopArgs = append(noopArgs, "--no-embed")
 	}
@@ -515,7 +515,7 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 	for range opts.Iterations {
 		elapsed, output, err := timedCommand(
 			ctx, root, env, opts.Binary,
-			"search", "--root", root, "--mode", opts.SearchMode, "--limit", "20", "--json", item.Query,
+			"search", "--root", root, "--mode", opts.SearchMode, "--limit", "20", item.Query,
 		)
 		if err != nil {
 			return CaseReport{}, err
@@ -542,7 +542,7 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 			activeMode, fallbackReason,
 		)
 	}
-	_, statusOutput, err := timedCommand(ctx, root, env, opts.Binary, "status", "--root", root, "--json")
+	_, statusOutput, err := timedCommand(ctx, root, env, opts.Binary, "status", "--root", root)
 	if err != nil {
 		return CaseReport{}, err
 	}
