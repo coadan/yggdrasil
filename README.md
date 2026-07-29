@@ -18,8 +18,8 @@ working tree, search it immediately, and refresh only the files that changed.
 
 ## Project status
 
-Yggdrasil is in active early development. The first search-only release is
-[`v0.1.0`](https://github.com/coadan/yggdrasil/releases/tag/v0.1.0), with
+Yggdrasil is in active early development. The latest search-only release is
+[`v0.2.0`](https://github.com/coadan/yggdrasil/releases/tag/v0.2.0), with
 CGO-free binaries for macOS and Linux on arm64 and amd64. Data shapes and
 commands may still change without compatibility layers while the focused
 search workflow settles.
@@ -50,7 +50,7 @@ it is not migrated or loaded by the Go CLI.
 Install from source with Go 1.25 or newer:
 
 ```sh
-go install github.com/coadan/yggdrasil/cmd/ygg@v0.1.0
+go install github.com/coadan/yggdrasil/cmd/ygg@v0.2.0
 ```
 
 Or download a matching binary and `SHA256SUMS` from the
