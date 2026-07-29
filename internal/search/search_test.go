@@ -3,6 +3,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -191,6 +192,70 @@ func TestAutoTreatsStructuredTermsAsExactAndReturnsNoPartialPathNoise(t *testing
 	if len(result.Records) != 1 || result.Records[0].Path != "src/component.css" ||
 		strings.Join(result.Records[0].Retrieval, ",") != "exact" {
 		t.Fatalf("active result=%#v", result)
+	}
+}
+
+func TestMixedStructuredAnchorsRetainEachOwner(t *testing.T) {
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	items := []struct {
+		path string
+		text string
+	}{
+		{"src/ContextualAssistancePicker.tsx", "export function ContextualAssistancePicker() {}"},
+		{"src/ExplorationStage.tsx", `<details className="stage-time">`},
+	}
+	for index := range 8 {
+		items = append(items, struct {
+			path string
+			text string
+		}{
+			path: fmt.Sprintf("catalog/disclosure-disabled-summary-%d.ts", index),
+			text: "Disclosure disabled summary",
+		})
+	}
+	for _, item := range items {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: int64(len(item.text)), MTimeNS: 1},
+			Kind:      "typescript",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", []contracts.SearchRecord{
+			{
+				Path: item.path, StartLine: 1, EndLine: 1, Kind: "file",
+				Title: item.path, Text: item.path, Source: "core",
+			},
+			{
+				Path: item.path, StartLine: 1, EndLine: 1, Kind: "text-chunk",
+				Text: item.text, Source: "core",
+			},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := Run(
+		ctx,
+		value,
+		"ContextualAssistancePicker stage-time Disclosure disabled summary",
+		Options{Mode: "lexical", Limit: 5},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := make(map[string]bool, len(result.Records))
+	for _, record := range result.Records {
+		paths[record.Path] = true
+	}
+	for _, expected := range []string{
+		"src/ContextualAssistancePicker.tsx",
+		"src/ExplorationStage.tsx",
+	} {
+		if !paths[expected] {
+			t.Fatalf("structured owner %q missing from %#v", expected, result.Records)
+		}
 	}
 }
 

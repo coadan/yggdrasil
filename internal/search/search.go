@@ -19,6 +19,7 @@ import (
 
 const rrfK = 60.0
 const maxPathTerms = 6
+const maxStructuredAnchors = 4
 const extractorLaneWeight = 0.5
 
 const (
@@ -127,6 +128,13 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 					return Result{}, fmt.Errorf("extractor search: %w", err)
 				}
 				lanes = append(lanes, lane{name: "extractor", records: extracted})
+			}
+			for _, anchor := range structuredAnchorQueries(query) {
+				records, err := value.LexicalCandidates(ctx, anchor, candidateLimit)
+				if err != nil {
+					return Result{}, fmt.Errorf("structured anchor search: %w", err)
+				}
+				lanes = append(lanes, lane{name: "anchor", records: records})
 			}
 		}
 	}
@@ -373,6 +381,46 @@ func structuredTermQuery(query string, terms []string) bool {
 		return false
 	}
 	return strings.ContainsAny(query, "-_.:/#")
+}
+
+func structuredAnchorQueries(query string) []string {
+	if len(strings.Fields(query)) < 2 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var result []string
+	for _, field := range strings.Fields(query) {
+		terms := queryTerms(field)
+		if len(terms) == 0 || !structuredAnchorField(field, terms) {
+			continue
+		}
+		anchor := ftsPhraseQuery(terms)
+		if seen[anchor] {
+			continue
+		}
+		seen[anchor] = true
+		result = append(result, anchor)
+		if len(result) == maxStructuredAnchors {
+			break
+		}
+	}
+	if len(result) < 2 {
+		return nil
+	}
+	return result
+}
+
+func structuredAnchorField(field string, terms []string) bool {
+	if len(terms) > 1 && strings.ContainsAny(field, "-_.:/#") {
+		return true
+	}
+	hasLower := false
+	hasInternalUpper := false
+	for index, value := range field {
+		hasLower = hasLower || unicode.IsLower(value)
+		hasInternalUpper = hasInternalUpper || (index > 0 && unicode.IsUpper(value))
+	}
+	return hasLower && hasInternalUpper
 }
 
 func pathTerms(query string) []string {
