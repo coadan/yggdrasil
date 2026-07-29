@@ -9,7 +9,12 @@ upstream diff before a case can run.
 `dogfood-replay.json` applies the same protocol to eight real fixes from
 `breyta-workbench` and `void`. It is the tracked iteration suite for changes to
 ranking and extractor plugins; local working copies of those repositories are
-not benchmark inputs.
+not benchmark inputs. The repositories are private, so this suite is a
+maintainer lane rather than the public release gate.
+
+`make benchmark-release` runs all ten cases from `claim-quick.json`. Its
+upstreams are public, making the generated report reproducible by a clean
+release runner without repository credentials.
 
 Generated checkouts, indexes, result packets, and reports belong under
 `.dev/bench/`.

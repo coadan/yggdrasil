@@ -24,8 +24,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ripgrep
       - run: make check
-      - run: make benchmark-dogfood
-      - run: make benchmark-check
+      - run: make benchmark-release
       - name: Build release artifacts
         run: make release VERSION="${GITHUB_REF_NAME#v}"
       - name: Publish GitHub release
@@ -40,4 +39,4 @@ jobs:
             dist/ygg-linux-arm64 \
             dist/ygg-linux-amd64 \
             dist/SHA256SUMS \
-            .dev/bench/dogfood-report.json
+            .dev/bench/release-report.json
