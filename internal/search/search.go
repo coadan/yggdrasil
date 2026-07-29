@@ -20,6 +20,7 @@ import (
 const rrfK = 60.0
 const maxPathTerms = 6
 const maxStructuredAnchors = 4
+const maxMorePaths = 20
 const extractorLaneWeight = 0.5
 
 const (
@@ -47,6 +48,7 @@ type Result struct {
 	FallbackReason string         `json:"fallbackReason,omitempty"`
 	ElapsedMS      int64          `json:"elapsedMs"`
 	Records        []RankedRecord `json:"records"`
+	MorePaths      []string       `json:"morePaths,omitempty"`
 }
 
 type RankedRecord struct {
@@ -158,12 +160,12 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		ActiveMode:    "lexical",
 	}
 	if opts.Mode == "lexical" {
-		result.Records = fuse(query, opts.Limit, lanes)
+		setResultRecords(&result, query, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
 	if structured && opts.Mode == "auto" {
-		result.Records = fuse(query, opts.Limit, lanes)
+		setResultRecords(&result, query, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
@@ -174,7 +176,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		if opts.Mode == "auto" {
 			result.FallbackReason = "semantic-unconfigured"
 		}
-		result.Records = fuse(query, opts.Limit, lanes)
+		setResultRecords(&result, query, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
@@ -191,7 +193,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 			)
 		}
 		result.FallbackReason = "semantic-incomplete"
-		result.Records = fuse(query, opts.Limit, lanes)
+		setResultRecords(&result, query, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
@@ -220,7 +222,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	} else {
 		result.ActiveMode = "hybrid"
 	}
-	result.Records = fuse(query, opts.Limit, lanes)
+	setResultRecords(&result, query, opts.Limit, lanes)
 	result.ElapsedMS = time.Since(started).Milliseconds()
 	return result, nil
 }
@@ -236,9 +238,22 @@ func semanticFailure(
 		return Result{}, fmt.Errorf("%w: %v", ErrSemanticUnavailable, cause)
 	}
 	result.FallbackReason = "semantic-provider-error"
-	result.Records = fuse(result.Query, opts.Limit, lanes)
+	setResultRecords(&result, result.Query, opts.Limit, lanes)
 	result.ElapsedMS = time.Since(started).Milliseconds()
 	return result, nil
+}
+
+func setResultRecords(result *Result, query string, limit int, lanes []lane) {
+	ranked := fuse(query, min(MaxResults, limit+maxMorePaths), lanes)
+	if len(ranked) <= limit {
+		result.Records = ranked
+		return
+	}
+	result.Records = ranked[:limit]
+	result.MorePaths = make([]string, 0, len(ranked)-limit)
+	for _, record := range ranked[limit:] {
+		result.MorePaths = append(result.MorePaths, record.Path)
+	}
 }
 
 type lane struct {
@@ -626,7 +641,7 @@ func ftsPhraseQuery(terms []string) string {
 
 func excerpt(text string) string {
 	text = strings.TrimSpace(text)
-	const limit = 400
+	const limit = 280
 	if utf8.RuneCountInString(text) <= limit {
 		return text
 	}
