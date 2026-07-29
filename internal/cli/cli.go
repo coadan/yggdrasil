@@ -17,6 +17,7 @@ import (
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
+	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/indexer"
 	"github.com/coadan/yggdrasil/internal/plugin"
 	"github.com/coadan/yggdrasil/internal/project"
@@ -201,7 +202,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	if err != nil {
 		return r.fail(true, 2, err)
 	}
-	indexLock, value, err := prepareSearchIndex(ctx, paths, cfg)
+	indexLock, value, err := prepareSearchIndex(ctx, paths, cfg, *mode != "lexical")
 	if err != nil {
 		return r.fail(true, 1, err)
 	}
@@ -225,7 +226,9 @@ func prepareSearchIndex(
 	ctx context.Context,
 	paths project.Paths,
 	cfg config.Config,
+	ensureEmbeddings bool,
 ) (*os.File, *store.Store, error) {
+	embeddingAttempted := false
 	for range 3 {
 		indexLock, err := acquireSearchIndexLock(ctx, paths.IndexLock, searchIndexWait)
 		if err != nil {
@@ -254,15 +257,30 @@ func prepareSearchIndex(
 				releaseSearchIndexLock(indexLock)
 				return nil, nil, tokenErr
 			}
-			if current == indexed {
+			ready := current == indexed
+			if ready && ensureEmbeddings && cfg.Embedding != nil && !embeddingAttempted {
+				state, stateErr := value.EmbeddingState(
+					ctx, embedding.Fingerprint(*cfg.Embedding),
+				)
+				if stateErr != nil {
+					value.Close()
+					releaseSearchIndexLock(indexLock)
+					return nil, nil, stateErr
+				}
+				ready = state.Complete
+			}
+			if ready {
 				return indexLock, value, nil
 			}
 			value.Close()
 			releaseSearchIndexLock(indexLock)
 		}
-		if _, err := indexer.Run(ctx, paths, cfg, indexer.Options{EnsureCurrent: true}); err != nil {
+		if _, err := indexer.Run(ctx, paths, cfg, indexer.Options{
+			EnsureCurrent: true, EnsureEmbeddings: ensureEmbeddings,
+		}); err != nil {
 			return nil, nil, fmt.Errorf("refresh repository index: %w", err)
 		}
+		embeddingAttempted = ensureEmbeddings && cfg.Embedding != nil
 	}
 	return nil, nil, errors.New("repository changed repeatedly during index refresh; retry search")
 }

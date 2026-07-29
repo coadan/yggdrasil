@@ -79,7 +79,9 @@ also refreshes modified, deleted, renamed, and untracked files when repository
 state changed; unchanged searches use a lightweight freshness token and do not
 rescan. A first search with no related index initializes the repository directly,
 so `ygg index` is reserved for explicit rebuild, embedding, and maintenance
-control rather than normal setup.
+control rather than normal setup. Default `auto` and explicit `semantic`
+searches complete missing configured embeddings before retrieval; explicit
+`lexical` searches remain model-free.
 
 The complete public surface is:
 

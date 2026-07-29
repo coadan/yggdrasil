@@ -172,6 +172,9 @@ Search validates a mechanical repository freshness token before retrieval and
 initializes or incrementally refreshes the repository index as needed. Its
 `elapsedMs` therefore includes root resolution, freshness validation, any
 required indexing, and retrieval.
+When embeddings are configured, `auto` and `semantic` searches complete missing
+vectors before retrieval. A provider failure remains an explicit lexical
+fallback in `auto`; `lexical` never starts an embedding provider.
 Fusion ranks files independently from their returned citation. When multiple
 records from one file contribute, the citation uses the bounded source window
 with the densest query-term evidence; `startLine`, `endLine`, and a line-based
