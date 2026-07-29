@@ -1,4 +1,4 @@
-.PHONY: build check test benchmark-check benchmark-quick release clean
+.PHONY: build check test benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood release clean
 
 build:
 	mkdir -p bin
@@ -21,6 +21,12 @@ benchmark-quick: build
 
 benchmark-check: build
 	bin/yggbench -prepare -check-only -suite benchmarks/claim-quick.json -ygg bin/ygg
+
+benchmark-dogfood: build
+	bin/yggbench -prepare -suite benchmarks/dogfood-replay.json -ygg bin/ygg -out .dev/bench/dogfood-report.json
+
+benchmark-dogfood-check: build
+	bin/yggbench -prepare -check-only -suite benchmarks/dogfood-replay.json -ygg bin/ygg
 
 release:
 	mkdir -p dist

@@ -1,0 +1,140 @@
+{
+  "schema": "ygg.benchmark.suite/v1",
+  "id": "dogfood-replay",
+  "description": "Non-synthetic localization replays pinned to real fixes in the two Yggdrasil dogfood repositories.",
+  "repos": [
+    {
+      "id": "breyta-workbench",
+      "url": "https://github.com/breyta/breyta-workbench.git"
+    },
+    {
+      "id": "void",
+      "url": "https://github.com/coadan/void.git"
+    }
+  ],
+  "cases": [
+    {
+      "id": "breyta-reuse-exact-flows-verification",
+      "repositoryId": "breyta-workbench",
+      "revision": "24998005db45d3007ae420b9c8cb52d8776652c2",
+      "fixRevision": "7f93ed8ad7bae15b72153c8eee79b63fb59fc600",
+      "sourceUrl": "https://github.com/breyta/breyta-workbench/commit/7f93ed8ad7bae15b72153c8eee79b63fb59fc600",
+      "query": "reuse a successful selector-free flows unit test after publish stages the exact repository content HEAD base and resolved arguments",
+      "expectedPaths": [
+        "bwb-src/repo_state.go",
+        "bwb-src/task_local_flows_unit.go",
+        "bwb-src/task_local_test_command.go"
+      ],
+      "sourceKinds": ["go"],
+      "problemClasses": ["problem-implementation", "problem-cross-file", "problem-test-only"],
+      "architectureClasses": ["architecture-data-ownership", "architecture-runtime-boundary"]
+    },
+    {
+      "id": "breyta-tighten-default-status",
+      "repositoryId": "breyta-workbench",
+      "revision": "9998efb557c5edfbba4fe835165043710129a3d4",
+      "fixRevision": "f6564227121b7277da25cadb03ad26d60518b99c",
+      "sourceUrl": "https://github.com/breyta/breyta-workbench/commit/f6564227121b7277da25cadb03ad26d60518b99c",
+      "query": "make default task status concise while details retains diagnostic paths state files and logs",
+      "expectedPaths": [
+        "bwb-src/cmd_status.go",
+        "bwb-src/cmd_task_status_test.go",
+        "bwb-src/types_repository.go"
+      ],
+      "sourceKinds": ["go"],
+      "problemClasses": ["problem-api-contract", "problem-cross-file"],
+      "architectureClasses": ["architecture-runtime-boundary"]
+    },
+    {
+      "id": "breyta-bundle-inspect-followups",
+      "repositoryId": "breyta-workbench",
+      "revision": "a7117deac5d39b4539847920da5843ec00c00030",
+      "fixRevision": "9998efb557c5edfbba4fe835165043710129a3d4",
+      "sourceUrl": "https://github.com/breyta/breyta-workbench/commit/9998efb557c5edfbba4fe835165043710129a3d4",
+      "query": "inspect query owner hints should bundle related implementation and test source paths in one bounded command",
+      "expectedPaths": [
+        "bwb-src/cmd_inspect_local_test.go",
+        "bwb-src/cmd_inspect_query_owners.go"
+      ],
+      "sourceKinds": ["go"],
+      "problemClasses": ["problem-implementation", "problem-cross-file"],
+      "architectureClasses": ["architecture-dependency-flow"]
+    },
+    {
+      "id": "breyta-preserve-launcher-directory",
+      "repositoryId": "breyta-workbench",
+      "revision": "e8d79c6e2654b49491324da9fe1e7af9232d57ac",
+      "fixRevision": "b9581cb5ce8d55def76a55ae99d0ec68a389a097",
+      "sourceUrl": "https://github.com/breyta/breyta-workbench/commit/b9581cb5ce8d55def76a55ae99d0ec68a389a097",
+      "query": "preserve caller working directory when the BWB launcher changes into its source directory",
+      "expectedPaths": [
+        "bwb",
+        "bwb-src/main.go",
+        "bwb-src/task_setup_test.go"
+      ],
+      "sourceKinds": ["go", "shell"],
+      "problemClasses": ["problem-runtime-config", "problem-cross-file"],
+      "architectureClasses": ["architecture-runtime-boundary"]
+    },
+    {
+      "id": "void-separate-route-access",
+      "repositoryId": "void",
+      "revision": "184e68309c2e3210b43ee1cd6bc3a8d6f2bf8ab8",
+      "fixRevision": "384b490e874d63ea4f443d3ab2dac3b520ec115b",
+      "sourceUrl": "https://github.com/coadan/void/commit/384b490e874d63ea4f443d3ab2dac3b520ec115b",
+      "query": "separate physical route state from actor-relative traversability in world map links frontiers and transfers",
+      "expectedPaths": [
+        "src/world-map/world-map-scene-read-plan.test.ts",
+        "src/world-map/world-map-scene-topology.ts"
+      ],
+      "sourceKinds": ["typescript"],
+      "problemClasses": ["problem-architecture", "problem-cross-file"],
+      "architectureClasses": ["architecture-data-ownership", "architecture-runtime-boundary"]
+    },
+    {
+      "id": "void-live-preview-diagnostic-target",
+      "repositoryId": "void",
+      "revision": "493a90ac14f41cfa775cb57b8689410f447edba7",
+      "fixRevision": "39d654f9305a6f9e9b3a18a4c8f5e3db2965ba39",
+      "sourceUrl": "https://github.com/coadan/void/commit/39d654f9305a6f9e9b3a18a4c8f5e3db2965ba39",
+      "query": "add preview diagnostic target that runs Spacetime commands remotely over SSH and rejects conflicting target flags",
+      "expectedPaths": [
+        "scripts/diagnostic-export-contract.ts"
+      ],
+      "sourceKinds": ["typescript"],
+      "problemClasses": ["problem-runtime-config", "problem-api-contract", "problem-cross-file"],
+      "architectureClasses": ["architecture-runtime-boundary", "architecture-dependency-flow"]
+    },
+    {
+      "id": "void-ground-dialogue-pacing",
+      "repositoryId": "void",
+      "revision": "a547bcd03516fa2436eab3324750e0089e1db0fc",
+      "fixRevision": "1a59609d00df7a0100a0ad73547f32ea9a52376b",
+      "sourceUrl": "https://github.com/coadan/void/commit/1a59609d00df7a0100a0ad73547f32ea9a52376b",
+      "query": "ground addressed dialogue pacing in physical relationship deepening windows and require explicit consequential social intent",
+      "expectedPaths": [
+        "worker/interaction-response-route-policy.ts",
+        "worker/two-stage-interaction-provider.ts"
+      ],
+      "sourceKinds": ["typescript"],
+      "problemClasses": ["problem-architecture", "problem-cross-file"],
+      "architectureClasses": ["architecture-data-ownership", "architecture-dependency-flow"]
+    },
+    {
+      "id": "void-restore-starter-opening-actions",
+      "repositoryId": "void",
+      "revision": "384b490e874d63ea4f443d3ab2dac3b520ec115b",
+      "fixRevision": "e37b3d85a262cc20a1e5b7da9bf013ffe6e7797d",
+      "sourceUrl": "https://github.com/coadan/void/commit/e37b3d85a262cc20a1e5b7da9bf013ffe6e7797d",
+      "query": "restore starter opening actions so committed scene affordances remain reachable from presentation through playthrough creation",
+      "expectedPaths": [
+        "spacetimedb/src/starter-opening-presentation-contract.test.ts",
+        "spacetimedb/src/starter-scenarios/starter-openings.ts",
+        "src/app/story-inline-affordance.ts"
+      ],
+      "sourceKinds": ["typescript"],
+      "problemClasses": ["problem-architecture", "problem-cross-file"],
+      "architectureClasses": ["architecture-dependency-flow", "architecture-runtime-boundary"]
+    }
+  ]
+}

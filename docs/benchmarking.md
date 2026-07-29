@@ -28,6 +28,12 @@ Git, ripgrep, platform, and CPU-count context.
 Run `make benchmark-check` to fetch and verify every pinned revision and
 ground-truth diff without paying the full indexing cost.
 
+For the two dogfood repositories, `make benchmark-dogfood-check` verifies the
+eight pinned replay cases and `make benchmark-dogfood` records their full
+results in `.dev/bench/dogfood-report.json`. These use isolated, pinned
+checkouts rather than whichever revisions happen to be present in local working
+copies.
+
 Reports include:
 
 - file recall@10 and mean reciprocal rank;
@@ -44,5 +50,8 @@ Reports include:
 The tracked suite has ten non-synthetic cases across seven repositories. The
 multi-language OpenTelemetry case is intentionally expensive; excluding it for
 a quick local pass must be disclosed with the report's measured coverage.
+The separate dogfood replay suite has eight cases split evenly between
+`breyta-workbench` and `void`, with manually tagged Go, shell, and TypeScript
+coverage.
 Generated reports are evidence for the exact binary and selected cases only,
 not a general agent-efficiency claim.

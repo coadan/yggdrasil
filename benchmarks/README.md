@@ -6,6 +6,11 @@ tags, manually assigned problem and architecture classes, and curated
 localization paths. Preparation verifies every curated path against the actual
 upstream diff before a case can run.
 
+`dogfood-replay.json` applies the same protocol to eight real fixes from
+`breyta-workbench` and `void`. It is the tracked iteration suite for changes to
+ranking and extractor plugins; local working copies of those repositories are
+not benchmark inputs.
+
 Generated checkouts, indexes, result packets, and reports belong under
 `.dev/bench/`.
 
