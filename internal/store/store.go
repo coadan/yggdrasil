@@ -900,6 +900,24 @@ func (s *Store) LexicalCandidates(
 	return scanRecords(rows)
 }
 
+func (s *Store) LiteralCandidates(
+	ctx context.Context,
+	query, literal, scope string,
+	limit int,
+) ([]Record, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+		FROM record_fts
+		JOIN records r ON r.id=record_fts.rowid
+		WHERE record_fts MATCH ? AND instr(r.text,?) > 0 AND `+recordScopePredicate+`
+		ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
+		LIMIT ?`, query, literal, scope, scope, scope, scope, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanRecords(rows)
+}
+
 func (s *Store) ExtractorCandidates(
 	ctx context.Context,
 	query, scope string,

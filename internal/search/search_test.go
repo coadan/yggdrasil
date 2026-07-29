@@ -238,8 +238,55 @@ func TestAutoTreatsStructuredTermsAsExactAndReturnsNoPartialPathNoise(t *testing
 		t.Fatal(err)
 	}
 	if len(result.Records) != 1 || result.Records[0].Path != "src/component.css" ||
-		strings.Join(result.Records[0].Retrieval, ",") != "exact" {
+		strings.Join(result.Records[0].Retrieval, ",") != "literal" {
 		t.Fatalf("active result=%#v", result)
+	}
+}
+
+func TestAutoTreatsJSXTagQueryAsCaseSensitiveLiteral(t *testing.T) {
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct {
+		path string
+		text string
+	}{
+		{"src/import.tsx", "import { DetailEntry } from './DetailEntry';"},
+		{"src/prose.md", "DetailEntry is the shared record shell."},
+		{
+			"src/use.tsx",
+			strings.Repeat("const unrelated = true;\n", 8) +
+				"<DetailEntry title={item.title}>",
+		},
+		{"src/wrong-case.tsx", "<detailentry>"},
+		{"tests/use.tsx", "<DetailEntry title={fixture.title}>"},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: int64(len(item.text)), MTimeNS: 1},
+			Kind:      "text",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", []contracts.SearchRecord{{
+			Path: item.path, StartLine: 1, EndLine: strings.Count(item.text, "\n") + 1, Kind: "text-chunk",
+			Text: item.text, Source: "core",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := Run(ctx, value, "<DetailEntry", Options{
+		Mode: "auto", Limit: 10, Scope: "src/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 1 ||
+		result.Records[0].Path != "src/use.tsx" ||
+		result.Records[0].StartLine != 7 ||
+		!strings.Contains(result.Records[0].Excerpt, "<DetailEntry") ||
+		strings.Join(result.Records[0].Retrieval, ",") != "literal" {
+		t.Fatalf("literal result=%#v", result)
 	}
 }
 

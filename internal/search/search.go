@@ -97,8 +97,17 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	structured := false
 	if opts.Mode != "semantic" {
 		terms := queryTerms(query)
-		structured = structuredTermQuery(query, terms)
-		if len(terms) > 1 {
+		literal := literalTermQuery(query, terms)
+		structured = literal
+		if literal {
+			records, err := value.LiteralCandidates(
+				ctx, ftsAnyQuery(terms), query, opts.Scope, candidateLimit,
+			)
+			if err != nil {
+				return Result{}, fmt.Errorf("literal search: %w", err)
+			}
+			lanes = append(lanes, lane{name: "literal", records: records})
+		} else if len(terms) > 1 {
 			phrase, err := value.LexicalCandidates(
 				ctx, ftsPhraseQuery(terms), opts.Scope, candidateLimit,
 			)
@@ -393,8 +402,9 @@ func fuse(query string, limit int, lanes []lane) []RankedRecord {
 }
 
 type citationEvidence struct {
-	terms int
-	line  int
+	terms   int
+	line    int
+	literal bool
 }
 
 func betterCitation(candidate, current *fused) bool {
@@ -403,6 +413,9 @@ func betterCitation(candidate, current *fused) bool {
 	}
 	candidateEvidence := candidate.evidence
 	currentEvidence := current.evidence
+	if candidateEvidence.literal != currentEvidence.literal {
+		return candidateEvidence.literal
+	}
 	if candidateEvidence.terms != currentEvidence.terms {
 		return candidateEvidence.terms > currentEvidence.terms
 	}
@@ -426,15 +439,18 @@ func betterCitation(candidate, current *fused) bool {
 }
 
 func citationLanePriority(retrieval map[string]bool) int {
-	for index, name := range []string{"exact", "all-terms", "anchor", "extractor", "lexical"} {
+	for index, name := range []string{"literal", "exact", "all-terms", "anchor", "extractor", "lexical"} {
 		if retrieval[name] {
-			return 5 - index
+			return 6 - index
 		}
 	}
 	return 0
 }
 
 func locateEvidence(text, query string) citationEvidence {
+	if line := literalEvidenceLine(text, query); line >= 0 {
+		return citationEvidence{terms: 1, line: line, literal: true}
+	}
 	lines := strings.Split(text, "\n")
 	terms := make(map[string]bool)
 	for _, term := range evidenceTerms(query) {
@@ -465,6 +481,18 @@ func locateEvidence(text, query string) citationEvidence {
 		}
 	}
 	return best
+}
+
+func literalEvidenceLine(text, query string) int {
+	if !literalTermQuery(query, queryTerms(query)) {
+		return -1
+	}
+	for index, line := range strings.Split(text, "\n") {
+		if strings.Contains(line, query) {
+			return index
+		}
+	}
+	return -1
 }
 
 func evidenceTerms(value string) []string {
@@ -549,11 +577,10 @@ func queryTerms(query string) []string {
 	})
 }
 
-func structuredTermQuery(query string, terms []string) bool {
-	if len(strings.Fields(query)) != 1 || len(terms) < 2 {
-		return false
-	}
-	return strings.ContainsAny(query, "-_.:/#")
+func literalTermQuery(query string, terms []string) bool {
+	return len(strings.Fields(query)) == 1 &&
+		len(terms) > 0 &&
+		strings.ContainsAny(query, "-_.:/#<>=\"'`")
 }
 
 func structuredAnchorQueries(query string) []string {
