@@ -42,6 +42,9 @@ type Summary struct {
 	Embedded        int    `json:"embedded"`
 	EmbeddingStatus string `json:"embeddingStatus"`
 	Diagnostics     int    `json:"diagnostics"`
+	PrunedIndexes   int    `json:"prunedIndexes,omitempty"`
+	PrunedBytes     int64  `json:"prunedBytes,omitempty"`
+	PruneSkipped    int    `json:"pruneSkipped,omitempty"`
 	ElapsedMS       int64  `json:"elapsedMs"`
 }
 
@@ -102,6 +105,8 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 			}
 			if current {
 				summary.UpToDate = true
+				summary.PrunedIndexes, summary.PrunedBytes, summary.PruneSkipped =
+					pruneRetiredIndexes(ctx, paths)
 				summary.ElapsedMS = time.Since(started).Milliseconds()
 				return summary, nil
 			}
@@ -335,6 +340,8 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	if err := value.SetIndexFreshnessToken(ctx, endFreshness); err != nil {
 		return summary, fmt.Errorf("record index freshness: %w", err)
 	}
+	summary.PrunedIndexes, summary.PrunedBytes, summary.PruneSkipped =
+		pruneRetiredIndexes(ctx, paths)
 	return summary, nil
 }
 

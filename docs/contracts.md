@@ -186,8 +186,10 @@ returns that citation; a focused test, not retrieval alone, proves the asserted
 absence.
 
 Status data reports the binary version, configuration provenance, Git-family
-identity and available seed count, freshness, vector coverage, and the latest
-index run. `status --check` additionally returns `embeddingProvider` with
+identity, available seed count, retired index count/bytes, freshness, vector
+coverage, and the latest index run. Index summaries include `prunedIndexes`,
+`prunedBytes`, or `pruneSkipped` when family maintenance has work to report.
+`status --check` additionally returns `embeddingProvider` with
 `checked`, `available`, elapsed time, and a bounded provider error when
 unavailable. Provider unavailability is diagnostic data and does not make the
 status command fail.

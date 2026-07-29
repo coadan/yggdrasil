@@ -46,6 +46,8 @@ type GitFamily struct {
 	ID             string `json:"id"`
 	Head           string `json:"head,omitempty"`
 	AvailableSeeds int    `json:"availableSeeds"`
+	RetiredIndexes int    `json:"retiredIndexes"`
+	RetiredBytes   int64  `json:"retiredBytes"`
 }
 
 type ProviderCheck struct {
@@ -82,6 +84,14 @@ func Inspect(ctx context.Context, paths project.Paths, cfg config.Config, opts O
 		return Result{}, err
 	}
 	result.GitFamily.AvailableSeeds = len(seeds)
+	retired, err := project.RetiredIndexes(ctx, paths)
+	if err != nil {
+		return Result{}, err
+	}
+	result.GitFamily.RetiredIndexes = len(retired)
+	for _, candidate := range retired {
+		result.GitFamily.RetiredBytes += candidate.Bytes
+	}
 	if opts.CheckProvider {
 		result.EmbeddingProvider = checkProvider(ctx, paths.Root, cfg.Embedding)
 	}

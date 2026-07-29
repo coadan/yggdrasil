@@ -33,7 +33,11 @@ files are reprocessed. `ygg index --full` deliberately bypasses this reuse.
 Each index also records the mechanically derived Git common-directory family
 beside its central database. That retained marker lets a later main or task
 worktree reuse the newest same-family database even after the source worktree
-directory has been removed.
+directory has been removed. Once another family index succeeds, it removes
+retired same-family databases whose roots are both unregistered and absent.
+Pruning takes each retired index lock without waiting, skips busy databases,
+and deletes only the generated database, WAL/SHM, marker, and lock files.
+Unmarked directories and unknown files are never removed.
 Discovery runs `git ls-files` against the selected worktree, so its tracked
 modifications and untracked files cannot bleed into another worktree's index.
 Reaching the same physical worktree through a symlink resolves to the same

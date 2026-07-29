@@ -95,14 +95,18 @@ or intentionally stale database; normal indexing is incremental.
 
 `ygg status` reports the binary version, resolved user/repository
 configuration paths, embedding source and coverage, Git-family identity, and
-the number of related seed indexes. Add `--check` to send one bounded embedding
-request and report provider readiness; ordinary status remains network-free.
+the number of related seed and retired indexes. Add `--check` to send one
+bounded embedding request and report provider readiness; ordinary status
+remains network-free.
 
 Linked Git worktrees remain isolated without paying for a second full index.
 On a worktree's first normal index, Yggdrasil snapshots an indexed sibling,
 then content-hash reconciles the copy. Unchanged records and vectors are reused;
 only the worktree's added, changed, deleted, or extractor-invalidated files are
-processed. The JSON index summary reports `seededFrom` and `reused`.
+processed. After a successful index, Yggdrasil removes same-family databases
+whose Git worktrees are no longer registered and whose roots no longer exist.
+Busy databases and any unmarked or foreign state are preserved. The JSON index
+summary reports `seededFrom`, `reused`, and reclaimed index count/bytes.
 
 ## Optional extraction and semantic recall
 
