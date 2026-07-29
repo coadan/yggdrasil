@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
@@ -16,6 +17,12 @@ import (
 )
 
 const rrfK = 60.0
+
+const (
+	MaxResults    = 100
+	MaxQueryBytes = 16 * 1024
+	MaxQueryTerms = 256
+)
 
 var ErrSemanticUnavailable = errors.New("semantic search is unavailable")
 
@@ -56,8 +63,20 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	if query == "" {
 		return Result{}, errors.New("search query is required")
 	}
-	if opts.Limit <= 0 {
+	if !utf8.ValidString(query) {
+		return Result{}, errors.New("search query must be valid UTF-8")
+	}
+	if len(query) > MaxQueryBytes {
+		return Result{}, fmt.Errorf("search query exceeds %d bytes", MaxQueryBytes)
+	}
+	if len(strings.Fields(query)) > MaxQueryTerms {
+		return Result{}, fmt.Errorf("search query exceeds %d terms", MaxQueryTerms)
+	}
+	if opts.Limit == 0 {
 		opts.Limit = 10
+	}
+	if opts.Limit < 0 || opts.Limit > MaxResults {
+		return Result{}, fmt.Errorf("search limit must be between 1 and %d", MaxResults)
 	}
 	if opts.Mode == "" {
 		opts.Mode = "auto"
@@ -246,8 +265,13 @@ func ftsQuery(query string) string {
 func excerpt(text string) string {
 	text = strings.TrimSpace(text)
 	const limit = 400
-	if len(text) <= limit {
+	if utf8.RuneCountInString(text) <= limit {
 		return text
 	}
-	return strings.TrimSpace(text[:limit]) + "…"
+	end := 0
+	for range limit {
+		_, size := utf8.DecodeRuneInString(text[end:])
+		end += size
+	}
+	return strings.TrimSpace(text[:end]) + "…"
 }

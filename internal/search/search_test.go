@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
@@ -112,5 +114,25 @@ func TestAutoFusesConfiguredSemanticLane(t *testing.T) {
 	}
 	if result.Records[0].Path != file.Path || result.Records[0].Retrieval[0] != "semantic" {
 		t.Fatalf("records=%#v", result.Records)
+	}
+}
+
+func TestSearchRejectsUnboundedInputs(t *testing.T) {
+	ctx := context.Background()
+	if _, err := Run(ctx, nil, "query", Options{Limit: MaxResults + 1}); err == nil {
+		t.Fatal("expected result limit error")
+	}
+	if _, err := Run(ctx, nil, strings.Repeat("x", MaxQueryBytes+1), Options{}); err == nil {
+		t.Fatal("expected query byte limit error")
+	}
+	if _, err := Run(ctx, nil, strings.Repeat("word ", MaxQueryTerms+1), Options{}); err == nil {
+		t.Fatal("expected query term limit error")
+	}
+}
+
+func TestExcerptPreservesUTF8Boundary(t *testing.T) {
+	got := excerpt(strings.Repeat("é", 401))
+	if !utf8.ValidString(got) || utf8.RuneCountInString(got) != 401 || !strings.HasSuffix(got, "…") {
+		t.Fatalf("invalid excerpt: runes=%d valid=%v suffix=%v", utf8.RuneCountInString(got), utf8.ValidString(got), strings.HasSuffix(got, "…"))
 	}
 }
