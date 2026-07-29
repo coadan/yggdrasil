@@ -91,7 +91,7 @@ semantic lane with reciprocal-rank fusion. Missing, incomplete, or failed
 semantic recall is reported explicitly and lexical results remain available.
 Use `--mode lexical` or `--mode semantic` only for ablation and diagnosis.
 
-The repository includes three optional, dependency-free extractor executables:
+The repository includes four optional, dependency-free extractor executables:
 
 ```sh
 make build
@@ -100,8 +100,12 @@ bin/ygg plugin check markdown --root /path/to/configured/repository
 
 `ygg-extract-markdown` emits sections and fences, `ygg-extract-go` uses the Go
 parser for declarations and imports, and `ygg-extract-typescript` emits
-top-level JavaScript/TypeScript declarations and module links. None are linked
-into the core CLI.
+top-level JavaScript/TypeScript declarations and module links.
+`ygg-extract-manifest` emits package, dependency, script, workspace, and
+toolchain facts from `package.json`, `go.mod`, `Cargo.toml`, and
+`pyproject.toml`. None are linked into the core CLI. The
+[legacy parity inventory](docs/extractor-parity.md) records structured coverage
+and remaining gaps without treating generic text indexing as full parity.
 
 See [contracts](docs/contracts.md) for the extractor, configuration, and result
 schemas.

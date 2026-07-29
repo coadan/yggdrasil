@@ -1,0 +1,66 @@
+{
+  "schema": "ygg.extractor-parity/v1",
+  "legacy": {
+    "repository": "coadan/yggdrasil",
+    "revision": "db1d91e79770c0ce525a81f74eab9454565755e2",
+    "contract": "ygg.extract/v2"
+  },
+  "definitions": {
+    "structured": "Parser or grammar records cover a documented subset of legacy searchable mechanical facts.",
+    "baseline-only": "The generic text index preserves literal searchability, but legacy structured facts are not yet reproduced.",
+    "retired": "The legacy kind is outside the text-focused search product and is not indexed as a structured extractor lane."
+  },
+  "structured": [
+    {
+      "kind": "go",
+      "coverage": "partial",
+      "owner": "plugins/go",
+      "facts": ["imports", "functions", "methods", "types", "constants", "variables"]
+    },
+    {
+      "kind": "javascript",
+      "coverage": "partial",
+      "owner": "plugins/typescript",
+      "facts": ["top-level declarations", "imports", "re-exports"]
+    },
+    {
+      "kind": "typescript",
+      "coverage": "partial",
+      "owner": "plugins/typescript",
+      "facts": ["top-level declarations", "imports", "re-exports"]
+    },
+    {
+      "kind": "doc",
+      "coverage": "partial",
+      "owner": "plugins/markdown",
+      "facts": ["heading sections", "fenced code"]
+    },
+    {
+      "kind": "manifest",
+      "coverage": "partial",
+      "owner": "plugins/manifest",
+      "grammars": ["package.json", "go.mod", "Cargo.toml", "pyproject.toml"],
+      "facts": ["packages", "dependencies", "dependency scopes", "versions", "scripts", "workspace members", "toolchains", "replacements", "features"]
+    }
+  ],
+  "baseline-only": [
+    "code", "java", "groovy", "kotlin", "swift", "objective-c", "dotnet",
+    "ruby", "cpp", "dart", "scala", "elixir", "erlang", "lua", "r", "julia",
+    "ocaml", "perl", "haskell", "odin", "zig", "apple-config", "astro",
+    "prisma", "dbt", "notebook", "data-science", "devcontainer", "kustomize",
+    "pre-commit-config", "codeowners", "task-runner", "starlark",
+    "tool-version-config", "storybook", "docs-config", "editor-config",
+    "release-config", "web-framework", "workflow-orchestration", "governance",
+    "sbom", "observability-config", "db-config", "db-migration",
+    "codegen-config", "ops-config", "php", "vue", "svelte", "ci", "build",
+    "test-config", "quality-config", "tool-config", "python", "rust", "style",
+    "sql", "terraform", "openapi", "asyncapi", "json-schema", "avro",
+    "graphql", "protobuf", "gettext", "html", "svg", "xml", "env", "text",
+    "secret-material", "edn", "config", "unknown", "yaml", "dependency-lock",
+    "docker", "procfile", "compose", "helm", "shell"
+  ],
+  "retired": [
+    "image-asset", "font-asset", "media-asset", "archive-asset",
+    "compiled-artifact", "opaque-asset", "gettext-binary"
+  ]
+}

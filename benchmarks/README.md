@@ -24,3 +24,7 @@ The developer-only `yggbench` runner records:
 Candidate-versus-legacy comparisons should retain the legacy binary hash and
 revision beside this report. Hybrid and extractor-plugin results are explicit
 ablation runs and are not the default should-win lane.
+
+`extractor-parity.json` is the machine-checked inventory of legacy extractor
+kinds. It distinguishes structured coverage from generic text search and
+retired binary inventory; see [the parity notes](../docs/extractor-parity.md).
