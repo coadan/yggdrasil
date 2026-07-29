@@ -1,4 +1,4 @@
-.PHONY: build check test benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins release clean
+.PHONY: build check test benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest release clean
 
 build:
 	mkdir -p bin
@@ -42,6 +42,12 @@ benchmark-dogfood-plugins: build
 		-plugin-config benchmarks/dogfood-plugins.json \
 		-work .dev/bench/work-dogfood-plugins \
 		-ygg bin/ygg -out .dev/bench/dogfood-plugin-report.json
+
+benchmark-dogfood-manifest: build
+	bin/yggbench -prepare -suite benchmarks/dogfood-replay.json \
+		-plugin-config benchmarks/dogfood-manifest.json \
+		-work .dev/bench/work-dogfood-manifest \
+		-ygg bin/ygg -out .dev/bench/dogfood-manifest-report.json
 
 release:
 	mkdir -p dist

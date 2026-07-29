@@ -41,6 +41,10 @@ of the case, and records the config and executable hashes. It refuses to
 overwrite a checkout that already has `.ygg/config.json`. The default and plugin
 reports are therefore an explicit ablation pair.
 
+`make benchmark-dogfood-manifest` isolates the manifest adapter from the source
+extractors using `benchmarks/dogfood-manifest.json`. Use it to measure manifest
+startup/index cost without attributing Go or TypeScript records to that lane.
+
 Reports include:
 
 - file recall@10 and mean reciprocal rank;
