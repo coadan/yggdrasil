@@ -1,0 +1,13 @@
+{
+  "schema": "ygg.config/v1",
+  "maxFileBytes": 4194304,
+  "plugins": [
+    {
+      "id": "terraform",
+      "version": "0.1.0",
+      "command": ["bin/ygg-extract-terraform"],
+      "includeGlobs": ["**/*.tf"],
+      "timeoutMs": 10000
+    }
+  ]
+}

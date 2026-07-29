@@ -115,6 +115,10 @@ The optional `plugins/jvm-dotnet/ygg-extract-jvm-dotnet` adapter ports the
 legacy tree-sitter worker facts for Java and C#. Its pinned parser bundle lives
 in a separate virtual environment and is not part of the Go module graph.
 
+The optional `plugins/terraform` adapter uses HashiCorp's HCL parser for blocks,
+attributes, and expression traversals. Its dependency graph is confined to the
+plugin module.
+
 See [contracts](docs/contracts.md) for the extractor, configuration, and result
 schemas. See [embedding parity](docs/embedding-parity.md) for the OpenRouter
 configuration, verified smoke evidence, and remaining legacy differences.

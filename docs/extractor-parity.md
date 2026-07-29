@@ -147,3 +147,32 @@ and suite
 The adapter remains an explicit experimental ablation until ranking or record
 selection can retain its parser facts without displacing stronger core
 evidence.
+
+The Terraform parity fixture is `plugins/terraform/main_test.go`. It covers
+nested blocks, labels, attributes, expression traversals, exact line ranges, and
+parser diagnostics using the same mechanical fact boundary as the legacy HCL
+extractor.
+
+## Terraform ablation
+
+The pinned Terraform case was already perfectly localized by generic text.
+The HCL adapter preserves that result while adding structured citations:
+
+| Terraform lane | Recall@10 | MRR | Full index | Incremental | Search p50 | Search p95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Default | 1.000 | 1.000 | 516.4 ms | 20.3 ms | 19.5 ms | 23.3 ms |
+| HCL parser | 1.000 | 1.000 | 719.5 ms | 31.3 ms | 33.5 ms | 37.0 ms |
+
+The same-binary broad run stayed quality-neutral across all 10 cases:
+
+| Broad lane | Recall@10 | MRR | Full index p50 | Incremental p50 | Search p50 | Search p95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Default | 0.810 | 0.821 | 161.0 ms | 26.0 ms | 18.7 ms | 111.5 ms |
+| HCL parser | 0.810 | 0.821 | 279.0 ms | 26.6 ms | 20.0 ms | 119.5 ms |
+
+Both broad reports used candidate
+`sha256:1b8f934f0e78e860875381d3e31a7d895cce241bec9985c26c343805ccad24e7`
+and suite
+`sha256:8293905d96f46bb52948428cb42a24dda5e01331009db3887524e3ee3bb0b524`.
+The adapter is therefore useful only when block/attribute precision is worth
+the measured indexing cost; it is not a default retrieval-quality improvement.

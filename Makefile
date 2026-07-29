@@ -1,4 +1,4 @@
-.PHONY: build check test test-jvm-dotnet benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-python benchmark-jvm-dotnet release clean
+.PHONY: build check test test-jvm-dotnet benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-python benchmark-jvm-dotnet benchmark-terraform release clean
 
 build:
 	mkdir -p bin
@@ -8,6 +8,7 @@ build:
 	cd plugins/go && go build -trimpath -o ../../bin/ygg-extract-go .
 	cd plugins/typescript && go build -trimpath -o ../../bin/ygg-extract-typescript .
 	cd plugins/manifest && go build -trimpath -o ../../bin/ygg-extract-manifest .
+	cd plugins/terraform && go build -trimpath -o ../../bin/ygg-extract-terraform .
 
 test:
 	go test ./...
@@ -15,6 +16,7 @@ test:
 	cd plugins/go && go test ./...
 	cd plugins/typescript && go test ./...
 	cd plugins/manifest && go test ./...
+	cd plugins/terraform && go test ./...
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s plugins/python -p 'test_*.py'
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s plugins/jvm-dotnet -p 'test_*.py'
 
@@ -29,6 +31,7 @@ check:
 	cd plugins/go && go vet ./...
 	cd plugins/typescript && go vet ./...
 	cd plugins/manifest && go vet ./...
+	cd plugins/terraform && go vet ./...
 	$(MAKE) test
 
 benchmark-quick: build
@@ -78,6 +81,17 @@ benchmark-jvm-dotnet: build
 		-work .dev/bench/work-jvm-dotnet-plugin \
 		-ygg bin/ygg -out .dev/bench/jvm-dotnet-plugin-report.json
 
+benchmark-terraform: build
+	bin/yggbench -prepare -suite benchmarks/claim-quick.json \
+		-cases terraform-vpc-endpoint-dns-record-ip-type \
+		-work .dev/bench/work-terraform-default \
+		-ygg bin/ygg -out .dev/bench/terraform-default-report.json
+	bin/yggbench -prepare -suite benchmarks/claim-quick.json \
+		-cases terraform-vpc-endpoint-dns-record-ip-type \
+		-plugin-config benchmarks/terraform-plugins.json \
+		-work .dev/bench/work-terraform-plugin \
+		-ygg bin/ygg -out .dev/bench/terraform-plugin-report.json
+
 release:
 	mkdir -p dist
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/ygg-darwin-arm64 ./cmd/ygg
@@ -90,6 +104,7 @@ clean:
 	rm -f bin/ygg bin/yggbench bin/ygg-extract-markdown
 	rm -f bin/ygg-extract-go bin/ygg-extract-typescript
 	rm -f bin/ygg-extract-manifest
+	rm -f bin/ygg-extract-terraform
 	rm -f dist/ygg-darwin-arm64 dist/ygg-darwin-amd64
 	rm -f dist/ygg-linux-arm64 dist/ygg-linux-amd64
 	rm -f dist/SHA256SUMS

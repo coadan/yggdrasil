@@ -59,6 +59,12 @@
       "coverage": "partial",
       "owner": "plugins/jvm-dotnet",
       "facts": ["namespaces", "using directives", "type declarations", "methods", "constructors", "properties", "syntax diagnostics"]
+    },
+    {
+      "kind": "terraform",
+      "coverage": "partial",
+      "owner": "plugins/terraform",
+      "facts": ["blocks", "labels", "attributes", "expression traversals", "syntax diagnostics"]
     }
   ],
   "baseline-only": [
@@ -72,7 +78,7 @@
     "sbom", "observability-config", "db-config", "db-migration",
     "codegen-config", "ops-config", "php", "vue", "svelte", "ci", "build",
     "test-config", "quality-config", "tool-config", "rust", "style",
-    "sql", "terraform", "openapi", "asyncapi", "json-schema", "avro",
+    "sql", "openapi", "asyncapi", "json-schema", "avro",
     "graphql", "protobuf", "gettext", "html", "svg", "xml", "env", "text",
     "secret-material", "edn", "config", "unknown", "yaml", "dependency-lock",
     "docker", "procfile", "compose", "helm", "shell"
