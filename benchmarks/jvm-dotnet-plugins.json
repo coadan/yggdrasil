@@ -1,0 +1,13 @@
+{
+  "schema": "ygg.config/v1",
+  "maxFileBytes": 4194304,
+  "plugins": [
+    {
+      "id": "jvm-dotnet",
+      "version": "0.1.0",
+      "command": ["plugins/jvm-dotnet/ygg-extract-jvm-dotnet"],
+      "includeGlobs": ["**/*.java", "**/*.cs"],
+      "timeoutMs": 10000
+    }
+  ]
+}

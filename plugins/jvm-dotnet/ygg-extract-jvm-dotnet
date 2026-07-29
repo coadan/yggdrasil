@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+"""Emit Java and C# tree-sitter facts through ygg.extractor/v1."""
+
+import json
+import pathlib
+import re
+import sys
+
+SCHEMA = "ygg.extractor/v1"
+MAX_RECORDS = 256
+
+DEFINITIONS = {
+    "java": {
+        "class_declaration": "class",
+        "interface_declaration": "interface",
+        "enum_declaration": "enum",
+        "record_declaration": "record",
+        "annotation_type_declaration": "annotation",
+        "method_declaration": "method",
+        "constructor_declaration": "constructor",
+    },
+    "dotnet": {
+        "class_declaration": "class",
+        "interface_declaration": "interface",
+        "enum_declaration": "enum",
+        "record_declaration": "record",
+        "struct_declaration": "struct",
+        "delegate_declaration": "delegate",
+        "method_declaration": "method",
+        "constructor_declaration": "constructor",
+        "property_declaration": "property",
+    },
+}
+
+TYPE_DEFINITIONS = {
+    "class_declaration",
+    "interface_declaration",
+    "enum_declaration",
+    "record_declaration",
+    "annotation_type_declaration",
+    "struct_declaration",
+}
+
+def node_kind(node):
+    value = getattr(node, "kind", None)
+    return value() if callable(value) else str(value)
+
+
+def children(node):
+    value = getattr(node, "children", None)
+    if value is not None:
+        return list(value)
+    count = getattr(node, "child_count", 0)
+    count = count() if callable(count) else count
+    child = getattr(node, "child")
+    return [child(index) for index in range(int(count or 0))]
+
+
+def walk(node):
+    yield node
+    for child in children(node):
+        yield from walk(child)
+
+
+def child_by_field(node, field):
+    getter = getattr(node, "child_by_field_name", None)
+    return getter(field) if callable(getter) else None
+
+
+def point(node, name):
+    value = getattr(node, name)
+    return value() if callable(value) else value
+
+
+def start_line(node):
+    return int(point(node, "start_position").row) + 1
+
+
+def end_line(node):
+    return int(point(node, "end_position").row) + 1
+
+
+def offset(node, name):
+    value = getattr(node, name)
+    return int(value() if callable(value) else value)
+
+
+def text(source_bytes, node):
+    return source_bytes[offset(node, "start_byte") : offset(node, "end_byte")].decode(
+        "utf-8", errors="replace"
+    )
+
+
+def first_descendant(node, kinds):
+    for child in walk(node):
+        if child is not node and node_kind(child) in kinds:
+            return child
+    return None
+
+
+def name_node(node):
+    named = child_by_field(node, "name")
+    if named is not None:
+        return named
+    return first_descendant(node, {"identifier", "type_identifier"})
+
+
+def identifier_words(value):
+    value = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", value)
+    return re.sub(r"[_\-.]+", " ", value).lower()
+
+
+def source_line(source, number):
+    lines = source.splitlines()
+    return lines[number - 1].strip() if 0 < number <= len(lines) else ""
+
+
+def make_record(kind, title, node, source, metadata=None):
+    line = start_line(node)
+    result = {
+        "id": f"{kind}:{line}:{title}",
+        "startLine": line,
+        "endLine": max(line, end_line(node)),
+        "kind": kind,
+        "title": title,
+        "text": f"{source_line(source, line)}\n{identifier_words(title)}",
+    }
+    if metadata:
+        result["metadata"] = metadata
+    return result
+
+
+def parser_for(language):
+    import tree_sitter_language_pack
+
+    parser_language = "csharp" if language == "dotnet" else language
+    return tree_sitter_language_pack.get_parser(parser_language)
+
+
+def definition_records(language, source, source_bytes, root):
+    records = []
+
+    def visit(node, type_stack):
+        kind = node_kind(node)
+        mapped = DEFINITIONS[language].get(kind)
+        next_stack = type_stack
+        if mapped:
+            named = name_node(node)
+            if named is not None:
+                local_name = text(source_bytes, named)
+                qualified = ".".join([*type_stack, local_name])
+                records.append(
+                    make_record(
+                        f"{language}-definition",
+                        qualified,
+                        node,
+                        source,
+                        {"definitionKind": mapped},
+                    )
+                )
+                if kind in TYPE_DEFINITIONS:
+                    next_stack = [*type_stack, local_name]
+        for child in children(node):
+            visit(child, next_stack)
+
+    visit(root, [])
+    return records
+
+
+def java_import_records(source, source_bytes, root):
+    records = []
+    for node in walk(root):
+        if node_kind(node) != "import_declaration":
+            continue
+        imported = first_descendant(node, {"scoped_identifier", "identifier"})
+        if imported is None:
+            continue
+        target = text(source_bytes, imported)
+        records.append(
+            make_record(
+                "java-import",
+                target,
+                node,
+                source,
+                {"static": " static " in f" {text(source_bytes, node)} "},
+            )
+        )
+    return records
+
+
+def java_package_record(source, source_bytes, root):
+    for node in children(root):
+        if node_kind(node) != "package_declaration":
+            continue
+        package = first_descendant(node, {"scoped_identifier", "identifier"})
+        if package is not None:
+            target = text(source_bytes, package)
+            return make_record("java-package", target, node, source)
+    return None
+
+
+def csharp_using_records(source, source_bytes, root):
+    records = []
+    for node in walk(root):
+        if node_kind(node) != "using_directive":
+            continue
+        raw = text(source_bytes, node).strip().rstrip(";")
+        target = re.sub(r"^using\s+(?:static\s+)?", "", raw).strip()
+        if target:
+            records.append(make_record("dotnet-using", target, node, source))
+    return records
+
+
+def csharp_namespace_records(source, source_bytes, root):
+    records = []
+    for node in walk(root):
+        if node_kind(node) not in {"namespace_declaration", "file_scoped_namespace_declaration"}:
+            continue
+        named = child_by_field(node, "name")
+        if named is None:
+            named = first_descendant(node, {"qualified_name", "identifier"})
+        if named is not None:
+            records.append(
+                make_record("dotnet-namespace", text(source_bytes, named), node, source)
+            )
+    return records
+
+
+def extract(path, source):
+    suffix = pathlib.Path(path).suffix.lower()
+    if suffix == ".java":
+        language = "java"
+    elif suffix == ".cs":
+        language = "dotnet"
+    else:
+        return [], [{"message": "unsupported parser grammar"}]
+    try:
+        parser = parser_for(language)
+    except Exception as error:
+        return [], [{"message": f"{language} parser unavailable: {error}"}]
+
+    source_bytes = source.encode("utf-8")
+    tree = parser.parse(source)
+    root = tree.root_node
+    if callable(root):
+        root = root()
+    diagnostics = []
+    has_error = getattr(root, "has_error", False)
+    has_error = has_error() if callable(has_error) else has_error
+    if has_error:
+        diagnostics.append({"message": "tree-sitter reported parse errors"})
+
+    records = definition_records(language, source, source_bytes, root)
+    if language == "java":
+        package = java_package_record(source, source_bytes, root)
+        if package:
+            records.append(package)
+        records.extend(java_import_records(source, source_bytes, root))
+    else:
+        records.extend(csharp_namespace_records(source, source_bytes, root))
+        records.extend(csharp_using_records(source, source_bytes, root))
+    return records[:MAX_RECORDS], diagnostics
+
+
+def emit(value):
+    sys.stdout.write(json.dumps(value, separators=(",", ":")) + "\n")
+    sys.stdout.flush()
+
+
+def main():
+    files = 0
+    record_count = 0
+    for raw in sys.stdin:
+        value = json.loads(raw)
+        message_type = value.get("type")
+        if message_type == "hello":
+            if value.get("schema") != SCHEMA:
+                raise ValueError(f"unsupported schema {value.get('schema')!r}")
+            emit({"type": "ready", "schema": SCHEMA})
+        elif message_type == "file":
+            file = value["file"]
+            records, diagnostics = extract(file["path"], file["content"])
+            files += 1
+            record_count += len(records)
+            emit(
+                {
+                    "type": "result",
+                    "requestId": value["requestId"],
+                    "records": records,
+                    "diagnostics": diagnostics,
+                }
+            )
+        elif message_type == "end":
+            emit({"type": "summary", "files": files, "records": record_count})
+            return
+        else:
+            raise ValueError(f"unsupported message type {message_type!r}")
+
+
+if __name__ == "__main__":
+    main()

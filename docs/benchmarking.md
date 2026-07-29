@@ -49,6 +49,10 @@ startup/index cost without attributing Go or TypeScript records to that lane.
 the two pinned Python cases. It is a focused extractor diagnostic, not the broad
 claim lane.
 
+`make benchmark-jvm-dotnet` runs the pinned .NET case with and without the
+optional tree-sitter adapter. Run `make test-jvm-dotnet` after creating the
+virtual environment described in the plugin README.
+
 Reports include:
 
 - file recall@10 and mean reciprocal rank;

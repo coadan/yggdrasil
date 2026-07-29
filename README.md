@@ -111,6 +111,10 @@ The optional `plugins/python/ygg-extract-python` adapter uses Python's
 standard-library AST for imports and declarations. It requires a Python 3
 runtime but no third-party packages.
 
+The optional `plugins/jvm-dotnet/ygg-extract-jvm-dotnet` adapter ports the
+legacy tree-sitter worker facts for Java and C#. Its pinned parser bundle lives
+in a separate virtual environment and is not part of the Go module graph.
+
 See [contracts](docs/contracts.md) for the extractor, configuration, and result
 schemas. See [embedding parity](docs/embedding-parity.md) for the OpenRouter
 configuration, verified smoke evidence, and remaining legacy differences.
