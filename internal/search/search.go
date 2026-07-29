@@ -158,12 +158,12 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		ActiveMode:    "lexical",
 	}
 	if opts.Mode == "lexical" {
-		result.Records = fuse(opts.Limit, lanes)
+		result.Records = fuse(query, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
 	if structured && opts.Mode == "auto" {
-		result.Records = fuse(opts.Limit, lanes)
+		result.Records = fuse(query, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
@@ -174,7 +174,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		if opts.Mode == "auto" {
 			result.FallbackReason = "semantic-unconfigured"
 		}
-		result.Records = fuse(opts.Limit, lanes)
+		result.Records = fuse(query, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
@@ -191,7 +191,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 			)
 		}
 		result.FallbackReason = "semantic-incomplete"
-		result.Records = fuse(opts.Limit, lanes)
+		result.Records = fuse(query, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
@@ -220,7 +220,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	} else {
 		result.ActiveMode = "hybrid"
 	}
-	result.Records = fuse(opts.Limit, lanes)
+	result.Records = fuse(query, opts.Limit, lanes)
 	result.ElapsedMS = time.Since(started).Milliseconds()
 	return result, nil
 }
@@ -236,7 +236,7 @@ func semanticFailure(
 		return Result{}, fmt.Errorf("%w: %v", ErrSemanticUnavailable, cause)
 	}
 	result.FallbackReason = "semantic-provider-error"
-	result.Records = fuse(opts.Limit, lanes)
+	result.Records = fuse(result.Query, opts.Limit, lanes)
 	result.ElapsedMS = time.Since(started).Milliseconds()
 	return result, nil
 }
@@ -250,9 +250,10 @@ type fused struct {
 	record    store.Record
 	score     float64
 	retrieval map[string]bool
+	evidence  citationEvidence
 }
 
-func fuse(limit int, lanes []lane) []RankedRecord {
+func fuse(query string, limit int, lanes []lane) []RankedRecord {
 	values := map[int64]*fused{}
 	pathEvidence := make(map[string]*fused)
 	for _, candidateLane := range lanes {
@@ -300,6 +301,7 @@ func fuse(limit int, lanes []lane) []RankedRecord {
 	ordered := make([]*fused, 0, len(values))
 	hasCitedRecord := make(map[string]bool)
 	for _, value := range values {
+		value.evidence = locateEvidence(value.record.Text, query)
 		ordered = append(ordered, value)
 		if value.record.Kind != "file" {
 			hasCitedRecord[value.record.Path] = true
@@ -319,7 +321,12 @@ func fuse(limit int, lanes []lane) []RankedRecord {
 	})
 	eligible := make([]*fused, 0, len(ordered))
 	selectedPaths := make(map[string]bool)
+	citations := make(map[string]*fused)
 	for _, value := range ordered {
+		if value.record.Kind != "file" &&
+			betterCitation(value, citations[value.record.Path]) {
+			citations[value.record.Path] = value
+		}
 		if selectedPaths[value.record.Path] {
 			continue
 		}
@@ -335,26 +342,124 @@ func fuse(limit int, lanes []lane) []RankedRecord {
 		if len(result) == limit {
 			break
 		}
-		retrieval := make([]string, 0, len(value.retrieval))
+		citation := citations[value.record.Path]
+		if citation == nil {
+			citation = value
+		}
+		retrievalSet := make(map[string]bool, len(value.retrieval)+len(citation.retrieval))
 		for name := range value.retrieval {
+			retrievalSet[name] = true
+		}
+		for name := range citation.retrieval {
+			retrievalSet[name] = true
+		}
+		retrieval := make([]string, 0, len(retrievalSet))
+		for name := range retrievalSet {
 			retrieval = append(retrieval, name)
 		}
 		sort.Strings(retrieval)
+		startLine, endLine, title, citationExcerpt :=
+			localizedCitation(citation.record, citation.evidence)
 		result = append(result, RankedRecord{
-			Path:       value.record.Path,
-			StartLine:  value.record.StartLine,
-			EndLine:    value.record.EndLine,
-			Kind:       value.record.Kind,
-			Title:      value.record.Title,
-			Excerpt:    excerpt(value.record.Text),
-			Metadata:   value.record.Metadata,
-			Source:     value.record.Source,
+			Path:       citation.record.Path,
+			StartLine:  startLine,
+			EndLine:    endLine,
+			Kind:       citation.record.Kind,
+			Title:      title,
+			Excerpt:    citationExcerpt,
+			Metadata:   citation.record.Metadata,
+			Source:     citation.record.Source,
 			Retrieval:  retrieval,
 			Score:      value.score,
-			internalID: value.record.ID,
+			internalID: citation.record.ID,
 		})
 	}
 	return result
+}
+
+type citationEvidence struct {
+	terms int
+	line  int
+}
+
+func betterCitation(candidate, current *fused) bool {
+	if current == nil {
+		return true
+	}
+	candidateEvidence := candidate.evidence
+	currentEvidence := current.evidence
+	if candidateEvidence.terms != currentEvidence.terms {
+		return candidateEvidence.terms > currentEvidence.terms
+	}
+	if candidateEvidence.terms == 0 {
+		return false
+	}
+	candidatePriority := citationLanePriority(candidate.retrieval)
+	currentPriority := citationLanePriority(current.retrieval)
+	if candidatePriority != currentPriority {
+		return candidatePriority > currentPriority
+	}
+	candidateLine := candidate.record.StartLine + candidateEvidence.line
+	currentLine := current.record.StartLine + currentEvidence.line
+	if candidateLine != currentLine {
+		return candidateLine < currentLine
+	}
+	if candidate.score != current.score {
+		return candidate.score > current.score
+	}
+	return candidate.record.ID < current.record.ID
+}
+
+func citationLanePriority(retrieval map[string]bool) int {
+	for index, name := range []string{"exact", "all-terms", "anchor", "extractor", "lexical"} {
+		if retrieval[name] {
+			return 5 - index
+		}
+	}
+	return 0
+}
+
+func locateEvidence(text, query string) citationEvidence {
+	lines := strings.Split(strings.ToLower(text), "\n")
+	terms := queryTerms(strings.ToLower(query))
+	best := citationEvidence{line: -1}
+	for line := range lines {
+		start := max(0, line-2)
+		end := min(len(lines), line+3)
+		matched := 0
+		for _, term := range terms {
+			for _, candidate := range lines[start:end] {
+				if strings.Contains(candidate, term) {
+					matched++
+					break
+				}
+			}
+		}
+		if matched > best.terms {
+			best = citationEvidence{terms: matched, line: line}
+		}
+	}
+	return best
+}
+
+func localizedCitation(
+	record store.Record,
+	evidence citationEvidence,
+) (int, int, string, string) {
+	lines := strings.Split(record.Text, "\n")
+	if evidence.terms == 0 || evidence.line < 0 ||
+		record.EndLine-record.StartLine+1 < len(lines) {
+		return record.StartLine, record.EndLine, record.Title, excerpt(record.Text)
+	}
+	start := max(0, evidence.line-2)
+	text := excerpt(strings.Join(lines[start:], "\n"))
+	startLine := record.StartLine + start
+	endLine := min(record.EndLine, startLine+strings.Count(text, "\n"))
+	title := record.Title
+	if title == fmt.Sprintf("%s:%d", record.Path, record.StartLine) {
+		title = fmt.Sprintf("%s:%d", record.Path, startLine)
+	}
+	return startLine, endLine, title, text
 }
 
 func promoteThirdRoot(values []*fused) {

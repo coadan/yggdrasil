@@ -381,6 +381,82 @@ func TestAutoFusesConfiguredSemanticLane(t *testing.T) {
 	}
 }
 
+func TestHybridSearchCitesDenseLexicalEvidenceInsteadOfSemanticFileTail(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"data": []map[string]any{{"index": 0, "embedding": []float32{1, 0}}},
+		})
+	}))
+	defer server.Close()
+	cfg := config.Embedding{
+		Kind: "openai-compatible", Endpoint: server.URL, Model: "test",
+		Dimensions: 2, TimeoutMS: 1_000,
+	}
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	path := "src/RelationshipInstitutionMandates.tsx"
+	file := discovery.File{
+		Candidate: discovery.Candidate{Path: path, Size: 200, MTimeNS: 1},
+		Kind:      "typescript",
+	}
+	if err := value.ReplaceFile(ctx, "run", file, "hash", "fingerprint", []contracts.SearchRecord{
+		{
+			Path: path, StartLine: 1, EndLine: 80, Kind: "text-chunk",
+			Title:  path + ":1",
+			Text:   "import { DetailSection }\nexport function RelationshipInstitutionMandates() {\n" + strings.Repeat("owner detail\n", 50),
+			Source: "core",
+		},
+		{
+			Path: path, StartLine: 141, EndLine: 166, Kind: "text-chunk",
+			Title:  path + ":141",
+			Text:   "mandates\n" + strings.Repeat("tail action\n", 20) + "</DetailSection>",
+			Source: "core",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := embedding.Fingerprint(cfg)
+	if _, err := value.PrepareEmbeddingLane(ctx, fingerprint, cfg.Model, cfg.Dimensions); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, fingerprint, 10)
+	if err != nil || len(inputs) != 2 {
+		t.Fatalf("inputs=%#v err=%v", inputs, err)
+	}
+	vectors := make([]store.EmbeddingValue, 0, len(inputs))
+	for _, input := range inputs {
+		vector := []float32{0, 1}
+		if strings.HasPrefix(input.Text, "mandates") {
+			vector = []float32{1, 0}
+		}
+		vectors = append(vectors, store.EmbeddingValue{
+			ID: input.ID, InputHash: input.InputHash, Vector: vector,
+		})
+	}
+	if err := value.UpsertEmbeddings(ctx, fingerprint, 2, vectors); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Run(ctx, value, "DetailSection mandates", Options{
+		Mode: "auto", Limit: 5, Root: t.TempDir(), Embedding: &cfg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ActiveMode != "hybrid" || len(result.Records) != 1 {
+		t.Fatalf("result=%#v", result)
+	}
+	record := result.Records[0]
+	if record.StartLine != 1 || record.Title != path+":1" ||
+		!strings.Contains(record.Excerpt, "DetailSection") ||
+		!strings.Contains(record.Excerpt, "RelationshipInstitutionMandates") {
+		t.Fatalf("citation=%#v", record)
+	}
+}
+
 func TestSearchRejectsUnboundedInputs(t *testing.T) {
 	ctx := context.Background()
 	if _, err := Run(ctx, nil, "query", Options{Limit: MaxResults + 1}); err == nil {
