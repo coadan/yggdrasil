@@ -27,10 +27,10 @@ import (
 
 const usage = `Usage:
   ygg version
-  ygg index [--root PATH] [--full] [--no-embed] [--json]
-  ygg search [--root PATH] [--limit N] [--mode auto|lexical|semantic] [--json] QUERY
-  ygg status [--root PATH] [--check] [--json]
-  ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH] [--json]
+  ygg index [--root PATH] [--full] [--no-embed]
+  ygg search [--root PATH] [--limit N] [--mode auto|lexical|semantic] QUERY
+  ygg status [--root PATH] [--check]
+  ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH]
 `
 
 var Version = "0.3.0-dev"
@@ -94,23 +94,22 @@ func (r *runner) run(ctx context.Context, args []string) int {
 
 func (r *runner) runPluginCheck(ctx context.Context, args []string) int {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		return r.fail(false, 2, errors.New("plugin id is required before plugin check flags"))
+		return r.fail(true, 2, errors.New("plugin id is required before plugin check flags"))
 	}
 	pluginID := args[0]
 	flags := flag.NewFlagSet("plugin check", flag.ContinueOnError)
 	flags.SetOutput(r.stderr)
 	root := flags.String("root", "", "repository root")
 	filePath := flags.String("file", "", "relative file to extract")
-	jsonOutput := flags.Bool("json", false, "write JSON")
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
 	}
 	if flags.NArg() != 0 {
-		return r.fail(*jsonOutput, 2, errors.New("plugin check accepts one plugin id"))
+		return r.fail(true, 2, errors.New("plugin check accepts one plugin id"))
 	}
 	paths, cfg, err := resolve(*root)
 	if err != nil {
-		return r.fail(*jsonOutput, 2, err)
+		return r.fail(true, 2, err)
 	}
 	var pluginConfig *config.Plugin
 	for i := range cfg.Plugins {
@@ -120,42 +119,34 @@ func (r *runner) runPluginCheck(ctx context.Context, args []string) int {
 		}
 	}
 	if pluginConfig == nil {
-		return r.fail(*jsonOutput, 2, fmt.Errorf("plugin %q is not configured", pluginID))
+		return r.fail(true, 2, fmt.Errorf("plugin %q is not configured", pluginID))
 	}
 	var file *discovery.File
 	if *filePath != "" {
 		rel := filepath.ToSlash(filepath.Clean(*filePath))
 		if filepath.IsAbs(*filePath) || rel == ".." || strings.HasPrefix(rel, "../") {
-			return r.fail(*jsonOutput, 2, errors.New("--file must stay within the repository root"))
+			return r.fail(true, 2, errors.New("--file must stay within the repository root"))
 		}
 		info, err := os.Stat(filepath.Join(paths.Root, filepath.FromSlash(rel)))
 		if err != nil {
-			return r.fail(*jsonOutput, 2, err)
+			return r.fail(true, 2, err)
 		}
 		value, skipped, err := discovery.Read(paths.Root, discovery.Candidate{
 			Path: rel, Size: info.Size(), MTimeNS: info.ModTime().UnixNano(),
 		}, cfg.MaxFileBytes)
 		if err != nil {
-			return r.fail(*jsonOutput, 1, err)
+			return r.fail(true, 1, err)
 		}
 		if skipped != nil {
-			return r.fail(*jsonOutput, 2, fmt.Errorf("%s: %s", skipped.Path, skipped.Reason))
+			return r.fail(true, 2, fmt.Errorf("%s: %s", skipped.Path, skipped.Reason))
 		}
 		file = &value
 	}
 	result, err := plugin.Check(ctx, paths.Root, *pluginConfig, file)
 	if err != nil {
-		return r.fail(*jsonOutput, 1, err)
+		return r.fail(true, 1, err)
 	}
-	if *jsonOutput {
-		return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
-	}
-	fmt.Fprintf(r.stdout, "Plugin %s is ready", pluginID)
-	if file != nil {
-		fmt.Fprintf(r.stdout, "; %d records from %s", len(result.Records), file.Path)
-	}
-	fmt.Fprintln(r.stdout, ".")
-	return 0
+	return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
 }
 
 func (r *runner) runIndex(ctx context.Context, args []string) int {
@@ -164,28 +155,21 @@ func (r *runner) runIndex(ctx context.Context, args []string) int {
 	root := flags.String("root", "", "repository root")
 	full := flags.Bool("full", false, "rebuild every file")
 	noEmbed := flags.Bool("no-embed", false, "skip embeddings")
-	jsonOutput := flags.Bool("json", false, "write JSON")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if flags.NArg() != 0 {
-		return r.fail(*jsonOutput, 2, errors.New("index accepts no positional arguments"))
+		return r.fail(true, 2, errors.New("index accepts no positional arguments"))
 	}
 	paths, cfg, err := resolve(*root)
 	if err != nil {
-		return r.fail(*jsonOutput, 2, err)
+		return r.fail(true, 2, err)
 	}
 	summary, err := indexer.Run(ctx, paths, cfg, indexer.Options{Full: *full, NoEmbed: *noEmbed})
 	if err != nil {
-		return r.fail(*jsonOutput, 1, err)
+		return r.fail(true, 1, err)
 	}
-	if *jsonOutput {
-		return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: summary})
-	}
-	fmt.Fprintf(r.stdout,
-		"Indexed %d, unchanged %d, deleted %d, skipped %d in %d ms.\n",
-		summary.Indexed, summary.Unchanged, summary.Deleted, summary.Skipped, summary.ElapsedMS)
-	return 0
+	return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: summary})
 }
 
 func (r *runner) runSearch(ctx context.Context, args []string) int {
@@ -194,49 +178,48 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	root := flags.String("root", "", "repository root")
 	limit := flags.Int("limit", 10, "result limit")
 	mode := flags.String("mode", "auto", "auto, lexical, or semantic")
-	jsonOutput := flags.Bool("json", false, "write JSON")
 	if err := parseInterspersed(flags, args); err != nil {
 		return 2
 	}
 	query := strings.TrimSpace(strings.Join(flags.Args(), " "))
 	if query == "" {
-		return r.fail(*jsonOutput, 2, errors.New("search query is required"))
+		return r.fail(true, 2, errors.New("search query is required"))
 	}
 	if *limit < 1 || *limit > search.MaxResults {
-		return r.fail(*jsonOutput, 2, fmt.Errorf("search limit must be between 1 and %d", search.MaxResults))
+		return r.fail(true, 2, fmt.Errorf("search limit must be between 1 and %d", search.MaxResults))
 	}
 	paths, cfg, err := resolve(*root)
 	if err != nil {
-		return r.fail(*jsonOutput, 2, err)
+		return r.fail(true, 2, err)
 	}
 	indexLock, err := acquireSearchIndexLock(ctx, paths.IndexLock, searchIndexWait)
 	if err != nil {
-		return r.fail(*jsonOutput, 1, err)
+		return r.fail(true, 1, err)
 	}
 	if _, err := os.Stat(paths.Database); errors.Is(err, os.ErrNotExist) {
 		releaseSearchIndexLock(indexLock)
 		seeds, seedErr := project.SiblingIndexes(ctx, paths)
 		if seedErr != nil {
-			return r.fail(*jsonOutput, 1, fmt.Errorf("find worktree index: %w", seedErr))
+			return r.fail(true, 1, fmt.Errorf("find worktree index: %w", seedErr))
 		}
 		if len(seeds) == 0 {
-			return r.fail(*jsonOutput, 3, errors.New("repository is not indexed; run ygg index"))
+			return r.fail(true, 3, errors.New("repository is not indexed; run ygg index"))
 		}
 		if _, seedErr := indexer.Run(ctx, paths, cfg, indexer.Options{}); seedErr != nil {
-			return r.fail(*jsonOutput, 1, fmt.Errorf("prepare worktree index: %w", seedErr))
+			return r.fail(true, 1, fmt.Errorf("prepare worktree index: %w", seedErr))
 		}
 		indexLock, err = acquireSearchIndexLock(ctx, paths.IndexLock, searchIndexWait)
 		if err != nil {
-			return r.fail(*jsonOutput, 1, err)
+			return r.fail(true, 1, err)
 		}
 	} else if err != nil {
 		releaseSearchIndexLock(indexLock)
-		return r.fail(*jsonOutput, 1, err)
+		return r.fail(true, 1, err)
 	}
 	defer releaseSearchIndexLock(indexLock)
 	value, err := store.Open(ctx, paths.Database, paths.Root, paths.ID)
 	if err != nil {
-		return r.fail(*jsonOutput, 1, err)
+		return r.fail(true, 1, err)
 	}
 	defer value.Close()
 	result, err := search.Run(ctx, value, query, search.Options{
@@ -244,21 +227,12 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		HasExtractors: len(cfg.Plugins) > 0, Embedding: cfg.Embedding,
 	})
 	if errors.Is(err, search.ErrSemanticUnavailable) {
-		return r.fail(*jsonOutput, 3, err)
+		return r.fail(true, 3, err)
 	}
 	if err != nil {
-		return r.fail(*jsonOutput, 1, err)
+		return r.fail(true, 1, err)
 	}
-	if *jsonOutput {
-		return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
-	}
-	if result.FallbackReason != "" {
-		fmt.Fprintf(r.stderr, "Search mode: %s (%s).\n", result.ActiveMode, result.FallbackReason)
-	}
-	for _, record := range result.Records {
-		fmt.Fprintf(r.stdout, "%s:%d-%d\t%s\n", record.Path, record.StartLine, record.EndLine, record.Excerpt)
-	}
-	return 0
+	return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
 }
 
 func parseInterspersed(flags *flag.FlagSet, args []string) error {
@@ -347,54 +321,23 @@ func (r *runner) runStatus(ctx context.Context, args []string) int {
 	flags.SetOutput(r.stderr)
 	root := flags.String("root", "", "repository root")
 	check := flags.Bool("check", false, "check the configured embedding provider")
-	jsonOutput := flags.Bool("json", false, "write JSON")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if flags.NArg() != 0 {
-		return r.fail(*jsonOutput, 2, errors.New("status accepts no positional arguments"))
+		return r.fail(true, 2, errors.New("status accepts no positional arguments"))
 	}
 	paths, cfg, err := resolve(*root)
 	if err != nil {
-		return r.fail(*jsonOutput, 2, err)
+		return r.fail(true, 2, err)
 	}
 	result, err := status.Inspect(ctx, paths, cfg, status.Options{
 		Version: Version, CheckProvider: *check,
 	})
 	if err != nil {
-		return r.fail(*jsonOutput, 1, err)
+		return r.fail(true, 1, err)
 	}
-	if *jsonOutput {
-		return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
-	}
-	if !result.Indexed {
-		fmt.Fprintf(r.stdout, "Not indexed: %s (%d files discovered).\n", result.Root, result.Freshness.New)
-	} else {
-		fmt.Fprintf(r.stdout,
-			"%s: %d files, %d records; drift +%d ~%d -%d.\n",
-			result.Root, result.Counts.Files, result.Counts.Records,
-			result.Freshness.New, result.Freshness.Modified, result.Freshness.Deleted)
-	}
-	switch {
-	case result.Configuration.EmbeddingDisabled:
-		fmt.Fprintln(r.stdout, "Embedding: disabled by repository config.")
-	case result.Configuration.EmbeddingSource != "":
-		fmt.Fprintf(r.stdout, "Embedding config: %s.\n", result.Configuration.EmbeddingSource)
-	default:
-		fmt.Fprintln(r.stdout, "Embedding: unconfigured.")
-	}
-	fmt.Fprintf(r.stdout, "Related seed indexes: %d.\n", result.GitFamily.AvailableSeeds)
-	if result.EmbeddingProvider != nil {
-		if result.EmbeddingProvider.Available {
-			fmt.Fprintf(
-				r.stdout, "Embedding provider: ready in %d ms.\n",
-				result.EmbeddingProvider.ElapsedMS,
-			)
-		} else {
-			fmt.Fprintf(r.stdout, "Embedding provider: unavailable (%s).\n", result.EmbeddingProvider.Error)
-		}
-	}
-	return 0
+	return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
 }
 
 func resolve(explicitRoot string) (project.Paths, config.Config, error) {

@@ -24,12 +24,12 @@ or reports to them.
 make build
 export YGG_STORAGE_ROOT="$(mktemp -d /tmp/ygg-dogfood.XXXXXX)"
 
-bin/ygg index --root ../breyta-workbench --full --no-embed --json
-bin/ygg index --root ../void2 --full --no-embed --json
-bin/ygg index --root ../breyta-workbench --no-embed --json
-bin/ygg index --root ../void2 --no-embed --json
-bin/ygg status --root ../breyta-workbench --json
-bin/ygg status --root ../void2 --json
+bin/ygg index --root ../breyta-workbench --full --no-embed
+bin/ygg index --root ../void2 --full --no-embed
+bin/ygg index --root ../breyta-workbench --no-embed
+bin/ygg index --root ../void2 --no-embed
+bin/ygg status --root ../breyta-workbench
+bin/ygg status --root ../void2
 ```
 
 The lexical search checks use repository concepts supplied by each repository's

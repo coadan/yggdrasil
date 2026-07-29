@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -23,12 +24,12 @@ func TestIndexSearchAndStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stdout, stderr bytes.Buffer
-	if code := Main(context.Background(), []string{"index", "--root", root, "--json"}, &stdout, &stderr); code != 0 {
+	if code := Main(context.Background(), []string{"index", "--root", root}, &stdout, &stderr); code != 0 {
 		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := Main(context.Background(), []string{"search", "--root", root, "--mode", "lexical", "--json", "RegisterRequest"}, &stdout, &stderr); code != 0 {
+	if code := Main(context.Background(), []string{"search", "--root", root, "--mode", "lexical", "RegisterRequest"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 	var response struct {
@@ -85,7 +86,7 @@ func TestSearchAcceptsFlagsAfterQuery(t *testing.T) {
 	stderr.Reset()
 	if code := Main(context.Background(), []string{
 		"search", "trailingflagmarker", "--root", root,
-		"--mode", "lexical", "--limit", "1", "--json",
+		"--mode", "lexical", "--limit", "1",
 	}, &stdout, &stderr); code != 0 {
 		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
@@ -99,7 +100,7 @@ func TestSearchAcceptsFlagsAfterQuery(t *testing.T) {
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
-		t.Fatalf("search did not honor trailing --json: %v: %s", err, stdout.String())
+		t.Fatalf("search did not write default JSON: %v: %s", err, stdout.String())
 	}
 	if !response.OK || response.Data.RequestedMode != "lexical" ||
 		len(response.Data.Records) != 1 || response.Data.Records[0].Path != "owner.txt" {
@@ -133,7 +134,7 @@ func TestSearchLazilySeedsLinkedWorktreeIndex(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	if code := Main(context.Background(), []string{
-		"index", "--root", primary, "--no-embed", "--json",
+		"index", "--root", primary, "--no-embed",
 	}, &stdout, &stderr); code != 0 {
 		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
@@ -147,7 +148,7 @@ func TestSearchLazilySeedsLinkedWorktreeIndex(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	if code := Main(context.Background(), []string{
-		"search", "--root", linked, "--mode", "lexical", "--json", "lazyworktreeseedmarker",
+		"search", "--root", linked, "--mode", "lexical", "lazyworktreeseedmarker",
 	}, &stdout, &stderr); code != 0 {
 		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
@@ -180,7 +181,7 @@ func TestSearchWaitsForConcurrentIndexCommit(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	if code := Main(context.Background(), []string{
-		"index", "--root", root, "--no-embed", "--json",
+		"index", "--root", root, "--no-embed",
 	}, &stdout, &stderr); code != 0 {
 		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
@@ -208,7 +209,7 @@ func TestSearchWaitsForConcurrentIndexCommit(t *testing.T) {
 	done := make(chan int, 1)
 	go func() {
 		done <- Main(context.Background(), []string{
-			"search", "--root", root, "--mode", "lexical", "--json", "retired-owner",
+			"search", "--root", root, "--mode", "lexical", "retired-owner",
 		}, &stdout, &stderr)
 	}()
 	select {
@@ -295,6 +296,21 @@ func TestSearchRejectsOutOfBoundsLimitBeforeOpeningIndex(t *testing.T) {
 	}, &stdout, &stderr)
 	if code != 2 {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestOperationalCommandsRejectRemovedJSONFlag(t *testing.T) {
+	for _, args := range [][]string{
+		{"index", "--json"},
+		{"search", "query", "--json"},
+		{"status", "--json"},
+		{"plugin", "check", "example", "--json"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := Main(context.Background(), args, &stdout, &stderr)
+		if code != 2 || !strings.Contains(stderr.String(), "flag provided but not defined: -json") {
+			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", args, code, stdout.String(), stderr.String())
+		}
 	}
 }
 
