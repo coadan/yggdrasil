@@ -692,6 +692,26 @@ func TestResultExcerptLimitKeepsCommonResponsesBounded(t *testing.T) {
 	}
 }
 
+func TestRankedRecordJSONOmitsFusionDiagnostics(t *testing.T) {
+	raw, err := json.Marshal(RankedRecord{
+		Path: "src/router.go", StartLine: 4, EndLine: 8, Kind: "function",
+		Title: "routeRequest", Excerpt: "func routeRequest() {}", Source: "plugin:go",
+		Retrieval: []string{"lexical", "semantic"}, Score: 0.42,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := string(raw)
+	if strings.Contains(encoded, `"retrieval"`) || strings.Contains(encoded, `"score"`) {
+		t.Fatalf("public search record exposes fusion diagnostics: %s", encoded)
+	}
+	for _, field := range []string{`"path"`, `"startLine"`, `"endLine"`, `"kind"`, `"title"`, `"excerpt"`, `"source"`} {
+		if !strings.Contains(encoded, field) {
+			t.Fatalf("public search record lacks %s: %s", field, encoded)
+		}
+	}
+}
+
 func TestCitationEvidenceUsesTokenBoundariesInsteadOfIdentifierSubstrings(t *testing.T) {
 	const path = "src/EnvironmentPanel.tsx"
 	text := "function installJournalizedConsumerismComponentship() {}\n" +

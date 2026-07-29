@@ -164,9 +164,10 @@ length must equal the configured dimensions.
 ## JSON CLI envelopes
 
 Operational commands always return JSON with `schema`, `ok`, and either `data`
-or `error`. Search data uses schema `ygg.search.result/v1` and includes the
+or `error`. Search data uses schema `ygg.search.result/v2` and includes the
 requested mode, active mode, fallback reason, timings, and ranked records with
-path/line citations.
+path/line citations. Records expose navigation evidence, not internal fusion
+scores or retrieval-lane diagnostics.
 Search validates a mechanical repository freshness token before retrieval and
 incrementally refreshes a changed index. Its `elapsedMs` therefore includes
 root resolution, freshness validation, any required refresh, and retrieval.

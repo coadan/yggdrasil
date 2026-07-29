@@ -63,8 +63,8 @@ type RankedRecord struct {
 	Excerpt    string         `json:"excerpt"`
 	Metadata   map[string]any `json:"metadata,omitempty"`
 	Source     string         `json:"source"`
-	Retrieval  []string       `json:"retrieval"`
-	Score      float64        `json:"score"`
+	Retrieval  []string       `json:"-"`
+	Score      float64        `json:"-"`
 	internalID int64
 }
 
