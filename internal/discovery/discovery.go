@@ -47,7 +47,7 @@ func Candidates(root string, ignoreGlobs []string) ([]Candidate, error) {
 		if ignored(rel, ignoreGlobs) {
 			continue
 		}
-		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel)))
+		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil || !info.Mode().IsRegular() {
 			continue
 		}
@@ -62,10 +62,18 @@ func Candidates(root string, ignoreGlobs []string) ([]Candidate, error) {
 }
 
 func Read(root string, candidate Candidate, maxBytes int64) (File, *Skipped, error) {
+	absolute := filepath.Join(root, filepath.FromSlash(candidate.Path))
+	info, err := os.Lstat(absolute)
+	if err != nil {
+		return File{}, nil, fmt.Errorf("inspect %s: %w", candidate.Path, err)
+	}
+	if !info.Mode().IsRegular() {
+		return File{}, &Skipped{Path: candidate.Path, Reason: "non-regular"}, nil
+	}
 	if candidate.Size > maxBytes {
 		return File{}, &Skipped{Path: candidate.Path, Reason: "file-too-large"}, nil
 	}
-	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(candidate.Path)))
+	data, err := os.ReadFile(absolute)
 	if err != nil {
 		return File{}, nil, fmt.Errorf("read %s: %w", candidate.Path, err)
 	}
