@@ -37,8 +37,6 @@ var Version = "0.3.0-dev"
 
 const searchIndexWait = 30 * time.Second
 
-var errRepositoryNotIndexed = errors.New("repository is not indexed; run ygg index")
-
 type envelope struct {
 	Schema string     `json:"schema"`
 	OK     bool       `json:"ok"`
@@ -204,9 +202,6 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		return r.fail(true, 2, err)
 	}
 	indexLock, value, err := prepareSearchIndex(ctx, paths, cfg)
-	if errors.Is(err, errRepositoryNotIndexed) {
-		return r.fail(true, 3, err)
-	}
 	if err != nil {
 		return r.fail(true, 1, err)
 	}
@@ -238,13 +233,6 @@ func prepareSearchIndex(
 		}
 		if _, err := os.Stat(paths.Database); errors.Is(err, os.ErrNotExist) {
 			releaseSearchIndexLock(indexLock)
-			seeds, seedErr := project.SiblingIndexes(ctx, paths)
-			if seedErr != nil {
-				return nil, nil, fmt.Errorf("find worktree index: %w", seedErr)
-			}
-			if len(seeds) == 0 {
-				return nil, nil, errRepositoryNotIndexed
-			}
 		} else if err != nil {
 			releaseSearchIndexLock(indexLock)
 			return nil, nil, err

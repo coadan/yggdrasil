@@ -77,8 +77,9 @@ If `search` starts in a fresh linked worktree and a same-family index exists,
 Yggdrasil snapshots and reconciles that index before answering. Every search
 also refreshes modified, deleted, renamed, and untracked files when repository
 state changed; unchanged searches use a lightweight freshness token and do not
-rescan. Yggdrasil asks for an explicit `ygg index` only when no related index
-exists, avoiding an unexpected full-repository build from a search command.
+rescan. A first search with no related index initializes the repository directly,
+so `ygg index` is reserved for explicit rebuild, embedding, and maintenance
+control rather than normal setup.
 
 The complete public surface is:
 

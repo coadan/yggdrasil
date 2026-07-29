@@ -169,8 +169,9 @@ requested mode, active mode, fallback reason, timings, and ranked records with
 path/line citations. Records expose navigation evidence, not internal fusion
 scores or retrieval-lane diagnostics.
 Search validates a mechanical repository freshness token before retrieval and
-incrementally refreshes a changed index. Its `elapsedMs` therefore includes
-root resolution, freshness validation, any required refresh, and retrieval.
+initializes or incrementally refreshes the repository index as needed. Its
+`elapsedMs` therefore includes root resolution, freshness validation, any
+required indexing, and retrieval.
 Fusion ranks files independently from their returned citation. When multiple
 records from one file contribute, the citation uses the bounded source window
 with the densest query-term evidence; `startLine`, `endLine`, and a line-based

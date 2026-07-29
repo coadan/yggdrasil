@@ -81,14 +81,32 @@ func TestIndexSearchAndStatus(t *testing.T) {
 	}
 }
 
-func TestSearchRequiresAnIndex(t *testing.T) {
+func TestSearchInitializesAnUnindexedRepository(t *testing.T) {
 	isolateCLIUserConfig(t)
 	root := t.TempDir()
 	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(
+		filepath.Join(root, "owner.txt"), []byte("firstsearchmarker\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
 	var stdout, stderr bytes.Buffer
-	code := Main(context.Background(), []string{"search", "--root", root, "query"}, &stdout, &stderr)
-	if code != 3 {
+	code := Main(
+		context.Background(),
+		[]string{"search", "--root", root, "--mode", "lexical", "firstsearchmarker"},
+		&stdout,
+		&stderr,
+	)
+	if code != 0 {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	assertSearchPaths(t, stdout.Bytes(), []string{"owner.txt"})
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(paths.Database); err != nil {
+		t.Fatalf("search did not initialize the index: %v", err)
 	}
 }
 
