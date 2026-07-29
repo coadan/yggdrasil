@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -60,6 +61,39 @@ func TestRunIsIncrementalAndDeletesMissingFiles(t *testing.T) {
 	defer value.Close()
 	counts, err := value.Counts(context.Background())
 	if err != nil || counts.Files != 0 {
+		t.Fatalf("counts=%#v err=%v", counts, err)
+	}
+}
+
+func TestRunCommitsMultipleBoundedWriteBatches(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	const fileCount = writeBatchSize*2 + 1
+	for i := range fileCount {
+		path := filepath.Join(root, fmt.Sprintf("%03d.txt", i))
+		if err := os.WriteFile(path, []byte(fmt.Sprintf("record %d", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := Run(context.Background(), paths, config.Default(), Options{})
+	if err != nil || first.Indexed != fileCount {
+		t.Fatalf("first=%#v err=%v", first, err)
+	}
+	second, err := Run(context.Background(), paths, config.Default(), Options{})
+	if err != nil || second.Indexed != 0 || second.Unchanged != fileCount {
+		t.Fatalf("second=%#v err=%v", second, err)
+	}
+	value, err := store.Open(context.Background(), paths.Database, paths.Root, paths.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	counts, err := value.Counts(context.Background())
+	if err != nil || counts.Files != fileCount || counts.Records != fileCount*2 {
 		t.Fatalf("counts=%#v err=%v", counts, err)
 	}
 }
