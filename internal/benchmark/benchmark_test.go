@@ -23,7 +23,10 @@ func TestLoadSuiteValidatesAndHashes(t *testing.T) {
 		"id":"fixture",
 		"repos":[{"id":"repo","url":"https://example.test/repo.git"}],
 		"cases":[{
-			"id":"case","repositoryId":"repo","revision":"0123456789",
+			"id":"case","repositoryId":"repo",
+			"revision":"0123456789012345678901234567890123456789",
+			"fixRevision":"abcdefabcdefabcdefabcdefabcdefabcdefabcd",
+			"sourceUrl":"https://example.test/repo/pull/1",
 			"query":"find owner","expectedPaths":["owner.go"],
 			"sourceKinds":["go"],"problemClasses":["problem-implementation"],
 			"architectureClasses":["architecture-data-ownership"]
@@ -35,6 +38,23 @@ func TestLoadSuiteValidatesAndHashes(t *testing.T) {
 	suite, hash, err := LoadSuite(path)
 	if err != nil || suite.ID != "fixture" || len(hash) != 71 {
 		t.Fatalf("suite=%#v hash=%q err=%v", suite, hash, err)
+	}
+}
+
+func TestLoadSuiteRejectsUnknownFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "suite.json")
+	data := []byte(`{
+		"schema":"ygg.benchmark.suite/v1",
+		"id":"fixture",
+		"unknown":true,
+		"repos":[],
+		"cases":[]
+	}`)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := LoadSuite(path); err == nil {
+		t.Fatal("expected unknown suite field to fail")
 	}
 }
 
@@ -59,5 +79,16 @@ func TestTrackedClaimSuiteHasBroadManualCoverage(t *testing.T) {
 	}
 	if len(got.ProblemClasses) < 3 || len(got.ArchitectureClasses) < 3 {
 		t.Fatalf("manual class coverage=%#v", got)
+	}
+}
+
+func TestAggregateIncludesRawBaselineTiming(t *testing.T) {
+	got := aggregate([]CaseReport{
+		{RawFileRecallAt10: 0.5, RawMRR: 0.25, RawRipgrepMS: 4},
+		{RawFileRecallAt10: 1, RawMRR: 0.5, RawRipgrepMS: 8},
+	})
+	if got.RawRecallAt10 != 0.75 || got.RawMRR != 0.375 ||
+		got.RawSearchP50MS != 4 || got.RawSearchP95MS != 8 {
+		t.Fatalf("aggregate=%#v", got)
 	}
 }
