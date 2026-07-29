@@ -66,6 +66,47 @@ func TestSearchRequiresAnIndex(t *testing.T) {
 	}
 }
 
+func TestSearchAcceptsFlagsAfterQuery(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(
+		filepath.Join(root, "owner.txt"), []byte("trailingflagmarker\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"index", "--root", root, "--no-embed",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "trailingflagmarker", "--root", root,
+		"--mode", "lexical", "--limit", "1", "--json",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var response struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			RequestedMode string `json:"requestedMode"`
+			Records       []struct {
+				Path string `json:"path"`
+			} `json:"records"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("search did not honor trailing --json: %v: %s", err, stdout.String())
+	}
+	if !response.OK || response.Data.RequestedMode != "lexical" ||
+		len(response.Data.Records) != 1 || response.Data.Records[0].Path != "owner.txt" {
+		t.Fatalf("unexpected search response: %s", stdout.String())
+	}
+}
+
 func TestSearchLazilySeedsLinkedWorktreeIndex(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
