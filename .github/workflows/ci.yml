@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25.x"
+          cache-dependency-path: |
+            go.sum
+            plugins/markdown/go.mod
+      - run: make check
+      - run: make release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ygg-binaries
+          path: dist/ygg-*

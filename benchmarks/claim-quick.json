@@ -1,0 +1,167 @@
+{
+  "schema": "ygg.benchmark.suite/v1",
+  "id": "claim-quick",
+  "description": "Non-synthetic localization replay cases curated from real upstream fixes. Revisions are the parent state before each fix.",
+  "repos": [
+    {
+      "id": "axios",
+      "url": "https://github.com/axios/axios.git"
+    },
+    {
+      "id": "dapper",
+      "url": "https://github.com/DapperLib/Dapper.git"
+    },
+    {
+      "id": "flask",
+      "url": "https://github.com/pallets/flask.git"
+    },
+    {
+      "id": "graphify",
+      "url": "https://github.com/safishamsi/graphify.git"
+    },
+    {
+      "id": "opentelemetry-collector-contrib",
+      "url": "https://github.com/open-telemetry/opentelemetry-collector-contrib.git"
+    },
+    {
+      "id": "supabase-postgres",
+      "url": "https://github.com/supabase/postgres.git"
+    },
+    {
+      "id": "terraform-aws-vpc",
+      "url": "https://github.com/terraform-aws-modules/terraform-aws-vpc.git"
+    }
+  ],
+  "cases": [
+    {
+      "id": "axios-defer-env-proxy-to-node",
+      "repositoryId": "axios",
+      "revision": "e64bcf9c5af231d6f37d8389b1e57ded314fff86",
+      "query": "defer environment proxy handling to Node in the HTTP adapter and update its unit tests",
+      "expectedPaths": [
+        "lib/adapters/http.js",
+        "tests/unit/adapters/http.test.js"
+      ],
+      "sourceKinds": ["javascript"],
+      "problemClasses": ["problem-cross-file", "problem-runtime-config"],
+      "architectureClasses": ["architecture-runtime-boundary", "audit-scope-runtime-config"]
+    },
+    {
+      "id": "axios-proxy-node-only-doc",
+      "repositoryId": "axios",
+      "revision": "5f229d2d1f018d1db3dab6bbe034dbf3f9041b99",
+      "query": "mark the proxy request configuration option as Node.js only in advanced request config documentation",
+      "expectedPaths": [
+        "docs/pages/advanced/request-config.md"
+      ],
+      "sourceKinds": ["doc"],
+      "problemClasses": ["problem-docs-config-coupling", "problem-runtime-config"],
+      "architectureClasses": ["audit-scope-docs", "audit-scope-runtime-config"]
+    },
+    {
+      "id": "dapper-prefer-enum-type-handlers",
+      "repositoryId": "dapper",
+      "revision": "512f024667b79b4a17a38f33da59b072a43579f1",
+      "query": "add an opt-in setting so registered enum TypeHandlers are preferred before default enum boxing in core mapping and settings",
+      "expectedPaths": [
+        "Dapper/SqlMapper.Settings.cs",
+        "Dapper/SqlMapper.cs"
+      ],
+      "sourceKinds": ["dotnet"],
+      "problemClasses": ["problem-implementation", "problem-api-contract", "problem-cross-file"],
+      "architectureClasses": ["architecture-data-ownership", "audit-scope-dependencies"]
+    },
+    {
+      "id": "otel-routing-default-error-mode",
+      "repositoryId": "opentelemetry-collector-contrib",
+      "revision": "7d830a73d319f33945ac894116a08aa54177b551",
+      "query": "routing connector feature gate changes the default error_mode behavior; locate config schema factory metadata and tests",
+      "expectedPaths": [
+        "connector/routingconnector/config.go",
+        "connector/routingconnector/config.schema.yaml",
+        "connector/routingconnector/factory.go",
+        "connector/routingconnector/factory_test.go",
+        "connector/routingconnector/metadata.yaml"
+      ],
+      "sourceKinds": ["go", "yaml"],
+      "problemClasses": ["problem-implementation", "problem-architecture", "problem-cross-file"],
+      "architectureClasses": ["architecture-runtime-boundary", "architecture-dependency-flow"]
+    },
+    {
+      "id": "terraform-vpc-endpoint-dns-record-ip-type",
+      "repositoryId": "terraform-aws-vpc",
+      "revision": "82d1929e669efef4e2ad00611b8a68e7a56e049c",
+      "query": "correct dns_options dns_record_ip_type lookup for aws_vpc_endpoint in the VPC endpoints module",
+      "expectedPaths": [
+        "modules/vpc-endpoints/main.tf"
+      ],
+      "sourceKinds": ["terraform"],
+      "problemClasses": ["problem-architecture", "problem-runtime-config"],
+      "architectureClasses": ["architecture-data-ownership", "audit-scope-runtime-config"]
+    },
+    {
+      "id": "flask-autoescape-case-insensitive",
+      "repositoryId": "flask",
+      "revision": "06ea505ce2b2042af26e96d35ebf159af7c0869d",
+      "query": "make autoescape selection compare file extensions case insensitively in the framework runtime",
+      "expectedPaths": [
+        "src/flask/sansio/app.py"
+      ],
+      "sourceKinds": ["python"],
+      "problemClasses": ["problem-runtime-config", "problem-api-contract"],
+      "architectureClasses": ["architecture-runtime-boundary"]
+    },
+    {
+      "id": "graphify-read-glob-hook-extension-boundary",
+      "repositoryId": "graphify",
+      "revision": "1e3270a374498b446eb68c8f72a92d6ccf68a0ff",
+      "query": "Read Glob PreToolUse hook should match real trailing file extensions and add regressions for json false positives and framework source extensions",
+      "expectedPaths": [
+        "graphify/__main__.py",
+        "tests/test_read_hook.py"
+      ],
+      "sourceKinds": ["python"],
+      "problemClasses": ["problem-implementation", "problem-runtime-config", "problem-cross-file"],
+      "architectureClasses": ["architecture-runtime-boundary"]
+    },
+    {
+      "id": "flask-request-json-status-doc",
+      "repositoryId": "flask",
+      "revision": "25642fd1fd65985fc98f95e64bc2c7ff353d6c2b",
+      "query": "clarify JavaScript pattern docs: invalid JSON is 400 while missing application json Content-Type is 415",
+      "expectedPaths": [
+        "docs/patterns/javascript.rst"
+      ],
+      "sourceKinds": ["doc"],
+      "problemClasses": ["problem-docs-config-coupling"],
+      "architectureClasses": ["audit-scope-docs"]
+    },
+    {
+      "id": "axios-formdata-epipe-test-lifecycle",
+      "repositoryId": "axios",
+      "revision": "3cf6917576417961de6c96a99844690b5cc41451",
+      "query": "harden HTTP test server lifecycle to fix flaky FormData EPIPE failures in test setup and adapter tests",
+      "expectedPaths": [
+        "tests/setup/server.js",
+        "tests/unit/adapters/fetch.test.js",
+        "tests/unit/adapters/http.test.js"
+      ],
+      "sourceKinds": ["javascript"],
+      "problemClasses": ["problem-test-only"],
+      "architectureClasses": ["architecture-runtime-boundary"]
+    },
+    {
+      "id": "supabase-event-trigger-schema-regression",
+      "repositoryId": "supabase-postgres",
+      "revision": "62421a2b09e8bb8dc4579e2a4c04e7aa7e1e6aa9",
+      "query": "event trigger regression query should include each trigger function schema and refresh the expected output",
+      "expectedPaths": [
+        "nix/tests/sql/evtrigs.sql",
+        "nix/tests/expected/evtrigs.out"
+      ],
+      "sourceKinds": ["sql", "text"],
+      "problemClasses": ["problem-test-only", "problem-runtime-config"],
+      "architectureClasses": ["audit-scope-runtime-config"]
+    }
+  ]
+}
