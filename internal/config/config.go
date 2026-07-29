@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	DefaultMaxFileBytes = int64(4 * 1024 * 1024)
-	DefaultTimeoutMS    = 10_000
-	DefaultBatchSize    = 64
+	DefaultMaxFileBytes   = int64(4 * 1024 * 1024)
+	DefaultTimeoutMS      = 10_000
+	DefaultBatchSize      = 64
+	CoreExtractionVersion = "v2"
 )
 
 type Plugin struct {
@@ -139,10 +140,12 @@ func (c *Config) Validate() error {
 
 func ExtractionFingerprint(c Config) string {
 	payload := struct {
+		CoreVersion  string   `json:"coreVersion"`
 		MaxFileBytes int64    `json:"maxFileBytes"`
 		IgnoreGlobs  []string `json:"ignoreGlobs"`
 		Plugins      []Plugin `json:"plugins"`
 	}{
+		CoreVersion:  CoreExtractionVersion,
 		MaxFileBytes: c.MaxFileBytes,
 		IgnoreGlobs:  c.IgnoreGlobs,
 		Plugins:      c.Plugins,

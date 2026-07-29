@@ -128,6 +128,9 @@ configuration, verified smoke evidence, and remaining legacy differences.
 - **Concrete facts first.** Core uses file discovery, file kinds, parser output,
   hashes, line ranges, and search scores. It does not infer project meaning from
   names, hosts, path vocabulary, or prose.
+- **Secret-aware discovery.** Key and certificate material is excluded.
+  Dotenv files retain searchable variable names while assigned values are
+  redacted before chunking or plugin extraction.
 - **Reliability before enrichment.** Lexical search remains available when
   embeddings are unconfigured, incomplete, or temporarily failing.
 - **Progressive disclosure.** Search starts with compact citations; callers

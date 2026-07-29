@@ -3,8 +3,11 @@ package discovery
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+const testMaxBytes = int64(1024)
 
 func TestMatchSupportsDoubleStar(t *testing.T) {
 	for _, test := range []struct {
@@ -20,6 +23,42 @@ func TestMatchSupportsDoubleStar(t *testing.T) {
 		if got := Match(test.pattern, test.path); got != test.want {
 			t.Errorf("Match(%q, %q) = %v, want %v", test.pattern, test.path, got, test.want)
 		}
+	}
+}
+
+func TestReadSkipsSecretMaterial(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"client.key", "certificate.pem", "root.crt", "chain.cer", "chain.cert"} {
+		content := []byte("private material")
+		if err := os.WriteFile(filepath.Join(root, name), content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		file, skipped, err := Read(root, Candidate{Path: name, Size: int64(len(content))}, testMaxBytes)
+		if err != nil || skipped == nil || skipped.Reason != "secret-material" || file.Path != "" {
+			t.Fatalf("%s file=%#v skipped=%#v err=%v", name, file, skipped, err)
+		}
+	}
+}
+
+func TestReadSanitizesDotenvValues(t *testing.T) {
+	root := t.TempDir()
+	content := "PUBLIC_NAME=panels\nexport API_TOKEN='never-index-this'\n# secret comment\nnot an assignment\n"
+	name := ".env.example"
+	if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, skipped, err := Read(root, Candidate{Path: name, Size: int64(len(content))}, testMaxBytes)
+	if err != nil || skipped != nil {
+		t.Fatalf("file=%#v skipped=%#v err=%v", file, skipped, err)
+	}
+	if file.Kind != "env" ||
+		!strings.Contains(file.Content, "PUBLIC_NAME=<redacted>") ||
+		!strings.Contains(file.Content, "export API_TOKEN=<redacted>") ||
+		strings.Contains(file.Content, "panels") ||
+		strings.Contains(file.Content, "never-index-this") ||
+		strings.Contains(file.Content, "secret comment") ||
+		strings.Count(file.Content, "\n") != strings.Count(content, "\n") {
+		t.Fatalf("content=%q", file.Content)
 	}
 }
 

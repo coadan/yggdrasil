@@ -15,6 +15,7 @@ directory, storage directory, and eventual remote remain
 | Incremental local state | Size, mtime, extraction fingerprint, and content hash drive atomic per-file SQLite replacement |
 | Hybrid recall when configured | FTS5/path recall is always available; complete Vec1 lanes join `auto` retrieval with explicit fallback states |
 | Extensible extraction | Versioned, run-scoped JSONL executables emit the one canonical search-record shape |
+| Legacy text coverage | An exhaustive 95-kind gate verifies cited search for retained text and exclusion of binary/secret material |
 | Non-synthetic replay evidence | Pinned upstream pre-fix/fix revisions, verified changed paths, manual classes, candidate/raw timing, and hashed reports |
 | Central state outside repositories | One deterministic project directory beneath `YGG_STORAGE_ROOT/indexes/` |
 
