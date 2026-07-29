@@ -3,6 +3,7 @@ package search
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -58,14 +59,44 @@ type RankedRecord struct {
 	Path       string         `json:"path"`
 	StartLine  int            `json:"startLine"`
 	EndLine    int            `json:"endLine"`
-	Kind       string         `json:"kind"`
+	Kind       string         `json:"kind,omitempty"`
 	Title      string         `json:"title,omitempty"`
 	Excerpt    string         `json:"excerpt"`
 	Metadata   map[string]any `json:"metadata,omitempty"`
-	Source     string         `json:"source"`
+	Source     string         `json:"source,omitempty"`
 	Retrieval  []string       `json:"-"`
 	Score      float64        `json:"-"`
 	internalID int64
+}
+
+func (r RankedRecord) MarshalJSON() ([]byte, error) {
+	type publicRecord struct {
+		Path      string         `json:"path"`
+		StartLine int            `json:"startLine"`
+		EndLine   int            `json:"endLine"`
+		Kind      string         `json:"kind,omitempty"`
+		Title     string         `json:"title,omitempty"`
+		Excerpt   string         `json:"excerpt"`
+		Metadata  map[string]any `json:"metadata,omitempty"`
+		Source    string         `json:"source,omitempty"`
+	}
+	kind := r.Kind
+	if kind == "text-chunk" {
+		kind = ""
+	}
+	title := r.Title
+	if title == r.Path || title == fmt.Sprintf("%s:%d", r.Path, r.StartLine) {
+		title = ""
+	}
+	source := r.Source
+	if source == "core" {
+		source = ""
+	}
+	return json.Marshal(publicRecord{
+		Path: r.Path, StartLine: r.StartLine, EndLine: r.EndLine,
+		Kind: kind, Title: title, Excerpt: r.Excerpt,
+		Metadata: r.Metadata, Source: source,
+	})
 }
 
 func Run(ctx context.Context, value *store.Store, query string, opts Options) (Result, error) {
