@@ -64,6 +64,11 @@ ygg search --root /path/to/repository "where is request routing configured"
 ygg status --root /path/to/repository
 ```
 
+If `search` starts in a fresh linked worktree and a same-family index exists,
+Yggdrasil snapshots and reconciles that index before answering. It still asks
+for an explicit `ygg index` when no related index exists, avoiding an unexpected
+full-repository build from a search command.
+
 The complete public surface is:
 
 ```text

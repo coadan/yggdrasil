@@ -206,7 +206,16 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		return r.fail(*jsonOutput, 2, err)
 	}
 	if _, err := os.Stat(paths.Database); errors.Is(err, os.ErrNotExist) {
-		return r.fail(*jsonOutput, 3, errors.New("repository is not indexed; run ygg index"))
+		seeds, seedErr := project.SiblingIndexes(ctx, paths)
+		if seedErr != nil {
+			return r.fail(*jsonOutput, 1, fmt.Errorf("find worktree index: %w", seedErr))
+		}
+		if len(seeds) == 0 {
+			return r.fail(*jsonOutput, 3, errors.New("repository is not indexed; run ygg index"))
+		}
+		if _, seedErr := indexer.Run(ctx, paths, cfg, indexer.Options{}); seedErr != nil {
+			return r.fail(*jsonOutput, 1, fmt.Errorf("prepare worktree index: %w", seedErr))
+		}
 	} else if err != nil {
 		return r.fail(*jsonOutput, 1, err)
 	}
