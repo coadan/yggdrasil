@@ -6,7 +6,7 @@ const (
 	ConfigSchema      = "ygg.config/v1"
 	ExtractorSchema   = "ygg.extractor/v1"
 	EmbeddingSchema   = "ygg.embedding/v1"
-	SearchSchema      = "ygg.search.result/v1"
+	SearchSchema      = "ygg.search.result/v2"
 	CLIEnvelopeSchema = "ygg.cli/v1"
 )
 
