@@ -620,6 +620,59 @@ func TestVersionProbes(t *testing.T) {
 	}
 }
 
+func TestSearchFindsLiteralJSONFlagAfterTerminator(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(
+		filepath.Join(root, "flags.md"), []byte("Output is selected with --json.\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"index", "--root", root, "--no-embed",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "--mode", "lexical", "--", "--json",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var response struct {
+		Data struct {
+			Query   string `json:"query"`
+			Records []struct {
+				Path string `json:"path"`
+			} `json:"records"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Data.Query != "--json" || len(response.Data.Records) != 1 ||
+		response.Data.Records[0].Path != "flags.md" {
+		t.Fatalf("response=%s", stdout.String())
+	}
+}
+
+func TestSearchExplainsLeadingDashQuerySeparator(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Main(
+		context.Background(),
+		[]string{"search", "--literal-looking-query"},
+		&stdout,
+		&stderr,
+	)
+	if code != 2 || stderr.Len() != 0 ||
+		!strings.Contains(stdout.String(), "place -- before a query that begins with '-'") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestPublicSurfaceRejectsLegacyCommands(t *testing.T) {
 	for _, command := range []string{
 		"start", "init", "sync", "query", "view", "report", "packages",

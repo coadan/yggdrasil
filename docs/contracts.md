@@ -205,6 +205,9 @@ path-stem matches. A single case-marked code identifier such as `ContentStack`,
 `Metric`, `runTask`, or `API` uses the same literal lane, while lowercase
 conceptual terms retain normal hybrid retrieval. Explicit `semantic` mode
 remains semantic-only.
+Queries beginning with `-` follow the standard flag terminator, for example
+`ygg search -- "--json"`. The temporary redundant `--json` output assertion is
+recognized only before that terminator and cannot consume literal query text.
 Broad queries containing a mixed-case identifier or two or more other structured
 anchors also retain bounded per-anchor lexical lanes. This keeps an exact symbol
 represented among surrounding conceptual terms without treating one natural
