@@ -13,6 +13,7 @@ func TestMatchSupportsDoubleStar(t *testing.T) {
 		want    bool
 	}{
 		{"**/*.md", "docs/guide.md", true},
+		{"**/*.md", "README.md", true},
 		{"src/*.go", "src/main.go", true},
 		{"src/*.go", "src/nested/main.go", false},
 	} {

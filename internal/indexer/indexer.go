@@ -14,6 +14,7 @@ import (
 	"github.com/coadan/yggdrasil/internal/chunk"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/discovery"
+	"github.com/coadan/yggdrasil/internal/plugin"
 	"github.com/coadan/yggdrasil/internal/project"
 	"github.com/coadan/yggdrasil/internal/store"
 )
@@ -75,6 +76,13 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	}
 	summary.Scanned = len(candidates)
 	fingerprint := config.ExtractionFingerprint(cfg)
+	plugins := plugin.NewManager(ctx, paths.Root, cfg.Plugins)
+	pluginsClosed := false
+	defer func() {
+		if !pluginsClosed {
+			plugins.Close()
+		}
+	}()
 	present := make(map[string]bool, len(candidates))
 	for _, candidate := range candidates {
 		present[candidate.Path] = true
@@ -109,7 +117,23 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		}
 		hash := sha256.Sum256([]byte(file.Content))
 		contentHash := "sha256:" + hex.EncodeToString(hash[:])
-		if err := value.ReplaceFile(ctx, summary.RunID, file, contentHash, fingerprint, chunk.Records(file)); err != nil {
+		file.ContentHash = contentHash
+		records := chunk.Records(file)
+		pluginRecords, pluginDiagnostics := plugins.Extract(file)
+		records = append(records, pluginRecords...)
+		for _, diagnostic := range pluginDiagnostics {
+			summary.Diagnostics++
+			if err := value.AddDiagnostic(
+				ctx,
+				summary.RunID,
+				diagnostic.Path,
+				"extractor-plugin:"+diagnostic.Plugin+":"+diagnostic.Stage,
+				diagnostic.Message,
+			); err != nil {
+				return summary, err
+			}
+		}
+		if err := value.ReplaceFile(ctx, summary.RunID, file, contentHash, fingerprint, records); err != nil {
 			return summary, err
 		}
 		summary.Indexed++
@@ -127,6 +151,19 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 			summary.Deleted++
 		}
 	}
+	for _, diagnostic := range plugins.Close() {
+		summary.Diagnostics++
+		if err := value.AddDiagnostic(
+			ctx,
+			summary.RunID,
+			diagnostic.Path,
+			"extractor-plugin:"+diagnostic.Plugin+":"+diagnostic.Stage,
+			diagnostic.Message,
+		); err != nil {
+			return summary, err
+		}
+	}
+	pluginsClosed = true
 	return summary, nil
 }
 

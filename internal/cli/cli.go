@@ -9,11 +9,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
+	"github.com/coadan/yggdrasil/internal/discovery"
 	"github.com/coadan/yggdrasil/internal/indexer"
+	"github.com/coadan/yggdrasil/internal/plugin"
 	"github.com/coadan/yggdrasil/internal/project"
 	"github.com/coadan/yggdrasil/internal/search"
 	"github.com/coadan/yggdrasil/internal/status"
@@ -61,12 +64,78 @@ func (r *runner) run(ctx context.Context, args []string) int {
 		return r.runStatus(ctx, args[1:])
 	case "plugin":
 		if len(args) > 1 && args[1] == "check" {
-			return r.fail(false, 1, errors.New("plugin check is not available until an extractor is configured"))
+			return r.runPluginCheck(ctx, args[2:])
 		}
 		return r.fail(false, 2, errors.New("usage: ygg plugin check <plugin-id>"))
 	default:
 		return r.fail(false, 2, fmt.Errorf("unknown command %q", args[0]))
 	}
+}
+
+func (r *runner) runPluginCheck(ctx context.Context, args []string) int {
+	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		return r.fail(false, 2, errors.New("plugin id is required before plugin check flags"))
+	}
+	pluginID := args[0]
+	flags := flag.NewFlagSet("plugin check", flag.ContinueOnError)
+	flags.SetOutput(r.stderr)
+	root := flags.String("root", "", "repository root")
+	filePath := flags.String("file", "", "relative file to extract")
+	jsonOutput := flags.Bool("json", false, "write JSON")
+	if err := flags.Parse(args[1:]); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		return r.fail(*jsonOutput, 2, errors.New("plugin check accepts one plugin id"))
+	}
+	paths, cfg, err := resolve(*root)
+	if err != nil {
+		return r.fail(*jsonOutput, 2, err)
+	}
+	var pluginConfig *config.Plugin
+	for i := range cfg.Plugins {
+		if cfg.Plugins[i].ID == pluginID {
+			pluginConfig = &cfg.Plugins[i]
+			break
+		}
+	}
+	if pluginConfig == nil {
+		return r.fail(*jsonOutput, 2, fmt.Errorf("plugin %q is not configured", pluginID))
+	}
+	var file *discovery.File
+	if *filePath != "" {
+		rel := filepath.ToSlash(filepath.Clean(*filePath))
+		if filepath.IsAbs(*filePath) || rel == ".." || strings.HasPrefix(rel, "../") {
+			return r.fail(*jsonOutput, 2, errors.New("--file must stay within the repository root"))
+		}
+		info, err := os.Stat(filepath.Join(paths.Root, filepath.FromSlash(rel)))
+		if err != nil {
+			return r.fail(*jsonOutput, 2, err)
+		}
+		value, skipped, err := discovery.Read(paths.Root, discovery.Candidate{
+			Path: rel, Size: info.Size(), MTimeNS: info.ModTime().UnixNano(),
+		}, cfg.MaxFileBytes)
+		if err != nil {
+			return r.fail(*jsonOutput, 1, err)
+		}
+		if skipped != nil {
+			return r.fail(*jsonOutput, 2, fmt.Errorf("%s: %s", skipped.Path, skipped.Reason))
+		}
+		file = &value
+	}
+	result, err := plugin.Check(ctx, paths.Root, *pluginConfig, file)
+	if err != nil {
+		return r.fail(*jsonOutput, 1, err)
+	}
+	if *jsonOutput {
+		return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
+	}
+	fmt.Fprintf(r.stdout, "Plugin %s is ready", pluginID)
+	if file != nil {
+		fmt.Fprintf(r.stdout, "; %d records from %s", len(result.Records), file.Path)
+	}
+	fmt.Fprintln(r.stdout, ".")
+	return 0
 }
 
 func (r *runner) runIndex(ctx context.Context, args []string) int {
