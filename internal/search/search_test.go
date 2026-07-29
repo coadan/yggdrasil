@@ -2,11 +2,16 @@ package search
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
+	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
+	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/store"
 )
 
@@ -53,5 +58,59 @@ func TestAutoReportsSemanticFallback(t *testing.T) {
 	}
 	if result.ActiveMode != "lexical" || result.FallbackReason != "semantic-unconfigured" {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+func TestAutoFusesConfiguredSemanticLane(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"data": []map[string]any{{"index": 0, "embedding": []float32{1, 0}}},
+		})
+	}))
+	defer server.Close()
+	cfg := config.Embedding{
+		Kind: "openai-compatible", Endpoint: server.URL, Model: "test",
+		Dimensions: 2, TimeoutMS: 1_000,
+	}
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	file := discovery.File{
+		Candidate: discovery.Candidate{Path: "src/target.go", Size: 20, MTimeNS: 1},
+		Kind:      "go",
+	}
+	if err := value.ReplaceFile(ctx, "run", file, "hash", "fingerprint", []contracts.SearchRecord{{
+		Path: file.Path, StartLine: 4, EndLine: 6, Kind: "text-chunk",
+		Text: "mechanically unrelated words", Source: "core",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := embedding.Fingerprint(cfg)
+	if _, err := value.PrepareEmbeddingLane(ctx, fingerprint, cfg.Model, cfg.Dimensions); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, fingerprint, 10)
+	if err != nil || len(inputs) != 1 {
+		t.Fatalf("inputs=%#v err=%v", inputs, err)
+	}
+	if err := value.UpsertEmbeddings(ctx, fingerprint, 2, []store.EmbeddingValue{{
+		ID: inputs[0].ID, InputHash: inputs[0].InputHash, Vector: []float32{1, 0},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Run(ctx, value, "conceptual query", Options{
+		Mode: "auto", Limit: 5, Root: t.TempDir(), Embedding: &cfg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ActiveMode != "hybrid" || len(result.Records) != 1 {
+		t.Fatalf("result=%#v", result)
+	}
+	if result.Records[0].Path != file.Path || result.Records[0].Retrieval[0] != "semantic" {
+		t.Fatalf("records=%#v", result.Records)
 	}
 }

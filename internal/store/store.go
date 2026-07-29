@@ -3,10 +3,14 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -14,11 +18,13 @@ import (
 
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
+	"github.com/ncruces/go-sqlite3"
 	"github.com/ncruces/go-sqlite3/driver"
 	"github.com/ncruces/go-sqlite3/ext/fts5"
+	"github.com/ncruces/go-sqlite3/ext/vec1"
 )
 
-const schemaVersion = "1"
+const schemaVersion = "2"
 
 type Store struct {
 	db   *sql.DB
@@ -41,6 +47,7 @@ type Counts struct {
 
 type Record struct {
 	ID        int64
+	InputHash string
 	Path      string
 	StartLine int
 	EndLine   int
@@ -49,6 +56,28 @@ type Record struct {
 	Text      string
 	Metadata  map[string]any
 	Source    string
+}
+
+type EmbeddingInput struct {
+	ID        int64
+	InputHash string
+	Text      string
+}
+
+type EmbeddingValue struct {
+	ID        int64
+	InputHash string
+	Vector    []float32
+}
+
+type EmbeddingState struct {
+	Configured  bool   `json:"configured"`
+	Fingerprint string `json:"fingerprint,omitempty"`
+	Model       string `json:"model,omitempty"`
+	Dimensions  int    `json:"dimensions,omitempty"`
+	Embedded    int    `json:"embedded"`
+	Records     int    `json:"records"`
+	Complete    bool   `json:"complete"`
 }
 
 type Run struct {
@@ -64,7 +93,12 @@ func Open(ctx context.Context, path, root, rootID string) (*Store, error) {
 		return nil, fmt.Errorf("create state directory: %w", err)
 	}
 	uri := (&url.URL{Scheme: "file", Path: path}).String()
-	db, err := driver.Open(uri+"?_pragma=busy_timeout(1000)", fts5.Register)
+	db, err := driver.Open(uri+"?_pragma=busy_timeout(1000)", func(conn *sqlite3.Conn) error {
+		if err := fts5.Register(conn); err != nil {
+			return err
+		}
+		return vec1.Register(conn)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
@@ -129,7 +163,21 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 			text TEXT NOT NULL,
 			metadata_json TEXT NOT NULL,
 			source TEXT NOT NULL
+			,input_hash TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS embedding_lane (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			fingerprint TEXT NOT NULL,
+			model TEXT NOT NULL,
+			dimensions INTEGER NOT NULL,
+			updated_at_ms INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS embedding_records (
+			record_id INTEGER PRIMARY KEY REFERENCES records(id) ON DELETE CASCADE,
+			input_hash TEXT NOT NULL,
+			fingerprint TEXT NOT NULL
+		)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS record_vectors USING vec1(vector)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS record_fts USING fts5(
 			path, title, text,
 			content='records',
@@ -143,6 +191,7 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		`CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records BEGIN
 			INSERT INTO record_fts(record_fts, rowid, path, title, text)
 			VALUES ('delete', old.id, old.path, old.title, old.text);
+			DELETE FROM embedding_records WHERE record_id=old.id;
 		END`,
 		`CREATE TRIGGER IF NOT EXISTS records_au AFTER UPDATE ON records BEGIN
 			INSERT INTO record_fts(record_fts, rowid, path, title, text)
@@ -248,7 +297,7 @@ func (s *Store) ReplaceFile(
 	if err := tx.QueryRowContext(ctx, `SELECT id FROM files WHERE path=?`, file.Path).Scan(&fileID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM records WHERE file_id=?`, fileID); err != nil {
+	if err := deleteFileRecords(ctx, tx, fileID); err != nil {
 		return err
 	}
 	for i, record := range records {
@@ -262,10 +311,10 @@ func (s *Store) ReplaceFile(
 		}
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO records(
-				record_key,file_id,path,start_line,end_line,kind,title,text,metadata_json,source
-			) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+				record_key,file_id,path,start_line,end_line,kind,title,text,metadata_json,source,input_hash
+			) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
 			key, fileID, file.Path, record.StartLine, record.EndLine, record.Kind,
-			record.Title, record.Text, string(metadata), record.Source); err != nil {
+			record.Title, record.Text, string(metadata), record.Source, recordInputHash(record.Title, record.Text)); err != nil {
 			return fmt.Errorf("insert record: %w", err)
 		}
 	}
@@ -273,7 +322,51 @@ func (s *Store) ReplaceFile(
 }
 
 func (s *Store) DeleteFile(ctx context.Context, path string) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM files WHERE path=?`, path)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var fileID int64
+	err = tx.QueryRowContext(ctx, `SELECT id FROM files WHERE path=?`, path).Scan(&fileID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := deleteFileRecords(ctx, tx, fileID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM files WHERE id=?`, fileID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func deleteFileRecords(ctx context.Context, tx *sql.Tx, fileID int64) error {
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM records WHERE file_id=?`, fileID)
+	if err != nil {
+		return err
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM record_vectors WHERE rowid=?`, id); err != nil {
+			return err
+		}
+	}
+	_, err = tx.ExecContext(ctx, `DELETE FROM records WHERE file_id=?`, fileID)
 	return err
 }
 
@@ -317,7 +410,7 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 
 func (s *Store) LexicalCandidates(ctx context.Context, query string, limit int) ([]Record, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 		FROM record_fts
 		JOIN records r ON r.id=record_fts.rowid
 		WHERE record_fts MATCH ?
@@ -331,7 +424,7 @@ func (s *Store) LexicalCandidates(ctx context.Context, query string, limit int) 
 
 func (s *Store) PathCandidates(ctx context.Context, query string, limit int) ([]Record, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id,path,start_line,end_line,kind,title,text,metadata_json,source
+		SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
 		FROM records
 		WHERE kind='file' AND instr(lower(path),lower(?)) > 0
 		ORDER BY
@@ -352,6 +445,7 @@ func scanRecords(rows *sql.Rows) ([]Record, error) {
 		var metadata string
 		if err := rows.Scan(
 			&record.ID,
+			&record.InputHash,
 			&record.Path,
 			&record.StartLine,
 			&record.EndLine,
@@ -371,6 +465,171 @@ func scanRecords(rows *sql.Rows) ([]Record, error) {
 		result = append(result, record)
 	}
 	return result, rows.Err()
+}
+
+func (s *Store) PrepareEmbeddingLane(
+	ctx context.Context,
+	fingerprint, model string,
+	dimensions int,
+) (bool, error) {
+	var currentFingerprint string
+	err := s.db.QueryRowContext(ctx, `SELECT fingerprint FROM embedding_lane WHERE id=1`).Scan(&currentFingerprint)
+	if err == nil && currentFingerprint == fingerprint {
+		return false, nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM embedding_records`); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `DROP TABLE IF EXISTS record_vectors`); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE VIRTUAL TABLE record_vectors USING vec1(vector)`); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO record_vectors(cmd,arg) VALUES('rebuild','{index:"flat",distance:"cos"}')`); err != nil {
+		return false, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO embedding_lane(id,fingerprint,model,dimensions,updated_at_ms)
+		VALUES(1,?,?,?,?)
+		ON CONFLICT(id) DO UPDATE SET
+			fingerprint=excluded.fingerprint,model=excluded.model,
+			dimensions=excluded.dimensions,updated_at_ms=excluded.updated_at_ms`,
+		fingerprint, model, dimensions, time.Now().UnixMilli()); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
+}
+
+func (s *Store) MissingEmbeddingInputs(
+	ctx context.Context,
+	fingerprint string,
+	limit int,
+) ([]EmbeddingInput, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id,r.input_hash,CASE WHEN r.title='' THEN r.text ELSE r.title||char(10)||r.text END
+		FROM records r
+		LEFT JOIN embedding_records e
+			ON e.record_id=r.id AND e.input_hash=r.input_hash AND e.fingerprint=?
+		WHERE e.record_id IS NULL
+		ORDER BY r.id
+		LIMIT ?`, fingerprint, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []EmbeddingInput
+	for rows.Next() {
+		var input EmbeddingInput
+		if err := rows.Scan(&input.ID, &input.InputHash, &input.Text); err != nil {
+			return nil, err
+		}
+		result = append(result, input)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) UpsertEmbeddings(
+	ctx context.Context,
+	fingerprint string,
+	dimensions int,
+	values []EmbeddingValue,
+) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, value := range values {
+		if len(value.Vector) != dimensions {
+			return fmt.Errorf("record %d vector has %d dimensions, want %d", value.ID, len(value.Vector), dimensions)
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM record_vectors WHERE rowid=?`, value.ID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO record_vectors(rowid,vector) VALUES(?,?)`,
+			value.ID, encodeVector(value.Vector)); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO embedding_records(record_id,input_hash,fingerprint)
+			VALUES(?,?,?)
+			ON CONFLICT(record_id) DO UPDATE SET
+				input_hash=excluded.input_hash,fingerprint=excluded.fingerprint`,
+			value.ID, value.InputHash, fingerprint); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (s *Store) EmbeddingState(ctx context.Context, fingerprint string) (EmbeddingState, error) {
+	state := EmbeddingState{Fingerprint: fingerprint}
+	err := s.db.QueryRowContext(ctx,
+		`SELECT model,dimensions FROM embedding_lane WHERE id=1 AND fingerprint=?`,
+		fingerprint).Scan(&state.Model, &state.Dimensions)
+	if errors.Is(err, sql.ErrNoRows) {
+		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM records`).Scan(&state.Records); err != nil {
+			return EmbeddingState{}, err
+		}
+		return state, nil
+	}
+	if err != nil {
+		return EmbeddingState{}, err
+	}
+	state.Configured = true
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM records`).Scan(&state.Records); err != nil {
+		return EmbeddingState{}, err
+	}
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT count(*)
+		FROM embedding_records e
+		JOIN records r ON r.id=e.record_id
+		WHERE e.fingerprint=? AND e.input_hash=r.input_hash`,
+		fingerprint).Scan(&state.Embedded); err != nil {
+		return EmbeddingState{}, err
+	}
+	state.Complete = state.Records > 0 && state.Embedded == state.Records
+	return state, nil
+}
+
+func (s *Store) VectorCandidates(
+	ctx context.Context,
+	vector []float32,
+	limit int,
+) ([]Record, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+		FROM record_vectors(?,?) v
+		JOIN records r ON r.id=v.rowid`,
+		encodeVector(vector), limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanRecords(rows)
+}
+
+func recordInputHash(title, text string) string {
+	sum := sha256.Sum256([]byte(title + "\n" + text))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func encodeVector(vector []float32) []byte {
+	result := make([]byte, len(vector)*4)
+	for i, value := range vector {
+		binary.LittleEndian.PutUint32(result[i*4:], math.Float32bits(value))
+	}
+	return result
 }
 
 func (s *Store) LatestRun(ctx context.Context) (*Run, error) {

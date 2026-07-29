@@ -143,7 +143,7 @@ func (r *runner) runIndex(ctx context.Context, args []string) int {
 	flags.SetOutput(r.stderr)
 	root := flags.String("root", "", "repository root")
 	full := flags.Bool("full", false, "rebuild every file")
-	_ = flags.Bool("no-embed", false, "skip embeddings")
+	noEmbed := flags.Bool("no-embed", false, "skip embeddings")
 	jsonOutput := flags.Bool("json", false, "write JSON")
 	if err := flags.Parse(args); err != nil {
 		return 2
@@ -155,7 +155,7 @@ func (r *runner) runIndex(ctx context.Context, args []string) int {
 	if err != nil {
 		return r.fail(*jsonOutput, 2, err)
 	}
-	summary, err := indexer.Run(ctx, paths, cfg, indexer.Options{Full: *full})
+	summary, err := indexer.Run(ctx, paths, cfg, indexer.Options{Full: *full, NoEmbed: *noEmbed})
 	if err != nil {
 		return r.fail(*jsonOutput, 1, err)
 	}
@@ -182,7 +182,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	if query == "" {
 		return r.fail(*jsonOutput, 2, errors.New("search query is required"))
 	}
-	paths, _, err := resolve(*root)
+	paths, cfg, err := resolve(*root)
 	if err != nil {
 		return r.fail(*jsonOutput, 2, err)
 	}
@@ -196,7 +196,9 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		return r.fail(*jsonOutput, 1, err)
 	}
 	defer value.Close()
-	result, err := search.Run(ctx, value, query, search.Options{Mode: *mode, Limit: *limit})
+	result, err := search.Run(ctx, value, query, search.Options{
+		Mode: *mode, Limit: *limit, Root: paths.Root, Embedding: cfg.Embedding,
+	})
 	if errors.Is(err, search.ErrSemanticUnavailable) {
 		return r.fail(*jsonOutput, 3, err)
 	}

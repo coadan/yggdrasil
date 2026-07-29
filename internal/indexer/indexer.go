@@ -8,30 +8,35 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/coadan/yggdrasil/internal/chunk"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/discovery"
+	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/plugin"
 	"github.com/coadan/yggdrasil/internal/project"
 	"github.com/coadan/yggdrasil/internal/store"
 )
 
 type Options struct {
-	Full bool
+	Full    bool
+	NoEmbed bool
 }
 
 type Summary struct {
-	RunID       string `json:"runId"`
-	Scanned     int    `json:"scanned"`
-	Indexed     int    `json:"indexed"`
-	Unchanged   int    `json:"unchanged"`
-	Deleted     int    `json:"deleted"`
-	Skipped     int    `json:"skipped"`
-	Diagnostics int    `json:"diagnostics"`
-	ElapsedMS   int64  `json:"elapsedMs"`
+	RunID           string `json:"runId"`
+	Scanned         int    `json:"scanned"`
+	Indexed         int    `json:"indexed"`
+	Unchanged       int    `json:"unchanged"`
+	Deleted         int    `json:"deleted"`
+	Skipped         int    `json:"skipped"`
+	Embedded        int    `json:"embedded"`
+	EmbeddingStatus string `json:"embeddingStatus"`
+	Diagnostics     int    `json:"diagnostics"`
+	ElapsedMS       int64  `json:"elapsedMs"`
 }
 
 func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Options) (summary Summary, err error) {
@@ -49,6 +54,13 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
 
+	if opts.Full {
+		for _, path := range []string{paths.Database, paths.Database + "-wal", paths.Database + "-shm"} {
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return Summary{}, fmt.Errorf("remove old index %s: %w", path, err)
+			}
+		}
+	}
 	value, err := store.Open(ctx, paths.Database, paths.Root, paths.ID)
 	if err != nil {
 		return Summary{}, err
@@ -164,7 +176,104 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		}
 	}
 	pluginsClosed = true
+	summary.EmbeddingStatus = "unconfigured"
+	if opts.NoEmbed {
+		summary.EmbeddingStatus = "skipped"
+	} else if cfg.Embedding != nil {
+		summary.Embedded, summary.EmbeddingStatus, err = embedRecords(
+			ctx, value, paths, *cfg.Embedding, summary.RunID, &summary.Diagnostics,
+		)
+		if err != nil {
+			return summary, err
+		}
+	}
 	return summary, nil
+}
+
+func embedRecords(
+	ctx context.Context,
+	value *store.Store,
+	paths project.Paths,
+	cfg config.Embedding,
+	runID string,
+	diagnostics *int,
+) (int, string, error) {
+	fingerprint := embedding.Fingerprint(cfg)
+	if _, err := value.PrepareEmbeddingLane(ctx, fingerprint, cfg.Model, cfg.Dimensions); err != nil {
+		return 0, "", fmt.Errorf("prepare embedding lane: %w", err)
+	}
+	provider, err := embedding.New(ctx, paths.Root, cfg)
+	if err != nil {
+		return 0, embeddingDiagnostic(ctx, value, runID, diagnostics, "provider", err), nil
+	}
+	closed := false
+	defer func() {
+		if !closed {
+			_ = provider.Close()
+		}
+	}()
+	embedded := 0
+	for {
+		inputs, err := value.MissingEmbeddingInputs(ctx, fingerprint, cfg.BatchSize)
+		if err != nil {
+			return embedded, "", err
+		}
+		if len(inputs) == 0 {
+			break
+		}
+		request := make([]embedding.Input, len(inputs))
+		byID := make(map[string]store.EmbeddingInput, len(inputs))
+		for i, input := range inputs {
+			id := strconv.FormatInt(input.ID, 10)
+			request[i] = embedding.Input{ID: id, Text: input.Text}
+			byID[id] = input
+		}
+		response, err := provider.Embed(ctx, request)
+		if err != nil {
+			return embedded, embeddingDiagnostic(ctx, value, runID, diagnostics, "request", err), nil
+		}
+		values := make([]store.EmbeddingValue, 0, len(response))
+		for _, item := range response {
+			input, ok := byID[item.ID]
+			if !ok {
+				err := fmt.Errorf("provider returned unknown record id %q", item.ID)
+				return embedded, embeddingDiagnostic(ctx, value, runID, diagnostics, "response", err), nil
+			}
+			values = append(values, store.EmbeddingValue{
+				ID: input.ID, InputHash: input.InputHash, Vector: item.Vector,
+			})
+			delete(byID, item.ID)
+		}
+		if len(byID) != 0 {
+			err := fmt.Errorf("provider omitted %d records", len(byID))
+			return embedded, embeddingDiagnostic(ctx, value, runID, diagnostics, "response", err), nil
+		}
+		if err := value.UpsertEmbeddings(ctx, fingerprint, cfg.Dimensions, values); err != nil {
+			return embedded, "", err
+		}
+		embedded += len(values)
+	}
+	if err := provider.Close(); err != nil {
+		closed = true
+		return embedded, embeddingDiagnostic(ctx, value, runID, diagnostics, "close", err), nil
+	}
+	closed = true
+	return embedded, "ready", nil
+}
+
+func embeddingDiagnostic(
+	ctx context.Context,
+	value *store.Store,
+	runID string,
+	diagnostics *int,
+	stage string,
+	cause error,
+) string {
+	*diagnostics++
+	if err := value.AddDiagnostic(ctx, runID, "", "embedding:"+stage, cause.Error()); err != nil {
+		return "unavailable: " + cause.Error() + "; diagnostic failed: " + err.Error()
+	}
+	return "unavailable: " + cause.Error()
 }
 
 type indexBusyError struct{}
