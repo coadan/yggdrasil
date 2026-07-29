@@ -66,8 +66,11 @@ machine- and suite-specific results, not general agent-efficiency claims.
 
 Before release, rerun the dogfood commands with the exact release binary, run
 the complete replay suite, and retain its hash-bearing JSON report under
-`.dev/bench/`. `make release` must then produce the four CGO-free platform
-binaries and `dist/SHA256SUMS`.
+`.dev/bench/`. `make release VERSION=<version>` must then produce the four
+CGO-free platform binaries and `dist/SHA256SUMS`; it also executes the native
+artifact and verifies that `ygg version` reports the requested version. A `v*`
+tag publishes those artifacts only after `make check`, `make benchmark-dogfood`,
+and `make benchmark-check` pass in the release workflow.
 
 ## Extractor ablation
 
