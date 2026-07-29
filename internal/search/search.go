@@ -109,6 +109,9 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 			if err != nil {
 				return Result{}, fmt.Errorf("literal search: %w", err)
 			}
+			if codeIdentifierTermQuery(query, terms) {
+				records = identifierLiteralRecords(records, query)
+			}
 			lanes = append(lanes, lane{name: "literal", records: records})
 		} else if len(terms) > 1 {
 			phrase, err := value.LexicalCandidates(
@@ -498,11 +501,14 @@ func locateEvidence(text, query string) citationEvidence {
 }
 
 func literalEvidenceLine(text, query string) int {
-	if !literalTermQuery(query, queryTerms(query)) {
+	terms := queryTerms(query)
+	if !literalTermQuery(query, terms) {
 		return -1
 	}
+	identifier := codeIdentifierTermQuery(query, terms)
 	for index, line := range strings.Split(text, "\n") {
-		if strings.Contains(line, query) {
+		if (!identifier && strings.Contains(line, query)) ||
+			(identifier && containsIdentifierLiteral(line, query)) {
 			return index
 		}
 	}
@@ -620,9 +626,66 @@ func queryTerms(query string) []string {
 }
 
 func literalTermQuery(query string, terms []string) bool {
-	return len(strings.Fields(query)) == 1 &&
-		len(terms) > 0 &&
-		strings.ContainsAny(query, "-_.:/#<>=()\"'`")
+	if len(strings.Fields(query)) != 1 || len(terms) == 0 {
+		return false
+	}
+	return strings.ContainsAny(query, "-_.:/#<>=()\"'`") ||
+		codeIdentifierTermQuery(query, terms)
+}
+
+func codeIdentifierTermQuery(query string, terms []string) bool {
+	if len(terms) != 1 || terms[0] != query || utf8.RuneCountInString(query) < 2 {
+		return false
+	}
+	for _, value := range query {
+		if unicode.IsUpper(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func identifierLiteralRecords(records []store.Record, literal string) []store.Record {
+	result := records[:0]
+	for _, record := range records {
+		if containsIdentifierLiteral(record.Text, literal) {
+			result = append(result, record)
+		}
+	}
+	return result
+}
+
+func containsIdentifierLiteral(text, literal string) bool {
+	for offset := 0; offset <= len(text)-len(literal); {
+		index := strings.Index(text[offset:], literal)
+		if index < 0 {
+			return false
+		}
+		start := offset + index
+		end := start + len(literal)
+		before := start > 0 && identifierRune(lastRune(text[:start]))
+		after := end < len(text) && identifierRune(firstRune(text[end:]))
+		if !before && !after {
+			return true
+		}
+		offset = start + len(literal)
+	}
+	return false
+}
+
+func firstRune(value string) rune {
+	result, _ := utf8.DecodeRuneInString(value)
+	return result
+}
+
+func lastRune(value string) rune {
+	result, _ := utf8.DecodeLastRuneInString(value)
+	return result
+}
+
+func identifierRune(value rune) bool {
+	return value == '_' || value == '$' ||
+		unicode.IsLetter(value) || unicode.IsNumber(value) || unicode.IsMark(value)
 }
 
 func structuredAnchorQueries(query string) []string {

@@ -303,6 +303,91 @@ func TestAutoTreatsSyntaxQueryAsCaseSensitiveLiteral(t *testing.T) {
 	}
 }
 
+func TestAutoTreatsBareCodeIdentifierAsCaseSensitiveLiteral(t *testing.T) {
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct {
+		path string
+		text string
+	}{
+		{"src/ContentStack.tsx", "export function ContentStack() {}"},
+		{"src/use.tsx", "<ContentStack title={title} />"},
+		{"src/partial.ts", "export function ContentStacked() {}"},
+		{"src/compound.ts", "export function ProviderContentStack() {}"},
+		{"src/dollar.ts", "export function $ContentStack() {}"},
+		{"docs/concept.md", "A content stack arranges related copy."},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{
+				Path: item.path, Size: int64(len(item.text)), MTimeNS: 1,
+			},
+			Kind: "text",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", []contracts.SearchRecord{{
+			Path: item.path, StartLine: 1, EndLine: 1, Kind: "text-chunk",
+			Text: item.text, Source: "core",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg := config.Embedding{
+		Kind: "openai-compatible", Endpoint: "http://127.0.0.1:1",
+		Model: "must-not-run", Dimensions: 2, TimeoutMS: 1,
+	}
+	result, err := Run(ctx, value, "ContentStack", Options{
+		Mode: "auto", Limit: 10, Embedding: &cfg,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ActiveMode != "lexical" || len(result.Records) != 2 {
+		t.Fatalf("identifier result=%#v", result)
+	}
+	for _, record := range result.Records {
+		if !strings.Contains(record.Excerpt, "ContentStack") ||
+			strings.Join(record.Retrieval, ",") != "literal" {
+			t.Fatalf("identifier record=%#v", record)
+		}
+	}
+}
+
+func TestContainsIdentifierLiteral(t *testing.T) {
+	for text, want := range map[string]bool{
+		"Metric":                    true,
+		"<Metric value={total} />":  true,
+		"const value = Metric(foo)": true,
+		"Metrics":                   false,
+		"ProviderMetric":            false,
+		"MetricValue":               false,
+		"$Metric":                   false,
+		"_Metric":                   false,
+	} {
+		if got := containsIdentifierLiteral(text, "Metric"); got != want {
+			t.Fatalf("text=%q got=%t want=%t", text, got, want)
+		}
+	}
+}
+
+func TestLiteralTermQueryRecognizesCaseMarkedIdentifiers(t *testing.T) {
+	for query, want := range map[string]bool{
+		"ContentStack": true,
+		"Metric":       true,
+		"runTask":      true,
+		"API":          true,
+		"database":     false,
+		"x":            false,
+		"two words":    false,
+	} {
+		if got := literalTermQuery(query, queryTerms(query)); got != want {
+			t.Fatalf("query=%q got=%t want=%t", query, got, want)
+		}
+	}
+}
+
 func TestMixedStructuredAnchorsRetainEachOwner(t *testing.T) {
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
