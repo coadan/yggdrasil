@@ -22,6 +22,9 @@ const maxPathTerms = 6
 const maxStructuredAnchors = 4
 const maxMorePaths = 20
 const extractorLaneWeight = 0.5
+const maxExcerptRunes = 280
+const minExcerptRunes = 120
+const targetExcerptRunes = 2400
 
 const (
 	MaxResults    = 100
@@ -253,7 +256,12 @@ func semanticFailure(
 }
 
 func setResultRecords(result *Result, query string, limit int, lanes []lane) {
-	ranked := fuse(query, min(MaxResults, limit+maxMorePaths), lanes)
+	ranked := fuse(
+		query,
+		min(MaxResults, limit+maxMorePaths),
+		resultExcerptLimit(limit),
+		lanes,
+	)
 	if len(ranked) <= limit {
 		result.Records = ranked
 		return
@@ -277,7 +285,7 @@ type fused struct {
 	evidence  citationEvidence
 }
 
-func fuse(query string, limit int, lanes []lane) []RankedRecord {
+func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 	values := map[int64]*fused{}
 	pathEvidence := make(map[string]*fused)
 	for _, candidateLane := range lanes {
@@ -383,7 +391,7 @@ func fuse(query string, limit int, lanes []lane) []RankedRecord {
 		}
 		sort.Strings(retrieval)
 		startLine, endLine, title, citationExcerpt :=
-			localizedCitation(citation.record, citation.evidence)
+			localizedCitation(citation.record, citation.evidence, excerptLimit)
 		result = append(result, RankedRecord{
 			Path:       citation.record.Path,
 			StartLine:  startLine,
@@ -561,14 +569,15 @@ func tokenEvidenceTerms(token string) []string {
 func localizedCitation(
 	record store.Record,
 	evidence citationEvidence,
+	excerptLimit int,
 ) (int, int, string, string) {
 	lines := strings.Split(record.Text, "\n")
 	if evidence.terms == 0 || evidence.line < 0 ||
 		record.EndLine-record.StartLine+1 < len(lines) {
-		return record.StartLine, record.EndLine, record.Title, excerpt(record.Text)
+		return record.StartLine, record.EndLine, record.Title, excerpt(record.Text, excerptLimit)
 	}
 	start := max(0, evidence.line-2)
-	text := excerpt(strings.Join(lines[start:], "\n"))
+	text := excerpt(strings.Join(lines[start:], "\n"), excerptLimit)
 	startLine := record.StartLine + start
 	endLine := min(record.EndLine, startLine+strings.Count(text, "\n"))
 	title := record.Title
@@ -705,9 +714,15 @@ func ftsPhraseQuery(terms []string) string {
 	return `"` + strings.Join(fields, " ") + `"`
 }
 
-func excerpt(text string) string {
+func resultExcerptLimit(resultLimit int) int {
+	if resultLimit <= 0 {
+		return maxExcerptRunes
+	}
+	return max(minExcerptRunes, min(maxExcerptRunes, targetExcerptRunes/resultLimit))
+}
+
+func excerpt(text string, limit int) string {
 	text = strings.TrimSpace(text)
-	const limit = 280
 	if utf8.RuneCountInString(text) <= limit {
 		return text
 	}

@@ -676,9 +676,19 @@ func TestMixedQueryRequiresTwoNonIdentifierAnchors(t *testing.T) {
 }
 
 func TestExcerptPreservesUTF8Boundary(t *testing.T) {
-	got := excerpt(strings.Repeat("é", 401))
+	got := excerpt(strings.Repeat("é", 401), maxExcerptRunes)
 	if !utf8.ValidString(got) || utf8.RuneCountInString(got) != 281 || !strings.HasSuffix(got, "…") {
 		t.Fatalf("invalid excerpt: runes=%d valid=%v suffix=%v", utf8.RuneCountInString(got), utf8.ValidString(got), strings.HasSuffix(got, "…"))
+	}
+}
+
+func TestResultExcerptLimitKeepsCommonResponsesBounded(t *testing.T) {
+	for limit, want := range map[int]int{
+		1: 280, 10: 240, 15: 160, 20: 120, 100: 120,
+	} {
+		if got := resultExcerptLimit(limit); got != want {
+			t.Fatalf("limit=%d got=%d want=%d", limit, got, want)
+		}
 	}
 }
 
@@ -695,7 +705,7 @@ func TestCitationEvidenceUsesTokenBoundariesInsteadOfIdentifierSubstrings(t *tes
 		record.Text,
 		"all DetailCallout consumer components in journal and environment",
 	)
-	startLine, _, title, got := localizedCitation(record, evidence)
+	startLine, _, title, got := localizedCitation(record, evidence, maxExcerptRunes)
 	if startLine <= 5 || title == path+":1" || !strings.Contains(got, "DetailCallout") {
 		t.Fatalf("start=%d title=%q excerpt=%q evidence=%#v", startLine, title, got, evidence)
 	}
