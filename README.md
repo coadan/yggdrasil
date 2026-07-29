@@ -119,6 +119,12 @@ The optional `plugins/terraform` adapter uses HashiCorp's HCL parser for blocks,
 attributes, and expression traversals. Its dependency graph is confined to the
 plugin module.
 
+Semantic recall can run entirely locally through
+`plugins/embedding-local/ygg-embed-local`. The optional worker lazily loads a
+Sentence Transformers model, normalizes its vectors, and stays alive across an
+index or search run. Its Python, PyTorch, and model dependencies are isolated
+from the Go binary; see the [local worker setup](plugins/embedding-local/README.md).
+
 See [contracts](docs/contracts.md) for the extractor, configuration, and result
 schemas. See [embedding parity](docs/embedding-parity.md) for the OpenRouter
 configuration, verified smoke evidence, and remaining legacy differences.
