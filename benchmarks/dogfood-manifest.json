@@ -1,0 +1,18 @@
+{
+  "schema": "ygg.config/v1",
+  "maxFileBytes": 4194304,
+  "plugins": [
+    {
+      "id": "manifest",
+      "version": "0.1.0",
+      "command": ["bin/ygg-extract-manifest"],
+      "includeGlobs": [
+        "**/package.json",
+        "**/go.mod",
+        "**/Cargo.toml",
+        "**/pyproject.toml"
+      ],
+      "timeoutMs": 10000
+    }
+  ]
+}
