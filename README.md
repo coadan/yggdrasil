@@ -1,47 +1,161 @@
+<p align="center">
+  <img src="ygg.png" alt="Yggdrasil" width="360">
+</p>
+
 # Yggdrasil
 
-Yggdrasil is a local, search-only repository index. It is a single Go CLI
-backed by SQLite and has no daemon, HTML UI, report generator, or general graph
-analysis surface.
+[![CI](https://github.com/coadan/yggdrasil/actions/workflows/ci.yml/badge.svg)](https://github.com/coadan/yggdrasil/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/coadan/yggdrasil)](https://github.com/coadan/yggdrasil/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Quick start
+Yggdrasil is a fully open, MIT-licensed, local repository search tool for
+coding agents and humans. It indexes mechanical repository evidence into
+SQLite and returns bounded results with repository-relative path and line
+citations.
 
-Build and index any Git checkout:
+The product is deliberately narrow: one Go CLI, one local database per
+repository, optional extractor and embedding subprocesses, and no daemon,
+HTML UI, report generator, or general graph-analysis surface.
+
+## Project status
+
+Yggdrasil is in active early development. The first search-only release is
+[`v0.1.0`](https://github.com/coadan/yggdrasil/releases/tag/v0.1.0), with
+CGO-free binaries for macOS and Linux on arm64 and amd64. Data shapes and
+commands may still change without compatibility layers while the focused
+search workflow settles.
+
+The previous XTDB implementation is preserved at
+[`legacy-xtdb-final`](https://github.com/coadan/yggdrasil/tree/legacy/xtdb-final);
+it is not migrated or loaded by the Go CLI.
+
+## What Yggdrasil provides
+
+- **Local, auditable search.** Repository text, extractor records, vectors,
+  diagnostics, and index runs stay in a central SQLite database on your
+  machine.
+- **Bounded cited evidence.** Every result carries a repository-relative path
+  and line range instead of asking an agent to ingest the whole repository.
+- **Fast iteration.** Git-aware discovery, file-state fingerprints, bounded
+  write batches, and fresh-process search keep full and incremental runs small.
+- **Explicit retrieval state.** `auto` uses hybrid retrieval when complete
+  embeddings are available and reports why it fell back to lexical search when
+  they are not.
+- **Parser-owned extension.** Run-scoped JSONL extractor executables can emit
+  structured records without adding their dependencies to core.
+- **Measured claims.** Performance and relevance claims belong to hash-bearing,
+  replayable benchmark reports—not product anecdotes.
+
+## Install and try
+
+Install from source with Go 1.25 or newer:
 
 ```sh
-make build
-bin/ygg index --root .
-bin/ygg search --root . "where is request routing configured"
-bin/ygg status --root .
+go install github.com/coadan/yggdrasil/cmd/ygg@v0.1.0
 ```
 
-The complete public surface is `index`, `search`, `status`, and `plugin check`.
-Every result is a bounded record with a repository-relative path and line
-citation. Pass `--json` for stable versioned envelopes.
+Or download a matching binary and `SHA256SUMS` from the
+[latest release](https://github.com/coadan/yggdrasil/releases/latest).
 
-Indexes live outside repositories under `$YGG_STORAGE_ROOT/indexes/`, or
-`~/.local/share/ygg/indexes/` by default. Indexing is incremental; `--full`
-replaces an incompatible or intentionally stale database. There is no daemon to
-start and no repository-local generated database to clean up.
+Index any Git checkout:
+
+```sh
+ygg index --root /path/to/repository
+ygg search --root /path/to/repository "where is request routing configured"
+ygg status --root /path/to/repository
+```
+
+The complete public surface is:
+
+```text
+ygg index
+ygg search
+ygg status
+ygg plugin check
+```
+
+Pass `--json` for stable versioned envelopes. Indexes live outside repositories
+under `$YGG_STORAGE_ROOT/indexes/`, or `~/.local/share/ygg/indexes/` by default.
+`index --full` replaces an incompatible or intentionally stale database; normal
+indexing is incremental.
 
 ## Optional extraction and semantic recall
 
 An optional `.ygg/config.json` enables executable extractor plugins and one
 embedding provider. Core always emits mechanically chunked text records.
 Plugins add parser-owned records over a bounded JSONL protocol and are started
-once per index run. The reference Markdown plugin builds as
-`bin/ygg-extract-markdown`.
+once per index run.
 
 `search --mode auto` uses lexical and path recall by default. When every current
 record has a vector for the configured embedding fingerprint, it fuses the
-semantic lane with reciprocal-rank fusion. Missing or failed semantic recall is
-reported explicitly and lexical results remain available. Use `--mode lexical`
-or `--mode semantic` only for ablation and diagnosis.
+semantic lane with reciprocal-rank fusion. Missing, incomplete, or failed
+semantic recall is reported explicitly and lexical results remain available.
+Use `--mode lexical` or `--mode semantic` only for ablation and diagnosis.
 
-See [contracts](docs/contracts.md), [architecture](docs/architecture.md),
-[supersession scope](docs/supersession.md), and
-[benchmarking](docs/benchmarking.md). The
-[dogfood protocol](docs/dogfood.md) records the real-repository release check.
+The reference Markdown extractor builds as `ygg-extract-markdown`:
+
+```sh
+make build
+bin/ygg plugin check markdown --root /path/to/configured/repository
+```
+
+See [contracts](docs/contracts.md) for the extractor, configuration, and result
+schemas.
+
+## Core ideas
+
+- **Concrete facts first.** Core uses file discovery, file kinds, parser output,
+  hashes, line ranges, and search scores. It does not infer project meaning from
+  names, hosts, path vocabulary, or prose.
+- **Reliability before enrichment.** Lexical search remains available when
+  embeddings are unconfigured, incomplete, or temporarily failing.
+- **Progressive disclosure.** Search starts with compact citations; callers
+  decide which source to open next.
+- **Local-first operation.** Indexing and search need no hosted service,
+  provider account, background process, or repository-local database.
+- **Replaceable integrations.** Extractors and embeddings use explicit,
+  provider-neutral subprocess or HTTP contracts.
+- **Evidence before claims.** The shell baseline and Yggdrasil run against the
+  same pinned pre-fix repository states.
+
+## Benchmarks
+
+`yggbench` is a separate developer binary, not a `ygg` command. Each tracked
+case:
+
+1. pins the parent revision before a real fix;
+2. fetches the fixing revision only to verify curated changed-path ground truth;
+3. indexes and searches without exposing the fixing diff;
+4. measures full, no-op, and one-file incremental indexing;
+5. measures fresh-process search, citations, recall, MRR, and result noise;
+6. compares a mechanically match-count-ranked ripgrep lane; and
+7. records candidate and suite hashes with environment details.
+
+```sh
+make benchmark-check
+make benchmark-quick
+```
+
+The tracked replay corpus covers multiple languages, problem classes, and
+architecture classes across real repositories. The
+[dogfood protocol](docs/dogfood.md) additionally exercises
+`breyta-workbench` and `void2`. These repositories are test inputs, not
+endorsements, and results apply only to the exact binary, suite, and machine
+recorded in a report.
+
+See [benchmarking](docs/benchmarking.md) for methodology and report fields.
+
+## How Yggdrasil compares
+
+This is a capability map, not a leaderboard.
+
+| Tool or lane | Core shape | When Yggdrasil fits |
+| --- | --- | --- |
+| Shell-only (`rg`, `git`, `find`) | Direct working-tree exploration with no durable index. | Repeated repository search benefits from fast startup, stable JSON, and bounded line citations. The shell remains the universal baseline. |
+| [Aider repository map](https://aider.chat/docs/repomap.html) | Graph-ranked repository map sent to a terminal agent. | A caller wants local query-driven evidence rather than one generated context map. |
+| [Repomix](https://repomix.com/guide/) | One AI-friendly repository snapshot. | A caller needs bounded relevant records rather than a one-shot full-repository export. |
+| [Serena](https://github.com/oraios/serena) | LSP/IDE-backed symbol retrieval, editing, and refactoring. | Search must stay a small standalone CLI; use Serena when symbol-aware editing is the actual requirement. |
+| [Sourcegraph Code Search](https://sourcegraph.com/docs/code-search) | Hosted organization-scale code search and navigation. | Repository state and search should remain local and provider-independent; use Sourcegraph for hosted cross-repository scale. |
 
 ## Development
 
@@ -51,9 +165,11 @@ make release
 make benchmark-quick
 ```
 
-The benchmark harness is the separate `yggbench` developer binary; it does not
-expand the `ygg` API. Generated checkouts, indexes, and reports stay under
-`.dev/bench/`.
+The core module has one direct dependency: the pure-Go SQLite implementation
+providing SQLite, FTS5, and Vec1. Extractor plugins are separate Go modules so
+parser dependencies do not enter the CLI.
 
-This implementation intentionally does not read or migrate the previous XTDB
-state. The previous implementation is used only as a pinned benchmark baseline.
+Generated checkouts, indexes, and reports stay under `.dev/bench/`. See
+[architecture](docs/architecture.md), [contracts](docs/contracts.md),
+[supersession scope](docs/supersession.md), and
+[dogfood evidence](docs/dogfood.md) for the maintained boundaries.
