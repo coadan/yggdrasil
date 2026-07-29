@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -24,6 +25,7 @@ import (
 type Options struct {
 	Full    bool
 	NoEmbed bool
+	Refresh bool
 }
 
 type Summary struct {
@@ -42,6 +44,9 @@ type Summary struct {
 }
 
 const writeBatchSize = 128
+const automaticRefreshWait = 30 * time.Second
+
+var ErrIndexBusy = errors.New("another index run is active")
 
 func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Options) (summary Summary, err error) {
 	started := time.Now()
@@ -53,10 +58,36 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		return Summary{}, fmt.Errorf("open index lock: %w", err)
 	}
 	defer lock.Close()
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		return Summary{}, errorsNewIndexBusy()
+	if err := acquireIndexLock(ctx, lock, opts.Refresh); err != nil {
+		return Summary{}, err
 	}
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	startFreshness, err := FreshnessToken(ctx, paths.Root, cfg)
+	if err != nil {
+		return Summary{}, err
+	}
+	if opts.Refresh {
+		if _, statErr := os.Stat(paths.Database); statErr == nil {
+			value, openErr := store.Open(ctx, paths.Database, paths.Root, paths.ID)
+			if openErr != nil {
+				return Summary{}, openErr
+			}
+			indexedFreshness, tokenErr := value.IndexFreshnessToken(ctx)
+			closeErr := value.Close()
+			if tokenErr != nil {
+				return Summary{}, tokenErr
+			}
+			if closeErr != nil {
+				return Summary{}, closeErr
+			}
+			if indexedFreshness == startFreshness {
+				summary.ElapsedMS = time.Since(started).Milliseconds()
+				return summary, nil
+			}
+		} else if !os.IsNotExist(statErr) {
+			return Summary{}, fmt.Errorf("stat index: %w", statErr)
+		}
+	}
 	if err := project.RecordIndexFamily(paths); err != nil {
 		return Summary{}, err
 	}
@@ -273,7 +304,53 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 			return summary, err
 		}
 	}
+	endFreshness, err := FreshnessToken(ctx, paths.Root, cfg)
+	if err != nil {
+		return summary, err
+	}
+	if endFreshness != startFreshness {
+		endFreshness = ""
+	}
+	if err := value.SetIndexFreshnessToken(ctx, endFreshness); err != nil {
+		return summary, fmt.Errorf("record index freshness: %w", err)
+	}
 	return summary, nil
+}
+
+func acquireIndexLock(ctx context.Context, lock *os.File, wait bool) error {
+	for {
+		err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+			return fmt.Errorf("lock index: %w", err)
+		}
+		if !wait {
+			return ErrIndexBusy
+		}
+		break
+	}
+	timer := time.NewTimer(automaticRefreshWait)
+	defer timer.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			return ErrIndexBusy
+		case <-ticker.C:
+			err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+			if err == nil {
+				return nil
+			}
+			if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
+				return fmt.Errorf("lock index: %w", err)
+			}
+		}
+	}
 }
 
 func embedRecords(
@@ -368,9 +445,3 @@ func embeddingDiagnostic(
 	}
 	return "unavailable: " + cause.Error()
 }
-
-type indexBusyError struct{}
-
-func (indexBusyError) Error() string { return "another index run is active" }
-
-func errorsNewIndexBusy() error { return indexBusyError{} }

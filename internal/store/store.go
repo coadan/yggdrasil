@@ -26,6 +26,7 @@ import (
 )
 
 const schemaVersion = "2"
+const indexFreshnessKey = "index_freshness_token"
 
 type Store struct {
 	db   *sql.DB
@@ -201,6 +202,29 @@ func (s *Store) PendingSeed(ctx context.Context) (string, error) {
 
 func (s *Store) CompleteSeed(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM meta WHERE key='worktree_seed_source'`)
+	return err
+}
+
+func (s *Store) IndexFreshnessToken(ctx context.Context) (string, error) {
+	var token string
+	err := s.db.QueryRowContext(
+		ctx, `SELECT value FROM meta WHERE key=?`, indexFreshnessKey,
+	).Scan(&token)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return token, err
+}
+
+func (s *Store) SetIndexFreshnessToken(ctx context.Context, token string) error {
+	if token == "" {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM meta WHERE key=?`, indexFreshnessKey)
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO meta(key,value) VALUES(?,?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
+		indexFreshnessKey, token)
 	return err
 }
 

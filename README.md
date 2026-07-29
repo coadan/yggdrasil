@@ -14,7 +14,7 @@ into compact results with exact path and line citations, so the next relevant
 piece of code is quick to find and easy to verify.
 
 It is open source, MIT licensed, and built for a short iteration loop: index a
-working tree, search it immediately, and refresh only the files that changed.
+working tree once, then search current files without a separate refresh step.
 
 ## Project status
 
@@ -35,8 +35,8 @@ it is not migrated or loaded by the Go CLI.
   machine.
 - **Bounded cited evidence.** Every result carries a repository-relative path
   and line range instead of asking an agent to ingest the whole repository.
-- **Fast iteration.** Git-aware discovery, file-state fingerprints, bounded
-  write batches, and fresh-process search keep full and incremental runs small.
+- **Fast iteration.** Search detects Git HEAD and working-tree drift, refreshes
+  only changed records, and reuses existing vectors before returning results.
 - **Explicit retrieval state.** `auto` uses hybrid retrieval when complete
   embeddings are available and reports why it fell back to lexical search when
   they are not.
@@ -65,9 +65,11 @@ ygg status --root /path/to/repository
 ```
 
 If `search` starts in a fresh linked worktree and a same-family index exists,
-Yggdrasil snapshots and reconciles that index before answering. It still asks
-for an explicit `ygg index` when no related index exists, avoiding an unexpected
-full-repository build from a search command.
+Yggdrasil snapshots and reconciles that index before answering. Every search
+also refreshes modified, deleted, renamed, and untracked files when repository
+state changed; unchanged searches use a lightweight freshness token and do not
+rescan. Yggdrasil asks for an explicit `ygg index` only when no related index
+exists, avoiding an unexpected full-repository build from a search command.
 
 The complete public surface is:
 

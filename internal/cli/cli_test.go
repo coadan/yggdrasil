@@ -166,6 +166,158 @@ func TestSearchRepositorySubdirectoryReusesRootIndex(t *testing.T) {
 	}
 }
 
+func TestSearchRefreshesModifiedAndDeletedFiles(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	cliRunGit(t, root, "init", "-q")
+	owner := filepath.Join(root, "owner.txt")
+	if err := os.WriteFile(owner, []byte("retiredsearchmarker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cliRunGit(t, root, "add", "owner.txt")
+	cliRunGit(t, root, "config", "user.name", "Ygg Test")
+	cliRunGit(t, root, "config", "user.email", "ygg@example.test")
+	cliRunGit(t, root, "commit", "-qm", "fixture")
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"index", "--root", root, "--no-embed",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if err := os.WriteFile(owner, []byte("currentsearchmarker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "--mode", "lexical", "currentsearchmarker",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("modified search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	assertSearchPaths(t, stdout.Bytes(), []string{"owner.txt"})
+
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latestBefore := latestRunID(t, paths)
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "--mode", "lexical", "currentsearchmarker",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("unchanged search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if latestAfter := latestRunID(t, paths); latestAfter != latestBefore {
+		t.Fatalf("unchanged search created index run %q after %q", latestAfter, latestBefore)
+	}
+
+	if err := os.WriteFile(owner, []byte("parallelsearchmarker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	start := make(chan struct{})
+	results := make(chan struct {
+		code   int
+		stdout []byte
+		stderr string
+	}, 2)
+	for range 2 {
+		go func() {
+			var concurrentOut, concurrentErr bytes.Buffer
+			<-start
+			code := Main(context.Background(), []string{
+				"search", "--root", root, "--mode", "lexical", "parallelsearchmarker",
+			}, &concurrentOut, &concurrentErr)
+			results <- struct {
+				code   int
+				stdout []byte
+				stderr string
+			}{code: code, stdout: concurrentOut.Bytes(), stderr: concurrentErr.String()}
+		}()
+	}
+	close(start)
+	for range 2 {
+		result := <-results
+		if result.code != 0 {
+			t.Fatalf(
+				"concurrent search code=%d stdout=%s stderr=%s",
+				result.code,
+				result.stdout,
+				result.stderr,
+			)
+		}
+		assertSearchPaths(t, result.stdout, []string{"owner.txt"})
+	}
+
+	untracked := filepath.Join(root, "new-owner.txt")
+	if err := os.WriteFile(untracked, []byte("untrackedsearchmarker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "--mode", "lexical", "untrackedsearchmarker",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("untracked search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	assertSearchPaths(t, stdout.Bytes(), []string{"new-owner.txt"})
+
+	if err := os.Remove(owner); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "--mode", "lexical", "currentsearchmarker",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("deleted search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	assertSearchPaths(t, stdout.Bytes(), nil)
+}
+
+func latestRunID(t *testing.T, paths project.Paths) string {
+	t.Helper()
+	value, err := store.Open(context.Background(), paths.Database, paths.Root, paths.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	run, err := value.LatestRun(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run == nil {
+		t.Fatal("missing latest index run")
+	}
+	return run.ID
+}
+
+func assertSearchPaths(t *testing.T, output []byte, want []string) {
+	t.Helper()
+	var response struct {
+		Data struct {
+			Records []struct {
+				Path string `json:"path"`
+			} `json:"records"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(output, &response); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(response.Data.Records))
+	for _, record := range response.Data.Records {
+		got = append(got, record.Path)
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("paths=%q want=%q response=%s", got, want, output)
+	}
+}
+
 func TestSearchLazilySeedsLinkedWorktreeIndex(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
