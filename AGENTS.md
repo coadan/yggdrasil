@@ -1,6 +1,6 @@
 # Agent Guide
 
-Yggdrasil 2 is a search-only Go CLI. Keep the public surface limited to
+Yggdrasil is a search-only Go CLI. Keep the public surface limited to
 `index`, `search`, `status`, and `plugin check`.
 
 Core may use only mechanical repository facts: file discovery, text detection,
@@ -18,4 +18,3 @@ queue, or hidden background loop.
 
 After each bounded slice, run `go test ./...`, `go vet ./...`, and
 `gofmt -l .`, then commit the slice.
-

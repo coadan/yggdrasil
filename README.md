@@ -1,6 +1,6 @@
-# Yggdrasil 2
+# Yggdrasil
 
-Yggdrasil 2 is a local, search-only repository index. It is a single Go CLI
+Yggdrasil is a local, search-only repository index. It is a single Go CLI
 backed by SQLite and has no daemon, HTML UI, report generator, or general graph
 analysis surface.
 
@@ -14,9 +14,8 @@ ygg plugin check markdown --file README.md
 ```
 
 Generated indexes live outside repositories under
-`$YGG_STORAGE_ROOT/v2/indexes/`. An optional `.ygg/config.json` enables bounded
+`$YGG_STORAGE_ROOT/indexes/`. An optional `.ygg/config.json` enables bounded
 extractor plugins and embeddings.
 
-This repository intentionally does not read or migrate Yggdrasil 1 XTDB state.
-The old implementation is used only as a pinned benchmark baseline.
-
+This implementation intentionally does not read or migrate the previous XTDB
+state. The previous implementation is used only as a pinned benchmark baseline.
