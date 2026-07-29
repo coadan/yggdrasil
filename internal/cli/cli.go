@@ -185,7 +185,7 @@ func (r *runner) runIndex(ctx context.Context, args []string) int {
 func (r *runner) runSearch(ctx context.Context, args []string) int {
 	flags := flag.NewFlagSet("search", flag.ContinueOnError)
 	flags.SetOutput(r.stderr)
-	root := flags.String("root", "", "repository root or directory scope")
+	root := flags.String("root", "", "repository root, directory, or file scope")
 	limit := flags.Int("limit", 10, "result limit")
 	mode := flags.String("mode", "auto", "auto, lexical, or semantic")
 	jsonOutput := jsonFormatFlag(flags)

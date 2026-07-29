@@ -47,17 +47,8 @@ type indexFamily struct {
 }
 
 func ResolveRoot(explicit string) (string, error) {
-	if explicit != "" {
-		requested, err := canonicalDir(explicit)
-		if err != nil {
-			return "", err
-		}
-		return gitRoot(requested)
-	}
-	if output, err := exec.Command("git", "rev-parse", "--show-toplevel").Output(); err == nil {
-		return canonicalDir(strings.TrimSpace(string(output)))
-	}
-	return canonicalDir(".")
+	root, _, err := resolveRootScope(explicit)
+	return root, err
 }
 
 func gitRoot(root string) (string, error) {
@@ -69,7 +60,7 @@ func gitRoot(root string) (string, error) {
 }
 
 func Resolve(explicit string) (Paths, error) {
-	root, err := ResolveRoot(explicit)
+	root, scope, err := resolveRootScope(explicit)
 	if err != nil {
 		return Paths{}, err
 	}
@@ -90,23 +81,46 @@ func Resolve(explicit string) (Paths, error) {
 		head = strings.TrimSpace(string(output))
 	}
 	paths := pathsForRoot(root, storageRoot, hashID(familyRoot), head)
-	if explicit != "" {
-		requested, requestedErr := canonicalDir(explicit)
-		if requestedErr != nil {
-			return Paths{}, requestedErr
-		}
-		if requested != root {
-			scope, relErr := filepath.Rel(root, requested)
-			if relErr != nil {
-				return Paths{}, fmt.Errorf("resolve repository scope: %w", relErr)
-			}
-			if scope == ".." || strings.HasPrefix(scope, ".."+string(filepath.Separator)) {
-				return Paths{}, errors.New("repository scope is outside the resolved root")
-			}
-			paths.Scope = filepath.ToSlash(scope)
-		}
-	}
+	paths.Scope = scope
 	return paths, nil
+}
+
+func resolveRootScope(explicit string) (string, string, error) {
+	if explicit == "" {
+		if output, err := exec.Command("git", "rev-parse", "--show-toplevel").Output(); err == nil {
+			root, canonicalErr := canonicalDir(strings.TrimSpace(string(output)))
+			return root, "", canonicalErr
+		}
+		root, err := canonicalDir(".")
+		return root, "", err
+	}
+	requested, info, err := canonicalPath(explicit)
+	if err != nil {
+		return "", "", err
+	}
+	probe := requested
+	if !info.IsDir() {
+		probe = filepath.Dir(requested)
+	}
+	root, err := gitRoot(probe)
+	if err != nil {
+		return "", "", err
+	}
+	if requested == root {
+		return root, "", nil
+	}
+	scope, err := filepath.Rel(root, requested)
+	if err != nil {
+		return "", "", fmt.Errorf("resolve repository scope: %w", err)
+	}
+	if scope == ".." || strings.HasPrefix(scope, ".."+string(filepath.Separator)) {
+		return "", "", errors.New("repository scope is outside the resolved root")
+	}
+	scope = filepath.ToSlash(scope)
+	if info.IsDir() {
+		scope += "/"
+	}
+	return root, scope, nil
 }
 
 func RecordIndexFamily(paths Paths) error {
@@ -278,22 +292,30 @@ func hashID(value string) string {
 }
 
 func canonicalDir(path string) (string, error) {
-	value, err := filepath.Abs(path)
+	value, info, err := canonicalPath(path)
 	if err != nil {
-		return "", fmt.Errorf("absolute root: %w", err)
-	}
-	value, err = filepath.EvalSymlinks(value)
-	if err != nil {
-		return "", fmt.Errorf("canonical root: %w", err)
-	}
-	info, err := os.Stat(value)
-	if err != nil {
-		return "", fmt.Errorf("stat root: %w", err)
+		return "", err
 	}
 	if !info.IsDir() {
 		return "", errors.New("repository root is not a directory")
 	}
-	return filepath.Clean(value), nil
+	return value, nil
+}
+
+func canonicalPath(path string) (string, os.FileInfo, error) {
+	value, err := filepath.Abs(path)
+	if err != nil {
+		return "", nil, fmt.Errorf("absolute root: %w", err)
+	}
+	value, err = filepath.EvalSymlinks(value)
+	if err != nil {
+		return "", nil, fmt.Errorf("canonical root: %w", err)
+	}
+	info, err := os.Stat(value)
+	if err != nil {
+		return "", nil, fmt.Errorf("stat root: %w", err)
+	}
+	return filepath.Clean(value), info, nil
 }
 
 func storageRoot() (string, error) {

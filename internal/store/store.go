@@ -880,7 +880,7 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 	return counts, nil
 }
 
-const recordScopePredicate = `(?='' OR substr(r.path,1,length(?)+1)=?||'/')`
+const recordScopePredicate = `(?='' OR r.path=? OR substr(r.path,1,length(?))=?)`
 
 func (s *Store) LexicalCandidates(
 	ctx context.Context,
@@ -893,7 +893,7 @@ func (s *Store) LexicalCandidates(
 		JOIN records r ON r.id=record_fts.rowid
 		WHERE record_fts MATCH ? AND `+recordScopePredicate+`
 		ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
-		LIMIT ?`, query, scope, scope, scope, limit)
+		LIMIT ?`, query, scope, scope, scope, scope, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -911,7 +911,7 @@ func (s *Store) ExtractorCandidates(
 		JOIN records r ON r.id=extractor_fts.rowid
 		WHERE extractor_fts MATCH ? AND `+recordScopePredicate+`
 		ORDER BY bm25(extractor_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
-		LIMIT ?`, query, scope, scope, scope, limit)
+		LIMIT ?`, query, scope, scope, scope, scope, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -932,7 +932,7 @@ func (s *Store) PathCandidates(
 		SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
 		FROM (
 			SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source,`)
-	args := make([]any, 0, len(terms)+4)
+	args := make([]any, 0, len(terms)+5)
 	for index, term := range terms {
 		if index > 0 {
 			query.WriteByte('+')
@@ -947,7 +947,7 @@ func (s *Store) PathCandidates(
 		WHERE matches > 0
 		ORDER BY matches DESC,length(path),path,id
 		LIMIT ?`)
-	args = append(args, scope, scope, scope)
+	args = append(args, scope, scope, scope, scope)
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, query.String(), args...)
 	if err != nil {
@@ -1138,7 +1138,7 @@ func (s *Store) VectorCandidates(
 		if err := s.db.QueryRowContext(
 			ctx,
 			`SELECT count(*) FROM records r WHERE `+recordScopePredicate,
-			scope, scope, scope,
+			scope, scope, scope, scope,
 		).Scan(&scoped); err != nil {
 			return nil, err
 		}
@@ -1157,7 +1157,7 @@ func (s *Store) VectorCandidates(
 			JOIN records r ON r.id=v.rowid
 			WHERE `+recordScopePredicate+`
 			LIMIT ?`,
-			encodeVector(vector), vectorLimit, scope, scope, scope, limit)
+			encodeVector(vector), vectorLimit, scope, scope, scope, scope, limit)
 		if err != nil {
 			return nil, err
 		}

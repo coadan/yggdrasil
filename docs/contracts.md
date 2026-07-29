@@ -171,10 +171,10 @@ canonical format; it does not select a second output path.
 Search validates a mechanical repository freshness token before retrieval and
 incrementally refreshes a changed index. Its `elapsedMs` therefore includes
 root resolution, freshness validation, any required refresh, and retrieval.
-When `search --root` names a repository subdirectory, that relative path is a
-mechanical scope applied before candidate limits in lexical, path, extractor,
-and semantic retrieval. Returned citations remain relative to the repository
-root rather than the scoped directory.
+When `search --root` names a repository subdirectory or file, that relative
+path is a mechanical prefix or exact-file scope applied before candidate limits
+in lexical, path, extractor, and semantic retrieval. Returned citations remain
+relative to the repository root rather than the scoped path.
 Single structured terms containing separators such as `-`, `_`, `.`, or `#`
 use an exact token-sequence lane in `auto` mode. This keeps symbol and CSS-class
 lookups fast and lets removed identifiers return a reliable empty result instead

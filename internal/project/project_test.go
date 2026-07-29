@@ -57,11 +57,44 @@ func TestResolveCanonicalizesRepositorySubdirectory(t *testing.T) {
 	if nestedPaths.Root != rootPaths.Root {
 		t.Fatalf("nested root = %q, want %q", nestedPaths.Root, rootPaths.Root)
 	}
-	if nestedPaths.Scope != "tests/browser" {
-		t.Fatalf("nested scope = %q, want tests/browser", nestedPaths.Scope)
+	if nestedPaths.Scope != "tests/browser/" {
+		t.Fatalf("nested scope = %q, want tests/browser/", nestedPaths.Scope)
 	}
 	if nestedPaths.ID != rootPaths.ID || nestedPaths.Database != rootPaths.Database {
 		t.Fatalf("nested paths = %#v, want repository identity %#v", nestedPaths, rootPaths)
+	}
+}
+
+func TestResolveCanonicalizesRepositoryFileScope(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	root := t.TempDir()
+	file := filepath.Join(root, "src", "owner.ts")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("owner\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, root, "init", "-q")
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+
+	rootPaths, err := Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	filePaths, err := Resolve(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filePaths.Root != rootPaths.Root ||
+		filePaths.ID != rootPaths.ID ||
+		filePaths.Database != rootPaths.Database {
+		t.Fatalf("file paths = %#v, want repository identity %#v", filePaths, rootPaths)
+	}
+	if filePaths.Scope != "src/owner.ts" {
+		t.Fatalf("file scope = %q, want src/owner.ts", filePaths.Scope)
 	}
 }
 
