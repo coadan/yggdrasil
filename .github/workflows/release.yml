@@ -31,9 +31,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          prerelease_args=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            prerelease_args+=(--prerelease)
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --verify-tag \
             --generate-notes \
+            "${prerelease_args[@]}" \
             dist/ygg-darwin-arm64 \
             dist/ygg-darwin-amd64 \
             dist/ygg-linux-arm64 \
