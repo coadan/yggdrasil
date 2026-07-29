@@ -79,7 +79,10 @@ func Inspect(ctx context.Context, paths project.Paths, cfg config.Config) (Resul
 		state, exists := states[candidate.Path]
 		switch {
 		case !exists:
-			result.Freshness.New++
+			_, skipped, readErr := discovery.Read(paths.Root, candidate, cfg.MaxFileBytes)
+			if readErr != nil || skipped == nil {
+				result.Freshness.New++
+			}
 		case state.Size != candidate.Size ||
 			state.MTimeNS != candidate.MTimeNS ||
 			state.ExtractionFingerprint != fingerprint:
