@@ -30,6 +30,18 @@ The optional repository configuration is `.ygg/config.json`:
       "command": ["ygg-extract-typescript"],
       "includeGlobs": ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx"],
       "timeoutMs": 10000
+    },
+    {
+      "id": "manifest",
+      "version": "0.1.0",
+      "command": ["ygg-extract-manifest"],
+      "includeGlobs": [
+        "**/package.json",
+        "**/go.mod",
+        "**/Cargo.toml",
+        "**/pyproject.toml"
+      ],
+      "timeoutMs": 10000
     }
   ],
   "embedding": {

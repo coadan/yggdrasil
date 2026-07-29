@@ -43,8 +43,8 @@ framework, ORM, provider SDK, parser bundle, web server, or frontend build.
 
 Extractor plugins are separate modules. Adding a parser means adding an
 executable adapter that emits `ygg.extractor/v1` records; it does not change the
-database or query contracts. The Markdown, Go, and TypeScript adapters are
-reference implementations, not privileged core parsers; each is a
+database or query contracts. The Markdown, Go, TypeScript, and manifest
+adapters are reference implementations, not privileged core parsers; each is a
 dependency-free nested module.
 
 ## Deliberate non-goals
