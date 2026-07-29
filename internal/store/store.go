@@ -39,6 +39,26 @@ type Counts struct {
 	Diagnostics int `json:"diagnostics"`
 }
 
+type Record struct {
+	ID        int64
+	Path      string
+	StartLine int
+	EndLine   int
+	Kind      string
+	Title     string
+	Text      string
+	Metadata  map[string]any
+	Source    string
+}
+
+type Run struct {
+	ID           string         `json:"id"`
+	StartedAtMS  int64          `json:"startedAtMs"`
+	FinishedAtMS *int64         `json:"finishedAtMs,omitempty"`
+	Status       string         `json:"status"`
+	Summary      map[string]any `json:"summary,omitempty"`
+}
+
 func Open(ctx context.Context, path, root, rootID string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create state directory: %w", err)
@@ -293,4 +313,88 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 		}
 	}
 	return counts, nil
+}
+
+func (s *Store) LexicalCandidates(ctx context.Context, query string, limit int) ([]Record, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+		FROM record_fts
+		JOIN records r ON r.id=record_fts.rowid
+		WHERE record_fts MATCH ?
+		ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
+		LIMIT ?`, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanRecords(rows)
+}
+
+func (s *Store) PathCandidates(ctx context.Context, query string, limit int) ([]Record, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id,path,start_line,end_line,kind,title,text,metadata_json,source
+		FROM records
+		WHERE kind='file' AND instr(lower(path),lower(?)) > 0
+		ORDER BY
+			CASE WHEN lower(path)=lower(?) THEN 0 ELSE 1 END,
+			length(path),path,id
+		LIMIT ?`, query, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanRecords(rows)
+}
+
+func scanRecords(rows *sql.Rows) ([]Record, error) {
+	defer rows.Close()
+	var result []Record
+	for rows.Next() {
+		var record Record
+		var metadata string
+		if err := rows.Scan(
+			&record.ID,
+			&record.Path,
+			&record.StartLine,
+			&record.EndLine,
+			&record.Kind,
+			&record.Title,
+			&record.Text,
+			&metadata,
+			&record.Source,
+		); err != nil {
+			return nil, err
+		}
+		if metadata != "" && metadata != "null" {
+			if err := json.Unmarshal([]byte(metadata), &record.Metadata); err != nil {
+				return nil, fmt.Errorf("decode record metadata: %w", err)
+			}
+		}
+		result = append(result, record)
+	}
+	return result, rows.Err()
+}
+
+func (s *Store) LatestRun(ctx context.Context) (*Run, error) {
+	var run Run
+	var finished sql.NullInt64
+	var summary sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id,started_at_ms,finished_at_ms,status,summary_json
+		FROM index_runs
+		ORDER BY started_at_ms DESC
+		LIMIT 1`).Scan(&run.ID, &run.StartedAtMS, &finished, &run.Status, &summary)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if finished.Valid {
+		run.FinishedAtMS = &finished.Int64
+	}
+	if summary.Valid && summary.String != "" {
+		if err := json.Unmarshal([]byte(summary.String), &run.Summary); err != nil {
+			return nil, fmt.Errorf("decode run summary: %w", err)
+		}
+	}
+	return &run, nil
 }
