@@ -27,10 +27,10 @@ import (
 
 const usage = `Usage:
   ygg version
-  ygg index [--root PATH] [--full] [--no-embed]
-  ygg search [--root PATH] [--limit N] [--mode auto|lexical|semantic] QUERY
-  ygg status [--root PATH] [--check]
-  ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH]
+  ygg index [--root PATH] [--full] [--no-embed] [--json]
+  ygg search [--root PATH] [--limit N] [--mode auto|lexical|semantic] [--json] QUERY
+  ygg status [--root PATH] [--check] [--json]
+  ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH] [--json]
 `
 
 var Version = "0.3.0-dev"
@@ -101,8 +101,12 @@ func (r *runner) runPluginCheck(ctx context.Context, args []string) int {
 	flags.SetOutput(r.stderr)
 	root := flags.String("root", "", "repository root")
 	filePath := flags.String("file", "", "relative file to extract")
+	jsonOutput := jsonFormatFlag(flags)
 	if err := flags.Parse(args[1:]); err != nil {
 		return 2
+	}
+	if !*jsonOutput {
+		return r.fail(true, 2, errors.New("operational command output is always JSON"))
 	}
 	if flags.NArg() != 0 {
 		return r.fail(true, 2, errors.New("plugin check accepts one plugin id"))
@@ -155,8 +159,12 @@ func (r *runner) runIndex(ctx context.Context, args []string) int {
 	root := flags.String("root", "", "repository root")
 	full := flags.Bool("full", false, "rebuild every file")
 	noEmbed := flags.Bool("no-embed", false, "skip embeddings")
+	jsonOutput := jsonFormatFlag(flags)
 	if err := flags.Parse(args); err != nil {
 		return 2
+	}
+	if !*jsonOutput {
+		return r.fail(true, 2, errors.New("operational command output is always JSON"))
 	}
 	if flags.NArg() != 0 {
 		return r.fail(true, 2, errors.New("index accepts no positional arguments"))
@@ -178,8 +186,12 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	root := flags.String("root", "", "repository root")
 	limit := flags.Int("limit", 10, "result limit")
 	mode := flags.String("mode", "auto", "auto, lexical, or semantic")
+	jsonOutput := jsonFormatFlag(flags)
 	if err := parseInterspersed(flags, args); err != nil {
 		return 2
+	}
+	if !*jsonOutput {
+		return r.fail(true, 2, errors.New("operational command output is always JSON"))
 	}
 	query := strings.TrimSpace(strings.Join(flags.Args(), " "))
 	if query == "" {
@@ -275,6 +287,10 @@ func parseInterspersed(flags *flag.FlagSet, args []string) error {
 	return flags.Parse(append(append(options, "--"), positional...))
 }
 
+func jsonFormatFlag(flags *flag.FlagSet) *bool {
+	return flags.Bool("json", true, "confirm JSON output")
+}
+
 func acquireSearchIndexLock(ctx context.Context, path string, wait time.Duration) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, fmt.Errorf("create index state directory: %w", err)
@@ -321,8 +337,12 @@ func (r *runner) runStatus(ctx context.Context, args []string) int {
 	flags.SetOutput(r.stderr)
 	root := flags.String("root", "", "repository root")
 	check := flags.Bool("check", false, "check the configured embedding provider")
+	jsonOutput := jsonFormatFlag(flags)
 	if err := flags.Parse(args); err != nil {
 		return 2
+	}
+	if !*jsonOutput {
+		return r.fail(true, 2, errors.New("operational command output is always JSON"))
 	}
 	if flags.NArg() != 0 {
 		return r.fail(true, 2, errors.New("status accepts no positional arguments"))
