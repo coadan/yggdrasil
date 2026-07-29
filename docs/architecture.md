@@ -50,6 +50,10 @@ dependency-free nested module.
 The Python adapter is also isolated from core and uses Python's standard-library
 AST. Its runtime dependency is explicit in repository configuration.
 
+The Java/.NET adapter is an optional tree-sitter process with a separately
+pinned Python environment. Parser dependencies remain outside the CLI binary
+and the core Go module graph.
+
 ## Deliberate non-goals
 
 The search core does not model a general graph, render HTML, generate reports,

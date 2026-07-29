@@ -1,4 +1,4 @@
-.PHONY: build check test benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-python release clean
+.PHONY: build check test test-jvm-dotnet benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-python benchmark-jvm-dotnet release clean
 
 build:
 	mkdir -p bin
@@ -16,6 +16,11 @@ test:
 	cd plugins/typescript && go test ./...
 	cd plugins/manifest && go test ./...
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s plugins/python -p 'test_*.py'
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s plugins/jvm-dotnet -p 'test_*.py'
+
+test-jvm-dotnet:
+	PYTHONDONTWRITEBYTECODE=1 .dev/jvm-dotnet-venv/bin/python \
+		-m unittest discover -s plugins/jvm-dotnet -p 'test_*.py'
 
 check:
 	test -z "$$(gofmt -l $$(git ls-files '*.go'))"
@@ -60,6 +65,18 @@ benchmark-python: build
 		-plugin-config benchmarks/python-plugins.json \
 		-work .dev/bench/work-python-plugin \
 		-ygg bin/ygg -out .dev/bench/python-plugin-report.json
+
+benchmark-jvm-dotnet: build
+	bin/yggbench -prepare -suite benchmarks/claim-quick.json \
+		-cases dapper-prefer-enum-type-handlers \
+		-work .dev/bench/work-jvm-dotnet-default \
+		-ygg bin/ygg -out .dev/bench/jvm-dotnet-default-report.json
+	PATH="$(CURDIR)/.dev/jvm-dotnet-venv/bin:$$PATH" \
+		bin/yggbench -prepare -suite benchmarks/claim-quick.json \
+		-cases dapper-prefer-enum-type-handlers \
+		-plugin-config benchmarks/jvm-dotnet-plugins.json \
+		-work .dev/bench/work-jvm-dotnet-plugin \
+		-ygg bin/ygg -out .dev/bench/jvm-dotnet-plugin-report.json
 
 release:
 	mkdir -p dist

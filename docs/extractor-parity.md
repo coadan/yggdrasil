@@ -40,6 +40,11 @@ top-level imports, classes and functions, direct methods, async markers, source
 lines, and syntax diagnostics. `internal/plugin/python_integration_test.go`
 also exercises the executable through the real JSONL manager.
 
+`plugins/jvm-dotnet/test_extractor.py` replays the legacy parser-worker fixtures
+for Java and C#: packages/namespaces, imports/usings, nested declarations,
+methods, constructors, properties, line ranges, and diagnostics.
+The parser dependency is pinned in that plugin rather than added to core.
+
 ## Next structured gaps
 
 The next adapters should be selected using real replay misses, startup cost, and
@@ -111,3 +116,34 @@ and suite
 The Python adapter improved the Flask case and did not regress the other nine
 cases. This is broad localization evidence for the tracked suite, not a general
 agent-speed claim.
+
+## Java/.NET ablation
+
+The parser fixtures pass for Java and C#, but search evidence does not support
+enabling this adapter by default. On the pinned Dapper case, declaration records
+rank enum-heavy test files ahead of the core mapping owner:
+
+| Dapper lane | Recall@10 | MRR | Full index | Incremental | Search p50 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Default | 1.000 | 1.000 | 587.9 ms | 52.5 ms | 18.5 ms |
+| Java/.NET parser | 0.500 | 0.333 | 965.3 ms | 60.0 ms | 16.3 ms |
+
+Occurrence-level type references were removed after an earlier diagnostic run
+raised full indexing to approximately 5 seconds. The retained declaration lane
+is faster but still regresses localization.
+
+The same-binary broad run confirms that the impact is isolated to Dapper but
+still lowers the aggregate:
+
+| Broad lane | Recall@10 | MRR | Full index p50 | Incremental p50 | Search p50 | Search p95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Default | 0.810 | 0.821 | 268.2 ms | 32.1 ms | 19.9 ms | 127.1 ms |
+| Java/.NET parser | 0.760 | 0.754 | 270.6 ms | 35.6 ms | 17.1 ms | 102.1 ms |
+
+Both broad reports used candidate
+`sha256:9a621d7944c4674e3e4c5b688351ee60e29cc3f156eb5994110149df3fd1d72a`
+and suite
+`sha256:8293905d96f46bb52948428cb42a24dda5e01331009db3887524e3ee3bb0b524`.
+The adapter remains an explicit experimental ablation until ranking or record
+selection can retain its parser facts without displacing stronger core
+evidence.

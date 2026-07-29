@@ -47,10 +47,22 @@
       "coverage": "partial",
       "owner": "plugins/python",
       "facts": ["top-level imports", "classes", "functions", "direct class methods", "syntax diagnostics"]
+    },
+    {
+      "kind": "java",
+      "coverage": "partial",
+      "owner": "plugins/jvm-dotnet",
+      "facts": ["packages", "imports", "type declarations", "methods", "constructors", "syntax diagnostics"]
+    },
+    {
+      "kind": "dotnet",
+      "coverage": "partial",
+      "owner": "plugins/jvm-dotnet",
+      "facts": ["namespaces", "using directives", "type declarations", "methods", "constructors", "properties", "syntax diagnostics"]
     }
   ],
   "baseline-only": [
-    "code", "java", "groovy", "kotlin", "swift", "objective-c", "dotnet",
+    "code", "groovy", "kotlin", "swift", "objective-c",
     "ruby", "cpp", "dart", "scala", "elixir", "erlang", "lua", "r", "julia",
     "ocaml", "perl", "haskell", "odin", "zig", "apple-config", "astro",
     "prisma", "dbt", "notebook", "data-science", "devcontainer", "kustomize",
