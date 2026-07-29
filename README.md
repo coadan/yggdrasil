@@ -13,8 +13,9 @@ repository. It turns source files, declarations, imports, and documentation
 into compact results with exact path and line citations, so the next relevant
 piece of code is quick to find and easy to verify.
 
-It is open source, MIT licensed, and built for a short iteration loop: index a
-working tree once, then search current files without a separate refresh step.
+It is open source, MIT licensed, and built for a short iteration loop: search a
+working tree directly, then keep searching current files without a separate
+setup or refresh step.
 
 ## Project status
 
@@ -59,13 +60,15 @@ go install github.com/coadan/yggdrasil/cmd/ygg@v0.2.0
 Or download a matching binary and `SHA256SUMS` from the
 [latest release](https://github.com/coadan/yggdrasil/releases/latest).
 
-Index any Git checkout:
+Search any Git checkout:
 
 ```sh
-ygg index --root /path/to/repository
 ygg search --root /path/to/repository "where is request routing configured"
 ygg status --root /path/to/repository
 ```
+
+The first search initializes the repository when needed. Use `ygg index` only
+for an explicit rebuild, index-only refresh, or embedding maintenance.
 
 For a mechanically bounded search, pass a repository subdirectory or file such
 as `--root /path/to/repository/src/app` or
