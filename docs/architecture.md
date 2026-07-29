@@ -47,6 +47,9 @@ database or query contracts. The Markdown, Go, TypeScript, and manifest
 adapters are reference implementations, not privileged core parsers; each is a
 dependency-free nested module.
 
+The Python adapter is also isolated from core and uses Python's standard-library
+AST. Its runtime dependency is explicit in repository configuration.
+
 ## Deliberate non-goals
 
 The search core does not model a general graph, render HTML, generate reports,

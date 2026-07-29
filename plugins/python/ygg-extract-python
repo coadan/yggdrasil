@@ -1,0 +1,130 @@
+#!/usr/bin/env python3
+"""Emit Python AST facts through the Yggdrasil extractor JSONL protocol."""
+
+import ast
+import json
+import sys
+
+SCHEMA = "ygg.extractor/v1"
+MAX_RECORDS = 256
+
+
+def words(name):
+    value = []
+    current = []
+    for character in name:
+        if character in "_-":
+            if current:
+                value.append("".join(current).lower())
+                current = []
+        elif character.isupper() and current and current[-1].islower():
+            value.append("".join(current).lower())
+            current = [character]
+        else:
+            current.append(character)
+    if current:
+        value.append("".join(current).lower())
+    return " ".join(value)
+
+
+def record(kind, title, line, source, metadata=None):
+    text = source.splitlines()[line - 1].strip() if 0 < line <= len(source.splitlines()) else title
+    return {
+        "id": f"{kind}:{line}:{title}",
+        "startLine": line,
+        "endLine": line,
+        "kind": kind,
+        "title": title,
+        "text": f"{text}\n{words(title)}",
+        **({"metadata": metadata} if metadata else {}),
+    }
+
+
+def import_targets(node):
+    if isinstance(node, ast.Import):
+        return [alias.name for alias in node.names]
+    prefix = "." * node.level
+    if node.module:
+        return [prefix + node.module]
+    return [prefix + alias.name for alias in node.names]
+
+
+def extract(source, filename):
+    try:
+        tree = ast.parse(source, filename=filename)
+    except SyntaxError as error:
+        message = error.msg
+        if error.lineno:
+            message = f"line {error.lineno}: {message}"
+        return [], [{"message": message}]
+
+    records = []
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for target in import_targets(node):
+                records.append(record("python-import", target, node.lineno, source))
+        elif isinstance(node, ast.ClassDef):
+            records.append(record("python-class", node.name, node.lineno, source))
+            for child in node.body:
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    records.append(
+                        record(
+                            "python-method",
+                            f"{node.name}.{child.name}",
+                            child.lineno,
+                            source,
+                            {"async": isinstance(child, ast.AsyncFunctionDef)},
+                        )
+                    )
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            records.append(
+                record(
+                    "python-function",
+                    node.name,
+                    node.lineno,
+                    source,
+                    {"async": isinstance(node, ast.AsyncFunctionDef)},
+                )
+            )
+        if len(records) >= MAX_RECORDS:
+            break
+    return records[:MAX_RECORDS], []
+
+
+def emit(value):
+    sys.stdout.write(json.dumps(value, separators=(",", ":")) + "\n")
+    sys.stdout.flush()
+
+
+def main():
+    files = 0
+    record_count = 0
+    for raw in sys.stdin:
+        value = json.loads(raw)
+        message_type = value.get("type")
+        if message_type == "hello":
+            if value.get("schema") != SCHEMA:
+                raise ValueError(f"unsupported schema {value.get('schema')!r}")
+            emit({"type": "ready", "schema": SCHEMA})
+        elif message_type == "file":
+            file = value["file"]
+            records, diagnostics = extract(file["content"], file["path"])
+            files += 1
+            record_count += len(records)
+            emit(
+                {
+                    "type": "result",
+                    "requestId": value["requestId"],
+                    "records": records,
+                    "diagnostics": diagnostics,
+                }
+            )
+        elif message_type == "end":
+            emit({"type": "summary", "files": files, "records": record_count})
+            return
+        else:
+            raise ValueError(f"unsupported message type {message_type!r}")
+
+
+if __name__ == "__main__":
+    main()

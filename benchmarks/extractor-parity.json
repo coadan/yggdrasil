@@ -41,6 +41,12 @@
       "owner": "plugins/manifest",
       "grammars": ["package.json", "go.mod", "Cargo.toml", "pyproject.toml"],
       "facts": ["packages", "dependencies", "dependency scopes", "versions", "scripts", "workspace members", "toolchains", "replacements", "features"]
+    },
+    {
+      "kind": "python",
+      "coverage": "partial",
+      "owner": "plugins/python",
+      "facts": ["top-level imports", "classes", "functions", "direct class methods", "syntax diagnostics"]
     }
   ],
   "baseline-only": [
@@ -53,7 +59,7 @@
     "release-config", "web-framework", "workflow-orchestration", "governance",
     "sbom", "observability-config", "db-config", "db-migration",
     "codegen-config", "ops-config", "php", "vue", "svelte", "ci", "build",
-    "test-config", "quality-config", "tool-config", "python", "rust", "style",
+    "test-config", "quality-config", "tool-config", "rust", "style",
     "sql", "terraform", "openapi", "asyncapi", "json-schema", "avro",
     "graphql", "protobuf", "gettext", "html", "svg", "xml", "env", "text",
     "secret-material", "edn", "config", "unknown", "yaml", "dependency-lock",

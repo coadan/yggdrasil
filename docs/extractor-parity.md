@@ -35,11 +35,16 @@ Graph ids and relations are excluded. Package identity, dependency scope and
 version, workspace members, scripts, Go replacements, toolchains, and Cargo
 features remain explicit and searchable.
 
+`plugins/python/test_extractor.py` replays the legacy Python AST fact boundary:
+top-level imports, classes and functions, direct methods, async markers, source
+lines, and syntax diagnostics. `internal/plugin/python_integration_test.go`
+also exercises the executable through the real JSONL manager.
+
 ## Next structured gaps
 
 The next adapters should be selected using real replay misses, startup cost, and
-search-quality ablations. The largest known source-language gaps are Python,
-Rust, and Clojure definitions/imports. The largest formal-format gaps are
+search-quality ablations. The largest known source-language gaps are Rust,
+Clojure, Java, and the remaining legacy languages. The largest formal-format gaps are
 GraphQL, Protobuf, OpenAPI, SQL, and Terraform. Manifest grammar expansion
 should follow observed repository coverage rather than recreating the legacy
 router wholesale.
@@ -66,3 +71,26 @@ This is evidence of neutral localization quality on a suite with no manifest
 cases, not evidence that manifest records improve search. The approximately
 59 ms full-index p50 increase is the current cost ceiling to improve or justify
 with manifest-specific replay cases.
+
+## Python ablation
+
+The focused Python lane replays two pinned real fixes from Flask and Graphify.
+The repeated matched run on 2026-07-29 produced:
+
+| Lane | Recall@10 | MRR | Full index p50 | No-op p50 | Incremental p50 | Search p50 | Search p95 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Default | 0.500 | 0.531 | 284.4 ms | 16.5 ms | 18.2 ms | 17.6 ms | 30.3 ms |
+| Python AST | 1.000 | 0.583 | 309.8 ms | 16.4 ms | 58.2 ms | 13.1 ms | 33.0 ms |
+
+Candidate hash:
+`sha256:79975336dbc49dbe1f9f059aa83b442ab358ad90a0aedcd4861780f037f34396`.
+Suite hash:
+`sha256:8293905d96f46bb52948428cb42a24dda5e01331009db3887524e3ee3bb0b524`.
+Python adapter hash:
+`sha256:a276bf700261480671f3a9095e29ec3754d61cca3da67140f922d8fe6b939a13`.
+
+The Flask case moved from zero to full file recall at 10; the Graphify case
+remained at full recall. This supports Python-localization value for these two
+problem classes only. The interpreter and AST work add about 40 ms to the
+smaller one-file incremental p50, and the two-case lane is too small for a broad
+startup or agent-efficiency claim.

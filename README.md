@@ -107,8 +107,13 @@ toolchain facts from `package.json`, `go.mod`, `Cargo.toml`, and
 [legacy parity inventory](docs/extractor-parity.md) records structured coverage
 and remaining gaps without treating generic text indexing as full parity.
 
+The optional `plugins/python/ygg-extract-python` adapter uses Python's
+standard-library AST for imports and declarations. It requires a Python 3
+runtime but no third-party packages.
+
 See [contracts](docs/contracts.md) for the extractor, configuration, and result
-schemas.
+schemas. See [embedding parity](docs/embedding-parity.md) for the OpenRouter
+configuration, verified smoke evidence, and remaining legacy differences.
 
 ## Core ideas
 
