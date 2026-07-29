@@ -26,6 +26,8 @@ import (
 const maxProviderResponse = 16 * 1024 * 1024
 const maxProviderStderr = 1024 * 1024
 const maxProviderError = 8 * 1024
+const maxProviderInputChars = 6000
+const embeddingBehaviorVersion = "v2"
 
 type Input struct {
 	ID   string `json:"id"`
@@ -55,6 +57,8 @@ func New(ctx context.Context, root string, cfg config.Embedding) (Provider, erro
 			client: &http.Client{
 				Timeout: time.Duration(cfg.TimeoutMS) * time.Millisecond,
 			},
+			maxRetries:   1,
+			retryBackoff: 500 * time.Millisecond,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported embedding kind %q", cfg.Kind)
@@ -62,48 +66,78 @@ func New(ctx context.Context, root string, cfg config.Embedding) (Provider, erro
 }
 
 func Fingerprint(cfg config.Embedding) string {
-	data, _ := json.Marshal(cfg)
+	data, _ := json.Marshal(struct {
+		Behavior string           `json:"behavior"`
+		Config   config.Embedding `json:"config"`
+	}{Behavior: embeddingBehaviorVersion, Config: cfg})
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 type httpProvider struct {
-	cfg    config.Embedding
-	client *http.Client
+	cfg          config.Embedding
+	client       *http.Client
+	maxRetries   int
+	retryBackoff time.Duration
 }
 
 func (p *httpProvider) Embed(ctx context.Context, inputs []Input) ([]Value, error) {
 	texts := make([]string, len(inputs))
 	for i := range inputs {
-		texts[i] = inputs[i].Text
+		texts[i] = truncateChars(inputs[i].Text, maxProviderInputChars)
 	}
-	payload, err := json.Marshal(map[string]any{"model": p.cfg.Model, "input": texts})
+	payload, err := json.Marshal(map[string]any{
+		"model": p.cfg.Model, "input": texts, "encoding_format": "float",
+	})
 	if err != nil {
 		return nil, err
 	}
+	for attempt := 0; ; attempt++ {
+		values, status, err := p.embedOnce(ctx, inputs, payload)
+		if err == nil {
+			return values, nil
+		}
+		retryable := status == 0 || status == 429 || status == 529 || status >= 500
+		if !retryable || attempt >= p.maxRetries || ctx.Err() != nil {
+			return nil, err
+		}
+		timer := time.NewTimer(p.retryBackoff * time.Duration(1<<attempt))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func (p *httpProvider) embedOnce(ctx context.Context, inputs []Input, payload []byte) ([]Value, int, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.Endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	if p.cfg.APIKeyEnv != "" {
 		key := os.Getenv(p.cfg.APIKeyEnv)
 		if key == "" {
-			return nil, fmt.Errorf("embedding API key environment %s is empty", p.cfg.APIKeyEnv)
+			return nil, http.StatusUnauthorized, fmt.Errorf("embedding API key environment %s is empty", p.cfg.APIKeyEnv)
 		}
 		request.Header.Set("Authorization", "Bearer "+key)
 	}
 	response, err := p.client.Do(request)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	defer response.Body.Close()
 	body, err := io.ReadAll(io.LimitReader(response.Body, maxProviderResponse+1))
+	closeErr := response.Body.Close()
 	if err != nil {
-		return nil, err
+		return nil, response.StatusCode, err
+	}
+	if closeErr != nil {
+		return nil, response.StatusCode, closeErr
 	}
 	if len(body) > maxProviderResponse {
-		return nil, errors.New("embedding response exceeds 16 MiB")
+		return nil, response.StatusCode, errors.New("embedding response exceeds 16 MiB")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		detail := body
@@ -112,7 +146,9 @@ func (p *httpProvider) Embed(ctx context.Context, inputs []Input) ([]Value, erro
 			detail = detail[:maxProviderError]
 			suffix = "…"
 		}
-		return nil, fmt.Errorf("embedding HTTP %d: %s%s", response.StatusCode, strings.TrimSpace(string(detail)), suffix)
+		return nil, response.StatusCode, fmt.Errorf(
+			"embedding HTTP %d: %s%s", response.StatusCode, strings.TrimSpace(string(detail)), suffix,
+		)
 	}
 	var decoded struct {
 		Data []struct {
@@ -121,29 +157,39 @@ func (p *httpProvider) Embed(ctx context.Context, inputs []Input) ([]Value, erro
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &decoded); err != nil {
-		return nil, fmt.Errorf("decode embedding response: %w", err)
+		return nil, response.StatusCode, fmt.Errorf("decode embedding response: %w", err)
 	}
 	result := make([]Value, len(inputs))
 	seen := make([]bool, len(inputs))
 	for _, item := range decoded.Data {
 		if item.Index < 0 || item.Index >= len(inputs) || seen[item.Index] {
-			return nil, fmt.Errorf("invalid embedding response index %d", item.Index)
+			return nil, response.StatusCode, fmt.Errorf("invalid embedding response index %d", item.Index)
 		}
 		if len(item.Embedding) != p.cfg.Dimensions {
-			return nil, fmt.Errorf("embedding %d has %d dimensions, want %d", item.Index, len(item.Embedding), p.cfg.Dimensions)
+			return nil, response.StatusCode, fmt.Errorf(
+				"embedding %d has %d dimensions, want %d", item.Index, len(item.Embedding), p.cfg.Dimensions,
+			)
 		}
 		seen[item.Index] = true
 		result[item.Index] = Value{ID: inputs[item.Index].ID, Vector: item.Embedding}
 	}
 	for i, ok := range seen {
 		if !ok {
-			return nil, fmt.Errorf("embedding response omitted input %d", i)
+			return nil, response.StatusCode, fmt.Errorf("embedding response omitted input %d", i)
 		}
 	}
-	return result, nil
+	return result, response.StatusCode, nil
 }
 
 func (p *httpProvider) Close() error { return nil }
+
+func truncateChars(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit])
+}
 
 type commandProvider struct {
 	cfg       config.Embedding

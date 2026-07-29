@@ -45,6 +45,10 @@ reports are therefore an explicit ablation pair.
 extractors using `benchmarks/dogfood-manifest.json`. Use it to measure manifest
 startup/index cost without attributing Go or TypeScript records to that lane.
 
+`make benchmark-python` runs a matched default-versus-Python-adapter ablation on
+the two pinned Python cases. It is a focused extractor diagnostic, not the broad
+claim lane.
+
 Reports include:
 
 - file recall@10 and mean reciprocal rank;

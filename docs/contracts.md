@@ -42,6 +42,13 @@ The optional repository configuration is `.ygg/config.json`:
         "**/pyproject.toml"
       ],
       "timeoutMs": 10000
+    },
+    {
+      "id": "python",
+      "version": "0.1.0",
+      "command": ["plugins/python/ygg-extract-python"],
+      "includeGlobs": ["**/*.py"],
+      "timeoutMs": 10000
     }
   ],
   "embedding": {
@@ -58,6 +65,11 @@ The optional repository configuration is `.ygg/config.json`:
 
 Embedding `kind` is either `command` or `openai-compatible`. A command provider
 uses `command` argv instead of `endpoint` and `apiKeyEnv`.
+
+Remote providers receive at most 6,000 Unicode characters per record. The HTTP
+adapter requests float encoding and performs one bounded retry with backoff for
+transport errors, HTTP 429/529, and 5xx responses. Configure a remote-appropriate
+timeout explicitly; the short default is intended for local endpoints.
 
 ## Search records
 

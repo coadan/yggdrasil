@@ -1,4 +1,4 @@
-.PHONY: build check test benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest release clean
+.PHONY: build check test benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-python release clean
 
 build:
 	mkdir -p bin
@@ -15,6 +15,7 @@ test:
 	cd plugins/go && go test ./...
 	cd plugins/typescript && go test ./...
 	cd plugins/manifest && go test ./...
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s plugins/python -p 'test_*.py'
 
 check:
 	test -z "$$(gofmt -l $$(git ls-files '*.go'))"
@@ -48,6 +49,17 @@ benchmark-dogfood-manifest: build
 		-plugin-config benchmarks/dogfood-manifest.json \
 		-work .dev/bench/work-dogfood-manifest \
 		-ygg bin/ygg -out .dev/bench/dogfood-manifest-report.json
+
+benchmark-python: build
+	bin/yggbench -prepare -suite benchmarks/claim-quick.json \
+		-cases flask-autoescape-case-insensitive,graphify-read-glob-hook-extension-boundary \
+		-work .dev/bench/work-python-default \
+		-ygg bin/ygg -out .dev/bench/python-default-report.json
+	bin/yggbench -prepare -suite benchmarks/claim-quick.json \
+		-cases flask-autoescape-case-insensitive,graphify-read-glob-hook-extension-boundary \
+		-plugin-config benchmarks/python-plugins.json \
+		-work .dev/bench/work-python-plugin \
+		-ygg bin/ygg -out .dev/bench/python-plugin-report.json
 
 release:
 	mkdir -p dist

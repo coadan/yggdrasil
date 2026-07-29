@@ -1,0 +1,13 @@
+{
+  "schema": "ygg.config/v1",
+  "maxFileBytes": 4194304,
+  "plugins": [
+    {
+      "id": "python",
+      "version": "0.1.0",
+      "command": ["plugins/python/ygg-extract-python"],
+      "includeGlobs": ["**/*.py"],
+      "timeoutMs": 10000
+    }
+  ]
+}

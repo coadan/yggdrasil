@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/coadan/yggdrasil/internal/config"
 )
@@ -45,6 +47,53 @@ func TestHTTPProviderPreservesInputIDs(t *testing.T) {
 	}
 	if values[0].ID != "a" || values[0].Vector[0] != 1 || values[1].ID != "b" {
 		t.Fatalf("values=%#v", values)
+	}
+}
+
+func TestHTTPProviderBoundsInputAndRetriesTransientStatus(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Input          []string `json:"input"`
+			EncodingFormat string   `json:"encoding_format"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		if len([]rune(body.Input[0])) != maxProviderInputChars {
+			t.Errorf("input chars=%d", len([]rune(body.Input[0])))
+		}
+		if body.EncodingFormat != "float" {
+			t.Errorf("encoding_format=%q", body.EncodingFormat)
+		}
+		if requests.Add(1) == 1 {
+			writer.WriteHeader(http.StatusTooManyRequests)
+			_, _ = writer.Write([]byte(`{"error":{"message":"retry"}}`))
+			return
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"data": []map[string]any{{"index": 0, "embedding": []float32{1, 0}}},
+		})
+	}))
+	defer server.Close()
+	provider := &httpProvider{
+		cfg: config.Embedding{
+			Kind: "openai-compatible", Endpoint: server.URL, Model: "test",
+			Dimensions: 2, TimeoutMS: 1_000,
+		},
+		client:       server.Client(),
+		maxRetries:   1,
+		retryBackoff: time.Millisecond,
+	}
+	values, err := provider.Embed(context.Background(), []Input{{
+		ID: "unicode", Text: strings.Repeat("ø", maxProviderInputChars+10),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests.Load() != 2 || len(values) != 1 {
+		t.Fatalf("requests=%d values=%#v", requests.Load(), values)
 	}
 }
 
