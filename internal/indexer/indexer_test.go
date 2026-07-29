@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/coadan/yggdrasil/internal/config"
+	"github.com/coadan/yggdrasil/internal/contracts"
+	"github.com/coadan/yggdrasil/internal/discovery"
 	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/project"
 	"github.com/coadan/yggdrasil/internal/search"
@@ -62,6 +64,75 @@ func TestRunIsIncrementalAndDeletesMissingFiles(t *testing.T) {
 	counts, err := value.Counts(context.Background())
 	if err != nil || counts.Files != 0 {
 		t.Fatalf("counts=%#v err=%v", counts, err)
+	}
+}
+
+func TestRunReplacesPreRedactionStateAndDeletesNewlySkippedSecrets(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	fixtures := map[string]string{
+		".env":        "API_TOKEN=ultraconfidentialvalue\n",
+		"private.pem": "retiredsecretvalue\n",
+	}
+	for name, content := range fixtures {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := store.Open(context.Background(), paths.Database, paths.Root, paths.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range fixtures {
+		info, err := os.Stat(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		file := discovery.File{
+			Candidate: discovery.Candidate{
+				Path: name, Size: info.Size(), MTimeNS: info.ModTime().UnixNano(),
+			},
+			Kind: "text", Content: content,
+		}
+		if err := value.ReplaceFile(context.Background(), "old", file, "old-hash", "v1", []contracts.SearchRecord{{
+			Path: name, StartLine: 1, EndLine: 1, Kind: "text-chunk",
+			Text: content, Source: "core",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := value.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	summary, err := Run(context.Background(), paths, config.Default(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Indexed != 1 || summary.Skipped != 1 || summary.Deleted != 1 {
+		t.Fatalf("summary=%#v", summary)
+	}
+	value, err = store.Open(context.Background(), paths.Database, paths.Root, paths.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, query := range []string{"ultraconfidentialvalue", "retiredsecretvalue"} {
+		result, err := search.Run(context.Background(), value, query, search.Options{Mode: "lexical", Limit: 10})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Records) != 0 {
+			t.Fatalf("%s leaked: %#v", query, result.Records)
+		}
+	}
+	result, err := search.Run(context.Background(), value, "API_TOKEN", search.Options{Mode: "lexical", Limit: 10})
+	if err != nil || len(result.Records) == 0 || result.Records[0].Path != ".env" {
+		t.Fatalf("key result=%#v err=%v", result, err)
 	}
 }
 

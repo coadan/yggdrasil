@@ -13,12 +13,34 @@ enumerates every kind in legacy `ygg.extract/v2` at revision
   records for a stated subset of the legacy facts;
 - `baseline-only`: generic text chunks keep literal content searchable, but
   structured parity remains open;
-- `retired`: binary inventory that is outside the local code-search product.
+- `retired`: binary/secret inventory that is deliberately outside the searchable
+  index.
 
 The inventory deliberately calls all current structured lanes `partial`.
 Legacy Go, JavaScript/TypeScript, Markdown, and manifest extractors emitted
 additional graph relations and configuration facts that the search-focused
 adapters do not reproduce.
+
+## Exhaustive search-parity gate
+
+[`benchmarks/legacy-search-parity.json`](../benchmarks/legacy-search-parity.json)
+contains one representative legacy path for all 95 versioned kinds:
+
+- 87 retained text kinds must index and return their unique marker as a cited
+  lexical result;
+- eight binary or secret-material kinds must be skipped;
+- dotenv key names must remain searchable while assigned values and unrelated
+  lines must not enter the index.
+
+`TestLegacyTextKindsRemainSearchableAndRetiredKindsStayOut` builds the complete
+fixture in a temporary repository, runs the real indexer and SQLite search
+stack, verifies the exact counts, searches every retained marker, and probes for
+the redacted and retired secret values. The test also requires its disposition
+sets to exactly match `extractor-parity.json`; adding or reclassifying a legacy
+kind without updating executable evidence fails the gate.
+
+This proves search/citation parity for retained text. It does not claim that
+every legacy graph node, edge, or semantic configuration label was ported.
 
 ## Manifest parity fixture
 
@@ -49,10 +71,10 @@ The parser dependency is pinned in that plugin rather than added to core.
 
 The next adapters should be selected using real replay misses, startup cost, and
 search-quality ablations. The largest known source-language gaps are Rust,
-Clojure, Java, and the remaining legacy languages. The largest formal-format gaps are
-GraphQL, Protobuf, OpenAPI, SQL, and Terraform. Manifest grammar expansion
-should follow observed repository coverage rather than recreating the legacy
-router wholesale.
+Clojure, and the remaining baseline-only languages. The largest formal-format
+gaps are GraphQL, Protobuf, OpenAPI, and SQL. Manifest grammar expansion should
+follow observed repository coverage rather than recreating the legacy router
+wholesale.
 
 ## Manifest ablation
 

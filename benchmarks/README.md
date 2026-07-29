@@ -28,3 +28,5 @@ ablation runs and are not the default should-win lane.
 `extractor-parity.json` is the machine-checked inventory of legacy extractor
 kinds. It distinguishes structured coverage from generic text search and
 retired binary inventory; see [the parity notes](../docs/extractor-parity.md).
+`legacy-search-parity.json` drives the exhaustive end-to-end gate for all 95
+legacy kinds, including dotenv redaction and secret-material exclusion.

@@ -34,6 +34,8 @@ type Skipped struct {
 	Reason string
 }
 
+var envAssignment = regexp.MustCompile(`^(\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*(?:=|:)).*$`)
+
 func Candidates(root string, ignoreGlobs []string) ([]Candidate, error) {
 	paths, err := gitPaths(root)
 	if err != nil {
@@ -73,6 +75,9 @@ func Read(root string, candidate Candidate, maxBytes int64) (File, *Skipped, err
 	if candidate.Size > maxBytes {
 		return File{}, &Skipped{Path: candidate.Path, Reason: "file-too-large"}, nil
 	}
+	if secretMaterial(candidate.Path) {
+		return File{}, &Skipped{Path: candidate.Path, Reason: "secret-material"}, nil
+	}
 	data, err := os.ReadFile(absolute)
 	if err != nil {
 		return File{}, nil, fmt.Errorf("read %s: %w", candidate.Path, err)
@@ -84,7 +89,42 @@ func Read(root string, candidate Candidate, maxBytes int64) (File, *Skipped, err
 	if ext == "" {
 		ext = "text"
 	}
-	return File{Candidate: candidate, Kind: ext, Content: string(data)}, nil, nil
+	content := string(data)
+	if envFilename(candidate.Path) {
+		ext = "env"
+		content = sanitizeEnv(content)
+	}
+	return File{Candidate: candidate, Kind: ext, Content: content}, nil, nil
+}
+
+func secretMaterial(value string) bool {
+	switch strings.ToLower(path.Ext(value)) {
+	case ".key", ".pem", ".crt", ".cer", ".cert":
+		return true
+	default:
+		return false
+	}
+}
+
+func envFilename(value string) bool {
+	filename := strings.ToLower(path.Base(value))
+	return filename == ".env" ||
+		filename == ".envrc" ||
+		strings.HasPrefix(filename, ".env.") ||
+		strings.HasSuffix(filename, ".env") ||
+		strings.Contains(filename, ".env.")
+}
+
+func sanitizeEnv(content string) string {
+	lines := strings.Split(content, "\n")
+	for index, line := range lines {
+		if match := envAssignment.FindStringSubmatch(line); match != nil {
+			lines[index] = match[1] + "<redacted>"
+		} else {
+			lines[index] = ""
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 func Match(pattern, value string) bool {

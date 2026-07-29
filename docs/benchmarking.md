@@ -77,3 +77,7 @@ The separate dogfood replay suite has eight cases split evenly between
 coverage.
 Generated reports are evidence for the exact binary and selected cases only,
 not a general agent-efficiency claim.
+
+Benchmark and release builds use `-buildvcs=false` with `-trimpath`, so candidate
+hashes identify source behavior rather than the current dirty flag or commit
+metadata.

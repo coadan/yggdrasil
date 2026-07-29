@@ -2,13 +2,13 @@
 
 build:
 	mkdir -p bin
-	go build -trimpath -o bin/ygg ./cmd/ygg
-	go build -trimpath -o bin/yggbench ./cmd/yggbench
-	cd plugins/markdown && go build -trimpath -o ../../bin/ygg-extract-markdown .
-	cd plugins/go && go build -trimpath -o ../../bin/ygg-extract-go .
-	cd plugins/typescript && go build -trimpath -o ../../bin/ygg-extract-typescript .
-	cd plugins/manifest && go build -trimpath -o ../../bin/ygg-extract-manifest .
-	cd plugins/terraform && go build -trimpath -o ../../bin/ygg-extract-terraform .
+	go build -buildvcs=false -trimpath -o bin/ygg ./cmd/ygg
+	go build -buildvcs=false -trimpath -o bin/yggbench ./cmd/yggbench
+	cd plugins/markdown && go build -buildvcs=false -trimpath -o ../../bin/ygg-extract-markdown .
+	cd plugins/go && go build -buildvcs=false -trimpath -o ../../bin/ygg-extract-go .
+	cd plugins/typescript && go build -buildvcs=false -trimpath -o ../../bin/ygg-extract-typescript .
+	cd plugins/manifest && go build -buildvcs=false -trimpath -o ../../bin/ygg-extract-manifest .
+	cd plugins/terraform && go build -buildvcs=false -trimpath -o ../../bin/ygg-extract-terraform .
 
 test:
 	go test ./...
@@ -94,10 +94,10 @@ benchmark-terraform: build
 
 release:
 	mkdir -p dist
-	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/ygg-darwin-arm64 ./cmd/ygg
-	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/ygg-darwin-amd64 ./cmd/ygg
-	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o dist/ygg-linux-arm64 ./cmd/ygg
-	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/ygg-linux-amd64 ./cmd/ygg
+	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o dist/ygg-darwin-arm64 ./cmd/ygg
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o dist/ygg-darwin-amd64 ./cmd/ygg
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o dist/ygg-linux-arm64 ./cmd/ygg
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -buildvcs=false -trimpath -ldflags="-s -w" -o dist/ygg-linux-amd64 ./cmd/ygg
 	cd dist && shasum -a 256 ygg-* > SHA256SUMS
 
 clean:

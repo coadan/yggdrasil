@@ -80,11 +80,11 @@
     "test-config", "quality-config", "tool-config", "rust", "style",
     "sql", "openapi", "asyncapi", "json-schema", "avro",
     "graphql", "protobuf", "gettext", "html", "svg", "xml", "env", "text",
-    "secret-material", "edn", "config", "unknown", "yaml", "dependency-lock",
+    "edn", "config", "unknown", "yaml", "dependency-lock",
     "docker", "procfile", "compose", "helm", "shell"
   ],
   "retired": [
     "image-asset", "font-asset", "media-asset", "archive-asset",
-    "compiled-artifact", "opaque-asset", "gettext-binary"
+    "compiled-artifact", "opaque-asset", "secret-material", "gettext-binary"
   ]
 }
