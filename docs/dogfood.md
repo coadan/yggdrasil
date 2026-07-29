@@ -10,11 +10,14 @@ Two complementary lanes are retained:
 - the commands below measure indexing and freshness against current local
   working copies;
 - `make benchmark-dogfood` measures relevance and latency against eight pinned
-  parent/fix replays from the public repositories.
+  parent/fix replays from the private dogfood repositories.
 
-The replay lane is reproducible and is the required comparison for ranking or
-extractor changes. The current-checkout lane catches scale and freshness
-regressions but does not establish relevance.
+The replay lane is reproducible for maintainers with repository access and is
+the required comparison for ranking or extractor changes. The current-checkout
+lane catches scale and freshness regressions but does not establish relevance.
+The public `make benchmark-release` lane uses the ten pinned cases in
+`benchmarks/claim-quick.json` so a clean release runner can reproduce the
+candidate report without private credentials.
 
 Dogfood state must use a fresh central directory outside either repository.
 The repositories are inputs only: the run must not add configuration, indexes,
@@ -64,13 +67,14 @@ citation rate `1.0`. Its full-index p50 changed from `378 ms` to `182 ms`; the
 large OpenTelemetry case changed from `214,120 ms` to `6,463 ms`. These are
 machine- and suite-specific results, not general agent-efficiency claims.
 
-Before release, rerun the dogfood commands with the exact release binary, run
-the complete replay suite, and retain its hash-bearing JSON report under
-`.dev/bench/`. `make release VERSION=<version>` must then produce the four
-CGO-free platform binaries and `dist/SHA256SUMS`; it also executes the native
-artifact and verifies that `ygg version` reports the requested version. A `v*`
-tag publishes those artifacts only after `make check`, `make benchmark-dogfood`,
-and `make benchmark-check` pass in the release workflow.
+Before release, rerun the dogfood commands with the exact release binary and
+retain its hash-bearing JSON report under `.dev/bench/`. `make release
+VERSION=<version>` must then produce the four CGO-free platform binaries and
+`dist/SHA256SUMS`; it also executes the native artifact and verifies that `ygg
+version` reports the requested version. A `v*` tag publishes those artifacts
+only after `make check` and the public `make benchmark-release` replay pass in
+the release workflow. The release includes that replay's hash-bearing JSON
+report.
 
 ## Extractor ablation
 

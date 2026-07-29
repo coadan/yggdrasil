@@ -1,4 +1,4 @@
-.PHONY: build check test test-jvm-dotnet test-clojure benchmark-check benchmark-quick benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-breyta-session-check benchmark-breyta-session benchmark-breyta-clojure benchmark-python benchmark-jvm-dotnet benchmark-terraform benchmark-semantic-lexical benchmark-semantic-openrouter benchmark-semantic-local-command benchmark-semantic-ollama benchmark-semantic-qwen release clean
+.PHONY: build check test test-jvm-dotnet test-clojure benchmark-check benchmark-quick benchmark-release benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-breyta-session-check benchmark-breyta-session benchmark-breyta-clojure benchmark-python benchmark-jvm-dotnet benchmark-terraform benchmark-semantic-lexical benchmark-semantic-openrouter benchmark-semantic-local-command benchmark-semantic-ollama benchmark-semantic-qwen release clean
 
 VERSION ?= 0.3.0-dev
 RELEASE_LDFLAGS = -s -w -X github.com/coadan/yggdrasil/internal/cli.Version=$(VERSION)
@@ -48,6 +48,10 @@ benchmark-quick: build
 
 benchmark-check: build
 	bin/yggbench -prepare -check-only -suite benchmarks/claim-quick.json -ygg bin/ygg
+
+benchmark-release: build
+	bin/yggbench -prepare -suite benchmarks/claim-quick.json -ygg bin/ygg \
+		-out .dev/bench/release-report.json
 
 benchmark-dogfood: build
 	bin/yggbench -prepare -suite benchmarks/dogfood-replay.json -ygg bin/ygg -out .dev/bench/dogfood-report.json
