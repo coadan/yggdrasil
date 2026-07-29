@@ -25,6 +25,7 @@ import (
 
 const maxProviderResponse = 16 * 1024 * 1024
 const maxProviderStderr = 1024 * 1024
+const maxProviderError = 8 * 1024
 
 type Input struct {
 	ID   string `json:"id"`
@@ -44,6 +45,9 @@ type Provider interface {
 func New(ctx context.Context, root string, cfg config.Embedding) (Provider, error) {
 	switch cfg.Kind {
 	case "command":
+		if len(cfg.Command) == 0 || cfg.Command[0] == "" {
+			return nil, errors.New("embedding command is required")
+		}
 		return startCommand(ctx, root, cfg)
 	case "openai-compatible":
 		return &httpProvider{
@@ -102,7 +106,13 @@ func (p *httpProvider) Embed(ctx context.Context, inputs []Input) ([]Value, erro
 		return nil, errors.New("embedding response exceeds 16 MiB")
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("embedding HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+		detail := body
+		suffix := ""
+		if len(detail) > maxProviderError {
+			detail = detail[:maxProviderError]
+			suffix = "…"
+		}
+		return nil, fmt.Errorf("embedding HTTP %d: %s%s", response.StatusCode, strings.TrimSpace(string(detail)), suffix)
 	}
 	var decoded struct {
 		Data []struct {

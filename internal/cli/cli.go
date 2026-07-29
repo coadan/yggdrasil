@@ -182,6 +182,9 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	if query == "" {
 		return r.fail(*jsonOutput, 2, errors.New("search query is required"))
 	}
+	if *limit < 1 || *limit > search.MaxResults {
+		return r.fail(*jsonOutput, 2, fmt.Errorf("search limit must be between 1 and %d", search.MaxResults))
+	}
 	paths, cfg, err := resolve(*root)
 	if err != nil {
 		return r.fail(*jsonOutput, 2, err)

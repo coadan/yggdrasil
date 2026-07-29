@@ -57,3 +57,33 @@ func TestSearchRequiresAnIndex(t *testing.T) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
 }
+
+func TestPublicSurfaceRejectsLegacyCommands(t *testing.T) {
+	for _, command := range []string{
+		"start", "init", "sync", "query", "view", "report", "packages",
+		"maintenance", "agent", "bench", "embed", "watch",
+	} {
+		t.Run(command, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := Main(context.Background(), []string{command}, &stdout, &stderr); code != 2 {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+			}
+		})
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{"plugin", "install"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("plugin install code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestSearchRejectsOutOfBoundsLimitBeforeOpeningIndex(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	var stdout, stderr bytes.Buffer
+	code := Main(context.Background(), []string{
+		"search", "--root", root, "--limit", "101", "query",
+	}, &stdout, &stderr)
+	if code != 2 {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
