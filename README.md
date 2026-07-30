@@ -67,6 +67,9 @@ ygg search --root /path/to/repository "where is request routing configured"
 ygg status --root /path/to/repository
 ```
 
+Search always writes a JSON envelope. Result records are under `data.records`;
+additional ranked paths, when present, are under `data.morePaths`.
+
 The first search initializes the repository when needed. Use `ygg index` only
 for an explicit rebuild, index-only refresh, or embedding maintenance.
 

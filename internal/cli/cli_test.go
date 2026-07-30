@@ -724,6 +724,21 @@ func TestOperationalHelpOmitsRedundantJSONFlagAndSucceeds(t *testing.T) {
 	}
 }
 
+func TestSearchHelpNamesCanonicalJSONPaths(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := Main(
+		context.Background(),
+		[]string{"search", "--help"},
+		&stdout,
+		&stderr,
+	)
+	if code != 0 || stdout.Len() != 0 ||
+		!strings.Contains(stderr.String(), "result records: data.records") ||
+		!strings.Contains(stderr.String(), "additional candidate paths, when present: data.morePaths") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestOperationalCommandsRejectNonJSONOutputSelector(t *testing.T) {
 	for _, args := range [][]string{
 		{"index", "--json=false"},
