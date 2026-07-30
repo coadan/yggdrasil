@@ -92,8 +92,17 @@ Against record-only hybrid fusion, the public suite gained `0.033` recall and
 `0.007` MRR; the matched private eight-case dogfood suite retained recall
 `0.292` while MRR increased from `0.417` to `0.438`. The algorithm preserves the
 strongest record-level file, then combines cross-record lexical and semantic
-evidence by file path. This supports hybrid as the balanced default for configured local
-embeddings without claiming that semantic-only retrieval should win.
+evidence by file path. This supports hybrid as the balanced default for
+configured local embeddings without claiming that semantic-only retrieval
+should win.
+
+Two stopping probes did not justify another ranking change. Removing forced
+root diversity raised public hybrid recall from `0.980` to `1.000`, but reduced
+public hybrid MRR from `0.850` to `0.833` and lexical MRR from `0.790` to
+`0.771`. On the private suite, semantic-only retrieval reached recall `0.104`
+and MRR `0.157`; its first twenty paths added only one expected file absent from
+hybrid's first twenty, at semantic rank 18. These are narrow tradeoffs rather
+than evidence for another broad fusion gain.
 
 The larger `qwen3-embedding:4b` model was also exercised locally through Ollama
 with 2,560-dimensional vectors, batch size 1, and 4,000-character inputs. A
