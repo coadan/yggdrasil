@@ -151,13 +151,15 @@ func TestFusionCombinesDifferentRecordsAfterThePrecisionHead(t *testing.T) {
 			},
 		},
 	})
-	if len(ranked) != 3 || ranked[2].Path != "src/owner.go" {
+	if len(ranked) != 3 ||
+		ranked[0].Path != "src/lexical-only.go" ||
+		ranked[1].Path != "src/owner.go" {
 		t.Fatalf("cross-record path evidence was not fused: %#v", ranked)
 	}
-	if ranked[2].Score <= ranked[0].Score {
-		t.Fatalf("cross-record score=%f head score=%f", ranked[2].Score, ranked[0].Score)
+	if ranked[1].Score <= ranked[0].Score {
+		t.Fatalf("cross-record score=%f head score=%f", ranked[1].Score, ranked[0].Score)
 	}
-	if got := strings.Join(ranked[2].Retrieval, ","); got != "lexical,semantic" {
+	if got := strings.Join(ranked[1].Retrieval, ","); got != "lexical,semantic" {
 		t.Fatalf("retrieval=%q", got)
 	}
 }
