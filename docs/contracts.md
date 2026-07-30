@@ -212,6 +212,13 @@ Broad queries containing a mixed-case identifier or two or more other structured
 anchors also retain bounded per-anchor lexical lanes. This keeps an exact symbol
 represented among surrounding conceptual terms without treating one natural
 hyphenated phrase as code.
+Retrieval lanes return records, but the public result identity is a file path.
+Fusion therefore preserves the top two record-level paths as its precision
+head, then combines the best record per lane at file-path identity for the
+remaining results. Record-level evidence still selects the cited line range.
+This lets lexical and semantic hits in different chunks corroborate one file
+without allowing cross-chunk evidence to displace the strongest two direct
+record matches.
 If a retired identifier remains in a negative assertion, search correctly
 returns that citation; a focused test, not retrieval alone, proves the asserted
 absence.

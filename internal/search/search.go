@@ -23,6 +23,7 @@ const maxPathTerms = 6
 const maxStructuredAnchors = 4
 const maxMorePaths = 20
 const extractorLaneWeight = 0.5
+const recordHeadResults = 2
 const maxExcerptRunes = 280
 const minExcerptRunes = 120
 const targetExcerptRunes = 2400
@@ -322,11 +323,26 @@ type fused struct {
 func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 	values := map[int64]*fused{}
 	pathEvidence := make(map[string]*fused)
+	pathScores := make(map[string]float64)
+	pathRetrieval := make(map[string]map[string]bool)
 	for _, candidateLane := range lanes {
+		seenPaths := make(map[string]bool)
 		for rank, record := range candidateLane.records {
 			score := 1.0 / (rrfK + float64(rank+1))
 			if candidateLane.name == "extractor" {
 				score *= extractorLaneWeight
+			}
+			// Search results are files, while retrieval lanes return file,
+			// chunk, and extractor records. Count only the best record for a
+			// path in each lane, then fuse evidence across lanes at that same
+			// result identity.
+			if !seenPaths[record.Path] {
+				seenPaths[record.Path] = true
+				pathScores[record.Path] += score
+				if pathRetrieval[record.Path] == nil {
+					pathRetrieval[record.Path] = make(map[string]bool)
+				}
+				pathRetrieval[record.Path][candidateLane.name] = true
 			}
 			if candidateLane.name == "path" {
 				pathEvidence[record.Path] = &fused{record: record, score: score}
@@ -373,18 +389,24 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 			hasCitedRecord[value.record.Path] = true
 		}
 	}
-	sort.Slice(ordered, func(i, j int) bool {
-		if ordered[i].score != ordered[j].score {
-			return ordered[i].score > ordered[j].score
+	sortFused(ordered)
+	recordHeadPaths := make([]string, 0, recordHeadResults)
+	seenRecordPaths := make(map[string]bool)
+	for _, value := range ordered {
+		if len(recordHeadPaths) == recordHeadResults {
+			break
 		}
-		if ordered[i].record.Path != ordered[j].record.Path {
-			return ordered[i].record.Path < ordered[j].record.Path
+		if seenRecordPaths[value.record.Path] ||
+			(value.record.Kind == "file" && hasCitedRecord[value.record.Path]) {
+			continue
 		}
-		if ordered[i].record.StartLine != ordered[j].record.StartLine {
-			return ordered[i].record.StartLine < ordered[j].record.StartLine
-		}
-		return ordered[i].record.ID < ordered[j].record.ID
-	})
+		seenRecordPaths[value.record.Path] = true
+		recordHeadPaths = append(recordHeadPaths, value.record.Path)
+	}
+	for _, value := range ordered {
+		value.score = pathScores[value.record.Path]
+	}
+	sortFused(ordered)
 	eligible := make([]*fused, 0, len(ordered))
 	selectedPaths := make(map[string]bool)
 	citations := make(map[string]*fused)
@@ -403,6 +425,7 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 		selectedPaths[value.record.Path] = true
 	}
 	promoteThirdRoot(eligible)
+	preserveHeadPaths(eligible, recordHeadPaths)
 	result := make([]RankedRecord, 0, min(limit, len(eligible)))
 	for _, value := range eligible {
 		if len(result) == limit {
@@ -412,11 +435,8 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 		if citation == nil {
 			citation = value
 		}
-		retrievalSet := make(map[string]bool, len(value.retrieval)+len(citation.retrieval))
-		for name := range value.retrieval {
-			retrievalSet[name] = true
-		}
-		for name := range citation.retrieval {
+		retrievalSet := make(map[string]bool, len(pathRetrieval[value.record.Path]))
+		for name := range pathRetrieval[value.record.Path] {
 			retrievalSet[name] = true
 		}
 		retrieval := make([]string, 0, len(retrievalSet))
@@ -441,6 +461,37 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 		})
 	}
 	return result
+}
+
+func sortFused(values []*fused) {
+	sort.Slice(values, func(i, j int) bool {
+		if values[i].score != values[j].score {
+			return values[i].score > values[j].score
+		}
+		if values[i].record.Path != values[j].record.Path {
+			return values[i].record.Path < values[j].record.Path
+		}
+		if values[i].record.StartLine != values[j].record.StartLine {
+			return values[i].record.StartLine < values[j].record.StartLine
+		}
+		return values[i].record.ID < values[j].record.ID
+	})
+}
+
+func preserveHeadPaths(values []*fused, paths []string) {
+	next := 0
+	for _, path := range paths {
+		for index := next; index < len(values); index++ {
+			if values[index].record.Path != path {
+				continue
+			}
+			value := values[index]
+			copy(values[next+1:index+1], values[next:index])
+			values[next] = value
+			next++
+			break
+		}
+	}
 }
 
 type citationEvidence struct {
