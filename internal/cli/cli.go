@@ -184,6 +184,15 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	root := flags.String("root", "", "repository root, directory, or file scope")
 	limit := flags.Int("limit", 10, "result limit")
 	mode := flags.String("mode", "auto", "auto, lexical, or semantic")
+	flags.Usage = func() {
+		fmt.Fprintf(flagOutput, "Usage of %s:\n", flags.Name())
+		flags.PrintDefaults()
+		fmt.Fprint(
+			flagOutput,
+			"\nJSON output paths:\n  result records: data.records\n"+
+				"  additional candidate paths, when present: data.morePaths\n",
+		)
+	}
 	if err := parseInterspersed(flags, args); err != nil {
 		if strings.Contains(err.Error(), "flag provided but not defined: -path") {
 			err = errors.New("--path is not supported; use --root PATH for repository, directory, or file scope")
