@@ -75,10 +75,25 @@ classes, and six architecture/audit classes:
 
 Both semantic lanes had complete `47,724 / 47,724` vector coverage and identical
 retrieval quality. The resident provider isolates the command lane's repeated
-Python/model startup cost. Hybrid recall found more expected files, but lower
-MRR means the current fusion needs ranking work before semantic retrieval can
-be called an unconditional improvement. Resident local MiniLM is the practical
-development lane; command-local MiniLM remains the zero-daemon ablation.
+Python/model startup cost. On that candidate, hybrid recall found more expected
+files but reduced MRR. Resident local MiniLM is the practical development lane;
+command-local MiniLM remains the zero-daemon ablation.
+
+On 2026-07-30, file-identity fusion was measured on the same ten-case suite with
+candidate
+`sha256:13aa27b0061d40b5a6bf162a56b175d7f74e4c4c46e4b52042f0e80b6fa99aa5`:
+
+| Lane | Recall@10 | MRR | Search p50 | Search p95 |
+| --- | ---: | ---: | ---: | ---: |
+| Lexical | 0.830 | 0.790 | 90.95 ms | 256.09 ms |
+| MiniLM via Ollama | 0.980 | 0.850 | 150.51 ms | 438.19 ms |
+
+The matched private eight-case dogfood control retained recall@10 `0.292` and
+MRR `0.417` while the public suite gained `0.033` recall and `0.007` MRR over
+record-only hybrid fusion. The algorithm preserves the two strongest
+record-level files, then combines cross-record lexical and semantic evidence by
+file path. This supports hybrid as the balanced default for configured local
+embeddings without claiming that semantic-only retrieval should win.
 
 The larger `qwen3-embedding:4b` model was also exercised locally through Ollama
 with 2,560-dimensional vectors, batch size 1, and 4,000-character inputs. A

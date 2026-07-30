@@ -134,6 +134,34 @@ func TestLexicalSearchBoostsExactAndAllTermMatches(t *testing.T) {
 	}
 }
 
+func TestFusionCombinesDifferentRecordsAfterThePrecisionHead(t *testing.T) {
+	ranked := fuse("lifecycle failure", 3, maxExcerptRunes, []lane{
+		{
+			name: "lexical",
+			records: []store.Record{
+				{ID: 1, Path: "src/lexical-only.go", StartLine: 1, EndLine: 1, Text: "lifecycle failure"},
+				{ID: 2, Path: "src/owner.go", StartLine: 10, EndLine: 10, Text: "lifecycle"},
+			},
+		},
+		{
+			name: "semantic",
+			records: []store.Record{
+				{ID: 3, Path: "src/semantic-only.go", StartLine: 1, EndLine: 1, Text: "failure handling"},
+				{ID: 4, Path: "src/owner.go", StartLine: 20, EndLine: 20, Text: "failure"},
+			},
+		},
+	})
+	if len(ranked) != 3 || ranked[2].Path != "src/owner.go" {
+		t.Fatalf("cross-record path evidence was not fused: %#v", ranked)
+	}
+	if ranked[2].Score <= ranked[0].Score {
+		t.Fatalf("cross-record score=%f head score=%f", ranked[2].Score, ranked[0].Score)
+	}
+	if got := strings.Join(ranked[2].Retrieval, ","); got != "lexical,semantic" {
+		t.Fatalf("retrieval=%q", got)
+	}
+}
+
 func TestLexicalSearchDiversifiesFilesAndCountsPathTerms(t *testing.T) {
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
