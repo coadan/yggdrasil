@@ -227,8 +227,11 @@ represented among surrounding conceptual terms without treating one natural
 hyphenated phrase as code.
 Retrieval lanes return records, but the public result identity is a file path.
 Fusion therefore preserves the top record-level path as its precision head,
-then combines the best record per lane at file-path identity for the
-remaining results. Record-level evidence still selects the cited line range.
+combines correlated lane variants within lexical, semantic, and extractor
+families, then applies balanced reciprocal-rank fusion across those families at
+file-path identity for the remaining results. This prevents the number of
+lexical query variants from outweighing a strong semantic rank by construction.
+Record-level evidence still selects the cited line range.
 This lets lexical and semantic hits in different chunks corroborate one file
 without allowing cross-chunk evidence to displace the strongest direct record
 match.

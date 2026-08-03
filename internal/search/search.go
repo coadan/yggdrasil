@@ -18,7 +18,8 @@ import (
 	"github.com/coadan/yggdrasil/internal/store"
 )
 
-const rrfK = 60.0
+const laneRRFK = 60.0
+const familyRRFK = 10.0
 const maxPathTerms = 6
 const maxStructuredAnchors = 4
 const maxMorePaths = 20
@@ -325,12 +326,16 @@ type fused struct {
 func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 	values := map[int64]*fused{}
 	pathEvidence := make(map[string]*fused)
-	pathScores := make(map[string]float64)
+	familyScores := make(map[string]map[string]float64)
 	pathRetrieval := make(map[string]map[string]bool)
 	for _, candidateLane := range lanes {
+		family := retrievalFamily(candidateLane.name)
+		if familyScores[family] == nil {
+			familyScores[family] = make(map[string]float64)
+		}
 		seenPaths := make(map[string]bool)
 		for rank, record := range candidateLane.records {
-			score := 1.0 / (rrfK + float64(rank+1))
+			score := 1.0 / (laneRRFK + float64(rank+1))
 			if candidateLane.name == "extractor" {
 				score *= extractorLaneWeight
 			}
@@ -340,7 +345,7 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 			// result identity.
 			if !seenPaths[record.Path] {
 				seenPaths[record.Path] = true
-				pathScores[record.Path] += score
+				familyScores[family][record.Path] += score
 				if pathRetrieval[record.Path] == nil {
 					pathRetrieval[record.Path] = make(map[string]bool)
 				}
@@ -359,6 +364,7 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 			value.retrieval[candidateLane.name] = true
 		}
 	}
+	pathScores := fuseRetrievalFamilies(familyScores)
 	for path, evidence := range pathEvidence {
 		var best *fused
 		for _, value := range values {
@@ -461,6 +467,47 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 			Score:      value.score,
 			internalID: citation.record.ID,
 		})
+	}
+	return result
+}
+
+func retrievalFamily(laneName string) string {
+	switch laneName {
+	case "semantic", "extractor":
+		return laneName
+	default:
+		return "lexical"
+	}
+}
+
+func fuseRetrievalFamilies(families map[string]map[string]float64) map[string]float64 {
+	result := make(map[string]float64)
+	for _, family := range []string{"lexical", "semantic", "extractor"} {
+		scores := families[family]
+		if len(scores) == 0 {
+			continue
+		}
+		type pathScore struct {
+			path  string
+			score float64
+		}
+		ordered := make([]pathScore, 0, len(scores))
+		for path, score := range scores {
+			ordered = append(ordered, pathScore{path: path, score: score})
+		}
+		sort.Slice(ordered, func(i, j int) bool {
+			if ordered[i].score != ordered[j].score {
+				return ordered[i].score > ordered[j].score
+			}
+			return ordered[i].path < ordered[j].path
+		})
+		weight := 1.0
+		if family == "extractor" {
+			weight = extractorLaneWeight
+		}
+		for rank, value := range ordered {
+			result[value.path] += weight / (familyRRFK + float64(rank+1))
+		}
 	}
 	return result
 }
