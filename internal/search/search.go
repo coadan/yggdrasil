@@ -128,7 +128,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	if opts.Mode != "auto" && opts.Mode != "lexical" && opts.Mode != "semantic" {
 		return Result{}, fmt.Errorf("unsupported search mode %q", opts.Mode)
 	}
-	candidateLimit := max(100, opts.Limit*10)
+	candidateLimit := max(100, min(MaxResults+maxMorePaths, opts.Limit*10))
 	var lanes []lane
 	structured := false
 	if opts.Mode != "semantic" {
