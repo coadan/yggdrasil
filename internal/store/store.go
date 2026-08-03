@@ -897,14 +897,25 @@ func (s *Store) LexicalCandidates(
 		), ranked AS (
 			SELECT *,row_number() OVER (
 				PARTITION BY path ORDER BY score,start_line,id
-			) AS path_rank
+			) AS path_rank,row_number() OVER (
+				ORDER BY score,path,start_line,id
+			) AS record_rank
 			FROM matches
+		), selected AS (
+			SELECT record_rank
+			FROM ranked
+			WHERE path_rank=1
+			ORDER BY record_rank
+			LIMIT ?
+		), cutoff AS (
+			SELECT CASE WHEN count(*)=? THEN max(record_rank)
+				ELSE (SELECT max(record_rank) FROM ranked) END AS record_rank
+			FROM selected
 		)
 		SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
 		FROM ranked
-		WHERE path_rank=1
-		ORDER BY score,path,start_line,id
-		LIMIT ?`, query, scope, scope, scope, scope, limit)
+		WHERE record_rank<=(SELECT record_rank FROM cutoff)
+		ORDER BY record_rank`, query, scope, scope, scope, scope, limit, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -926,14 +937,25 @@ func (s *Store) LiteralCandidates(
 		), ranked AS (
 			SELECT *,row_number() OVER (
 				PARTITION BY path ORDER BY score,start_line,id
-			) AS path_rank
+			) AS path_rank,row_number() OVER (
+				ORDER BY score,path,start_line,id
+			) AS record_rank
 			FROM matches
+		), selected AS (
+			SELECT record_rank
+			FROM ranked
+			WHERE path_rank=1
+			ORDER BY record_rank
+			LIMIT ?
+		), cutoff AS (
+			SELECT CASE WHEN count(*)=? THEN max(record_rank)
+				ELSE (SELECT max(record_rank) FROM ranked) END AS record_rank
+			FROM selected
 		)
 		SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
 		FROM ranked
-		WHERE path_rank=1
-		ORDER BY score,path,start_line,id
-		LIMIT ?`, query, literal, scope, scope, scope, scope, limit)
+		WHERE record_rank<=(SELECT record_rank FROM cutoff)
+		ORDER BY record_rank`, query, literal, scope, scope, scope, scope, limit, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -955,14 +977,25 @@ func (s *Store) ExtractorCandidates(
 		), ranked AS (
 			SELECT *,row_number() OVER (
 				PARTITION BY path ORDER BY score,start_line,id
-			) AS path_rank
+			) AS path_rank,row_number() OVER (
+				ORDER BY score,path,start_line,id
+			) AS record_rank
 			FROM matches
+		), selected AS (
+			SELECT record_rank
+			FROM ranked
+			WHERE path_rank=1
+			ORDER BY record_rank
+			LIMIT ?
+		), cutoff AS (
+			SELECT CASE WHEN count(*)=? THEN max(record_rank)
+				ELSE (SELECT max(record_rank) FROM ranked) END AS record_rank
+			FROM selected
 		)
 		SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
 		FROM ranked
-		WHERE path_rank=1
-		ORDER BY score,path,start_line,id
-		LIMIT ?`, query, scope, scope, scope, scope, limit)
+		WHERE record_rank<=(SELECT record_rank FROM cutoff)
+		ORDER BY record_rank`, query, scope, scope, scope, scope, limit, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1252,12 +1285,26 @@ func (s *Store) VectorCandidates(
 		if err != nil {
 			return nil, err
 		}
-		unique := firstRecordsByPath(records, limit)
-		if len(unique) == limit || vectorLimit == total {
-			return unique, nil
+		selected := firstRecordsByPath(records, limit)
+		if len(selected) == limit || vectorLimit == total {
+			return recordsThroughUniquePathLimit(records, limit), nil
 		}
 		vectorLimit = min(total, vectorLimit*2)
 	}
+}
+
+func recordsThroughUniquePathLimit(records []Record, limit int) []Record {
+	seen := make(map[string]bool, min(limit, len(records)))
+	for index, record := range records {
+		if seen[record.Path] {
+			continue
+		}
+		seen[record.Path] = true
+		if len(seen) == limit {
+			return records[:index+1]
+		}
+	}
+	return records
 }
 
 func firstRecordsByPath(records []Record, limit int) []Record {

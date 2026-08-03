@@ -219,7 +219,8 @@ func TestLexicalCandidateLimitCountsUniquePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 2 || records[0].Path != noise.Path || records[1].Path != owner.Path {
+	paths := firstRecordsByPath(records, 2)
+	if len(paths) != 2 || paths[0].Path != noise.Path || paths[1].Path != owner.Path {
 		t.Fatalf("records=%#v", records)
 	}
 }
@@ -276,7 +277,8 @@ func TestVectorCandidateLimitCountsUniquePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 2 || records[0].Path != noise.Path || records[1].Path != owner.Path {
+	paths := firstRecordsByPath(records, 2)
+	if len(paths) != 2 || paths[0].Path != noise.Path || paths[1].Path != owner.Path {
 		t.Fatalf("records=%#v", records)
 	}
 }
