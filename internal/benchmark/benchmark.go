@@ -124,22 +124,23 @@ type Coverage struct {
 }
 
 type Aggregate struct {
-	FileRecallAt10 float64 `json:"fileRecallAt10"`
-	MRR            float64 `json:"mrr"`
-	NoiseAt20      float64 `json:"noiseAt20"`
-	CitationRate   float64 `json:"citationRate"`
-	FullIndexP50MS float64 `json:"fullIndexP50Ms"`
-	NoopIndexP50MS float64 `json:"noopIndexP50Ms"`
-	OneFileP50MS   float64 `json:"oneFileIncrementalP50Ms"`
-	SearchP50MS    float64 `json:"searchP50Ms"`
-	SearchP95MS    float64 `json:"searchP95Ms"`
-	RawRecallAt10  float64 `json:"rawFileRecallAt10"`
-	RawMRR         float64 `json:"rawMrr"`
-	RawSearchP50MS float64 `json:"rawSearchP50Ms"`
-	RawSearchP95MS float64 `json:"rawSearchP95Ms"`
-	VectorRecords  int     `json:"vectorRecords"`
-	IndexedRecords int     `json:"indexedRecords"`
-	VectorCoverage float64 `json:"vectorCoverage"`
+	FileRecallAt10    float64 `json:"fileRecallAt10"`
+	MRR               float64 `json:"mrr"`
+	NoiseAt20         float64 `json:"noiseAt20"`
+	CitationRate      float64 `json:"citationRate"`
+	FullIndexP50MS    float64 `json:"fullIndexP50Ms"`
+	NoopIndexP50MS    float64 `json:"noopIndexP50Ms"`
+	OneFileP50MS      float64 `json:"oneFileIncrementalP50Ms"`
+	SearchP50MS       float64 `json:"searchP50Ms"`
+	SearchP95MS       float64 `json:"searchP95Ms"`
+	RawRecallAt10     float64 `json:"rawFileRecallAt10"`
+	RawMRR            float64 `json:"rawMrr"`
+	RawSearchP50MS    float64 `json:"rawSearchP50Ms"`
+	RawSearchP95MS    float64 `json:"rawSearchP95Ms"`
+	VectorRecords     int     `json:"vectorRecords"`
+	EmbeddableRecords int     `json:"embeddableRecords"`
+	IndexedRecords    int     `json:"indexedRecords"`
+	VectorCoverage    float64 `json:"vectorCoverage"`
 }
 
 type CaseReport struct {
@@ -168,6 +169,7 @@ type CaseReport struct {
 	EmbeddingStatus      string    `json:"embeddingStatus"`
 	Embedded             int       `json:"embedded"`
 	VectorRecords        int       `json:"vectorRecords"`
+	EmbeddableRecords    int       `json:"embeddableRecords"`
 	IndexedRecords       int       `json:"indexedRecords"`
 	VectorCoverage       float64   `json:"vectorCoverage"`
 }
@@ -554,11 +556,13 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 		return CaseReport{}, errors.New(envelopeError(state.Error, "status failed"))
 	}
 	vectorRecords := 0
+	embeddableRecords := 0
 	vectorCoverage := 0.0
 	if state.Data.Embedding != nil {
 		vectorRecords = state.Data.Embedding.Embedded
-		if state.Data.Embedding.Records > 0 {
-			vectorCoverage = float64(vectorRecords) / float64(state.Data.Embedding.Records)
+		embeddableRecords = state.Data.Embedding.Records
+		if embeddableRecords > 0 {
+			vectorCoverage = float64(vectorRecords) / float64(embeddableRecords)
 		}
 		if opts.embeddingConfigured && !state.Data.Embedding.Complete {
 			return CaseReport{}, fmt.Errorf(
@@ -596,7 +600,8 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 		SearchSamplesMS: samples,
 		RequestedMode:   opts.SearchMode, ActiveMode: activeMode, FallbackReason: fallbackReason,
 		EmbeddingStatus: indexed.Data.EmbeddingStatus, Embedded: indexed.Data.Embedded,
-		VectorRecords: vectorRecords, IndexedRecords: state.Data.Counts.Records,
+		VectorRecords: vectorRecords, EmbeddableRecords: embeddableRecords,
+		IndexedRecords: state.Data.Counts.Records,
 		VectorCoverage: vectorCoverage,
 	}, nil
 }
@@ -1030,6 +1035,7 @@ func aggregate(cases []CaseReport) Aggregate {
 		search = append(search, item.SearchSamplesMS...)
 		raw = append(raw, item.RawRipgrepMS)
 		result.VectorRecords += item.VectorRecords
+		result.EmbeddableRecords += item.EmbeddableRecords
 		result.IndexedRecords += item.IndexedRecords
 	}
 	count := float64(len(cases))
@@ -1048,8 +1054,8 @@ func aggregate(cases []CaseReport) Aggregate {
 	result.SearchP95MS = percentile(search, 0.95)
 	result.RawSearchP50MS = percentile(raw, 0.50)
 	result.RawSearchP95MS = percentile(raw, 0.95)
-	if result.IndexedRecords > 0 {
-		result.VectorCoverage = float64(result.VectorRecords) / float64(result.IndexedRecords)
+	if result.EmbeddableRecords > 0 {
+		result.VectorCoverage = float64(result.VectorRecords) / float64(result.EmbeddableRecords)
 	}
 	return result
 }

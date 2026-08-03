@@ -227,6 +227,17 @@ func TestAggregateIncludesRawBaselineTiming(t *testing.T) {
 	}
 }
 
+func TestAggregateVectorCoverageUsesEmbeddableRecords(t *testing.T) {
+	got := aggregate([]CaseReport{
+		{VectorRecords: 8, EmbeddableRecords: 10, IndexedRecords: 20},
+		{VectorRecords: 4, EmbeddableRecords: 5, IndexedRecords: 12},
+	})
+	if got.VectorRecords != 12 || got.EmbeddableRecords != 15 ||
+		got.IndexedRecords != 32 || got.VectorCoverage != 0.8 {
+		t.Fatalf("aggregate=%#v", got)
+	}
+}
+
 func TestParseRipgrepCountsSupportsNewlinesInPaths(t *testing.T) {
 	got, err := parseRipgrepCounts([]byte("normal.go\x003\nodd\nname.go\x002\n"))
 	if err != nil {

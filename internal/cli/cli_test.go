@@ -29,6 +29,7 @@ func TestIndexSearchAndStatus(t *testing.T) {
 	if code := Main(context.Background(), []string{"index", "--root", root}, &stdout, &stderr); code != 0 {
 		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
+	assertProgressPhases(t, stderr.String(), "lock", "discovery", "index", "complete")
 	paths, err := project.Resolve(root)
 	if err != nil {
 		t.Fatal(err)
@@ -102,6 +103,7 @@ func TestSearchInitializesAnUnindexedRepository(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
+	assertProgressPhases(t, stderr.String(), "lock", "discovery", "index", "complete")
 	assertSearchPaths(t, stdout.Bytes(), []string{"owner.txt"})
 	paths, err := project.Resolve(root)
 	if err != nil {
@@ -192,6 +194,7 @@ func TestAutoSearchCompletesConfiguredEmbeddingsButLexicalDoesNot(t *testing.T) 
 	if response.Data.ActiveMode != "hybrid" || response.Data.FallbackReason != "" || requests < 2 {
 		t.Fatalf("requests=%d response=%s", requests, stdout.String())
 	}
+	assertProgressPhases(t, stderr.String(), "lock", "discovery", "index", "embedding", "complete")
 }
 
 func TestSearchAcceptsFlagsAfterQueryAndLegacyJSONAssertion(t *testing.T) {
@@ -457,6 +460,38 @@ func assertSearchPaths(t *testing.T, output []byte, want []string) {
 	}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("paths=%q want=%q response=%s", got, want, output)
+	}
+}
+
+func assertProgressPhases(t *testing.T, output string, want ...string) {
+	t.Helper()
+	var got []string
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if line == "" {
+			continue
+		}
+		var event struct {
+			Schema string `json:"schema"`
+			Phase  string `json:"phase"`
+		}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("invalid progress event %q: %v", line, err)
+		}
+		if event.Schema != "ygg.index.progress/v1" {
+			t.Fatalf("progress schema=%q event=%s", event.Schema, line)
+		}
+		if len(got) == 0 || got[len(got)-1] != event.Phase {
+			got = append(got, event.Phase)
+		}
+	}
+	position := 0
+	for _, phase := range got {
+		if position < len(want) && phase == want[position] {
+			position++
+		}
+	}
+	if position != len(want) {
+		t.Fatalf("progress phases=%q want subsequence=%q output=%s", got, want, output)
 	}
 }
 

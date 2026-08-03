@@ -186,6 +186,12 @@ required indexing, and retrieval.
 When embeddings are configured, `auto` and `semantic` searches complete missing
 vectors before retrieval. A provider failure remains an explicit lexical
 fallback in `auto`; `lexical` never starts an embedding provider.
+Index work streams `ygg.index.progress/v1` JSON lines on stderr while reserving
+stdout for the final `ygg.cli/v1` envelope. Progress phases are `lock`, `seed`,
+`discovery`, `index`, `embedding`, `complete`, and `failed`. Events include
+mechanical completed/total counters, elapsed time, current path when useful,
+and phase-specific index or embedding counts. Intermediate events are throttled;
+phase transitions and terminal counters are always emitted.
 Fusion ranks files independently from their returned citation. When multiple
 records from one file contribute, the citation uses the bounded source window
 with the densest query-term evidence; `startLine`, `endLine`, and a line-based
