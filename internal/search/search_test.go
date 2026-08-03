@@ -164,6 +164,45 @@ func TestFusionCombinesDifferentRecordsAfterThePrecisionHead(t *testing.T) {
 	}
 }
 
+func TestFusionBalancesRetrieverFamiliesInsteadOfLaneCount(t *testing.T) {
+	lexicalLanes := []lane{
+		{name: "exact"},
+		{name: "all-terms"},
+		{name: "lexical"},
+		{name: "path"},
+	}
+	for laneIndex := range lexicalLanes {
+		for index := range 20 {
+			lexicalLanes[laneIndex].records = append(
+				lexicalLanes[laneIndex].records,
+				store.Record{
+					ID:        int64(1000*laneIndex + index + 1),
+					Path:      fmt.Sprintf("noise/%02d.go", index),
+					StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: "broad lexical noise",
+				},
+			)
+		}
+	}
+	lanes := append(lexicalLanes, lane{
+		name: "semantic",
+		records: []store.Record{{
+			ID: 99999, Path: "src/semantic-owner.go",
+			StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: "semantic owner",
+		}},
+	})
+	ranked := fuse("semantic owner", 10, maxExcerptRunes, lanes)
+	ownerRank := -1
+	for index, record := range ranked {
+		if record.Path == "src/semantic-owner.go" {
+			ownerRank = index + 1
+			break
+		}
+	}
+	if ownerRank != 2 {
+		t.Fatalf("semantic owner rank=%d records=%#v", ownerRank, ranked)
+	}
+}
+
 func TestLexicalSearchDiversifiesFilesAndCountsPathTerms(t *testing.T) {
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
