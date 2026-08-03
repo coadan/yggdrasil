@@ -582,19 +582,27 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 	}
 	paths := uniquePaths(records)
 	diagnosticPaths := make(map[string][]string, 3)
-	for _, mode := range []string{"auto", "lexical"} {
-		diagnosticPaths[mode], err = searchPathsAtLimit(ctx, root, env, opts.Binary, mode, item.Query, 100)
-		if err != nil {
-			return CaseReport{}, fmt.Errorf("%s retrieval diagnostic: %w", mode, err)
-		}
+	diagnosticPaths["lexical"], err = searchPathsAtLimit(
+		ctx, root, env, opts.Binary, "lexical", item.Query, 100,
+	)
+	if err != nil {
+		return CaseReport{}, fmt.Errorf("lexical retrieval diagnostic: %w", err)
 	}
 	if opts.embeddingConfigured {
+		diagnosticPaths["auto"], err = searchPathsAtLimit(
+			ctx, root, env, opts.Binary, "auto", item.Query, 100,
+		)
+		if err != nil {
+			return CaseReport{}, fmt.Errorf("auto retrieval diagnostic: %w", err)
+		}
 		diagnosticPaths["semantic"], err = searchPathsAtLimit(
 			ctx, root, env, opts.Binary, "semantic", item.Query, 100,
 		)
 		if err != nil {
 			return CaseReport{}, fmt.Errorf("semantic retrieval diagnostic: %w", err)
 		}
+	} else {
+		diagnosticPaths["auto"] = diagnosticPaths["lexical"]
 	}
 	rawStarted := time.Now()
 	rawPaths, err := ripgrepPaths(ctx, root, item.Query)
