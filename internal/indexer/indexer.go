@@ -15,6 +15,7 @@ import (
 
 	"github.com/coadan/yggdrasil/internal/chunk"
 	"github.com/coadan/yggdrasil/internal/config"
+	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
 	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/plugin"
@@ -27,6 +28,26 @@ type Options struct {
 	NoEmbed          bool
 	EnsureCurrent    bool
 	EnsureEmbeddings bool
+	Progress         func(Progress)
+}
+
+type Progress struct {
+	Schema          string `json:"schema"`
+	Phase           string `json:"phase"`
+	RunID           string `json:"runId,omitempty"`
+	Completed       int    `json:"completed"`
+	Total           int    `json:"total"`
+	Path            string `json:"path,omitempty"`
+	Indexed         int    `json:"indexed,omitempty"`
+	Unchanged       int    `json:"unchanged,omitempty"`
+	Reused          int    `json:"reused,omitempty"`
+	Deleted         int    `json:"deleted,omitempty"`
+	Skipped         int    `json:"skipped,omitempty"`
+	Embedded        int    `json:"embedded,omitempty"`
+	EmbeddingModel  string `json:"embeddingModel,omitempty"`
+	EmbeddingStatus string `json:"embeddingStatus,omitempty"`
+	Error           string `json:"error,omitempty"`
+	ElapsedMS       int64  `json:"elapsedMs"`
 }
 
 type Summary struct {
@@ -55,6 +76,21 @@ var ErrIndexBusy = errors.New("another index run is active")
 
 func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Options) (summary Summary, err error) {
 	started := time.Now()
+	progressRunID := fmt.Sprintf("run-%d", time.Now().UnixNano())
+	report := func(progress Progress) {
+		if opts.Progress == nil {
+			return
+		}
+		progress.Schema = contracts.IndexProgressSchema
+		progress.RunID = progressRunID
+		progress.ElapsedMS = time.Since(started).Milliseconds()
+		opts.Progress(progress)
+	}
+	defer func() {
+		if err != nil {
+			report(Progress{Phase: "failed", Error: err.Error()})
+		}
+	}()
 	if err := os.MkdirAll(paths.StateDir, 0o755); err != nil {
 		return Summary{}, fmt.Errorf("create state directory: %w", err)
 	}
@@ -63,9 +99,11 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		return Summary{}, fmt.Errorf("open index lock: %w", err)
 	}
 	defer lock.Close()
+	report(Progress{Phase: "lock", Total: 1})
 	if err := acquireIndexLock(ctx, lock, opts.EnsureCurrent); err != nil {
 		return Summary{}, err
 	}
+	report(Progress{Phase: "lock", Completed: 1, Total: 1})
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
 	startFreshness, err := FreshnessToken(ctx, paths.Root, cfg)
 	if err != nil {
@@ -108,6 +146,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 				summary.PrunedIndexes, summary.PrunedBytes, summary.PruneSkipped =
 					pruneRetiredIndexes(ctx, paths)
 				summary.ElapsedMS = time.Since(started).Milliseconds()
+				report(Progress{Phase: "complete", Completed: 1, Total: 1})
 				return summary, nil
 			}
 		} else if !os.IsNotExist(statErr) {
@@ -133,6 +172,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 				return Summary{}, fmt.Errorf("find worktree seed: %w", seedErr)
 			}
 			if len(seeds) > 0 {
+				report(Progress{Phase: "seed", Total: 1})
 				var seedErr error
 				for _, seed := range seeds {
 					seedErr = store.CloneDatabase(
@@ -146,6 +186,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 				if !cloned {
 					return Summary{}, fmt.Errorf("seed worktree index: %w", seedErr)
 				}
+				report(Progress{Phase: "seed", Completed: 1, Total: 1})
 			}
 		} else if statErr != nil {
 			return Summary{}, fmt.Errorf("stat index: %w", statErr)
@@ -163,7 +204,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	seeded := seedSource != ""
 	summary.SeededFrom = seedSource
 
-	summary.RunID = fmt.Sprintf("run-%d", time.Now().UnixNano())
+	summary.RunID = progressRunID
 	if err := value.BeginRun(ctx, summary.RunID); err != nil {
 		return Summary{}, err
 	}
@@ -178,11 +219,13 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		}
 	}()
 
+	report(Progress{Phase: "discovery"})
 	candidates, err := discovery.Candidates(paths.Root, cfg.IgnoreGlobs)
 	if err != nil {
 		return summary, err
 	}
 	summary.Scanned = len(candidates)
+	report(Progress{Phase: "discovery", Completed: len(candidates), Total: len(candidates)})
 	fingerprint := config.ExtractionFingerprint(cfg)
 	states, err := value.FileStates(ctx)
 	if err != nil {
@@ -221,7 +264,12 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		}
 		return flush()
 	}
-	for _, candidate := range candidates {
+	for index, candidate := range candidates {
+		report(Progress{
+			Phase: "index", Completed: index, Total: len(candidates), Path: candidate.Path,
+			Indexed: summary.Indexed, Unchanged: summary.Unchanged, Reused: summary.Reused,
+			Deleted: summary.Deleted, Skipped: summary.Skipped,
+		})
 		present[candidate.Path] = true
 		state, exists := states[candidate.Path]
 		if !opts.Full && !seeded && exists &&
@@ -288,6 +336,11 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		}
 		summary.Indexed++
 	}
+	report(Progress{
+		Phase: "index", Completed: len(candidates), Total: len(candidates),
+		Indexed: summary.Indexed, Unchanged: summary.Unchanged, Reused: summary.Reused,
+		Deleted: summary.Deleted, Skipped: summary.Skipped,
+	})
 	existing := make([]string, 0, len(states))
 	for path := range states {
 		existing = append(existing, path)
@@ -324,7 +377,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		summary.EmbeddingStatus = "skipped"
 	} else if cfg.Embedding != nil {
 		summary.Embedded, summary.EmbeddingStatus, err = embedRecords(
-			ctx, value, paths, *cfg.Embedding, summary.RunID, &summary.Diagnostics,
+			ctx, value, paths, *cfg.Embedding, summary.RunID, &summary.Diagnostics, report,
 		)
 		if err != nil {
 			return summary, err
@@ -342,6 +395,12 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	}
 	summary.PrunedIndexes, summary.PrunedBytes, summary.PruneSkipped =
 		pruneRetiredIndexes(ctx, paths)
+	report(Progress{
+		Phase: "complete", Completed: summary.Scanned, Total: summary.Scanned,
+		Indexed: summary.Indexed, Unchanged: summary.Unchanged, Reused: summary.Reused,
+		Deleted: summary.Deleted, Skipped: summary.Skipped, Embedded: summary.Embedded,
+		EmbeddingStatus: summary.EmbeddingStatus,
+	})
 	return summary, nil
 }
 
@@ -388,11 +447,20 @@ func embedRecords(
 	cfg config.Embedding,
 	runID string,
 	diagnostics *int,
+	report func(Progress),
 ) (int, string, error) {
 	fingerprint := embedding.Fingerprint(cfg)
 	if _, err := value.PrepareEmbeddingLane(ctx, fingerprint, cfg.Model, cfg.Dimensions); err != nil {
 		return 0, "", fmt.Errorf("prepare embedding lane: %w", err)
 	}
+	state, err := value.EmbeddingState(ctx, fingerprint)
+	if err != nil {
+		return 0, "", err
+	}
+	report(Progress{
+		Phase: "embedding", Completed: state.Embedded, Total: state.Records,
+		EmbeddingModel: cfg.Model,
+	})
 	inputs, err := value.MissingEmbeddingInputs(ctx, fingerprint, cfg.BatchSize)
 	if err != nil {
 		return 0, "", err
@@ -446,6 +514,11 @@ func embedRecords(
 			return embedded, "", err
 		}
 		embedded += upserted
+		state.Embedded += upserted
+		report(Progress{
+			Phase: "embedding", Completed: state.Embedded, Total: state.Records,
+			Embedded: embedded, EmbeddingModel: cfg.Model,
+		})
 		inputs, err = value.MissingEmbeddingInputs(ctx, fingerprint, cfg.BatchSize)
 		if err != nil {
 			return embedded, "", err

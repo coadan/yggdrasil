@@ -86,6 +86,9 @@ ygg plugin check
 ```
 
 Every operational command returns a stable versioned JSON envelope by default.
+Indexing progress is emitted as `ygg.index.progress/v1` JSON lines on stderr,
+including when `search` initializes, refreshes, or embeds an index. The final
+`ygg.cli/v1` result remains the only value written to stdout.
 Indexes live outside repositories under `$YGG_STORAGE_ROOT/indexes/`, or
 `~/.local/share/ygg/indexes/` by default. `index --full` replaces an incompatible
 or intentionally stale database; normal indexing is incremental.

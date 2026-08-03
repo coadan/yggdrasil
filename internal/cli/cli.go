@@ -166,11 +166,13 @@ func (r *runner) runIndex(ctx context.Context, args []string) int {
 	if err != nil {
 		return r.fail(true, 2, err)
 	}
+	progress := newProgressReporter(r.stderr)
 	summary, err := indexer.Run(ctx, paths, cfg, indexer.Options{
 		Full:             *full,
 		NoEmbed:          *noEmbed,
 		EnsureCurrent:    !*full,
 		EnsureEmbeddings: !*noEmbed,
+		Progress:         progress.Report,
 	})
 	if err != nil {
 		return r.fail(true, 1, err)
@@ -213,7 +215,10 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	if err != nil {
 		return r.fail(true, 2, err)
 	}
-	indexLock, value, err := prepareSearchIndex(ctx, paths, cfg, *mode != "lexical")
+	progress := newProgressReporter(r.stderr)
+	indexLock, value, err := prepareSearchIndex(
+		ctx, paths, cfg, *mode != "lexical", progress.Report,
+	)
 	if err != nil {
 		return r.fail(true, 1, err)
 	}
@@ -238,6 +243,7 @@ func prepareSearchIndex(
 	paths project.Paths,
 	cfg config.Config,
 	ensureEmbeddings bool,
+	progress func(indexer.Progress),
 ) (*os.File, *store.Store, error) {
 	embeddingAttempted := false
 	for range 3 {
@@ -287,7 +293,7 @@ func prepareSearchIndex(
 			releaseSearchIndexLock(indexLock)
 		}
 		if _, err := indexer.Run(ctx, paths, cfg, indexer.Options{
-			EnsureCurrent: true, EnsureEmbeddings: ensureEmbeddings,
+			EnsureCurrent: true, EnsureEmbeddings: ensureEmbeddings, Progress: progress,
 		}); err != nil {
 			return nil, nil, fmt.Errorf("refresh repository index: %w", err)
 		}
