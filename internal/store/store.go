@@ -1064,7 +1064,7 @@ func (s *Store) MissingEmbeddingInputs(
 		SELECT min(id),input_hash,input_text
 		FROM missing
 		GROUP BY input_hash,input_text
-		ORDER BY min(id)
+		ORDER BY length(input_text),min(id)
 		LIMIT ?`, fingerprint, limit)
 	if err != nil {
 		return nil, err
