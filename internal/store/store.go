@@ -887,17 +887,19 @@ func (s *Store) LexicalCandidates(
 	query, scope string,
 	limit int,
 ) ([]Record, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
-		FROM record_fts
-		JOIN records r ON r.id=record_fts.rowid
-		WHERE record_fts MATCH ? AND `+recordScopePredicate+`
-		ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
-		LIMIT ?`, query, scope, scope, scope, scope, limit)
-	if err != nil {
-		return nil, err
-	}
-	return scanRecords(rows)
+	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+			FROM record_fts
+			JOIN records r ON r.id=record_fts.rowid
+			WHERE record_fts MATCH ? AND `+recordScopePredicate+`
+			ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
+			LIMIT ?`, query, scope, scope, scope, scope, recordLimit)
+		if err != nil {
+			return nil, err
+		}
+		return scanRecords(rows)
+	})
 }
 
 func (s *Store) LiteralCandidates(
@@ -905,17 +907,19 @@ func (s *Store) LiteralCandidates(
 	query, literal, scope string,
 	limit int,
 ) ([]Record, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
-		FROM record_fts
-		JOIN records r ON r.id=record_fts.rowid
-		WHERE record_fts MATCH ? AND instr(r.text,?) > 0 AND `+recordScopePredicate+`
-		ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
-		LIMIT ?`, query, literal, scope, scope, scope, scope, limit)
-	if err != nil {
-		return nil, err
-	}
-	return scanRecords(rows)
+	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+			FROM record_fts
+			JOIN records r ON r.id=record_fts.rowid
+			WHERE record_fts MATCH ? AND instr(r.text,?) > 0 AND `+recordScopePredicate+`
+			ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
+			LIMIT ?`, query, literal, scope, scope, scope, scope, recordLimit)
+		if err != nil {
+			return nil, err
+		}
+		return scanRecords(rows)
+	})
 }
 
 func (s *Store) ExtractorCandidates(
@@ -923,17 +927,51 @@ func (s *Store) ExtractorCandidates(
 	query, scope string,
 	limit int,
 ) ([]Record, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
-		FROM extractor_fts
-		JOIN records r ON r.id=extractor_fts.rowid
-		WHERE extractor_fts MATCH ? AND `+recordScopePredicate+`
-		ORDER BY bm25(extractor_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
-		LIMIT ?`, query, scope, scope, scope, scope, limit)
-	if err != nil {
-		return nil, err
+	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+			FROM extractor_fts
+			JOIN records r ON r.id=extractor_fts.rowid
+			WHERE extractor_fts MATCH ? AND `+recordScopePredicate+`
+			ORDER BY bm25(extractor_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
+			LIMIT ?`, query, scope, scope, scope, scope, recordLimit)
+		if err != nil {
+			return nil, err
+		}
+		return scanRecords(rows)
+	})
+}
+
+func uniquePathCandidates(
+	limit int,
+	load func(recordLimit int) ([]Record, error),
+) ([]Record, error) {
+	if limit <= 0 {
+		return nil, nil
 	}
-	return scanRecords(rows)
+	recordLimit := limit
+	for {
+		records, err := load(recordLimit)
+		if err != nil {
+			return nil, err
+		}
+		seen := make(map[string]bool, min(limit, len(records)))
+		unique := make([]Record, 0, min(limit, len(records)))
+		for _, record := range records {
+			if seen[record.Path] {
+				continue
+			}
+			seen[record.Path] = true
+			unique = append(unique, record)
+			if len(unique) == limit {
+				return unique, nil
+			}
+		}
+		if len(records) < recordLimit {
+			return unique, nil
+		}
+		recordLimit *= 2
+	}
 }
 
 func (s *Store) PathCandidates(
@@ -1181,11 +1219,14 @@ func (s *Store) VectorCandidates(
 	limit int,
 ) ([]Record, error) {
 	vectorLimit := limit
-	total := limit
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM record_vectors`).Scan(&total); err != nil {
+		return nil, err
+	}
+	if total == 0 {
+		return nil, nil
+	}
 	if scope != "" {
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM record_vectors`).Scan(&total); err != nil {
-			return nil, err
-		}
 		var scoped int
 		if err := s.db.QueryRowContext(
 			ctx,
@@ -1194,7 +1235,7 @@ func (s *Store) VectorCandidates(
 		).Scan(&scoped); err != nil {
 			return nil, err
 		}
-		if total == 0 || scoped == 0 {
+		if scoped == 0 {
 			return nil, nil
 		}
 		// Start from the scope's mechanical share of records, then expand until
@@ -1207,9 +1248,8 @@ func (s *Store) VectorCandidates(
 			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 			FROM record_vectors(?,?) v
 			JOIN records r ON r.id=v.rowid
-			WHERE `+recordScopePredicate+`
-			LIMIT ?`,
-			encodeVector(vector), vectorLimit, scope, scope, scope, scope, limit)
+			WHERE `+recordScopePredicate,
+			encodeVector(vector), vectorLimit, scope, scope, scope, scope)
 		if err != nil {
 			return nil, err
 		}
@@ -1217,11 +1257,28 @@ func (s *Store) VectorCandidates(
 		if err != nil {
 			return nil, err
 		}
-		if scope == "" || len(records) == limit || vectorLimit == total {
-			return records, nil
+		unique := firstRecordsByPath(records, limit)
+		if len(unique) == limit || vectorLimit == total {
+			return unique, nil
 		}
 		vectorLimit = min(total, vectorLimit*2)
 	}
+}
+
+func firstRecordsByPath(records []Record, limit int) []Record {
+	seen := make(map[string]bool, min(limit, len(records)))
+	result := make([]Record, 0, min(limit, len(records)))
+	for _, record := range records {
+		if seen[record.Path] {
+			continue
+		}
+		seen[record.Path] = true
+		result = append(result, record)
+		if len(result) == limit {
+			break
+		}
+	}
+	return result
 }
 
 func recordInputHash(title, text string) string {
