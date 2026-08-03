@@ -168,7 +168,7 @@ func TestEmbeddingLaneReturnsNearestRecord(t *testing.T) {
 			ID: input.ID, InputHash: input.InputHash, Vector: vector,
 		})
 	}
-	if err := value.UpsertEmbeddings(ctx, "embed-fp", 2, vectors); err != nil {
+	if _, err := value.UpsertEmbeddings(ctx, "embed-fp", 2, vectors); err != nil {
 		t.Fatal(err)
 	}
 	state, err := value.EmbeddingState(ctx, "embed-fp")
@@ -181,6 +181,44 @@ func TestEmbeddingLaneReturnsNearestRecord(t *testing.T) {
 	}
 	if len(records) != 1 || records[0].Path != "near.txt" {
 		t.Fatalf("records=%#v", records)
+	}
+}
+
+func TestEmbeddingLaneDeduplicatesInputsAndSkipsPathRecords(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, path := range []string{"one.txt", "two.txt"} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: path, Size: 6, MTimeNS: 1},
+			Kind:      "txt",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, "same", "fingerprint", []contracts.SearchRecord{
+			{Path: path, StartLine: 1, EndLine: 1, Kind: "file", Title: path, Text: path, Source: "core"},
+			{Path: path, StartLine: 1, EndLine: 1, Kind: "text", Text: "shared", Source: "core"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := value.PrepareEmbeddingLane(ctx, "embed-fp", "model", 2); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, "embed-fp", 10)
+	if err != nil || len(inputs) != 1 || inputs[0].Text != "shared" {
+		t.Fatalf("deduplicated inputs=%#v err=%v", inputs, err)
+	}
+	upserted, err := value.UpsertEmbeddings(ctx, "embed-fp", 2, []EmbeddingValue{{
+		ID: inputs[0].ID, InputHash: inputs[0].InputHash, Vector: []float32{1, 0},
+	}})
+	if err != nil || upserted != 2 {
+		t.Fatalf("upserted=%d err=%v", upserted, err)
+	}
+	state, err := value.EmbeddingState(ctx, "embed-fp")
+	if err != nil || state.Records != 2 || state.Embedded != 2 || !state.Complete {
+		t.Fatalf("state=%#v err=%v", state, err)
 	}
 }
 
@@ -236,7 +274,7 @@ func TestVectorCandidatesApplyScopeBeforeLimit(t *testing.T) {
 			ID: input.ID, InputHash: input.InputHash, Vector: items[index].vector,
 		}
 	}
-	if err := value.UpsertEmbeddings(ctx, "embed-fp", 2, vectors); err != nil {
+	if _, err := value.UpsertEmbeddings(ctx, "embed-fp", 2, vectors); err != nil {
 		t.Fatal(err)
 	}
 	records, err := value.VectorCandidates(ctx, []float32{1, 0}, "src/app/", 1)
@@ -278,7 +316,7 @@ func TestApplyBatchInvalidatesReplacedEmbeddings(t *testing.T) {
 	if err != nil || len(inputs) != 1 {
 		t.Fatalf("inputs=%#v err=%v", inputs, err)
 	}
-	if err := value.UpsertEmbeddings(ctx, "embed-fp", 2, []EmbeddingValue{{
+	if _, err := value.UpsertEmbeddings(ctx, "embed-fp", 2, []EmbeddingValue{{
 		ID: inputs[0].ID, InputHash: inputs[0].InputHash, Vector: []float32{1, 0},
 	}}); err != nil {
 		t.Fatal(err)

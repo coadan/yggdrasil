@@ -31,15 +31,17 @@ type Plugin struct {
 }
 
 type Embedding struct {
-	Kind          string   `json:"kind"`
-	Command       []string `json:"command,omitempty"`
-	Endpoint      string   `json:"endpoint,omitempty"`
-	Model         string   `json:"model"`
-	Dimensions    int      `json:"dimensions"`
-	APIKeyEnv     string   `json:"apiKeyEnv,omitempty"`
-	TimeoutMS     int      `json:"timeoutMs,omitempty"`
-	BatchSize     int      `json:"batchSize,omitempty"`
-	MaxInputChars int      `json:"maxInputChars,omitempty"`
+	Kind           string   `json:"kind"`
+	Command        []string `json:"command,omitempty"`
+	Endpoint       string   `json:"endpoint,omitempty"`
+	Model          string   `json:"model"`
+	Dimensions     int      `json:"dimensions"`
+	QueryPrefix    string   `json:"queryPrefix,omitempty"`
+	DocumentPrefix string   `json:"documentPrefix,omitempty"`
+	APIKeyEnv      string   `json:"apiKeyEnv,omitempty"`
+	TimeoutMS      int      `json:"timeoutMs,omitempty"`
+	BatchSize      int      `json:"batchSize,omitempty"`
+	MaxInputChars  int      `json:"maxInputChars,omitempty"`
 }
 
 type Config struct {

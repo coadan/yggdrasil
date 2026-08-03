@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -133,6 +134,11 @@ func TestLinkedGitWorktreesHaveIsolatedIndexesAndDiscovery(t *testing.T) {
 			t.Error(err)
 			return
 		}
+		for _, input := range body.Input {
+			if !strings.HasPrefix(input, "document: ") {
+				t.Errorf("document embedding input=%q", input)
+			}
+		}
 		data := make([]map[string]any, len(body.Input))
 		for i := range body.Input {
 			data[i] = map[string]any{"index": i, "embedding": []float32{1, 0}}
@@ -143,14 +149,14 @@ func TestLinkedGitWorktreesHaveIsolatedIndexesAndDiscovery(t *testing.T) {
 	cfg := config.Default()
 	cfg.Embedding = &config.Embedding{
 		Kind: "openai-compatible", Endpoint: server.URL, Model: "worktree-test",
-		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 64,
+		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 64, DocumentPrefix: "document: ",
 	}
 	primarySummary, err := Run(context.Background(), primaryPaths, cfg, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if primarySummary.SeededFrom != "" || primarySummary.Indexed != 3 ||
-		primarySummary.Embedded != 6 {
+		primarySummary.Embedded != 3 {
 		t.Fatalf("primary summary=%#v", primarySummary)
 	}
 	linkedSummary, err := Run(context.Background(), linkedPaths, cfg, Options{})
@@ -159,7 +165,7 @@ func TestLinkedGitWorktreesHaveIsolatedIndexesAndDiscovery(t *testing.T) {
 	}
 	if linkedSummary.SeededFrom != primaryPaths.Root || linkedSummary.Reused != 1 ||
 		linkedSummary.Indexed != 2 || linkedSummary.Deleted != 1 ||
-		linkedSummary.Embedded != 4 || linkedSummary.EmbeddingStatus != "ready" {
+		linkedSummary.Embedded != 2 || linkedSummary.EmbeddingStatus != "ready" {
 		t.Fatalf("linked summary=%#v", linkedSummary)
 	}
 

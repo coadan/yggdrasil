@@ -248,7 +248,9 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	if err != nil {
 		return semanticFailure(result, opts, lanes, started, err)
 	}
-	values, embedErr := provider.Embed(ctx, []embedding.Input{{ID: "query", Text: query}})
+	values, embedErr := provider.Embed(ctx, []embedding.Input{{
+		ID: "query", Text: embedding.QueryText(*opts.Embedding, query),
+	}})
 	closeErr := provider.Close()
 	if embedErr != nil {
 		return semanticFailure(result, opts, lanes, started, embedErr)
