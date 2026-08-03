@@ -42,14 +42,14 @@ The optional repository configuration is `.ygg/config.json`:
     },
     {
       "id": "go",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "command": ["ygg-extract-go"],
       "includeGlobs": ["**/*.go"],
       "timeoutMs": 10000
     },
     {
       "id": "typescript",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "command": ["ygg-extract-typescript"],
       "includeGlobs": ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx"],
       "timeoutMs": 10000
@@ -68,7 +68,7 @@ The optional repository configuration is `.ygg/config.json`:
     },
     {
       "id": "python",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "command": ["plugins/python/ygg-extract-python"],
       "includeGlobs": ["**/*.py"],
       "timeoutMs": 10000

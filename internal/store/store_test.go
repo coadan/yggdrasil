@@ -125,6 +125,61 @@ func TestOpenRejectsAnotherRoot(t *testing.T) {
 	}
 }
 
+func TestOpenMigratesSemanticOnlyRecordsOutOfLexicalIndexes(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "search.sqlite3")
+	value, err := Open(ctx, path, "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := discovery.File{
+		Candidate: discovery.Candidate{Path: "owner.go", Size: 6, MTimeNS: 1}, Kind: "go",
+	}
+	if err := value.ReplaceFile(ctx, "run", file, "hash", "fingerprint", []contracts.SearchRecord{
+		{Path: file.Path, StartLine: 1, EndLine: 1, Kind: "go-function", Text: "visible", Source: "plugin:go"},
+		{Path: file.Path, StartLine: 1, EndLine: 2, Kind: "go-structural", Text: "hidden", Source: "plugin:go", Metadata: map[string]any{"lexical": false}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var hiddenID int64
+	if err := value.db.QueryRowContext(ctx, `SELECT id FROM records WHERE text='hidden'`).Scan(&hiddenID); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO record_fts(rowid,path,title,text) VALUES(?,'owner.go','','hidden')`, []any{hiddenID}},
+		{`INSERT INTO extractor_fts(rowid,path,title,text) VALUES(?,'owner.go','','hidden')`, []any{hiddenID}},
+		{`UPDATE meta SET value='2' WHERE key='schema_version'`, nil},
+		{`UPDATE meta SET value='1' WHERE key='extractor_fts_version'`, nil},
+	} {
+		if _, err := value.db.ExecContext(ctx, statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := value.Close(); err != nil {
+		t.Fatal(err)
+	}
+	value, err = Open(ctx, path, "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, table := range []string{"record_fts", "extractor_fts"} {
+		var visible, hidden int
+		if err := value.db.QueryRowContext(ctx, `SELECT count(*) FROM `+table+` WHERE `+table+` MATCH 'visible'`).Scan(&visible); err != nil {
+			t.Fatal(err)
+		}
+		if err := value.db.QueryRowContext(ctx, `SELECT count(*) FROM `+table+` WHERE `+table+` MATCH 'hidden'`).Scan(&hidden); err != nil {
+			t.Fatal(err)
+		}
+		if visible != 1 || hidden != 0 {
+			t.Fatalf("%s visible=%d hidden=%d", table, visible, hidden)
+		}
+	}
+}
+
 func TestEmbeddingLaneReturnsNearestRecord(t *testing.T) {
 	ctx := context.Background()
 	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
@@ -222,6 +277,43 @@ func TestLexicalCandidateLimitCountsUniquePaths(t *testing.T) {
 	paths := firstRecordsByPath(records, 2)
 	if len(paths) != 2 || paths[0].Path != noise.Path || paths[1].Path != owner.Path {
 		t.Fatalf("records=%#v", records)
+	}
+}
+
+func TestLexicalCandidatesRespectExplicitRecordOptOut(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct {
+		path     string
+		metadata map[string]any
+	}{
+		{path: "hidden.go", metadata: map[string]any{"lexical": false}},
+		{path: "visible.go"},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: 6, MTimeNS: 1}, Kind: "go",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", []contracts.SearchRecord{{
+			Path: item.path, StartLine: 1, EndLine: 1, Kind: "go-navigation",
+			Text: "needle", Source: "plugin:go", Metadata: item.metadata,
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	queries := []func() ([]Record, error){
+		func() ([]Record, error) { return value.LexicalCandidates(ctx, "needle", "", 10) },
+		func() ([]Record, error) { return value.LiteralCandidates(ctx, "needle", "needle", "", 10) },
+		func() ([]Record, error) { return value.ExtractorCandidates(ctx, "needle", "", 10) },
+	}
+	for _, query := range queries {
+		records, err := query()
+		if err != nil || len(records) != 1 || records[0].Path != "visible.go" {
+			t.Fatalf("records=%#v err=%v", records, err)
+		}
 	}
 }
 

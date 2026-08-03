@@ -36,12 +36,17 @@ def build_service():
         )
         self.assertEqual([], diagnostics)
         facts = {(item["kind"], item["title"]): item for item in records}
+        self.assertIn(("python-navigation", "services/panels.py"), facts)
         self.assertEqual(1, facts[("python-import", "os")]["startLine"])
         self.assertEqual(2, facts[("python-import", ".panels")]["startLine"])
         self.assertEqual(4, facts[("python-class", "PanelService")]["startLine"])
         self.assertEqual(5, facts[("python-method", "PanelService.load_panel")]["startLine"])
         self.assertTrue(facts[("python-method", "PanelService.refresh")]["metadata"]["async"])
         self.assertEqual(11, facts[("python-function", "build_service")]["startLine"])
+        self.assertEqual(11, facts[("python-function", "build_service")]["endLine"])
+        self.assertNotIn("return Panel()", facts[("python-method", "PanelService.load_panel")]["text"])
+        self.assertIn("return Panel()", facts[("python-structural", "PanelService.load_panel")]["text"])
+        self.assertFalse(facts[("python-structural", "PanelService")]["metadata"]["lexical"])
 
     def test_syntax_diagnostic(self):
         records, diagnostics = extractor.extract("def broken(:\n", "broken.py")
