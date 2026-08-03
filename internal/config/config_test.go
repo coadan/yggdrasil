@@ -80,7 +80,9 @@ func TestLoadUsesUserEmbeddingAcrossRepositories(t *testing.T) {
 			"kind":"openai-compatible",
 			"endpoint":"http://127.0.0.1:11434/v1/embeddings",
 			"model":"all-minilm:latest",
-			"dimensions":384
+			"dimensions":384,
+			"queryPrefix":"Instruct: code search\nQuery: ",
+			"documentPrefix":"Document: "
 		}
 	}`)
 	if err := os.WriteFile(filepath.Join(directory, "config.json"), data, 0o600); err != nil {
@@ -102,6 +104,8 @@ func TestLoadUsesUserEmbeddingAcrossRepositories(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.Embedding == nil || cfg.Embedding.Model != "all-minilm:latest" ||
+		cfg.Embedding.QueryPrefix != "Instruct: code search\nQuery: " ||
+		cfg.Embedding.DocumentPrefix != "Document: " ||
 		cfg.Embedding.BatchSize != DefaultBatchSize || len(cfg.Plugins) != 1 ||
 		!cfg.UserConfigLoaded || cfg.EmbeddingSource != filepath.Join(directory, "config.json") ||
 		cfg.RepositoryConfigPath != filepath.Join(root, ".ygg", "config.json") {

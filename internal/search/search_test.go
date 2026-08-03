@@ -599,6 +599,16 @@ func TestAutoReportsSemanticFallback(t *testing.T) {
 
 func TestAutoFusesConfiguredSemanticLane(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Input []string `json:"input"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		if len(body.Input) != 1 || body.Input[0] != "query: conceptual query" {
+			t.Errorf("query embedding input=%q", body.Input)
+		}
 		_ = json.NewEncoder(writer).Encode(map[string]any{
 			"data": []map[string]any{{"index": 0, "embedding": []float32{1, 0}}},
 		})
@@ -606,7 +616,7 @@ func TestAutoFusesConfiguredSemanticLane(t *testing.T) {
 	defer server.Close()
 	cfg := config.Embedding{
 		Kind: "openai-compatible", Endpoint: server.URL, Model: "test",
-		Dimensions: 2, TimeoutMS: 1_000,
+		Dimensions: 2, TimeoutMS: 1_000, QueryPrefix: "query: ",
 	}
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
@@ -632,7 +642,7 @@ func TestAutoFusesConfiguredSemanticLane(t *testing.T) {
 	if err != nil || len(inputs) != 1 {
 		t.Fatalf("inputs=%#v err=%v", inputs, err)
 	}
-	if err := value.UpsertEmbeddings(ctx, fingerprint, 2, []store.EmbeddingValue{{
+	if _, err := value.UpsertEmbeddings(ctx, fingerprint, 2, []store.EmbeddingValue{{
 		ID: inputs[0].ID, InputHash: inputs[0].InputHash, Vector: []float32{1, 0},
 	}}); err != nil {
 		t.Fatal(err)
@@ -707,7 +717,7 @@ func TestHybridSearchCitesDenseLexicalEvidenceInsteadOfSemanticFileTail(t *testi
 			ID: input.ID, InputHash: input.InputHash, Vector: vector,
 		})
 	}
-	if err := value.UpsertEmbeddings(ctx, fingerprint, 2, vectors); err != nil {
+	if _, err := value.UpsertEmbeddings(ctx, fingerprint, 2, vectors); err != nil {
 		t.Fatal(err)
 	}
 	result, err := Run(ctx, value, "DetailSection mandates", Options{

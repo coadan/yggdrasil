@@ -1053,12 +1053,18 @@ func (s *Store) MissingEmbeddingInputs(
 	limit int,
 ) ([]EmbeddingInput, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id,r.input_hash,CASE WHEN r.title='' THEN r.text ELSE r.title||char(10)||r.text END
-		FROM records r
-		LEFT JOIN embedding_records e
-			ON e.record_id=r.id AND e.input_hash=r.input_hash AND e.fingerprint=?
-		WHERE e.record_id IS NULL
-		ORDER BY r.id
+		WITH missing AS (
+			SELECT r.id,r.input_hash,
+				CASE WHEN r.title='' THEN r.text ELSE r.title||char(10)||r.text END AS input_text
+			FROM records r
+			LEFT JOIN embedding_records e
+				ON e.record_id=r.id AND e.input_hash=r.input_hash AND e.fingerprint=?
+			WHERE r.kind<>'file' AND e.record_id IS NULL
+		)
+		SELECT min(id),input_hash,input_text
+		FROM missing
+		GROUP BY input_hash,input_text
+		ORDER BY min(id)
 		LIMIT ?`, fingerprint, limit)
 	if err != nil {
 		return nil, err
@@ -1080,34 +1086,62 @@ func (s *Store) UpsertEmbeddings(
 	fingerprint string,
 	dimensions int,
 	values []EmbeddingValue,
-) error {
+) (int, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
+	upserted := 0
 	for _, value := range values {
 		if len(value.Vector) != dimensions {
-			return fmt.Errorf("record %d vector has %d dimensions, want %d", value.ID, len(value.Vector), dimensions)
+			return 0, fmt.Errorf("record %d vector has %d dimensions, want %d", value.ID, len(value.Vector), dimensions)
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM record_vectors WHERE rowid=?`, value.ID); err != nil {
-			return err
+		rows, err := tx.QueryContext(ctx, `
+			SELECT id FROM records
+			WHERE input_hash=? AND kind<>'file'
+			ORDER BY id`, value.InputHash)
+		if err != nil {
+			return 0, err
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO record_vectors(rowid,vector) VALUES(?,?)`,
-			value.ID, encodeVector(value.Vector)); err != nil {
-			return err
+		var ids []int64
+		representative := false
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return 0, err
+			}
+			ids = append(ids, id)
+			representative = representative || id == value.ID
 		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO embedding_records(record_id,input_hash,fingerprint)
-			VALUES(?,?,?)
-			ON CONFLICT(record_id) DO UPDATE SET
-				input_hash=excluded.input_hash,fingerprint=excluded.fingerprint`,
-			value.ID, value.InputHash, fingerprint); err != nil {
-			return err
+		if err := rows.Close(); err != nil {
+			return 0, err
+		}
+		if !representative {
+			return 0, fmt.Errorf("record %d does not match embedding input hash", value.ID)
+		}
+		for _, id := range ids {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM record_vectors WHERE rowid=?`, id); err != nil {
+				return 0, err
+			}
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO record_vectors(rowid,vector) VALUES(?,?)`,
+				id, encodeVector(value.Vector)); err != nil {
+				return 0, err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO embedding_records(record_id,input_hash,fingerprint)
+				VALUES(?,?,?)
+				ON CONFLICT(record_id) DO UPDATE SET
+					input_hash=excluded.input_hash,fingerprint=excluded.fingerprint`,
+				id, value.InputHash, fingerprint); err != nil {
+				return 0, err
+			}
+			upserted++
 		}
 	}
-	return tx.Commit()
+	return upserted, tx.Commit()
 }
 
 func (s *Store) EmbeddingState(ctx context.Context, fingerprint string) (EmbeddingState, error) {
@@ -1116,7 +1150,7 @@ func (s *Store) EmbeddingState(ctx context.Context, fingerprint string) (Embeddi
 		`SELECT model,dimensions FROM embedding_lane WHERE id=1 AND fingerprint=?`,
 		fingerprint).Scan(&state.Model, &state.Dimensions)
 	if errors.Is(err, sql.ErrNoRows) {
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM records`).Scan(&state.Records); err != nil {
+		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM records WHERE kind<>'file'`).Scan(&state.Records); err != nil {
 			return EmbeddingState{}, err
 		}
 		return state, nil
@@ -1125,18 +1159,18 @@ func (s *Store) EmbeddingState(ctx context.Context, fingerprint string) (Embeddi
 		return EmbeddingState{}, err
 	}
 	state.Configured = true
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM records`).Scan(&state.Records); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM records WHERE kind<>'file'`).Scan(&state.Records); err != nil {
 		return EmbeddingState{}, err
 	}
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT count(*)
 		FROM embedding_records e
 		JOIN records r ON r.id=e.record_id
-		WHERE e.fingerprint=? AND e.input_hash=r.input_hash`,
+		WHERE e.fingerprint=? AND e.input_hash=r.input_hash AND r.kind<>'file'`,
 		fingerprint).Scan(&state.Embedded); err != nil {
 		return EmbeddingState{}, err
 	}
-	state.Complete = state.Records > 0 && state.Embedded == state.Records
+	state.Complete = state.Embedded == state.Records
 	return state, nil
 }
 

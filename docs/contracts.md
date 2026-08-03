@@ -13,6 +13,8 @@ embedding provider shared by repositories and linked worktrees:
     "endpoint": "http://127.0.0.1:11434/v1/embeddings",
     "model": "all-minilm:latest",
     "dimensions": 384,
+    "queryPrefix": "",
+    "documentPrefix": "",
     "timeoutMs": 60000,
     "batchSize": 64,
     "maxInputChars": 6000
@@ -81,6 +83,11 @@ that repository.
 
 Embedding `kind` is either `command` or `openai-compatible`. A command provider
 uses `command` argv instead of `endpoint` and `apiKeyEnv`.
+
+`queryPrefix` and `documentPrefix` are optional provider-neutral input shaping.
+Changing `documentPrefix`, the model, dimensions, endpoint, command, or input
+limit invalidates stored vectors. Changing `queryPrefix`, timeout, batch size,
+or API-key environment does not rebuild document vectors.
 
 The bundled local worker is one command-provider implementation. Use absolute
 paths because the command's working directory is the repository being indexed:

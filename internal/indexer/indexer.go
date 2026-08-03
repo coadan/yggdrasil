@@ -416,7 +416,9 @@ func embedRecords(
 		byID := make(map[string]store.EmbeddingInput, len(inputs))
 		for i, input := range inputs {
 			id := strconv.FormatInt(input.ID, 10)
-			request[i] = embedding.Input{ID: id, Text: input.Text}
+			request[i] = embedding.Input{
+				ID: id, Text: embedding.DocumentText(cfg, input.Text),
+			}
 			byID[id] = input
 		}
 		response, err := provider.Embed(ctx, request)
@@ -439,10 +441,11 @@ func embedRecords(
 			err := fmt.Errorf("provider omitted %d records", len(byID))
 			return embedded, embeddingDiagnostic(ctx, value, runID, diagnostics, "response", err), nil
 		}
-		if err := value.UpsertEmbeddings(ctx, fingerprint, cfg.Dimensions, values); err != nil {
+		upserted, err := value.UpsertEmbeddings(ctx, fingerprint, cfg.Dimensions, values)
+		if err != nil {
 			return embedded, "", err
 		}
-		embedded += len(values)
+		embedded += upserted
 		inputs, err = value.MissingEmbeddingInputs(ctx, fingerprint, cfg.BatchSize)
 		if err != nil {
 			return embedded, "", err
