@@ -131,9 +131,11 @@ The repository includes four optional, dependency-free extractor executables:
 ygg plugin check markdown --root /path/to/configured/repository
 ```
 
-`ygg-extract-markdown` emits sections and fences, `ygg-extract-go` uses the Go
-parser for declarations and imports, and `ygg-extract-typescript` emits
-top-level JavaScript/TypeScript declarations and module links.
+`ygg-extract-markdown` emits sections and fences. The Go, TypeScript, and
+Python extractors emit a compact per-file navigation record together with
+imports and parser-bounded declarations. Declaration records contain their
+complete bounded source span so semantic retrieval can cite the implementation
+instead of only its signature.
 `ygg-extract-manifest` emits package, dependency, script, workspace, and
 toolchain facts from `package.json`, `go.mod`, `Cargo.toml`, and
 `pyproject.toml`. None are linked into the core CLI.

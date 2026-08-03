@@ -25,7 +25,7 @@ import (
 	"github.com/ncruces/go-sqlite3/ext/vec1"
 )
 
-const schemaVersion = "2"
+const schemaVersion = "3"
 const indexFreshnessKey = "index_freshness_token"
 
 type Store struct {
@@ -323,38 +323,50 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 			content_rowid='id',
 			tokenize='unicode61'
 		)`,
-		`CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records BEGIN
+		`CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records
+		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO record_fts(rowid, path, title, text)
 			VALUES (new.id, new.path, new.title, new.text);
 		END`,
-		`CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records BEGIN
+		`CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records
+		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO record_fts(record_fts, rowid, path, title, text)
 			VALUES ('delete', old.id, old.path, old.title, old.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_embedding_ad AFTER DELETE ON records BEGIN
 			DELETE FROM embedding_records WHERE record_id=old.id;
 		END`,
-		`CREATE TRIGGER IF NOT EXISTS records_au AFTER UPDATE ON records BEGIN
+		`CREATE TRIGGER IF NOT EXISTS records_au_delete AFTER UPDATE ON records
+		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO record_fts(record_fts, rowid, path, title, text)
 			VALUES ('delete', old.id, old.path, old.title, old.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_au_insert AFTER UPDATE ON records
+		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO record_fts(rowid, path, title, text)
 			VALUES (new.id, new.path, new.title, new.text);
 		END`,
 		`CREATE TRIGGER IF NOT EXISTS records_extractor_ai AFTER INSERT ON records
-		WHEN new.source LIKE 'plugin:%' BEGIN
+		WHEN new.source LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO extractor_fts(rowid, path, title, text)
 			VALUES (new.id, new.path, new.title, new.text);
 		END`,
 		`CREATE TRIGGER IF NOT EXISTS records_extractor_ad AFTER DELETE ON records
-		WHEN old.source LIKE 'plugin:%' BEGIN
+		WHEN old.source LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO extractor_fts(extractor_fts, rowid, path, title, text)
 			VALUES ('delete', old.id, old.path, old.title, old.text);
 		END`,
 		`CREATE TRIGGER IF NOT EXISTS records_extractor_au_delete AFTER UPDATE ON records
-		WHEN old.source LIKE 'plugin:%' BEGIN
+		WHEN old.source LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO extractor_fts(extractor_fts, rowid, path, title, text)
 			VALUES ('delete', old.id, old.path, old.title, old.text);
 		END`,
 		`CREATE TRIGGER IF NOT EXISTS records_extractor_au_insert AFTER UPDATE ON records
-		WHEN new.source LIKE 'plugin:%' BEGIN
+		WHEN new.source LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO extractor_fts(rowid, path, title, text)
 			VALUES (new.id, new.path, new.title, new.text);
 		END`,
@@ -381,6 +393,10 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		}
 	case err != nil:
 		return err
+	case version == "2":
+		if err := s.migrateV2ToV3(ctx); err != nil {
+			return err
+		}
 	case version != schemaVersion:
 		return fmt.Errorf("index schema %s is incompatible with %s; run ygg index --full", version, schemaVersion)
 	}
@@ -392,17 +408,19 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 	case errors.Is(err, sql.ErrNoRows):
 		if _, err := s.db.ExecContext(ctx, `
 			INSERT INTO extractor_fts(rowid,path,title,text)
-			SELECT id,path,title,text FROM records WHERE source LIKE 'plugin:%'`); err != nil {
+			SELECT id,path,title,text FROM records
+			WHERE source LIKE 'plugin:%'
+				AND coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`); err != nil {
 			return fmt.Errorf("build extractor index: %w", err)
 		}
 		if _, err := s.db.ExecContext(
-			ctx, `INSERT INTO meta(key,value) VALUES('extractor_fts_version','1')`,
+			ctx, `INSERT INTO meta(key,value) VALUES('extractor_fts_version','2')`,
 		); err != nil {
 			return err
 		}
 	case err != nil:
 		return err
-	case extractorFTSVersion != "1":
+	case extractorFTSVersion != "2":
 		return fmt.Errorf("unsupported extractor index version %s", extractorFTSVersion)
 	}
 	var storedID, storedRoot string
@@ -417,6 +435,94 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		return fmt.Errorf("index belongs to repository %s at %s", storedID, storedRoot)
 	default:
 		return nil
+	}
+}
+
+func (s *Store) migrateV2ToV3(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, name := range []string{
+		"records_ai", "records_ad", "records_au", "records_au_delete", "records_au_insert",
+		"records_embedding_ad", "records_extractor_ai", "records_extractor_ad",
+		"records_extractor_au_delete", "records_extractor_au_insert",
+	} {
+		if _, err := tx.ExecContext(ctx, `DROP TRIGGER IF EXISTS `+name); err != nil {
+			return fmt.Errorf("drop search trigger %s: %w", name, err)
+		}
+	}
+	for _, statement := range searchTriggerStatements() {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("create search trigger: %w", err)
+		}
+	}
+	for _, statement := range []string{
+		`INSERT INTO record_fts(record_fts) VALUES('delete-all')`,
+		`INSERT INTO record_fts(rowid,path,title,text)
+		 SELECT id,path,title,text FROM records
+		 WHERE coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`,
+		`INSERT INTO extractor_fts(extractor_fts) VALUES('delete-all')`,
+		`INSERT INTO extractor_fts(rowid,path,title,text)
+		 SELECT id,path,title,text FROM records
+		 WHERE source LIKE 'plugin:%'
+			AND coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`,
+		`UPDATE meta SET value='2' WHERE key='extractor_fts_version'`,
+		`UPDATE meta SET value='3' WHERE key='schema_version'`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("migrate search index: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+func searchTriggerStatements() []string {
+	return []string{
+		`CREATE TRIGGER records_ai AFTER INSERT ON records
+		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO record_fts(rowid,path,title,text) VALUES(new.id,new.path,new.title,new.text);
+		END`,
+		`CREATE TRIGGER records_ad AFTER DELETE ON records
+		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO record_fts(record_fts,rowid,path,title,text)
+			VALUES('delete',old.id,old.path,old.title,old.text);
+		END`,
+		`CREATE TRIGGER records_embedding_ad AFTER DELETE ON records BEGIN
+			DELETE FROM embedding_records WHERE record_id=old.id;
+		END`,
+		`CREATE TRIGGER records_au_delete AFTER UPDATE ON records
+		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO record_fts(record_fts,rowid,path,title,text)
+			VALUES('delete',old.id,old.path,old.title,old.text);
+		END`,
+		`CREATE TRIGGER records_au_insert AFTER UPDATE ON records
+		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO record_fts(rowid,path,title,text) VALUES(new.id,new.path,new.title,new.text);
+		END`,
+		`CREATE TRIGGER records_extractor_ai AFTER INSERT ON records
+		WHEN new.source LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO extractor_fts(rowid,path,title,text) VALUES(new.id,new.path,new.title,new.text);
+		END`,
+		`CREATE TRIGGER records_extractor_ad AFTER DELETE ON records
+		WHEN old.source LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO extractor_fts(extractor_fts,rowid,path,title,text)
+			VALUES('delete',old.id,old.path,old.title,old.text);
+		END`,
+		`CREATE TRIGGER records_extractor_au_delete AFTER UPDATE ON records
+		WHEN old.source LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO extractor_fts(extractor_fts,rowid,path,title,text)
+			VALUES('delete',old.id,old.path,old.title,old.text);
+		END`,
+		`CREATE TRIGGER records_extractor_au_insert AFTER UPDATE ON records
+		WHEN new.source LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO extractor_fts(rowid,path,title,text) VALUES(new.id,new.path,new.title,new.text);
+		END`,
 	}
 }
 
@@ -881,6 +987,7 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 }
 
 const recordScopePredicate = `(?='' OR r.path=? OR substr(r.path,1,length(?))=?)`
+const lexicalRecordPredicate = `coalesce(json_extract(r.metadata_json,'$.lexical'),1)<>0`
 
 func (s *Store) LexicalCandidates(
 	ctx context.Context,
@@ -892,7 +999,7 @@ func (s *Store) LexicalCandidates(
 			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 			FROM record_fts
 			JOIN records r ON r.id=record_fts.rowid
-			WHERE record_fts MATCH ? AND `+recordScopePredicate+`
+			WHERE record_fts MATCH ? AND `+lexicalRecordPredicate+` AND `+recordScopePredicate+`
 			ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
 			LIMIT ?`, query, scope, scope, scope, scope, recordLimit)
 		if err != nil {
@@ -912,7 +1019,8 @@ func (s *Store) LiteralCandidates(
 			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 			FROM record_fts
 			JOIN records r ON r.id=record_fts.rowid
-			WHERE record_fts MATCH ? AND instr(r.text,?) > 0 AND `+recordScopePredicate+`
+			WHERE record_fts MATCH ? AND instr(r.text,?) > 0
+				AND `+lexicalRecordPredicate+` AND `+recordScopePredicate+`
 			ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
 			LIMIT ?`, query, literal, scope, scope, scope, scope, recordLimit)
 		if err != nil {
@@ -932,7 +1040,7 @@ func (s *Store) ExtractorCandidates(
 			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 			FROM extractor_fts
 			JOIN records r ON r.id=extractor_fts.rowid
-			WHERE extractor_fts MATCH ? AND `+recordScopePredicate+`
+			WHERE extractor_fts MATCH ? AND `+lexicalRecordPredicate+` AND `+recordScopePredicate+`
 			ORDER BY bm25(extractor_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
 			LIMIT ?`, query, scope, scope, scope, scope, recordLimit)
 		if err != nil {

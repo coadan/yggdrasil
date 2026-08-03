@@ -15,9 +15,10 @@ import (
 )
 
 const (
-	schema     = "ygg.extractor/v1"
-	maxRecords = 256
-	maxText    = 64*1024 - 1
+	schema             = "ygg.extractor/v1"
+	maxFacts           = 256
+	maxText            = 64*1024 - 1
+	maxStructuralBytes = 512 * 1024
 )
 
 type message struct {
@@ -25,17 +26,19 @@ type message struct {
 	Schema    string `json:"schema,omitempty"`
 	RequestID string `json:"requestId,omitempty"`
 	File      struct {
+		Path    string `json:"path"`
 		Content string `json:"content"`
 	} `json:"file,omitempty"`
 }
 
 type record struct {
-	ID        string `json:"id"`
-	StartLine int    `json:"startLine"`
-	EndLine   int    `json:"endLine"`
-	Kind      string `json:"kind"`
-	Title     string `json:"title,omitempty"`
-	Text      string `json:"text"`
+	ID        string         `json:"id"`
+	StartLine int            `json:"startLine"`
+	EndLine   int            `json:"endLine"`
+	Kind      string         `json:"kind"`
+	Title     string         `json:"title,omitempty"`
+	Text      string         `json:"text"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
 type token struct {
@@ -70,7 +73,7 @@ func run(input io.Reader, output io.Writer) error {
 				return err
 			}
 		case "file":
-			records := extract(value.File.Content)
+			records := extract(value.File.Path, value.File.Content)
 			files++
 			recordCount += len(records)
 			if err := encoder.Encode(map[string]any{
@@ -90,12 +93,13 @@ func run(input io.Reader, output io.Writer) error {
 	return inputScanner.Err()
 }
 
-func extract(content string) []record {
+func extract(path, content string) []record {
 	tokens := scan(content)
 	lines := strings.Split(content, "\n")
-	var records []record
+	var facts, structures []record
+	structuralBytes := 0
 	depth := 0
-	for index := 0; index < len(tokens) && len(records) < maxRecords; index++ {
+	for index := 0; index < len(tokens) && len(facts) < maxFacts; index++ {
 		current := tokens[index]
 		if current.text == "}" && depth > 0 {
 			depth--
@@ -103,7 +107,7 @@ func extract(content string) []record {
 		if depth == 0 && current.text == "import" {
 			if moduleIndex := importModule(tokens, index); moduleIndex > index {
 				module := trimString(tokens[moduleIndex].text)
-				records = append(records, makeRecord(
+				facts = append(facts, makeRecord(
 					"typescript-import", module, current.line,
 					lineText(lines, current.line)+"\n"+module,
 				))
@@ -114,7 +118,7 @@ func extract(content string) []record {
 		if depth == 0 && current.text == "export" {
 			if moduleIndex := exportModule(tokens, index); moduleIndex > index {
 				module := trimString(tokens[moduleIndex].text)
-				records = append(records, makeRecord(
+				facts = append(facts, makeRecord(
 					"typescript-export", module, current.line,
 					lineText(lines, current.line)+"\n"+module,
 				))
@@ -125,17 +129,56 @@ func extract(content string) []record {
 		if depth == 0 && declarationKind(current.text) != "" {
 			if name := nextIdentifier(tokens, index+1); name.text != "" {
 				kind := declarationKind(current.text)
-				records = append(records, makeRecord(
+				endLine := declarationEndLine(tokens, index)
+				facts = append(facts, makeRecord(
 					kind, name.text, current.line,
 					lineText(lines, current.line)+"\n"+identifierWords(name.text),
 				))
+				if endLine > current.line && len(structures) < maxFacts {
+					structure := makeStructuralRecord(
+						kind, name.text, current.line, endLine,
+						lineRangeText(lines, current.line, endLine)+"\n"+identifierWords(name.text),
+					)
+					if structuralBytes+len(structure.Text) <= maxStructuralBytes {
+						structures = append(structures, structure)
+						structuralBytes += len(structure.Text)
+					}
+				}
 			}
 		}
 		if current.text == "{" {
 			depth++
 		}
 	}
+	records := append(facts, structures...)
+	if len(facts) > 0 {
+		records = append([]record{navigationRecord(path, facts)}, records...)
+	}
 	return records
+}
+
+func declarationEndLine(tokens []token, start int) int {
+	braces := 0
+	seenBrace := false
+	for index := start; index < len(tokens); index++ {
+		switch tokens[index].text {
+		case "{":
+			braces++
+			seenBrace = true
+		case "}":
+			if braces > 0 {
+				braces--
+			}
+			if seenBrace && braces == 0 {
+				return tokens[index].line
+			}
+		case ";":
+			if !seenBrace {
+				return tokens[index].line
+			}
+		}
+	}
+	return tokens[start].line
 }
 
 func scan(content string) []token {
@@ -243,11 +286,43 @@ func makeRecord(kind, title string, line int, text string) record {
 	}
 }
 
+func makeStructuralRecord(ownerKind, title string, startLine, endLine int, text string) record {
+	value := makeRecord("typescript-structural", title, startLine, text)
+	value.ID = ownerKind + "-structural:" + fmt.Sprint(startLine) + ":" + title
+	value.EndLine = max(startLine, endLine)
+	value.Metadata = map[string]any{
+		"structural": true, "lexical": false, "ownerKind": ownerKind,
+	}
+	return value
+}
+
+func navigationRecord(path string, records []record) record {
+	var text strings.Builder
+	fmt.Fprintf(&text, "file %s\nkind typescript\n", path)
+	for _, value := range records {
+		fmt.Fprintf(&text, "%s %s\n", value.Kind, value.Title)
+	}
+	return record{
+		ID: "typescript-navigation:1", StartLine: 1, EndLine: 1,
+		Kind: "typescript-navigation", Title: path,
+		Text:     truncate(strings.TrimSpace(text.String())),
+		Metadata: map[string]any{"facts": len(records), "lexical": false},
+	}
+}
+
 func lineText(lines []string, line int) string {
 	if line < 1 || line > len(lines) {
 		return ""
 	}
 	return strings.TrimSpace(lines[line-1])
+}
+
+func lineRangeText(lines []string, startLine, endLine int) string {
+	if startLine < 1 || startLine > len(lines) || endLine < startLine {
+		return ""
+	}
+	endLine = min(endLine, len(lines))
+	return strings.TrimSpace(strings.Join(lines[startLine-1:endLine], "\n"))
 }
 
 func identifierWords(value string) string {

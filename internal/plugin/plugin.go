@@ -25,7 +25,7 @@ const (
 	maxResponseBytes = 2 * 1024 * 1024
 	maxRecordText    = 64 * 1024
 	maxMetadataBytes = 16 * 1024
-	maxRecords       = 256
+	maxRecords       = 513
 	maxStderrBytes   = 8 * 1024
 )
 

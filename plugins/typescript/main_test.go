@@ -19,8 +19,8 @@ function actorRelativeRoute() {
   return nestedValue;
 }
 `
-	records := extract(content)
-	if len(records) != 5 {
+	records := extract("src/routes.ts", content)
+	if len(records) != 8 {
 		t.Fatalf("records=%#v", records)
 	}
 	got := make(map[string]record)
@@ -30,7 +30,10 @@ function actorRelativeRoute() {
 	if got["typescript-import:./route-state"].StartLine != 1 ||
 		got["typescript-export:./route-access"].StartLine != 2 ||
 		!strings.Contains(got["typescript-interface:WorldMapAccess"].Text, "world map access") ||
-		!strings.Contains(got["typescript-const:buildRouteAccess"].Text, "build route access") {
+		!strings.Contains(got["typescript-const:buildRouteAccess"].Text, "build route access") ||
+		strings.Contains(got["typescript-function:actorRelativeRoute"].Text, "return nestedValue") ||
+		!strings.Contains(got["typescript-structural:actorRelativeRoute"].Text, "return nestedValue") ||
+		!strings.Contains(got["typescript-navigation:src/routes.ts"].Text, "typescript-interface WorldMapAccess") {
 		t.Fatalf("records=%#v", records)
 	}
 	if _, exists := got["typescript-const:nestedValue"]; exists {
@@ -39,11 +42,11 @@ function actorRelativeRoute() {
 }
 
 func TestScannerIgnoresCommentAndStringKeywords(t *testing.T) {
-	records := extract(`// function NotADeclaration() {}
+	records := extract("input.ts", `// function NotADeclaration() {}
 const text = "class AlsoNotADeclaration {}";
 export class RealDeclaration {}
 `)
-	if len(records) != 2 || records[0].Title != "text" || records[1].Title != "RealDeclaration" {
+	if len(records) != 3 || records[1].Title != "text" || records[2].Title != "RealDeclaration" {
 		t.Fatalf("records=%#v", records)
 	}
 }
