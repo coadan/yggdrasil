@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/coadan/yggdrasil/internal/contracts"
@@ -219,6 +220,42 @@ func TestEmbeddingLaneDeduplicatesInputsAndSkipsPathRecords(t *testing.T) {
 	state, err := value.EmbeddingState(ctx, "embed-fp")
 	if err != nil || state.Records != 2 || state.Embedded != 2 || !state.Complete {
 		t.Fatalf("state=%#v err=%v", state, err)
+	}
+}
+
+func TestMissingEmbeddingInputsGroupsSimilarLengths(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for index, text := range []string{"a much longer input", "tiny", "medium text"} {
+		path := fmt.Sprintf("%d.txt", index)
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: path, Size: int64(len(text)), MTimeNS: 1},
+			Kind:      "txt",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, text, "fingerprint", []contracts.SearchRecord{{
+			Path: path, StartLine: 1, EndLine: 1, Kind: "text", Text: text, Source: "core",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := value.PrepareEmbeddingLane(ctx, "embed-fp", "model", 2); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, "embed-fp", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, len(inputs))
+	for index, input := range inputs {
+		got[index] = input.Text
+	}
+	want := []string{"tiny", "medium text", "a much longer input"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("inputs=%q want=%q", got, want)
 	}
 }
 
