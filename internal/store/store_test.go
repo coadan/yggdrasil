@@ -185,6 +185,102 @@ func TestEmbeddingLaneReturnsNearestRecord(t *testing.T) {
 	}
 }
 
+func TestLexicalCandidateLimitCountsUniquePaths(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	noise := discovery.File{
+		Candidate: discovery.Candidate{Path: "a-noise.txt", Size: 5, MTimeNS: 1},
+		Kind:      "txt",
+	}
+	noiseRecords := make([]contracts.SearchRecord, 101)
+	for index := range noiseRecords {
+		noiseRecords[index] = contracts.SearchRecord{
+			Path: noise.Path, StartLine: index + 1, EndLine: index + 1,
+			Kind: "text", Text: "needle", Source: "core",
+		}
+	}
+	if err := value.ReplaceFile(ctx, "run", noise, "noise", "fingerprint", noiseRecords); err != nil {
+		t.Fatal(err)
+	}
+	owner := discovery.File{
+		Candidate: discovery.Candidate{Path: "z-owner.txt", Size: 5, MTimeNS: 1},
+		Kind:      "txt",
+	}
+	if err := value.ReplaceFile(ctx, "run", owner, "owner", "fingerprint", []contracts.SearchRecord{{
+		Path: owner.Path, StartLine: 1, EndLine: 1, Kind: "text", Text: "needle", Source: "core",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	records, err := value.LexicalCandidates(ctx, "needle", "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[0].Path != noise.Path || records[1].Path != owner.Path {
+		t.Fatalf("records=%#v", records)
+	}
+}
+
+func TestVectorCandidateLimitCountsUniquePaths(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	noise := discovery.File{
+		Candidate: discovery.Candidate{Path: "a-noise.txt", Size: 5, MTimeNS: 1},
+		Kind:      "txt",
+	}
+	noiseRecords := make([]contracts.SearchRecord, 101)
+	for index := range noiseRecords {
+		noiseRecords[index] = contracts.SearchRecord{
+			Path: noise.Path, StartLine: index + 1, EndLine: index + 1,
+			Kind: "text", Text: fmt.Sprintf("noise-%03d", index), Source: "core",
+		}
+	}
+	if err := value.ReplaceFile(ctx, "run", noise, "noise", "fingerprint", noiseRecords); err != nil {
+		t.Fatal(err)
+	}
+	owner := discovery.File{
+		Candidate: discovery.Candidate{Path: "z-owner.txt", Size: 5, MTimeNS: 1},
+		Kind:      "txt",
+	}
+	if err := value.ReplaceFile(ctx, "run", owner, "owner", "fingerprint", []contracts.SearchRecord{{
+		Path: owner.Path, StartLine: 1, EndLine: 1, Kind: "text", Text: "owner", Source: "core",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := value.PrepareEmbeddingLane(ctx, "embed-fp", "model", 2); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, "embed-fp", 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vectors := make([]EmbeddingValue, len(inputs))
+	for index, input := range inputs {
+		vector := []float32{1, 0}
+		if input.Text == "owner" {
+			vector = []float32{0.9, 0.1}
+		}
+		vectors[index] = EmbeddingValue{ID: input.ID, InputHash: input.InputHash, Vector: vector}
+	}
+	if _, err := value.UpsertEmbeddings(ctx, "embed-fp", 2, vectors); err != nil {
+		t.Fatal(err)
+	}
+	records, err := value.VectorCandidates(ctx, []float32{1, 0}, "", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[0].Path != noise.Path || records[1].Path != owner.Path {
+		t.Fatalf("records=%#v", records)
+	}
+}
+
 func TestEmbeddingLaneDeduplicatesInputsAndSkipsPathRecords(t *testing.T) {
 	ctx := context.Background()
 	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
