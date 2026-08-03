@@ -887,39 +887,19 @@ func (s *Store) LexicalCandidates(
 	query, scope string,
 	limit int,
 ) ([]Record, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		WITH matches AS (
+	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
+		rows, err := s.db.QueryContext(ctx, `
 			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
-				,bm25(record_fts,8.0,4.0,1.0) AS score
 			FROM record_fts
 			JOIN records r ON r.id=record_fts.rowid
 			WHERE record_fts MATCH ? AND `+recordScopePredicate+`
-		), ranked AS (
-			SELECT *,row_number() OVER (
-				PARTITION BY path ORDER BY score,start_line,id
-			) AS path_rank,row_number() OVER (
-				ORDER BY score,path,start_line,id
-			) AS record_rank
-			FROM matches
-		), selected AS (
-			SELECT record_rank
-			FROM ranked
-			WHERE path_rank=1
-			ORDER BY record_rank
-			LIMIT ?
-		), cutoff AS (
-			SELECT CASE WHEN count(*)=? THEN max(record_rank)
-				ELSE (SELECT max(record_rank) FROM ranked) END AS record_rank
-			FROM selected
-		)
-		SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
-		FROM ranked
-		WHERE record_rank<=(SELECT record_rank FROM cutoff)
-		ORDER BY record_rank`, query, scope, scope, scope, scope, limit, limit)
-	if err != nil {
-		return nil, err
-	}
-	return scanRecords(rows)
+			ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
+			LIMIT ?`, query, scope, scope, scope, scope, recordLimit)
+		if err != nil {
+			return nil, err
+		}
+		return scanRecords(rows)
+	})
 }
 
 func (s *Store) LiteralCandidates(
@@ -927,39 +907,19 @@ func (s *Store) LiteralCandidates(
 	query, literal, scope string,
 	limit int,
 ) ([]Record, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		WITH matches AS (
+	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
+		rows, err := s.db.QueryContext(ctx, `
 			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
-				,bm25(record_fts,8.0,4.0,1.0) AS score
 			FROM record_fts
 			JOIN records r ON r.id=record_fts.rowid
 			WHERE record_fts MATCH ? AND instr(r.text,?) > 0 AND `+recordScopePredicate+`
-		), ranked AS (
-			SELECT *,row_number() OVER (
-				PARTITION BY path ORDER BY score,start_line,id
-			) AS path_rank,row_number() OVER (
-				ORDER BY score,path,start_line,id
-			) AS record_rank
-			FROM matches
-		), selected AS (
-			SELECT record_rank
-			FROM ranked
-			WHERE path_rank=1
-			ORDER BY record_rank
-			LIMIT ?
-		), cutoff AS (
-			SELECT CASE WHEN count(*)=? THEN max(record_rank)
-				ELSE (SELECT max(record_rank) FROM ranked) END AS record_rank
-			FROM selected
-		)
-		SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
-		FROM ranked
-		WHERE record_rank<=(SELECT record_rank FROM cutoff)
-		ORDER BY record_rank`, query, literal, scope, scope, scope, scope, limit, limit)
-	if err != nil {
-		return nil, err
-	}
-	return scanRecords(rows)
+			ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
+			LIMIT ?`, query, literal, scope, scope, scope, scope, recordLimit)
+		if err != nil {
+			return nil, err
+		}
+		return scanRecords(rows)
+	})
 }
 
 func (s *Store) ExtractorCandidates(
@@ -967,39 +927,40 @@ func (s *Store) ExtractorCandidates(
 	query, scope string,
 	limit int,
 ) ([]Record, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		WITH matches AS (
+	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
+		rows, err := s.db.QueryContext(ctx, `
 			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
-				,bm25(extractor_fts,8.0,4.0,1.0) AS score
 			FROM extractor_fts
 			JOIN records r ON r.id=extractor_fts.rowid
 			WHERE extractor_fts MATCH ? AND `+recordScopePredicate+`
-		), ranked AS (
-			SELECT *,row_number() OVER (
-				PARTITION BY path ORDER BY score,start_line,id
-			) AS path_rank,row_number() OVER (
-				ORDER BY score,path,start_line,id
-			) AS record_rank
-			FROM matches
-		), selected AS (
-			SELECT record_rank
-			FROM ranked
-			WHERE path_rank=1
-			ORDER BY record_rank
-			LIMIT ?
-		), cutoff AS (
-			SELECT CASE WHEN count(*)=? THEN max(record_rank)
-				ELSE (SELECT max(record_rank) FROM ranked) END AS record_rank
-			FROM selected
-		)
-		SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
-		FROM ranked
-		WHERE record_rank<=(SELECT record_rank FROM cutoff)
-		ORDER BY record_rank`, query, scope, scope, scope, scope, limit, limit)
-	if err != nil {
-		return nil, err
+			ORDER BY bm25(extractor_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
+			LIMIT ?`, query, scope, scope, scope, scope, recordLimit)
+		if err != nil {
+			return nil, err
+		}
+		return scanRecords(rows)
+	})
+}
+
+func uniquePathCandidates(
+	limit int,
+	load func(recordLimit int) ([]Record, error),
+) ([]Record, error) {
+	if limit <= 0 {
+		return nil, nil
 	}
-	return scanRecords(rows)
+	recordLimit := limit
+	for {
+		records, err := load(recordLimit)
+		if err != nil {
+			return nil, err
+		}
+		unique := firstRecordsByPath(records, limit)
+		if len(unique) == limit || len(records) < recordLimit {
+			return recordsThroughUniquePathLimit(records, limit), nil
+		}
+		recordLimit *= 2
+	}
 }
 
 func (s *Store) PathCandidates(
