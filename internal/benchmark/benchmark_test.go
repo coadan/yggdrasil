@@ -17,6 +17,33 @@ func TestScoreUsesFileRanks(t *testing.T) {
 	}
 }
 
+func TestExpectedPathRanksDistinguishMissingAndUnmeasuredLanes(t *testing.T) {
+	got := expectedPathRanks(
+		[]string{"owner.go", "missing.go"},
+		map[string][]string{
+			"auto":     {"noise.go", "owner.go"},
+			"lexical":  {"owner.go"},
+			"semantic": {"noise.go"},
+		},
+		[]string{"owner.go"},
+		true,
+	)
+	if got[0].AutoRankAt100 != 2 || got[0].LexicalRankAt100 != 1 ||
+		got[0].SemanticRankAt100 == nil || *got[0].SemanticRankAt100 != 0 ||
+		got[0].RawRipgrepRank != 1 {
+		t.Fatalf("owner ranks=%#v", got[0])
+	}
+	if got[1].AutoRankAt100 != 0 || got[1].SemanticRankAt100 == nil {
+		t.Fatalf("missing ranks=%#v", got[1])
+	}
+	unmeasured := expectedPathRanks(
+		[]string{"owner.go"}, map[string][]string{}, nil, false,
+	)
+	if unmeasured[0].SemanticRankAt100 != nil {
+		t.Fatalf("unmeasured semantic rank=%#v", unmeasured[0])
+	}
+}
+
 func TestLoadSuiteValidatesAndHashes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "suite.json")
 	data := []byte(`{

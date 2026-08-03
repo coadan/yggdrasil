@@ -25,7 +25,7 @@ import (
 )
 
 const SuiteSchema = "ygg.benchmark.suite/v1"
-const ReportSchema = "ygg.benchmark.report/v1"
+const ReportSchema = "ygg.benchmark.report/v2"
 
 type Suite struct {
 	Schema      string       `json:"schema"`
@@ -144,34 +144,43 @@ type Aggregate struct {
 }
 
 type CaseReport struct {
-	ID                   string    `json:"id"`
-	RepositoryID         string    `json:"repositoryId"`
-	Revision             string    `json:"revision"`
-	FixRevision          string    `json:"fixRevision"`
-	SourceURL            string    `json:"sourceUrl"`
-	ExpectedPaths        []string  `json:"expectedPaths"`
-	ResultPaths          []string  `json:"resultPaths"`
-	RawRipgrepPaths      []string  `json:"rawRipgrepPaths"`
-	FileRecallAt10       float64   `json:"fileRecallAt10"`
-	MRR                  float64   `json:"mrr"`
-	NoiseAt20            float64   `json:"noiseAt20"`
-	CitationRate         float64   `json:"citationRate"`
-	RawFileRecallAt10    float64   `json:"rawFileRecallAt10"`
-	RawMRR               float64   `json:"rawMrr"`
-	RawRipgrepMS         float64   `json:"rawRipgrepMs"`
-	FullIndexMS          float64   `json:"fullIndexMs"`
-	NoopIndexMS          float64   `json:"noopIndexMs"`
-	OneFileIncrementalMS float64   `json:"oneFileIncrementalMs"`
-	SearchSamplesMS      []float64 `json:"searchSamplesMs"`
-	RequestedMode        string    `json:"requestedMode"`
-	ActiveMode           string    `json:"activeMode"`
-	FallbackReason       string    `json:"fallbackReason,omitempty"`
-	EmbeddingStatus      string    `json:"embeddingStatus"`
-	Embedded             int       `json:"embedded"`
-	VectorRecords        int       `json:"vectorRecords"`
-	EmbeddableRecords    int       `json:"embeddableRecords"`
-	IndexedRecords       int       `json:"indexedRecords"`
-	VectorCoverage       float64   `json:"vectorCoverage"`
+	ID                   string              `json:"id"`
+	RepositoryID         string              `json:"repositoryId"`
+	Revision             string              `json:"revision"`
+	FixRevision          string              `json:"fixRevision"`
+	SourceURL            string              `json:"sourceUrl"`
+	ExpectedPaths        []string            `json:"expectedPaths"`
+	ExpectedPathRanks    []ExpectedPathRanks `json:"expectedPathRanks"`
+	ResultPaths          []string            `json:"resultPaths"`
+	RawRipgrepPaths      []string            `json:"rawRipgrepPaths"`
+	FileRecallAt10       float64             `json:"fileRecallAt10"`
+	MRR                  float64             `json:"mrr"`
+	NoiseAt20            float64             `json:"noiseAt20"`
+	CitationRate         float64             `json:"citationRate"`
+	RawFileRecallAt10    float64             `json:"rawFileRecallAt10"`
+	RawMRR               float64             `json:"rawMrr"`
+	RawRipgrepMS         float64             `json:"rawRipgrepMs"`
+	FullIndexMS          float64             `json:"fullIndexMs"`
+	NoopIndexMS          float64             `json:"noopIndexMs"`
+	OneFileIncrementalMS float64             `json:"oneFileIncrementalMs"`
+	SearchSamplesMS      []float64           `json:"searchSamplesMs"`
+	RequestedMode        string              `json:"requestedMode"`
+	ActiveMode           string              `json:"activeMode"`
+	FallbackReason       string              `json:"fallbackReason,omitempty"`
+	EmbeddingStatus      string              `json:"embeddingStatus"`
+	Embedded             int                 `json:"embedded"`
+	VectorRecords        int                 `json:"vectorRecords"`
+	EmbeddableRecords    int                 `json:"embeddableRecords"`
+	IndexedRecords       int                 `json:"indexedRecords"`
+	VectorCoverage       float64             `json:"vectorCoverage"`
+}
+
+type ExpectedPathRanks struct {
+	Path              string `json:"path"`
+	AutoRankAt100     int    `json:"autoRankAt100"`
+	LexicalRankAt100  int    `json:"lexicalRankAt100"`
+	SemanticRankAt100 *int   `json:"semanticRankAt100,omitempty"`
+	RawRipgrepRank    int    `json:"rawRipgrepRank"`
 }
 
 type searchRecord struct {
@@ -572,6 +581,21 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 		}
 	}
 	paths := uniquePaths(records)
+	diagnosticPaths := make(map[string][]string, 3)
+	for _, mode := range []string{"auto", "lexical"} {
+		diagnosticPaths[mode], err = searchPathsAtLimit(ctx, root, env, opts.Binary, mode, item.Query, 100)
+		if err != nil {
+			return CaseReport{}, fmt.Errorf("%s retrieval diagnostic: %w", mode, err)
+		}
+	}
+	if opts.embeddingConfigured {
+		diagnosticPaths["semantic"], err = searchPathsAtLimit(
+			ctx, root, env, opts.Binary, "semantic", item.Query, 100,
+		)
+		if err != nil {
+			return CaseReport{}, fmt.Errorf("semantic retrieval diagnostic: %w", err)
+		}
+	}
 	rawStarted := time.Now()
 	rawPaths, err := ripgrepPaths(ctx, root, item.Query)
 	rawMS := float64(time.Since(rawStarted).Microseconds()) / 1000
@@ -593,7 +617,11 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 	return CaseReport{
 		ID: item.ID, RepositoryID: item.RepositoryID, Revision: item.Revision,
 		FixRevision: item.FixRevision, SourceURL: item.SourceURL,
-		ExpectedPaths: item.ExpectedPaths, ResultPaths: paths, RawRipgrepPaths: rawPaths,
+		ExpectedPaths: item.ExpectedPaths,
+		ExpectedPathRanks: expectedPathRanks(
+			item.ExpectedPaths, diagnosticPaths, rawPaths, opts.embeddingConfigured,
+		),
+		ResultPaths: paths, RawRipgrepPaths: rawPaths,
 		FileRecallAt10: recall, MRR: mrr, NoiseAt20: noise, CitationRate: citationRate,
 		RawFileRecallAt10: rawRecall, RawMRR: rawMRR, RawRipgrepMS: rawMS,
 		FullIndexMS: fullMS, NoopIndexMS: noopMS, OneFileIncrementalMS: incrementalMS,
@@ -604,6 +632,63 @@ func runCase(ctx context.Context, opts Options, item Case, root string) (report 
 		IndexedRecords: state.Data.Counts.Records,
 		VectorCoverage: vectorCoverage,
 	}, nil
+}
+
+func searchPathsAtLimit(
+	ctx context.Context,
+	root string,
+	env []string,
+	binary, mode, query string,
+	limit int,
+) ([]string, error) {
+	_, output, err := timedCommand(
+		ctx, root, env, binary,
+		"search", "--root", root, "--mode", mode, "--limit", strconv.Itoa(limit), query,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var envelope searchEnvelope
+	if err := json.Unmarshal(output, &envelope); err != nil {
+		return nil, fmt.Errorf("decode search output: %w", err)
+	}
+	if !envelope.OK {
+		return nil, errors.New(envelopeError(envelope.Error, "search failed"))
+	}
+	return uniquePaths(envelope.Data.Records), nil
+}
+
+func expectedPathRanks(
+	expected []string,
+	retrieval map[string][]string,
+	rawPaths []string,
+	semanticMeasured bool,
+) []ExpectedPathRanks {
+	result := make([]ExpectedPathRanks, 0, len(expected))
+	for _, path := range expected {
+		row := ExpectedPathRanks{
+			Path:             path,
+			AutoRankAt100:    rankPath(retrieval["auto"], path),
+			LexicalRankAt100: rankPath(retrieval["lexical"], path),
+			RawRipgrepRank:   rankPath(rawPaths, path),
+		}
+		if semanticMeasured {
+			rank := rankPath(retrieval["semantic"], path)
+			row.SemanticRankAt100 = &rank
+		}
+		result = append(result, row)
+	}
+	return result
+}
+
+func rankPath(paths []string, target string) int {
+	target = filepath.ToSlash(target)
+	for index, path := range paths {
+		if filepath.ToSlash(path) == target {
+			return index + 1
+		}
+	}
+	return 0
 }
 
 func loadBenchmarkConfig(
