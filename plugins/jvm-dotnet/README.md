@@ -1,7 +1,7 @@
 # JVM and .NET extractor
 
-`ygg-extract-jvm-dotnet` ports the legacy tree-sitter parser-worker facts for
-Java and C#. It emits syntax-owned packages/namespaces, imports/usings,
+`ygg-extract-jvm-dotnet` extracts syntax-owned facts for Java and C#. It emits
+packages/namespaces, imports/usings,
 declarations, line ranges, and parser diagnostics.
 
 The pinned parser bundle is optional and isolated from the Go CLI:
