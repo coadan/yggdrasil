@@ -225,6 +225,9 @@ Broad queries containing a mixed-case identifier or two or more other structured
 anchors also retain bounded per-anchor lexical lanes. This keeps an exact symbol
 represented among surrounding conceptual terms without treating one natural
 hyphenated phrase as code.
+Retrieval lane candidate limits count distinct file paths, not records, so a
+file with many chunks cannot consume another file's candidate slot. Each lane
+retains its highest-ranked record for the path as citation evidence.
 Retrieval lanes return records, but the public result identity is a file path.
 Fusion therefore preserves the top record-level path as its precision head,
 combines correlated lane variants within lexical, semantic, and extractor
