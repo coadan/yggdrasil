@@ -218,6 +218,10 @@ path-stem matches. A single case-marked code identifier such as `ContentStack`,
 `Metric`, `runTask`, or `API` uses the same literal lane, while lowercase
 conceptual terms retain normal hybrid retrieval. Explicit `semantic` mode
 remains semantic-only.
+When extractor graph facts are configured, an exact `auto` result is also used
+as a one-hop graph seed. The exact lexical owner remains the precision head;
+mechanically linked import/export neighbors follow without invoking an
+embedding provider.
 Queries beginning with `-` follow the standard flag terminator, for example
 `ygg search -- "--json"`. The temporary redundant `--json` output assertion is
 recognized only before that terminator and cannot consume literal query text.
