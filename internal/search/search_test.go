@@ -63,14 +63,14 @@ func TestGraphSearchReturnsAResolvedImportNeighbor(t *testing.T) {
 			path: "src/owner.ts",
 			records: []contracts.SearchRecord{{
 				Path: "src/owner.ts", StartLine: 4, EndLine: 8, Kind: "typescript-function",
-				Title: "ownRoute", Text: "private topology detail", Source: "plugin:typescript",
+				Title: "ownRoute", Text: "function ownRoute private topology detail", Source: "plugin:typescript",
 			}},
 		},
 		{
 			path: "src/consumer.ts",
 			records: []contracts.SearchRecord{{
 				Path: "src/consumer.ts", StartLine: 2, EndLine: 2, Kind: "typescript-import",
-				Title: "./owner", Text: `import { ownRoute } from "./owner"`, Source: "plugin:typescript",
+				Title: "./owner", Text: `import "./owner"`, Source: "plugin:typescript",
 			}},
 		},
 		{
@@ -108,6 +108,17 @@ func TestGraphSearchReturnsAResolvedImportNeighbor(t *testing.T) {
 	}
 	if result.Records[0].Kind != "typescript-import" {
 		t.Fatalf("citation=%#v", result.Records[0])
+	}
+	auto, err := Run(ctx, value, "ownRoute", Options{Mode: "auto", Limit: 5, HasExtractors: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auto.ActiveMode != "hybrid" || len(auto.Records) < 2 ||
+		auto.Records[0].Path != "src/owner.ts" || auto.Records[1].Path != "src/consumer.ts" {
+		t.Fatalf("auto result=%#v", auto)
+	}
+	if got := strings.Join(auto.Records[1].Retrieval, ","); got != "graph" {
+		t.Fatalf("neighbor retrieval=%q", got)
 	}
 }
 

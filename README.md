@@ -119,10 +119,11 @@ settings; an explicit repository embedding overrides the user default, while
 mechanically chunked text records. Plugins add parser-owned records over a
 bounded JSONL protocol and are started once per index run.
 
-`search --mode auto` uses lexical and path recall by default. When every current
-semantic record has a vector for the configured embedding fingerprint, it fuses
-semantic recall with mechanically resolved local import/export neighbors from
-configured extractors. Missing, incomplete, or failed semantic recall is
+`search --mode auto` uses lexical and path recall by default. Configured
+extractors add mechanically resolved local import/export neighbors, including
+for exact identifiers without invoking an embedding model. When every current
+semantic record has a vector for the configured embedding fingerprint, `auto`
+also fuses semantic recall. Missing, incomplete, or failed semantic recall is
 reported explicitly and lexical results remain available. Use `--mode lexical`,
 `--mode semantic`, or `--mode graph` only for ablation and diagnosis.
 

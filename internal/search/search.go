@@ -225,6 +225,16 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		return result, nil
 	}
 	if structured && opts.Mode == "auto" {
+		if opts.HasExtractors {
+			graph, graphErr := graphLane(ctx, value, query, lanes, opts.Scope, candidateLimit)
+			if graphErr != nil {
+				return Result{}, graphErr
+			}
+			if len(graph.records) > 0 {
+				lanes = append(lanes, graph)
+				result.ActiveMode = "hybrid"
+			}
+		}
 		setResultRecords(&result, query, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
@@ -377,6 +387,8 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 			score := 1.0 / (laneRRFK + float64(rank+1))
 			if candidateLane.name == "extractor" {
 				score *= extractorLaneWeight
+			} else if candidateLane.name == "graph" {
+				score *= graphFamilyWeight
 			}
 			// Search results are files, while retrieval lanes return file,
 			// chunk, and extractor records. Count only the best record for a
