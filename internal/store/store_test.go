@@ -180,6 +180,68 @@ func TestOpenMigratesSemanticOnlyRecordsOutOfLexicalIndexes(t *testing.T) {
 	}
 }
 
+func TestGraphCandidatesFollowResolvedPluginImports(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct {
+		path    string
+		records []contracts.SearchRecord
+	}{
+		{
+			path: "src/owner.ts",
+			records: []contracts.SearchRecord{
+				{Path: "src/owner.ts", StartLine: 1, EndLine: 1, Kind: "file", Text: "src/owner.ts", Source: "core"},
+				{Path: "src/owner.ts", StartLine: 4, EndLine: 6, Kind: "typescript-function", Title: "ownRoute", Text: "function ownRoute", Source: "plugin:typescript"},
+			},
+		},
+		{
+			path: "src/consumer.ts",
+			records: []contracts.SearchRecord{
+				{Path: "src/consumer.ts", StartLine: 1, EndLine: 1, Kind: "file", Text: "src/consumer.ts", Source: "core"},
+				{Path: "src/consumer.ts", StartLine: 2, EndLine: 2, Kind: "typescript-import", Title: "./owner", Text: `import { ownRoute } from "./owner"`, Source: "plugin:typescript"},
+				{Path: "src/consumer.ts", StartLine: 3, EndLine: 3, Kind: "typescript-import", Title: "react", Text: `import React from "react"`, Source: "plugin:typescript"},
+			},
+		},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: 20, MTimeNS: 1},
+			Kind:      "typescript",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", item.records); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := value.RebuildGraph(ctx); err != nil {
+		t.Fatal(err)
+	}
+	counts, err := value.Counts(ctx)
+	if err != nil || counts.GraphEdges != 2 {
+		t.Fatalf("counts=%#v err=%v", counts, err)
+	}
+	outgoing, err := value.GraphCandidates(ctx, []string{"src/consumer.ts"}, "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outgoing) != 1 || outgoing[0].Path != "src/owner.ts" || outgoing[0].Kind != "typescript-function" {
+		t.Fatalf("outgoing=%#v", outgoing)
+	}
+	incoming, err := value.GraphCandidates(ctx, []string{"src/owner.ts"}, "src", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(incoming) != 1 || incoming[0].Path != "src/consumer.ts" || incoming[0].Kind != "typescript-import" {
+		t.Fatalf("incoming=%#v", incoming)
+	}
+	outsideScope, err := value.GraphCandidates(ctx, []string{"src/owner.ts"}, "src/other", 10)
+	if err != nil || len(outsideScope) != 0 {
+		t.Fatalf("outside scope=%#v err=%v", outsideScope, err)
+	}
+}
+
 func TestEmbeddingLaneReturnsNearestRecord(t *testing.T) {
 	ctx := context.Background()
 	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
@@ -237,6 +299,45 @@ func TestEmbeddingLaneReturnsNearestRecord(t *testing.T) {
 	}
 	if len(records) != 1 || records[0].Path != "near.txt" {
 		t.Fatalf("records=%#v", records)
+	}
+}
+
+func TestEmbeddingLaneExcludesLexicalOnlyExtractorFacts(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	var indexCount int
+	if err := value.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM sqlite_master
+		WHERE type='index' AND name='records_input_hash_idx'`).Scan(&indexCount); err != nil || indexCount != 1 {
+		t.Fatalf("embedding input index=%d err=%v", indexCount, err)
+	}
+	file := discovery.File{
+		Candidate: discovery.Candidate{Path: "owner.ts", Size: 20, MTimeNS: 1},
+		Kind:      "typescript",
+	}
+	if err := value.ReplaceFile(ctx, "run", file, "hash", "fingerprint", []contracts.SearchRecord{
+		{Path: file.Path, StartLine: 1, EndLine: 1, Kind: "typescript-navigation", Text: "semantic summary", Source: "plugin:typescript", Metadata: map[string]any{"lexical": false}},
+		{Path: file.Path, StartLine: 2, EndLine: 2, Kind: "typescript-import", Text: "lexical fact", Source: "plugin:typescript", Metadata: map[string]any{"semantic": false}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := value.PrepareEmbeddingLane(ctx, "embed-fp", "model", 2); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, "embed-fp", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(inputs) != 1 || inputs[0].Text != "semantic summary" {
+		t.Fatalf("inputs=%#v", inputs)
+	}
+	state, err := value.EmbeddingState(ctx, "embed-fp")
+	if err != nil || state.Records != 1 || state.Embedded != 0 || state.Complete {
+		t.Fatalf("state=%#v err=%v", state, err)
 	}
 }
 

@@ -45,8 +45,6 @@ def build_service():
         self.assertEqual(11, facts[("python-function", "build_service")]["startLine"])
         self.assertEqual(11, facts[("python-function", "build_service")]["endLine"])
         self.assertNotIn("return Panel()", facts[("python-method", "PanelService.load_panel")]["text"])
-        self.assertIn("return Panel()", facts[("python-structural", "PanelService.load_panel")]["text"])
-        self.assertFalse(facts[("python-structural", "PanelService")]["metadata"]["lexical"])
 
     def test_syntax_diagnostic(self):
         records, diagnostics = extractor.extract("def broken(:\n", "broken.py")

@@ -11,7 +11,7 @@ It requires Python 3 but has no third-party package dependency:
 ```json
 {
   "id": "python",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "command": ["./plugins/python/ygg-extract-python"],
   "includeGlobs": ["**/*.py"]
 }

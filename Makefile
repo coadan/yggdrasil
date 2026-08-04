@@ -1,4 +1,4 @@
-.PHONY: build check test test-jvm-dotnet test-clojure benchmark-check benchmark-quick benchmark-release benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-breyta-session-check benchmark-breyta-session benchmark-breyta-clojure benchmark-python benchmark-jvm-dotnet benchmark-terraform benchmark-semantic-lexical benchmark-semantic-openrouter benchmark-semantic-local-command benchmark-semantic-ollama benchmark-semantic-qwen release clean
+.PHONY: build check test test-jvm-dotnet test-clojure benchmark-check benchmark-quick benchmark-release benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-retrieval-check benchmark-retrieval-minilm benchmark-breyta-session-check benchmark-breyta-session benchmark-breyta-clojure benchmark-python benchmark-jvm-dotnet benchmark-terraform benchmark-semantic-lexical benchmark-semantic-openrouter benchmark-semantic-local-command benchmark-semantic-ollama benchmark-semantic-qwen release clean
 
 VERSION ?= 0.3.0-dev
 RELEASE_LDFLAGS = -s -w -X github.com/coadan/yggdrasil/internal/cli.Version=$(VERSION)
@@ -70,6 +70,20 @@ benchmark-dogfood-manifest: build
 		-config benchmarks/dogfood-manifest.json \
 		-work .dev/bench/work-dogfood-manifest \
 		-ygg bin/ygg -out .dev/bench/dogfood-manifest-report.json
+
+benchmark-retrieval-check: build
+	bin/yggbench -prepare -check-only \
+		-suite benchmarks/retrieval-ablation.json \
+		-config benchmarks/retrieval-ablation-minilm.json \
+		-work .dev/bench/retrieval-ablation \
+		-ygg bin/ygg -mode auto
+
+benchmark-retrieval-minilm: build
+	bin/yggbench -prepare -suite benchmarks/retrieval-ablation.json \
+		-config benchmarks/retrieval-ablation-minilm.json \
+		-work .dev/bench/retrieval-ablation \
+		-ygg bin/ygg -mode auto \
+		-out .dev/bench/retrieval-ablation-minilm.json
 
 benchmark-breyta-session-check: build
 	bin/yggbench -prepare -check-only \

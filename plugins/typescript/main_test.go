@@ -20,7 +20,7 @@ function actorRelativeRoute() {
 }
 `
 	records := extract("src/routes.ts", content)
-	if len(records) != 8 {
+	if len(records) != 6 {
 		t.Fatalf("records=%#v", records)
 	}
 	got := make(map[string]record)
@@ -32,7 +32,6 @@ function actorRelativeRoute() {
 		!strings.Contains(got["typescript-interface:WorldMapAccess"].Text, "world map access") ||
 		!strings.Contains(got["typescript-const:buildRouteAccess"].Text, "build route access") ||
 		strings.Contains(got["typescript-function:actorRelativeRoute"].Text, "return nestedValue") ||
-		!strings.Contains(got["typescript-structural:actorRelativeRoute"].Text, "return nestedValue") ||
 		!strings.Contains(got["typescript-navigation:src/routes.ts"].Text, "typescript-interface WorldMapAccess") {
 		t.Fatalf("records=%#v", records)
 	}

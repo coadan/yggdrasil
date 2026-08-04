@@ -48,6 +48,69 @@ func TestLexicalSearchReturnsCitedRecords(t *testing.T) {
 	}
 }
 
+func TestGraphSearchReturnsAResolvedImportNeighbor(t *testing.T) {
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct {
+		path    string
+		records []contracts.SearchRecord
+	}{
+		{
+			path: "src/owner.ts",
+			records: []contracts.SearchRecord{{
+				Path: "src/owner.ts", StartLine: 4, EndLine: 8, Kind: "typescript-function",
+				Title: "ownRoute", Text: "private topology detail", Source: "plugin:typescript",
+			}},
+		},
+		{
+			path: "src/consumer.ts",
+			records: []contracts.SearchRecord{{
+				Path: "src/consumer.ts", StartLine: 2, EndLine: 2, Kind: "typescript-import",
+				Title: "./owner", Text: `import { ownRoute } from "./owner"`, Source: "plugin:typescript",
+			}},
+		},
+		{
+			path: "src/noise.ts",
+			records: []contracts.SearchRecord{
+				{Path: "src/noise.ts", StartLine: 1, EndLine: 1, Kind: "typescript-function", Title: "noise", Text: "private", Source: "plugin:typescript"},
+				{Path: "src/noise.ts", StartLine: 2, EndLine: 2, Kind: "typescript-import", Title: "./a-target", Text: `import "./a-target"`, Source: "plugin:typescript"},
+			},
+		},
+		{
+			path: "src/a-target.ts",
+			records: []contracts.SearchRecord{{
+				Path: "src/a-target.ts", StartLine: 1, EndLine: 1, Kind: "typescript-function",
+				Title: "target", Text: "unrelated target", Source: "plugin:typescript",
+			}},
+		},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: 20, MTimeNS: 1},
+			Kind:      "typescript",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", item.records); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := value.RebuildGraph(ctx); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Run(ctx, value, "private topology detail", Options{Mode: "graph", Limit: 5, HasExtractors: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ActiveMode != "graph" || len(result.Records) < 1 || result.Records[0].Path != "src/consumer.ts" {
+		t.Fatalf("result=%#v", result)
+	}
+	if result.Records[0].Kind != "typescript-import" {
+		t.Fatalf("citation=%#v", result.Records[0])
+	}
+}
+
 func TestSearchReturnsBoundedOverflowPathsWithoutExtraCitations(t *testing.T) {
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
