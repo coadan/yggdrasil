@@ -239,9 +239,12 @@ graph families, then applies balanced reciprocal-rank fusion across those
 families at file-path identity for the remaining results. Graph candidates are
 one-hop neighbors derived only from explicit extractor import/export facts and
 mechanically resolved repository-relative targets; seed rank determines their
-order. This prevents the number of lexical query variants from outweighing a
-strong semantic or structural rank by construction. Record-level evidence still
-selects the cited line range.
+order. In `auto`, the strongest graph neighbor may occupy the final top-ten
+slot; the displaced direct candidate remains at the end of the bounded
+`morePaths` window instead of shifting intervening ranks. This prevents the
+number of lexical query variants from outweighing a strong semantic or
+structural rank by construction. Record-level evidence still selects the cited
+line range.
 This lets lexical and semantic hits in different chunks corroborate one file
 without allowing cross-chunk evidence to displace the strongest direct record
 match.

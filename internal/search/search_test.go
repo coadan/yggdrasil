@@ -109,6 +109,16 @@ func TestGraphSearchReturnsAResolvedImportNeighbor(t *testing.T) {
 	if result.Records[0].Kind != "typescript-import" {
 		t.Fatalf("citation=%#v", result.Records[0])
 	}
+	seeded, err := graphLane(ctx, value, "private", []lane{
+		{name: "lexical", records: []store.Record{{ID: 100, Path: "src/owner.ts", Text: "private"}}},
+		{name: "semantic", records: []store.Record{{ID: 101, Path: "src/noise.ts", Text: "private"}}},
+	}, "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seeded.records) == 0 || seeded.records[0].Path != "src/consumer.ts" {
+		t.Fatalf("direct-seeded graph=%#v", seeded.records)
+	}
 	auto, err := Run(ctx, value, "ownRoute", Options{Mode: "auto", Limit: 5, HasExtractors: true})
 	if err != nil {
 		t.Fatal(err)
@@ -235,6 +245,30 @@ func TestFusionCombinesDifferentRecordsAfterThePrecisionHead(t *testing.T) {
 	}
 	if got := strings.Join(ranked[1].Retrieval, ","); got != "lexical,semantic" {
 		t.Fatalf("retrieval=%q", got)
+	}
+}
+
+func TestAutoReservesTheLastTopTenSlotForTheStrongestGraphNeighbor(t *testing.T) {
+	var lexical []store.Record
+	for index := range 40 {
+		lexical = append(lexical, store.Record{
+			ID: int64(index + 1), Path: fmt.Sprintf("src/direct-%02d.go", index),
+			StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: "direct evidence",
+		})
+	}
+	graph := store.Record{
+		ID: 100, Path: "src/linked-owner.go",
+		StartLine: 1, EndLine: 1, Kind: "import", Text: "linked owner",
+	}
+	result := Result{RequestedMode: "auto", ActiveMode: "hybrid"}
+	setResultRecords(&result, "direct evidence", 10, []lane{
+		{name: "lexical", records: lexical},
+		{name: "graph", records: []store.Record{graph}},
+	})
+	if len(result.Records) != 10 || result.Records[0].Path != "src/direct-00.go" ||
+		result.Records[9].Path != graph.Path || len(result.MorePaths) != maxMorePaths ||
+		result.MorePaths[maxMorePaths-1] != "src/direct-09.go" {
+		t.Fatalf("records=%#v", result.Records)
 	}
 }
 

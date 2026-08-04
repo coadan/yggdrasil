@@ -314,6 +314,18 @@ func graphLane(
 	scope string,
 	limit int,
 ) (lane, error) {
+	direct := make([]lane, 0, len(lanes))
+	hasDirectRecords := false
+	for _, candidate := range lanes {
+		if candidate.name == "semantic" || candidate.name == "graph" {
+			continue
+		}
+		direct = append(direct, candidate)
+		hasDirectRecords = hasDirectRecords || len(candidate.records) > 0
+	}
+	if hasDirectRecords {
+		lanes = direct
+	}
 	seedRecords := fuse(query, graphSeedLimit, maxExcerptRunes, lanes)
 	seeds := make([]string, 0, len(seedRecords))
 	for _, record := range seedRecords {
@@ -343,21 +355,75 @@ func semanticFailure(
 }
 
 func setResultRecords(result *Result, query string, limit int, lanes []lane) {
+	excerptLimit := resultExcerptLimit(limit)
 	ranked := fuse(
 		query,
 		min(MaxResults, limit+maxMorePaths),
-		resultExcerptLimit(limit),
+		excerptLimit,
 		lanes,
 	)
+	if result.RequestedMode == "auto" && result.ActiveMode == "hybrid" && limit > 1 {
+		ranked = promoteGraphHead(ranked, query, excerptLimit, lanes, min(limit, 10)-1)
+	}
 	if len(ranked) <= limit {
 		result.Records = ranked
 		return
 	}
 	result.Records = ranked[:limit]
-	result.MorePaths = make([]string, 0, len(ranked)-limit)
+	result.MorePaths = make([]string, 0, min(maxMorePaths, len(ranked)-limit))
 	for _, record := range ranked[limit:] {
+		if len(result.MorePaths) == maxMorePaths {
+			break
+		}
 		result.MorePaths = append(result.MorePaths, record.Path)
 	}
+}
+
+func promoteGraphHead(
+	ranked []RankedRecord,
+	query string,
+	excerptLimit int,
+	lanes []lane,
+	target int,
+) []RankedRecord {
+	var graph lane
+	for _, candidate := range lanes {
+		if candidate.name == "graph" && len(candidate.records) > 0 {
+			graph = candidate
+			break
+		}
+	}
+	if len(graph.records) == 0 || target < 1 {
+		return ranked
+	}
+	index := -1
+	for candidate := range ranked {
+		if ranked[candidate].Path == graph.records[0].Path {
+			index = candidate
+			break
+		}
+	}
+	if index < 0 {
+		head := fuse(query, 1, excerptLimit, []lane{graph})
+		if len(head) == 0 {
+			return ranked
+		}
+		ranked = append(ranked, head[0])
+		index = len(ranked) - 1
+	}
+	if index <= target || target >= len(ranked) {
+		return ranked
+	}
+	graphValue := ranked[index]
+	displaced := ranked[target]
+	ranked = append(ranked[:index], ranked[index+1:]...)
+	ranked[target] = graphValue
+	ranked = append(ranked, displaced)
+	overflowEnd := min(len(ranked)-1, target+maxMorePaths)
+	if last := len(ranked) - 1; last > overflowEnd {
+		ranked[last], ranked[overflowEnd] = ranked[overflowEnd], ranked[last]
+	}
+	return ranked
 }
 
 type lane struct {
