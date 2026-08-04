@@ -23,7 +23,7 @@ func (RouteAccess) Allowed() bool { return true }
 	if len(diagnostics) != 0 {
 		t.Fatalf("diagnostics=%#v", diagnostics)
 	}
-	if len(records) != 8 {
+	if len(records) != 6 {
 		t.Fatalf("records=%#v", records)
 	}
 	got := make(map[string]record)
@@ -33,7 +33,6 @@ func (RouteAccess) Allowed() bool { return true }
 	if got["go-import:context"].StartLine != 3 ||
 		!strings.Contains(got["go-function:BuildRouteAccess"].Text, "build route access") ||
 		strings.Contains(got["go-function:BuildRouteAccess"].Text, "return RouteAccess") ||
-		!strings.Contains(got["go-structural:BuildRouteAccess"].Text, "return RouteAccess") ||
 		got["go-method:Allowed"].EndLine < got["go-method:Allowed"].StartLine ||
 		!strings.Contains(got["go-navigation:sample.go"].Text, "go-type RouteAccess") {
 		t.Fatalf("records=%#v", records)

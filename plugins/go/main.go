@@ -18,10 +18,9 @@ import (
 )
 
 const (
-	schema             = "ygg.extractor/v1"
-	maxFacts           = 256
-	maxText            = 64*1024 - 1
-	maxStructuralBytes = 512 * 1024
+	schema   = "ygg.extractor/v1"
+	maxFacts = 256
+	maxText  = 64*1024 - 1
 )
 
 type message struct {
@@ -105,24 +104,15 @@ func extract(path, content string) ([]record, []diagnostic) {
 	if tree == nil {
 		return nil, diagnostics
 	}
-	var facts, structures []record
-	structuralBytes := 0
-	addFact := func(value record) bool {
+	var facts []record
+	addFact := func(value record) {
 		if len(facts) < maxFacts {
 			value.Text = truncate(value.Text)
-			facts = append(facts, value)
-			return true
-		}
-		return false
-	}
-	addStructure := func(value record) {
-		if len(structures) < maxFacts {
-			value.Text = truncate(value.Text)
-			if structuralBytes+len(value.Text) > maxStructuralBytes {
-				return
+			if value.Metadata == nil {
+				value.Metadata = make(map[string]any)
 			}
-			structures = append(structures, value)
-			structuralBytes += len(value.Text)
+			value.Metadata["semantic"] = false
+			facts = append(facts, value)
 		}
 	}
 	for _, declaration := range tree.Decls {
@@ -135,27 +125,17 @@ func extract(path, content string) ([]record, []diagnostic) {
 			if value.Recv != nil {
 				kind = "go-method"
 			}
-			bodyEnd := value.End()
-			headerEnd := bodyEnd
+			headerEnd := value.End()
 			if value.Body != nil {
 				headerEnd = value.Body.Lbrace
 			}
 			startLine := files.Position(value.Pos()).Line
 			headerEndLine := files.Position(headerEnd).Line
-			added := addFact(record{
+			addFact(record{
 				ID:        fmt.Sprintf("%s:%d:%s", kind, startLine, value.Name.Name),
 				StartLine: startLine, EndLine: headerEndLine, Kind: kind, Title: value.Name.Name,
 				Text: sourceText(files, content, value.Pos(), headerEnd) + "\n" + identifierWords(value.Name.Name),
 			})
-			if added {
-				addStructure(record{
-					ID:        fmt.Sprintf("go-structural:%s:%d:%s", kind, startLine, value.Name.Name),
-					StartLine: startLine, EndLine: files.Position(bodyEnd).Line,
-					Kind: "go-structural", Title: value.Name.Name,
-					Text:     sourceText(files, content, value.Pos(), bodyEnd) + "\n" + identifierWords(value.Name.Name),
-					Metadata: map[string]any{"structural": true, "lexical": false},
-				})
-			}
 		case *ast.GenDecl:
 			for _, spec := range value.Specs {
 				switch item := spec.(type) {
@@ -173,20 +153,11 @@ func extract(path, content string) ([]record, []diagnostic) {
 					})
 				case *ast.TypeSpec:
 					line := files.Position(item.Pos()).Line
-					endLine := files.Position(item.End()).Line
-					added := addFact(record{
+					addFact(record{
 						ID:        fmt.Sprintf("go-type:%d:%s", line, item.Name.Name),
 						StartLine: line, EndLine: line, Kind: "go-type", Title: item.Name.Name,
 						Text: lineText(content, line) + "\n" + identifierWords(item.Name.Name),
 					})
-					if added && endLine > line {
-						addStructure(record{
-							ID:        fmt.Sprintf("go-structural:go-type:%d:%s", line, item.Name.Name),
-							StartLine: line, EndLine: endLine, Kind: "go-structural", Title: item.Name.Name,
-							Text:     sourceText(files, content, item.Pos(), item.End()) + "\n" + identifierWords(item.Name.Name),
-							Metadata: map[string]any{"structural": true, "lexical": false},
-						})
-					}
 				case *ast.ValueSpec:
 					for _, name := range item.Names {
 						line := files.Position(name.Pos()).Line
@@ -201,7 +172,7 @@ func extract(path, content string) ([]record, []diagnostic) {
 			}
 		}
 	}
-	records := append(facts, structures...)
+	records := facts
 	if len(facts) > 0 {
 		records = append([]record{navigationRecord(path, facts)}, records...)
 	}

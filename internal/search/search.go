@@ -24,6 +24,8 @@ const maxPathTerms = 6
 const maxStructuredAnchors = 4
 const maxMorePaths = 20
 const extractorLaneWeight = 0.5
+const graphFamilyWeight = 0.20
+const graphSeedLimit = 20
 const recordHeadResults = 1
 const maxExcerptRunes = 280
 const minExcerptRunes = 120
@@ -125,7 +127,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	if opts.Mode == "" {
 		opts.Mode = "auto"
 	}
-	if opts.Mode != "auto" && opts.Mode != "lexical" && opts.Mode != "semantic" {
+	if opts.Mode != "auto" && opts.Mode != "lexical" && opts.Mode != "semantic" && opts.Mode != "graph" {
 		return Result{}, fmt.Errorf("unsupported search mode %q", opts.Mode)
 	}
 	candidateLimit := max(100, min(MaxResults+maxMorePaths, opts.Limit*10))
@@ -212,6 +214,16 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
+	if opts.Mode == "graph" {
+		graph, err := graphLane(ctx, value, query, lanes, opts.Scope, candidateLimit)
+		if err != nil {
+			return Result{}, err
+		}
+		result.ActiveMode = "graph"
+		setResultRecords(&result, query, opts.Limit, []lane{graph})
+		result.ElapsedMS = time.Since(started).Milliseconds()
+		return result, nil
+	}
 	if structured && opts.Mode == "auto" {
 		setResultRecords(&result, query, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
@@ -270,11 +282,38 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	if opts.Mode == "semantic" {
 		result.ActiveMode = "semantic"
 	} else {
+		if opts.HasExtractors {
+			graph, graphErr := graphLane(ctx, value, query, lanes, opts.Scope, candidateLimit)
+			if graphErr != nil {
+				return Result{}, graphErr
+			}
+			lanes = append(lanes, graph)
+		}
 		result.ActiveMode = "hybrid"
 	}
 	setResultRecords(&result, query, opts.Limit, lanes)
 	result.ElapsedMS = time.Since(started).Milliseconds()
 	return result, nil
+}
+
+func graphLane(
+	ctx context.Context,
+	value *store.Store,
+	query string,
+	lanes []lane,
+	scope string,
+	limit int,
+) (lane, error) {
+	seedRecords := fuse(query, graphSeedLimit, maxExcerptRunes, lanes)
+	seeds := make([]string, 0, len(seedRecords))
+	for _, record := range seedRecords {
+		seeds = append(seeds, record.Path)
+	}
+	records, err := value.GraphCandidates(ctx, seeds, scope, limit)
+	if err != nil {
+		return lane{}, fmt.Errorf("graph search: %w", err)
+	}
+	return lane{name: "graph", records: records}, nil
 }
 
 func semanticFailure(
@@ -473,7 +512,7 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 
 func retrievalFamily(laneName string) string {
 	switch laneName {
-	case "semantic", "extractor":
+	case "semantic", "extractor", "graph":
 		return laneName
 	default:
 		return "lexical"
@@ -482,7 +521,7 @@ func retrievalFamily(laneName string) string {
 
 func fuseRetrievalFamilies(families map[string]map[string]float64) map[string]float64 {
 	result := make(map[string]float64)
-	for _, family := range []string{"lexical", "semantic", "extractor"} {
+	for _, family := range []string{"lexical", "semantic", "extractor", "graph"} {
 		scores := families[family]
 		if len(scores) == 0 {
 			continue
@@ -504,6 +543,8 @@ func fuseRetrievalFamilies(families map[string]map[string]float64) map[string]fl
 		weight := 1.0
 		if family == "extractor" {
 			weight = extractorLaneWeight
+		} else if family == "graph" {
+			weight = graphFamilyWeight
 		}
 		for rank, value := range ordered {
 			result[value.path] += weight / (familyRRFK + float64(rank+1))

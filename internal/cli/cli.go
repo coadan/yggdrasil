@@ -29,7 +29,7 @@ import (
 const usage = `Usage:
   ygg version
   ygg index [--root PATH] [--full] [--no-embed]
-  ygg search [--root PATH] [--limit N] [--mode auto|lexical|semantic] QUERY
+  ygg search [--root PATH] [--limit N] [--mode auto|lexical|semantic|graph] QUERY
   ygg status [--root PATH] [--check]
   ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH]
 `
@@ -185,7 +185,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	flags, flagOutput := newOperationalFlagSet("search")
 	root := flags.String("root", "", "repository root, directory, or file scope")
 	limit := flags.Int("limit", 10, "result limit")
-	mode := flags.String("mode", "auto", "auto, lexical, or semantic")
+	mode := flags.String("mode", "auto", "auto, lexical, semantic, or graph")
 	flags.Usage = func() {
 		fmt.Fprintf(flagOutput, "Usage of %s:\n", flags.Name())
 		flags.PrintDefaults()

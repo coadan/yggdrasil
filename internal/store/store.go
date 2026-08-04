@@ -13,7 +13,9 @@ import (
 	"math"
 	"net/url"
 	"os"
+	pathpkg "path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,7 +27,7 @@ import (
 	"github.com/ncruces/go-sqlite3/ext/vec1"
 )
 
-const schemaVersion = "3"
+const schemaVersion = "5"
 const indexFreshnessKey = "index_freshness_token"
 
 type Store struct {
@@ -63,6 +65,7 @@ type Diagnostic struct {
 type Counts struct {
 	Files       int `json:"files"`
 	Records     int `json:"records"`
+	GraphEdges  int `json:"graphEdges"`
 	Diagnostics int `json:"diagnostics"`
 }
 
@@ -298,6 +301,7 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 			,input_hash TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS records_path_file_idx ON records(path) WHERE kind='file'`,
+		`CREATE INDEX IF NOT EXISTS records_input_hash_idx ON records(input_hash)`,
 		`CREATE TABLE IF NOT EXISTS embedding_lane (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			fingerprint TEXT NOT NULL,
@@ -370,6 +374,17 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 			INSERT INTO extractor_fts(rowid, path, title, text)
 			VALUES (new.id, new.path, new.title, new.text);
 		END`,
+		`CREATE TABLE IF NOT EXISTS graph_edges (
+			id INTEGER PRIMARY KEY,
+			source_path TEXT NOT NULL,
+			relation TEXT NOT NULL,
+			target TEXT NOT NULL,
+			target_path TEXT,
+			record_id INTEGER NOT NULL REFERENCES records(id) ON DELETE CASCADE,
+			UNIQUE(record_id,relation,target)
+		)`,
+		`CREATE INDEX IF NOT EXISTS graph_edges_source_idx ON graph_edges(source_path)`,
+		`CREATE INDEX IF NOT EXISTS graph_edges_target_path_idx ON graph_edges(target_path)`,
 		`CREATE TABLE IF NOT EXISTS diagnostics (
 			id INTEGER PRIMARY KEY,
 			run_id TEXT NOT NULL,
@@ -395,6 +410,23 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		return err
 	case version == "2":
 		if err := s.migrateV2ToV3(ctx); err != nil {
+			return err
+		}
+		if err := s.migrateV3ToV4(ctx); err != nil {
+			return err
+		}
+		if err := s.migrateV4ToV5(ctx); err != nil {
+			return err
+		}
+	case version == "3":
+		if err := s.migrateV3ToV4(ctx); err != nil {
+			return err
+		}
+		if err := s.migrateV4ToV5(ctx); err != nil {
+			return err
+		}
+	case version == "4":
+		if err := s.migrateV4ToV5(ctx); err != nil {
 			return err
 		}
 	case version != schemaVersion:
@@ -436,6 +468,22 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 	default:
 		return nil
 	}
+}
+
+func (s *Store) migrateV3ToV4(ctx context.Context) error {
+	if err := s.RebuildGraph(ctx); err != nil {
+		return fmt.Errorf("build mechanical graph: %w", err)
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE meta SET value='4' WHERE key='schema_version'`)
+	return err
+}
+
+func (s *Store) migrateV4ToV5(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS records_input_hash_idx ON records(input_hash)`); err != nil {
+		return fmt.Errorf("index embedding input hashes: %w", err)
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE meta SET value='5' WHERE key='schema_version'`)
+	return err
 }
 
 func (s *Store) migrateV2ToV3(ctx context.Context) error {
@@ -977,6 +1025,7 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 	for query, target := range map[string]*int{
 		`SELECT count(*) FROM files`:       &counts.Files,
 		`SELECT count(*) FROM records`:     &counts.Records,
+		`SELECT count(*) FROM graph_edges`: &counts.GraphEdges,
 		`SELECT count(*) FROM diagnostics`: &counts.Diagnostics,
 	} {
 		if err := s.db.QueryRowContext(ctx, query).Scan(target); err != nil {
@@ -984,6 +1033,229 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 		}
 	}
 	return counts, nil
+}
+
+// RebuildGraph derives only explicit extractor relationships and mechanically
+// resolvable local import/export targets. It does not infer project meaning.
+func (s *Store) RebuildGraph(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM graph_edges`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO graph_edges(source_path,relation,target,target_path,record_id)
+		SELECT path,kind,title,NULL,id
+		FROM records
+		WHERE source LIKE 'plugin:%' AND title<>''
+			AND (kind LIKE '%-import' OR kind LIKE '%-export')
+			AND coalesce(json_extract(metadata_json,'$.structural'),0)=0`); err != nil {
+		return fmt.Errorf("derive graph edges: %w", err)
+	}
+	files := make(map[string]bool)
+	rows, err := tx.QueryContext(ctx, `SELECT path FROM files`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			rows.Close()
+			return err
+		}
+		files[path] = true
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	type unresolvedEdge struct {
+		id     int64
+		source string
+		target string
+	}
+	rows, err = tx.QueryContext(ctx, `
+		SELECT id,source_path,target FROM graph_edges WHERE target_path IS NULL`)
+	if err != nil {
+		return err
+	}
+	var unresolved []unresolvedEdge
+	for rows.Next() {
+		var edge unresolvedEdge
+		if err := rows.Scan(&edge.id, &edge.source, &edge.target); err != nil {
+			rows.Close()
+			return err
+		}
+		unresolved = append(unresolved, edge)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	statement, err := tx.PrepareContext(ctx, `UPDATE graph_edges SET target_path=? WHERE id=?`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+	for _, edge := range unresolved {
+		if target := resolveGraphTarget(edge.source, edge.target, files); target != "" {
+			if _, err := statement.ExecContext(ctx, target, edge.id); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+func resolveGraphTarget(source, target string, files map[string]bool) string {
+	if !strings.HasPrefix(target, ".") {
+		return ""
+	}
+	if index := strings.IndexAny(target, "?#"); index >= 0 {
+		target = target[:index]
+	}
+	base := pathpkg.Clean(pathpkg.Join(pathpkg.Dir(source), target))
+	candidates := []string{base}
+	withoutExtension := strings.TrimSuffix(base, pathpkg.Ext(base))
+	extensions := []string{pathpkg.Ext(source), ".ts", ".tsx", ".js", ".jsx", ".go", ".py"}
+	seen := map[string]bool{base: true}
+	for _, extension := range extensions {
+		if extension == "" {
+			continue
+		}
+		for _, candidate := range []string{withoutExtension + extension, pathpkg.Join(base, "index"+extension)} {
+			if !seen[candidate] {
+				seen[candidate] = true
+				candidates = append(candidates, candidate)
+			}
+		}
+	}
+	for _, candidate := range candidates {
+		if files[candidate] {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func (s *Store) GraphCandidates(
+	ctx context.Context,
+	seedPaths []string,
+	scope string,
+	limit int,
+) ([]Record, error) {
+	if len(seedPaths) == 0 || limit <= 0 {
+		return nil, nil
+	}
+	args := append(stringArgs(seedPaths), stringArgs(seedPaths)...)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT source_path,target_path,relation,record_id
+		FROM graph_edges
+		WHERE target_path IS NOT NULL AND source_path<>target_path
+			AND (source_path IN (`+placeholders(len(seedPaths))+`)
+				OR target_path IN (`+placeholders(len(seedPaths))+`))`, args...)
+	if err != nil {
+		return nil, err
+	}
+	type neighbor struct {
+		score      float64
+		evidenceID int64
+	}
+	neighbors := make(map[string]neighbor)
+	seedRanks := make(map[string]int, len(seedPaths))
+	for index, path := range seedPaths {
+		seedRanks[path] = index + 1
+	}
+	for rows.Next() {
+		var source, target string
+		var relation string
+		var evidenceID int64
+		if err := rows.Scan(&source, &target, &relation, &evidenceID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		path := target
+		seedPath := source
+		evidence := int64(0)
+		if _, targetIsSeed := seedRanks[target]; targetIsSeed {
+			path = source
+			seedPath = target
+			evidence = evidenceID
+		}
+		if _, pathIsSeed := seedRanks[path]; pathIsSeed || !pathInScope(path, scope) {
+			continue
+		}
+		value := neighbors[path]
+		score := graphRelationWeight(relation) / (60 + float64(seedRanks[seedPath]))
+		if score > value.score {
+			value.score = score
+			value.evidenceID = evidence
+		} else if score == value.score && value.evidenceID == 0 && evidence != 0 {
+			value.evidenceID = evidence
+		}
+		neighbors[path] = value
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(neighbors))
+	for path := range neighbors {
+		paths = append(paths, path)
+	}
+	sort.Slice(paths, func(i, j int) bool {
+		if neighbors[paths[i]].score != neighbors[paths[j]].score {
+			return neighbors[paths[i]].score > neighbors[paths[j]].score
+		}
+		return paths[i] < paths[j]
+	})
+	if len(paths) > limit {
+		paths = paths[:limit]
+	}
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	rows, err = s.db.QueryContext(ctx, `
+		SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
+		FROM records r
+		WHERE path IN (`+placeholders(len(paths))+`)
+			AND coalesce(json_extract(metadata_json,'$.lexical'),1)<>0
+		ORDER BY path,CASE WHEN kind='file' THEN 1 ELSE 0 END,start_line,id`, stringArgs(paths)...)
+	if err != nil {
+		return nil, err
+	}
+	records, err := scanRecords(rows)
+	if err != nil {
+		return nil, err
+	}
+	byPath := make(map[string]Record, len(paths))
+	for _, record := range records {
+		current, exists := byPath[record.Path]
+		if !exists || record.ID == neighbors[record.Path].evidenceID || current.Kind == "file" {
+			byPath[record.Path] = record
+		}
+	}
+	result := make([]Record, 0, len(paths))
+	for _, path := range paths {
+		if record, ok := byPath[path]; ok {
+			result = append(result, record)
+		}
+	}
+	return result, nil
+}
+
+func graphRelationWeight(relation string) float64 {
+	switch {
+	case strings.HasSuffix(relation, "-import"), strings.HasSuffix(relation, "-export"):
+		return 0.6
+	default:
+		return 0.25
+	}
+}
+
+func pathInScope(path, scope string) bool {
+	scope = strings.TrimSuffix(scope, "/")
+	return scope == "" || path == scope || strings.HasPrefix(path, scope+"/")
 }
 
 const recordScopePredicate = `(?='' OR r.path=? OR substr(r.path,1,length(?))=?)`
@@ -1194,7 +1466,9 @@ func (s *Store) MissingEmbeddingInputs(
 			FROM records r
 			LEFT JOIN embedding_records e
 				ON e.record_id=r.id AND e.input_hash=r.input_hash AND e.fingerprint=?
-			WHERE r.kind<>'file' AND e.record_id IS NULL
+			WHERE r.kind<>'file'
+				AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0
+				AND e.record_id IS NULL
 		)
 		SELECT min(id),input_hash,input_text
 		FROM missing
@@ -1235,6 +1509,7 @@ func (s *Store) UpsertEmbeddings(
 		rows, err := tx.QueryContext(ctx, `
 			SELECT id FROM records
 			WHERE input_hash=? AND kind<>'file'
+				AND coalesce(json_extract(metadata_json,'$.semantic'),1)<>0
 			ORDER BY id`, value.InputHash)
 		if err != nil {
 			return 0, err
@@ -1285,7 +1560,9 @@ func (s *Store) EmbeddingState(ctx context.Context, fingerprint string) (Embeddi
 		`SELECT model,dimensions FROM embedding_lane WHERE id=1 AND fingerprint=?`,
 		fingerprint).Scan(&state.Model, &state.Dimensions)
 	if errors.Is(err, sql.ErrNoRows) {
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM records WHERE kind<>'file'`).Scan(&state.Records); err != nil {
+		if err := s.db.QueryRowContext(ctx, `
+			SELECT count(*) FROM records WHERE kind<>'file'
+				AND coalesce(json_extract(metadata_json,'$.semantic'),1)<>0`).Scan(&state.Records); err != nil {
 			return EmbeddingState{}, err
 		}
 		return state, nil
@@ -1294,14 +1571,17 @@ func (s *Store) EmbeddingState(ctx context.Context, fingerprint string) (Embeddi
 		return EmbeddingState{}, err
 	}
 	state.Configured = true
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM records WHERE kind<>'file'`).Scan(&state.Records); err != nil {
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM records WHERE kind<>'file'
+			AND coalesce(json_extract(metadata_json,'$.semantic'),1)<>0`).Scan(&state.Records); err != nil {
 		return EmbeddingState{}, err
 	}
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT count(*)
 		FROM embedding_records e
 		JOIN records r ON r.id=e.record_id
-		WHERE e.fingerprint=? AND e.input_hash=r.input_hash AND r.kind<>'file'`,
+		WHERE e.fingerprint=? AND e.input_hash=r.input_hash AND r.kind<>'file'
+			AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0`,
 		fingerprint).Scan(&state.Embedded); err != nil {
 		return EmbeddingState{}, err
 	}
@@ -1317,7 +1597,10 @@ func (s *Store) VectorCandidates(
 ) ([]Record, error) {
 	vectorLimit := limit
 	var total int
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM record_vectors`).Scan(&total); err != nil {
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM record_vectors v
+		JOIN records r ON r.id=v.rowid
+		WHERE coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0`).Scan(&total); err != nil {
 		return nil, err
 	}
 	if total == 0 {
@@ -1327,7 +1610,8 @@ func (s *Store) VectorCandidates(
 		var scoped int
 		if err := s.db.QueryRowContext(
 			ctx,
-			`SELECT count(*) FROM records r WHERE `+recordScopePredicate,
+			`SELECT count(*) FROM records r WHERE `+recordScopePredicate+`
+				AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0`,
 			scope, scope, scope, scope,
 		).Scan(&scoped); err != nil {
 			return nil, err
@@ -1345,7 +1629,8 @@ func (s *Store) VectorCandidates(
 			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 			FROM record_vectors(?,?) v
 			JOIN records r ON r.id=v.rowid
-			WHERE `+recordScopePredicate,
+			WHERE `+recordScopePredicate+`
+				AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0`,
 			encodeVector(vector), vectorLimit, scope, scope, scope, scope)
 		if err != nil {
 			return nil, err

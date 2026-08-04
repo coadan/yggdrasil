@@ -120,10 +120,11 @@ mechanically chunked text records. Plugins add parser-owned records over a
 bounded JSONL protocol and are started once per index run.
 
 `search --mode auto` uses lexical and path recall by default. When every current
-record has a vector for the configured embedding fingerprint, it fuses the
-semantic lane with reciprocal-rank fusion. Missing, incomplete, or failed
-semantic recall is reported explicitly and lexical results remain available.
-Use `--mode lexical` or `--mode semantic` only for ablation and diagnosis.
+semantic record has a vector for the configured embedding fingerprint, it fuses
+semantic recall with mechanically resolved local import/export neighbors from
+configured extractors. Missing, incomplete, or failed semantic recall is
+reported explicitly and lexical results remain available. Use `--mode lexical`,
+`--mode semantic`, or `--mode graph` only for ablation and diagnosis.
 
 The repository includes four optional, dependency-free extractor executables:
 
@@ -133,9 +134,11 @@ ygg plugin check markdown --root /path/to/configured/repository
 
 `ygg-extract-markdown` emits sections and fences. The Go, TypeScript, and
 Python extractors emit a compact per-file navigation record together with
-imports and parser-bounded declarations. Declaration records contain their
-complete bounded source span so semantic retrieval can cite the implementation
-instead of only its signature.
+imports and parser-bounded declaration signatures. Core chunks retain the
+implementation text used for semantic retrieval; the compact navigation record
+adds one mechanically bounded symbol and dependency summary per file. The
+individual declaration and import facts remain lexical and graph evidence, so
+they do not multiply local embedding work.
 `ygg-extract-manifest` emits package, dependency, script, workspace, and
 toolchain facts from `package.json`, `go.mod`, `Cargo.toml`, and
 `pyproject.toml`. None are linked into the core CLI.

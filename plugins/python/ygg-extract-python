@@ -7,7 +7,6 @@ import sys
 
 SCHEMA = "ygg.extractor/v1"
 MAX_FACTS = 256
-MAX_STRUCTURAL_BYTES = 512 * 1024
 
 
 def words(name):
@@ -28,21 +27,19 @@ def words(name):
     return " ".join(value)
 
 
-def record(kind, title, line, source, metadata=None, end_line=None, structural=False):
+def record(kind, title, line, source, metadata=None):
     lines = source.splitlines()
-    end_line = max(line, end_line or line)
-    text = "\n".join(lines[line - 1 : end_line]).strip() if 0 < line <= len(lines) else title
+    text = lines[line - 1].strip() if 0 < line <= len(lines) else title
     metadata = dict(metadata or {})
-    if structural:
-        metadata["structural"] = True
+    metadata["semantic"] = False
     return {
         "id": f"{kind}:{line}:{title}",
         "startLine": line,
-        "endLine": end_line,
+        "endLine": line,
         "kind": kind,
         "title": title,
         "text": f"{text}\n{words(title)}",
-        **({"metadata": metadata} if metadata else {}),
+        "metadata": metadata,
     }
 
 
@@ -58,25 +55,6 @@ def navigation_record(filename, records):
         "text": "\n".join(lines),
         "metadata": {"facts": len(records), "lexical": False},
     }
-
-
-def definition_records(kind, title, node, source, metadata=None):
-    values = [record(kind, title, node.lineno, source, metadata)]
-    end_line = getattr(node, "end_lineno", node.lineno)
-    if end_line > node.lineno:
-        values.append(
-            record(
-                "python-structural",
-                title,
-                node.lineno,
-                source,
-                {"ownerKind": kind},
-                end_line,
-                True,
-            )
-        )
-        values[-1]["metadata"]["lexical"] = False
-    return values
 
 
 def import_targets(node):
@@ -98,36 +76,30 @@ def extract(source, filename):
         return [], [{"message": message}]
 
     facts = []
-    structures = []
-
-    def add_definition(values):
-        facts.append(values[0])
-        structures.extend(values[1:])
-
     for node in tree.body:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             for target in import_targets(node):
                 if len(facts) < MAX_FACTS:
                     facts.append(record("python-import", target, node.lineno, source))
         elif isinstance(node, ast.ClassDef):
-            add_definition(definition_records("python-class", node.name, node, source))
+            facts.append(record("python-class", node.name, node.lineno, source))
             for child in node.body:
                 if len(facts) < MAX_FACTS and isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    add_definition(
-                        definition_records(
+                    facts.append(
+                        record(
                             "python-method",
                             f"{node.name}.{child.name}",
-                            child,
+                            child.lineno,
                             source,
                             {"async": isinstance(child, ast.AsyncFunctionDef)},
                         )
                     )
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            add_definition(
-                definition_records(
+            facts.append(
+                record(
                     "python-function",
                     node.name,
-                    node,
+                    node.lineno,
                     source,
                     {"async": isinstance(node, ast.AsyncFunctionDef)},
                 )
@@ -135,15 +107,7 @@ def extract(source, filename):
         if len(facts) >= MAX_FACTS:
             break
     facts = facts[:MAX_FACTS]
-    bounded_structures = []
-    structural_bytes = 0
-    for item in structures[:MAX_FACTS]:
-        size = len(item["text"].encode("utf-8"))
-        if structural_bytes + size <= MAX_STRUCTURAL_BYTES:
-            bounded_structures.append(item)
-            structural_bytes += size
-    structures = bounded_structures
-    records = facts + structures
+    records = facts
     if facts:
         records.insert(0, navigation_record(filename, facts))
     return records, []

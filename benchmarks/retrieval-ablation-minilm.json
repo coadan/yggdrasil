@@ -17,5 +17,14 @@
       "includeGlobs": ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx"],
       "timeoutMs": 10000
     }
-  ]
+  ],
+  "embedding": {
+    "kind": "openai-compatible",
+    "endpoint": "http://127.0.0.1:11434/v1/embeddings",
+    "model": "all-minilm:latest",
+    "dimensions": 384,
+    "timeoutMs": 60000,
+    "batchSize": 64,
+    "maxInputChars": 4000
+  }
 }

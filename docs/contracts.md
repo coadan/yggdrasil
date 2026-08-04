@@ -42,14 +42,14 @@ The optional repository configuration is `.ygg/config.json`:
     },
     {
       "id": "go",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "command": ["ygg-extract-go"],
       "includeGlobs": ["**/*.go"],
       "timeoutMs": 10000
     },
     {
       "id": "typescript",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "command": ["ygg-extract-typescript"],
       "includeGlobs": ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx"],
       "timeoutMs": 10000
@@ -68,7 +68,7 @@ The optional repository configuration is `.ygg/config.json`:
     },
     {
       "id": "python",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "command": ["plugins/python/ygg-extract-python"],
       "includeGlobs": ["**/*.py"],
       "timeoutMs": 10000
@@ -208,7 +208,7 @@ excerpts so callers can choose a narrower follow-up without doubling the
 default context payload.
 When `search --root` names a repository subdirectory or file, that relative
 path is a mechanical prefix or exact-file scope applied before candidate limits
-in lexical, path, extractor, and semantic retrieval. Returned citations remain
+in lexical, path, extractor, semantic, and graph retrieval. Returned citations remain
 relative to the repository root rather than the scoped path.
 Single structured terms containing syntax such as `-`, `.`, `#`, `<`, `=`, or `(`
 use a case-sensitive literal lane in `auto` mode. An FTS token prefilter keeps
@@ -230,11 +230,14 @@ file with many chunks cannot consume another file's candidate slot. Each lane
 retains its highest-ranked record for the path as citation evidence.
 Retrieval lanes return records, but the public result identity is a file path.
 Fusion therefore preserves the top record-level path as its precision head,
-combines correlated lane variants within lexical, semantic, and extractor
-families, then applies balanced reciprocal-rank fusion across those families at
-file-path identity for the remaining results. This prevents the number of
-lexical query variants from outweighing a strong semantic rank by construction.
-Record-level evidence still selects the cited line range.
+combines correlated lane variants within lexical, semantic, extractor, and
+graph families, then applies balanced reciprocal-rank fusion across those
+families at file-path identity for the remaining results. Graph candidates are
+one-hop neighbors derived only from explicit extractor import/export facts and
+mechanically resolved repository-relative targets; seed rank determines their
+order. This prevents the number of lexical query variants from outweighing a
+strong semantic or structural rank by construction. Record-level evidence still
+selects the cited line range.
 This lets lexical and semantic hits in different chunks corroborate one file
 without allowing cross-chunk evidence to displace the strongest direct record
 match.

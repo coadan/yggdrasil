@@ -24,12 +24,15 @@ func TestExpectedPathRanksDistinguishMissingAndUnmeasuredLanes(t *testing.T) {
 			"auto":     {"noise.go", "owner.go"},
 			"lexical":  {"owner.go"},
 			"semantic": {"noise.go"},
+			"graph":    {"other.go", "owner.go"},
 		},
 		[]string{"owner.go"},
+		true,
 		true,
 	)
 	if got[0].AutoRankAt100 != 2 || got[0].LexicalRankAt100 != 1 ||
 		got[0].SemanticRankAt100 == nil || *got[0].SemanticRankAt100 != 0 ||
+		got[0].GraphRankAt100 == nil || *got[0].GraphRankAt100 != 2 ||
 		got[0].RawRipgrepRank != 1 {
 		t.Fatalf("owner ranks=%#v", got[0])
 	}
@@ -37,10 +40,26 @@ func TestExpectedPathRanksDistinguishMissingAndUnmeasuredLanes(t *testing.T) {
 		t.Fatalf("missing ranks=%#v", got[1])
 	}
 	unmeasured := expectedPathRanks(
-		[]string{"owner.go"}, map[string][]string{}, nil, false,
+		[]string{"owner.go"}, map[string][]string{}, nil, false, false,
 	)
-	if unmeasured[0].SemanticRankAt100 != nil {
+	if unmeasured[0].SemanticRankAt100 != nil || unmeasured[0].GraphRankAt100 != nil {
 		t.Fatalf("unmeasured semantic rank=%#v", unmeasured[0])
+	}
+}
+
+func TestExpectedBestOutcomeRequiresAWinningMeasuredLane(t *testing.T) {
+	measured, supported := expectedBestOutcome([]string{"graph"}, map[string]RetrievalScore{
+		"lexical": {FileRecallAt10: 0.5, MRR: 0.5},
+		"graph":   {FileRecallAt10: 1, MRR: 0.25},
+	})
+	if !measured || !supported {
+		t.Fatalf("measured=%v supported=%v", measured, supported)
+	}
+	measured, supported = expectedBestOutcome([]string{"semantic"}, map[string]RetrievalScore{
+		"lexical": {FileRecallAt10: 1, MRR: 1},
+	})
+	if measured || supported {
+		t.Fatalf("unmeasured lane measured=%v supported=%v", measured, supported)
 	}
 }
 
@@ -240,6 +259,30 @@ func TestTrackedDogfoodSuiteHasManualCoverage(t *testing.T) {
 	if len(got.SourceKinds) < 3 || len(got.ProblemClasses) < 3 ||
 		len(got.ArchitectureClasses) < 3 {
 		t.Fatalf("manual class coverage=%#v", got)
+	}
+}
+
+func TestTrackedRetrievalAblationSuiteIsBalanced(t *testing.T) {
+	suite, _, err := LoadSuite(filepath.Join("..", "..", "benchmarks", "retrieval-ablation.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	classes := map[string]int{}
+	for _, item := range suite.Cases {
+		classes[item.RetrievalClass]++
+	}
+	if len(suite.Cases) != 16 || len(classes) != 4 {
+		t.Fatalf("cases=%d classes=%#v", len(suite.Cases), classes)
+	}
+	for name, count := range classes {
+		if count != 4 {
+			t.Fatalf("class %q has %d cases", name, count)
+		}
+	}
+	got := coverage(suite)
+	if got.Repositories != 2 || len(got.SourceKinds) != 2 ||
+		len(got.RetrievalClasses) != 4 || len(got.ExpectedBestModes) != 4 {
+		t.Fatalf("coverage=%#v", got)
 	}
 }
 

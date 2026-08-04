@@ -367,6 +367,9 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	if err := flush(); err != nil {
 		return summary, err
 	}
+	if err := value.RebuildGraph(ctx); err != nil {
+		return summary, fmt.Errorf("rebuild mechanical graph: %w", err)
+	}
 	if seeded {
 		if err := value.CompleteSeed(ctx); err != nil {
 			return summary, fmt.Errorf("complete worktree seed: %w", err)
