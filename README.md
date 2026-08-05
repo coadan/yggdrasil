@@ -49,19 +49,27 @@ Or download a matching binary and `SHA256SUMS` from the
 Search any Git checkout:
 
 ```sh
-ygg search --root /path/to/repository "where is request routing configured"
+ygg search "where is request routing configured" /path/to/repository
 ygg status --root /path/to/repository
 ```
 
 Search always writes a JSON envelope. Result records are under `data.records`;
 additional ranked paths, when present, are under `data.morePaths`.
 
+Search uses the grep-shaped form `ygg search PATTERN [PATH]`. The default
+`auto` mode sends plain pattern text through lexical and configured semantic
+retrieval. `-F`/`--fixed-strings` makes the lexical clause an exact string;
+`-E`/`--regexp` makes it a Go regular expression. These flags constrain only
+lexical evidence. `--about TEXT` supplies semantic intent independently, so an
+agent can combine an exact symbol or regular expression with a conceptual
+description. `--mode lexical` remains deterministic and model-free.
+
 The first search initializes the repository when needed. Use `ygg index` only
 for an explicit rebuild, index-only refresh, or embedding maintenance.
 
-For a mechanically bounded search, pass a repository subdirectory or file such
-as `--root /path/to/repository/src/app` or
-`--root /path/to/repository/src/app/router.go`. Yggdrasil reuses the
+For a mechanically bounded search, pass a repository subdirectory or file as
+the optional path, such as `ygg search "request routing" src/app` or
+`ygg search -F RegisterRoute src/app/router.go`. Yggdrasil reuses the
 repository's one index, filters every retrieval lane to that scope, and keeps
 citations repository-relative (`src/app/...`).
 
@@ -86,6 +94,8 @@ ygg plugin check
 ```
 
 Every operational command returns a stable versioned JSON envelope by default.
+Search results include `data.queryPlan`, which records the resolved lexical
+kind and pattern, semantic text and source, and repository-relative scope.
 Indexing progress is emitted as `ygg.index.progress/v1` JSON lines on stderr,
 including when `search` initializes, refreshes, or embeds an index. The final
 `ygg.cli/v1` result remains the only value written to stdout.
@@ -107,6 +117,11 @@ processed. After a successful index, Yggdrasil removes same-family databases
 whose Git worktrees are no longer registered and whose roots no longer exist.
 Busy databases and any unmarked or foreign state are preserved. The JSON index
 summary reports `seededFrom`, `reused`, and reclaimed index count/bytes.
+If another process is actively indexing, default and lexical search degrade to
+a live working-tree lexical scan and report `fallbackReason: "index-busy"`.
+This avoids both an operational failure and stale deleted paths. Explicit
+semantic and graph ablation modes report the busy index because they require
+indexed evidence and must not silently change retrieval meaning.
 
 ## Optional extraction and semantic recall
 

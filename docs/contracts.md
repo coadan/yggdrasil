@@ -171,9 +171,11 @@ length must equal the configured dimensions.
 ## JSON CLI envelopes
 
 Operational commands always return JSON with `schema`, `ok`, and either `data`
-or `error`. Search data uses schema `ygg.search.result/v3` and includes the
-requested mode, active mode, fallback reason, timings, and ranked records with
-path/line citations. Records expose navigation evidence, not internal fusion
+or `error`. Search data uses schema `ygg.search.result/v4` and includes the
+requested mode, active mode, fallback reason, timing, resolved `queryPlan`, and
+ranked records with path/line citations. The query plan separates a `text`,
+`fixed`, or `regexp` lexical clause from optional semantic text and its
+`pattern`, `regexp-literals`, or `about` source. Records expose navigation evidence, not internal fusion
 scores or retrieval-lane diagnostics. The default core `text-chunk` kind,
 `core` source, and a title equal to `path:startLine` are implicit and omitted;
 extractor-specific kinds, titles, sources, and metadata remain explicit.
@@ -206,8 +208,8 @@ The first `limit` files include citations. When additional bounded candidates
 exist, `morePaths` contains up to twenty subsequent ranked paths without
 excerpts so callers can choose a narrower follow-up without doubling the
 default context payload.
-When `search --root` names a repository subdirectory or file, that relative
-path is a mechanical prefix or exact-file scope applied before candidate limits
+`search PATTERN [PATH]` treats the optional repository subdirectory or file as
+a mechanical prefix or exact-file scope applied before candidate limits
 in lexical, path, extractor, semantic, and graph retrieval. Returned citations remain
 relative to the repository root rather than the scoped path.
 Single structured terms containing syntax such as `-`, `.`, `#`, `<`, `=`, or `(`

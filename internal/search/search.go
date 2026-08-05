@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -44,6 +45,8 @@ type Options struct {
 	Limit         int
 	Root          string
 	Scope         string
+	MatchKind     string
+	About         string
 	HasExtractors bool
 	Embedding     *config.Embedding
 }
@@ -55,6 +58,7 @@ type Result struct {
 	ActiveMode     string         `json:"activeMode"`
 	FallbackReason string         `json:"fallbackReason,omitempty"`
 	ElapsedMS      int64          `json:"elapsedMs"`
+	QueryPlan      QueryPlan      `json:"queryPlan"`
 	Records        []RankedRecord `json:"records"`
 	MorePaths      []string       `json:"morePaths,omitempty"`
 }
@@ -118,6 +122,11 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	if len(strings.Fields(query)) > MaxQueryTerms {
 		return Result{}, fmt.Errorf("search query exceeds %d terms", MaxQueryTerms)
 	}
+	plan, err := PlanQuery(query, opts.MatchKind, opts.About, opts.Scope)
+	if err != nil {
+		return Result{}, fmt.Errorf("plan search query: %w", err)
+	}
+	evidenceQuery := plan.evidenceText()
 	if opts.Limit == 0 {
 		opts.Limit = 10
 	}
@@ -135,38 +144,55 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	structured := false
 	if opts.Mode != "semantic" {
 		terms := queryTerms(query)
-		literal := literalTermQuery(query, terms)
+		literal := plan.Lexical.Kind == MatchText && literalTermQuery(query, terms)
 		structured = literal
-		if literal {
+		switch plan.Lexical.Kind {
+		case MatchFixed:
 			records, err := value.LiteralCandidates(
-				ctx, ftsAnyQuery(terms), query, opts.Scope, candidateLimit,
+				ctx, "", query, opts.Scope, candidateLimit,
 			)
 			if err != nil {
-				return Result{}, fmt.Errorf("literal search: %w", err)
+				return Result{}, fmt.Errorf("fixed search: %w", err)
 			}
-			if codeIdentifierTermQuery(query, terms) {
-				records = identifierLiteralRecords(records, query)
-			}
-			lanes = append(lanes, lane{name: "literal", records: records})
-		} else if len(terms) > 1 {
-			phrase, err := value.LexicalCandidates(
-				ctx, ftsPhraseQuery(terms), opts.Scope, candidateLimit,
-			)
+			lanes = append(lanes, lane{name: "fixed", records: records})
+		case MatchRegexp:
+			records, err := regexpCandidates(ctx, value, plan, opts.Scope, candidateLimit)
 			if err != nil {
-				return Result{}, fmt.Errorf("exact lexical search: %w", err)
+				return Result{}, fmt.Errorf("regexp search: %w", err)
 			}
-			lanes = append(lanes, lane{name: "exact", records: phrase})
-			if !structured {
-				all, err := value.LexicalCandidates(
-					ctx, ftsAllQuery(terms), opts.Scope, candidateLimit,
+			lanes = append(lanes, lane{name: "regexp", records: records})
+		case MatchText:
+			if literal {
+				records, err := value.LiteralCandidates(
+					ctx, ftsAnyQuery(terms), query, opts.Scope, candidateLimit,
 				)
 				if err != nil {
-					return Result{}, fmt.Errorf("all-term lexical search: %w", err)
+					return Result{}, fmt.Errorf("literal search: %w", err)
 				}
-				lanes = append(lanes, lane{name: "all-terms", records: all})
+				if codeIdentifierTermQuery(query, terms) {
+					records = identifierLiteralRecords(records, query)
+				}
+				lanes = append(lanes, lane{name: "literal", records: records})
+			} else if len(terms) > 1 {
+				phrase, err := value.LexicalCandidates(
+					ctx, ftsPhraseQuery(terms), opts.Scope, candidateLimit,
+				)
+				if err != nil {
+					return Result{}, fmt.Errorf("exact lexical search: %w", err)
+				}
+				lanes = append(lanes, lane{name: "exact", records: phrase})
+				if !structured {
+					all, err := value.LexicalCandidates(
+						ctx, ftsAllQuery(terms), opts.Scope, candidateLimit,
+					)
+					if err != nil {
+						return Result{}, fmt.Errorf("all-term lexical search: %w", err)
+					}
+					lanes = append(lanes, lane{name: "all-terms", records: all})
+				}
 			}
 		}
-		if !structured {
+		if plan.Lexical.Kind == MatchText && !structured {
 			fts, err := value.LexicalCandidates(
 				ctx, ftsAnyQuery(terms), opts.Scope, candidateLimit,
 			)
@@ -206,27 +232,28 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	result := Result{
 		Schema:        contracts.SearchSchema,
 		Query:         query,
+		QueryPlan:     plan,
 		RequestedMode: opts.Mode,
 		ActiveMode:    "lexical",
 	}
 	if opts.Mode == "lexical" {
-		setResultRecords(&result, query, opts.Limit, lanes)
+		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
 	if opts.Mode == "graph" {
-		graph, err := graphLane(ctx, value, query, lanes, opts.Scope, candidateLimit)
+		graph, err := graphLane(ctx, value, evidenceQuery, lanes, opts.Scope, candidateLimit)
 		if err != nil {
 			return Result{}, err
 		}
 		result.ActiveMode = "graph"
-		setResultRecords(&result, query, opts.Limit, []lane{graph})
+		setResultRecords(&result, evidenceQuery, opts.Limit, []lane{graph})
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
 	if structured && opts.Mode == "auto" {
 		if opts.HasExtractors {
-			graph, graphErr := graphLane(ctx, value, query, lanes, opts.Scope, candidateLimit)
+			graph, graphErr := graphLane(ctx, value, evidenceQuery, lanes, opts.Scope, candidateLimit)
 			if graphErr != nil {
 				return Result{}, graphErr
 			}
@@ -235,7 +262,16 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 				result.ActiveMode = "hybrid"
 			}
 		}
-		setResultRecords(&result, query, opts.Limit, lanes)
+		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
+		result.ElapsedMS = time.Since(started).Milliseconds()
+		return result, nil
+	}
+	if plan.Semantic == nil {
+		if opts.Mode == "semantic" {
+			return Result{}, fmt.Errorf("%w: regexp has no semantic text; use --about", ErrSemanticUnavailable)
+		}
+		result.FallbackReason = "semantic-query-empty"
+		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
@@ -246,7 +282,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		if opts.Mode == "auto" {
 			result.FallbackReason = "semantic-unconfigured"
 		}
-		setResultRecords(&result, query, opts.Limit, lanes)
+		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
@@ -263,7 +299,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 			)
 		}
 		result.FallbackReason = "semantic-incomplete"
-		setResultRecords(&result, query, opts.Limit, lanes)
+		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
@@ -272,7 +308,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		return semanticFailure(result, opts, lanes, started, err)
 	}
 	values, embedErr := provider.Embed(ctx, []embedding.Input{{
-		ID: "query", Text: embedding.QueryText(*opts.Embedding, query),
+		ID: "query", Text: embedding.QueryText(*opts.Embedding, plan.Semantic.Text),
 	}})
 	closeErr := provider.Close()
 	if embedErr != nil {
@@ -293,7 +329,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		result.ActiveMode = "semantic"
 	} else {
 		if opts.HasExtractors {
-			graph, graphErr := graphLane(ctx, value, query, lanes, opts.Scope, candidateLimit)
+			graph, graphErr := graphLane(ctx, value, evidenceQuery, lanes, opts.Scope, candidateLimit)
 			if graphErr != nil {
 				return Result{}, graphErr
 			}
@@ -301,7 +337,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		}
 		result.ActiveMode = "hybrid"
 	}
-	setResultRecords(&result, query, opts.Limit, lanes)
+	setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
 	result.ElapsedMS = time.Since(started).Milliseconds()
 	return result, nil
 }
@@ -338,6 +374,40 @@ func graphLane(
 	return lane{name: "graph", records: records}, nil
 }
 
+func regexpCandidates(
+	ctx context.Context,
+	value *store.Store,
+	plan QueryPlan,
+	scope string,
+	limit int,
+) ([]store.Record, error) {
+	expression, err := regexp.Compile(plan.Lexical.Pattern)
+	if err != nil {
+		return nil, err
+	}
+	// FTS token boundaries are not a safe prefilter for a regular expression:
+	// a literal such as "push" can match inside pushCommand while unicode61
+	// indexes the latter as one token. Scan indexed lexical records so regexp
+	// matching retains grep's no-false-negative guarantee.
+	records, err := value.LexicalRecords(ctx, "", scope)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]store.Record, 0, min(limit, len(records)))
+	seenPaths := make(map[string]bool)
+	for _, record := range records {
+		if record.Kind == "file" || !expression.MatchString(record.Text) {
+			continue
+		}
+		result = append(result, record)
+		seenPaths[record.Path] = true
+		if len(seenPaths) == limit {
+			break
+		}
+	}
+	return result, nil
+}
+
 func semanticFailure(
 	result Result,
 	opts Options,
@@ -349,7 +419,7 @@ func semanticFailure(
 		return Result{}, fmt.Errorf("%w: %v", ErrSemanticUnavailable, cause)
 	}
 	result.FallbackReason = "semantic-provider-error"
-	setResultRecords(&result, result.Query, opts.Limit, lanes)
+	setResultRecords(&result, result.QueryPlan.evidenceText(), opts.Limit, lanes)
 	result.ElapsedMS = time.Since(started).Milliseconds()
 	return result, nil
 }
@@ -700,9 +770,9 @@ func betterCitation(candidate, current *fused) bool {
 }
 
 func citationLanePriority(retrieval map[string]bool) int {
-	for index, name := range []string{"literal", "exact", "all-terms", "anchor", "extractor", "lexical"} {
+	for index, name := range []string{"fixed", "regexp", "literal", "exact", "all-terms", "anchor", "extractor", "lexical"} {
 		if retrieval[name] {
-			return 6 - index
+			return 8 - index
 		}
 	}
 	return 0

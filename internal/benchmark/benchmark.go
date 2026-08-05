@@ -25,7 +25,7 @@ import (
 )
 
 const SuiteSchema = "ygg.benchmark.suite/v1"
-const ReportSchema = "ygg.benchmark.report/v2"
+const ReportSchema = "ygg.benchmark.report/v3"
 
 type Suite struct {
 	Schema      string       `json:"schema"`
@@ -47,6 +47,8 @@ type Case struct {
 	FixRevision         string   `json:"fixRevision"`
 	SourceURL           string   `json:"sourceUrl"`
 	Query               string   `json:"query"`
+	MatchKind           string   `json:"matchKind,omitempty"`
+	About               string   `json:"about,omitempty"`
 	ExpectedPaths       []string `json:"expectedPaths"`
 	SourceKinds         []string `json:"sourceKinds"`
 	ProblemClasses      []string `json:"problemClasses"`
@@ -156,6 +158,8 @@ type CaseReport struct {
 	FixRevision           string                    `json:"fixRevision"`
 	SourceURL             string                    `json:"sourceUrl"`
 	ExpectedPaths         []string                  `json:"expectedPaths"`
+	MatchKind             string                    `json:"matchKind,omitempty"`
+	About                 string                    `json:"about,omitempty"`
 	RetrievalClass        string                    `json:"retrievalClass,omitempty"`
 	ExpectedBestModes     []string                  `json:"expectedBestModes,omitempty"`
 	RetrievalScores       map[string]RetrievalScore `json:"retrievalScores,omitempty"`
@@ -301,6 +305,9 @@ func (s Suite) Validate() error {
 		}
 		if (item.RetrievalClass == "") != (len(item.ExpectedBestModes) == 0) {
 			return fmt.Errorf("case %q must set retrievalClass and expectedBestModes together", item.ID)
+		}
+		if item.MatchKind != "" && item.MatchKind != "fixed" && item.MatchKind != "regexp" {
+			return fmt.Errorf("case %q has unsupported matchKind %q", item.ID, item.MatchKind)
 		}
 		if item.RetrievalClass != "" {
 			allowedClasses := map[string]bool{
@@ -615,8 +622,7 @@ func runCase(
 	fallbackReason := ""
 	for range opts.Iterations {
 		elapsed, output, err := timedCommand(
-			ctx, root, env, opts.Binary,
-			"search", "--root", root, "--mode", opts.SearchMode, "--limit", "20", item.Query,
+			ctx, root, env, opts.Binary, searchCommandArgs(root, opts.SearchMode, 20, item)...,
 		)
 		if err != nil {
 			return CaseReport{}, err
@@ -678,20 +684,20 @@ func runCase(
 	paths := uniquePaths(records)
 	diagnosticPaths := make(map[string][]string, 3)
 	diagnosticPaths["lexical"], err = searchPathsAtLimit(
-		ctx, root, env, opts.Binary, "lexical", item.Query, 100,
+		ctx, root, env, opts.Binary, "lexical", item, 100,
 	)
 	if err != nil {
 		return CaseReport{}, fmt.Errorf("lexical retrieval diagnostic: %w", err)
 	}
 	if opts.embeddingConfigured {
 		diagnosticPaths["auto"], err = searchPathsAtLimit(
-			ctx, root, env, opts.Binary, "auto", item.Query, 100,
+			ctx, root, env, opts.Binary, "auto", item, 100,
 		)
 		if err != nil {
 			return CaseReport{}, fmt.Errorf("auto retrieval diagnostic: %w", err)
 		}
 		diagnosticPaths["semantic"], err = searchPathsAtLimit(
-			ctx, root, env, opts.Binary, "semantic", item.Query, 100,
+			ctx, root, env, opts.Binary, "semantic", item, 100,
 		)
 		if err != nil {
 			return CaseReport{}, fmt.Errorf("semantic retrieval diagnostic: %w", err)
@@ -701,14 +707,14 @@ func runCase(
 	}
 	if opts.pluginsConfigured {
 		diagnosticPaths["graph"], err = searchPathsAtLimit(
-			ctx, root, env, opts.Binary, "graph", item.Query, 100,
+			ctx, root, env, opts.Binary, "graph", item, 100,
 		)
 		if err != nil {
 			return CaseReport{}, fmt.Errorf("graph retrieval diagnostic: %w", err)
 		}
 	}
 	rawStarted := time.Now()
-	rawPaths, err := ripgrepPaths(ctx, root, item.Query)
+	rawPaths, err := ripgrepPaths(ctx, root, item)
 	rawMS := float64(time.Since(rawStarted).Microseconds()) / 1000
 	if err != nil {
 		return CaseReport{}, err
@@ -737,7 +743,8 @@ func runCase(
 	return CaseReport{
 		ID: item.ID, RepositoryID: item.RepositoryID, Revision: item.Revision,
 		FixRevision: item.FixRevision, SourceURL: item.SourceURL,
-		ExpectedPaths: item.ExpectedPaths, RetrievalClass: item.RetrievalClass,
+		ExpectedPaths: item.ExpectedPaths, MatchKind: item.MatchKind, About: item.About,
+		RetrievalClass:    item.RetrievalClass,
 		ExpectedBestModes: item.ExpectedBestModes, RetrievalScores: retrievalScores,
 		ExpectedBestMeasured: expectedMeasured, ExpectedBestSupported: expectedSupported,
 		ExpectedPathRanks: expectedPathRanks(
@@ -762,12 +769,12 @@ func searchPathsAtLimit(
 	ctx context.Context,
 	root string,
 	env []string,
-	binary, mode, query string,
+	binary, mode string,
+	item Case,
 	limit int,
 ) ([]string, error) {
 	_, output, err := timedCommand(
-		ctx, root, env, binary,
-		"search", "--root", root, "--mode", mode, "--limit", strconv.Itoa(limit), query,
+		ctx, root, env, binary, searchCommandArgs(root, mode, limit, item)...,
 	)
 	if err != nil {
 		return nil, err
@@ -780,6 +787,22 @@ func searchPathsAtLimit(
 		return nil, errors.New(envelopeError(envelope.Error, "search failed"))
 	}
 	return uniquePaths(envelope.Data.Records), nil
+}
+
+func searchCommandArgs(root, mode string, limit int, item Case) []string {
+	args := []string{
+		"search", "--root", root, "--mode", mode, "--limit", strconv.Itoa(limit),
+	}
+	switch item.MatchKind {
+	case "fixed":
+		args = append(args, "--fixed-strings")
+	case "regexp":
+		args = append(args, "--regexp")
+	}
+	if item.About != "" {
+		args = append(args, "--about", item.About)
+	}
+	return append(args, item.Query)
 }
 
 func expectedPathRanks(
@@ -1105,15 +1128,23 @@ func decodeIndexEnvelope(
 	return nil
 }
 
-func ripgrepPaths(ctx context.Context, root, query string) ([]string, error) {
+func ripgrepPaths(ctx context.Context, root string, item Case) ([]string, error) {
 	args := []string{
-		"--count-matches", "--null", "-i", "--no-messages", "--sort", "path",
+		"--count-matches", "--null", "--no-messages", "--sort", "path",
 		"--glob", "!.git/**",
 	}
-	for _, token := range queryTokens(query) {
-		args = append(args, "-e", token)
+	switch item.MatchKind {
+	case "fixed":
+		args = append(args, "-F", "-e", item.Query)
+	case "regexp":
+		args = append(args, "-e", item.Query)
+	default:
+		args = append(args, "-i")
+		for _, token := range queryTokens(item.Query) {
+			args = append(args, "-e", token)
+		}
 	}
-	if len(args) == 8 {
+	if item.MatchKind == "" && len(args) == 8 {
 		return nil, nil
 	}
 	args = append(args, ".")

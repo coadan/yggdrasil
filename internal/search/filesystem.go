@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -21,6 +22,8 @@ type FilesystemOptions struct {
 	IgnoreGlobs   []string
 	MaxFileBytes  int64
 	RequestedMode string
+	MatchKind     string
+	About         string
 }
 
 type filesystemCandidate struct {
@@ -52,11 +55,14 @@ func RunFilesystem(
 	if opts.RequestedMode == "" {
 		opts.RequestedMode = "auto"
 	}
+	plan, err := PlanQuery(query, opts.MatchKind, opts.About, opts.Scope)
+	if err != nil {
+		return Result{}, err
+	}
 	candidates, err := discovery.Candidates(root, opts.IgnoreGlobs)
 	if err != nil {
 		return Result{}, err
 	}
-	literalQuery := literalTermQuery(query, queryTerms(query))
 	ranked := make([]filesystemCandidate, 0, min(len(candidates), opts.Limit+maxMorePaths))
 	for index, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
@@ -75,13 +81,13 @@ func RunFilesystem(
 		if skipped != nil {
 			continue
 		}
-		evidence := locateEvidence(file.Content, query)
-		pathEvidence := locateEvidence(file.Path, query)
-		if literalQuery {
-			if !evidence.literal {
-				continue
-			}
-		} else if evidence.terms == 0 && pathEvidence.terms == 0 {
+		evidence, matched := filesystemEvidence(plan, file.Content)
+		pathEvidence := citationEvidence{line: -1}
+		if plan.Lexical.Kind == MatchText &&
+			!literalTermQuery(plan.Lexical.Pattern, queryTerms(plan.Lexical.Pattern)) {
+			pathEvidence = locateEvidence(file.Path, query)
+		}
+		if !matched && pathEvidence.terms == 0 {
 			continue
 		}
 		lineCount := strings.Count(file.Content, "\n") + 1
@@ -118,6 +124,7 @@ func RunFilesystem(
 		Schema: contracts.SearchSchema, Query: query,
 		RequestedMode: opts.RequestedMode, ActiveMode: "lexical",
 		FallbackReason: "index-busy", ElapsedMS: time.Since(started).Milliseconds(),
+		QueryPlan: plan,
 	}
 	excerptLimit := resultExcerptLimit(opts.Limit)
 	resultLimit := min(opts.Limit, len(ranked))
@@ -139,6 +146,41 @@ func RunFilesystem(
 		result.MorePaths = append(result.MorePaths, candidate.record.Path)
 	}
 	return result, nil
+}
+
+func filesystemEvidence(plan QueryPlan, text string) (citationEvidence, bool) {
+	switch plan.Lexical.Kind {
+	case MatchFixed:
+		index := strings.Index(text, plan.Lexical.Pattern)
+		if index < 0 {
+			return citationEvidence{line: -1}, false
+		}
+		evidence := locateEvidence(text, plan.evidenceText())
+		evidence.literal = true
+		evidence.line = strings.Count(text[:index], "\n")
+		evidence.terms = max(1, evidence.terms)
+		return evidence, true
+	case MatchRegexp:
+		expression, err := regexp.Compile(plan.Lexical.Pattern)
+		if err != nil {
+			return citationEvidence{line: -1}, false
+		}
+		match := expression.FindStringIndex(text)
+		if match == nil {
+			return citationEvidence{line: -1}, false
+		}
+		evidence := locateEvidence(text, plan.evidenceText())
+		evidence.line = strings.Count(text[:match[0]], "\n")
+		evidence.terms = max(1, evidence.terms)
+		return evidence, true
+	default:
+		evidence := locateEvidence(text, plan.Lexical.Pattern)
+		literal := literalTermQuery(plan.Lexical.Pattern, queryTerms(plan.Lexical.Pattern))
+		if literal {
+			return evidence, evidence.literal
+		}
+		return evidence, evidence.terms > 0
+	}
 }
 
 func filesystemPathInScope(path, scope string) bool {
