@@ -643,6 +643,78 @@ func TestSearchWaitsForConcurrentIndexCommit(t *testing.T) {
 	}
 }
 
+func TestDefaultSearchFallsBackToLiveFilesWhenIndexBusy(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	owner := filepath.Join(root, "owner.txt")
+	if err := os.WriteFile(owner, []byte("retiredbusymarker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"index", "--root", root, "--no-embed",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if err := os.WriteFile(owner, []byte("currentbusymarker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(paths.IndexLock, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "currentbusymarker",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var response struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			ActiveMode     string `json:"activeMode"`
+			FallbackReason string `json:"fallbackReason"`
+			Records        []struct {
+				Path string `json:"path"`
+			} `json:"records"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.OK || response.Data.ActiveMode != "lexical" ||
+		response.Data.FallbackReason != "index-busy" ||
+		len(response.Data.Records) != 1 || response.Data.Records[0].Path != "owner.txt" {
+		t.Fatalf("response=%s", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "retiredbusymarker",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("absence search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Data.Records) != 0 {
+		t.Fatalf("stale response=%s", stdout.String())
+	}
+}
+
 func TestVersionProbes(t *testing.T) {
 	for _, args := range [][]string{{"--version"}, {"-version"}, {"version"}} {
 		var stdout, stderr bytes.Buffer

@@ -36,7 +36,9 @@ const usage = `Usage:
 
 var Version = "0.3.0-dev"
 
-const searchIndexWait = 30 * time.Second
+const searchIndexGrace = 100 * time.Millisecond
+
+var errSearchIndexBusy = errors.New("index is still running")
 
 type envelope struct {
 	Schema string     `json:"schema"`
@@ -219,6 +221,17 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	indexLock, value, err := prepareSearchIndex(
 		ctx, paths, cfg, *mode != "lexical", progress.Report,
 	)
+	if errors.Is(err, errSearchIndexBusy) && (*mode == "auto" || *mode == "lexical") {
+		result, fallbackErr := search.RunFilesystem(ctx, paths.Root, query, search.FilesystemOptions{
+			Limit: *limit, Scope: paths.Scope, IgnoreGlobs: cfg.IgnoreGlobs,
+			MaxFileBytes: cfg.MaxFileBytes, RequestedMode: *mode,
+		})
+		if fallbackErr != nil {
+			return r.fail(true, 1, fmt.Errorf("search live working tree: %w", fallbackErr))
+		}
+		result.ElapsedMS = time.Since(started).Milliseconds()
+		return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
+	}
 	if err != nil {
 		return r.fail(true, 1, err)
 	}
@@ -247,7 +260,7 @@ func prepareSearchIndex(
 ) (*os.File, *store.Store, error) {
 	embeddingAttempted := false
 	for range 3 {
-		indexLock, err := acquireSearchIndexLock(ctx, paths.IndexLock, searchIndexWait)
+		indexLock, err := acquireSearchIndexLock(ctx, paths.IndexLock, searchIndexGrace)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -293,8 +306,10 @@ func prepareSearchIndex(
 			releaseSearchIndexLock(indexLock)
 		}
 		if _, err := indexer.Run(ctx, paths, cfg, indexer.Options{
-			EnsureCurrent: true, EnsureEmbeddings: ensureEmbeddings, Progress: progress,
-		}); err != nil {
+			EnsureEmbeddings: ensureEmbeddings, Progress: progress,
+		}); errors.Is(err, indexer.ErrIndexBusy) {
+			return nil, nil, errSearchIndexBusy
+		} else if err != nil {
 			return nil, nil, fmt.Errorf("refresh repository index: %w", err)
 		}
 		embeddingAttempted = ensureEmbeddings && cfg.Embedding != nil
@@ -401,7 +416,7 @@ func acquireSearchIndexLock(ctx context.Context, path string, wait time.Duration
 			return nil, ctx.Err()
 		case <-timer.C:
 			lock.Close()
-			return nil, errors.New("index is still running; retry search")
+			return nil, errSearchIndexBusy
 		case <-ticker.C:
 		}
 	}
