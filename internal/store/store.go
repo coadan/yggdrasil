@@ -1286,12 +1286,27 @@ func (s *Store) LiteralCandidates(
 	query, literal, scope string,
 	limit int,
 ) ([]Record, error) {
+	if query == "" {
+		return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
+			rows, err := s.db.QueryContext(ctx, `
+				SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
+				FROM records r
+				WHERE r.kind<>'file' AND instr(r.text,?) > 0 AND `+lexicalRecordPredicate+`
+					AND `+recordScopePredicate+`
+				ORDER BY r.path,r.start_line,r.id
+				LIMIT ?`, literal, scope, scope, scope, scope, recordLimit)
+			if err != nil {
+				return nil, err
+			}
+			return scanRecords(rows)
+		})
+	}
 	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
 		rows, err := s.db.QueryContext(ctx, `
 			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 			FROM record_fts
 			JOIN records r ON r.id=record_fts.rowid
-			WHERE record_fts MATCH ? AND instr(r.text,?) > 0
+			WHERE record_fts MATCH ? AND r.kind<>'file' AND instr(r.text,?) > 0
 				AND `+lexicalRecordPredicate+` AND `+recordScopePredicate+`
 			ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
 			LIMIT ?`, query, literal, scope, scope, scope, scope, recordLimit)
@@ -1300,6 +1315,37 @@ func (s *Store) LiteralCandidates(
 		}
 		return scanRecords(rows)
 	})
+}
+
+// LexicalRecords returns mechanically ordered records for an exact matcher.
+// An empty FTS query intentionally scans the bounded repository scope so a
+// regular expression without stable literal terms remains correct.
+func (s *Store) LexicalRecords(
+	ctx context.Context,
+	query, scope string,
+) ([]Record, error) {
+	if query == "" {
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
+			FROM records r
+			WHERE `+lexicalRecordPredicate+` AND `+recordScopePredicate+`
+			ORDER BY r.path,r.start_line,r.id`, scope, scope, scope, scope)
+		if err != nil {
+			return nil, err
+		}
+		return scanRecords(rows)
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+		FROM record_fts
+		JOIN records r ON r.id=record_fts.rowid
+		WHERE record_fts MATCH ? AND `+lexicalRecordPredicate+` AND `+recordScopePredicate+`
+		ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id`,
+		query, scope, scope, scope, scope)
+	if err != nil {
+		return nil, err
+	}
+	return scanRecords(rows)
 }
 
 func (s *Store) ExtractorCandidates(

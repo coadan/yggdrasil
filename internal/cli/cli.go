@@ -29,7 +29,7 @@ import (
 const usage = `Usage:
   ygg version
   ygg index [--root PATH] [--full] [--no-embed]
-  ygg search [--root PATH] [--limit N] [--mode auto|lexical|semantic|graph] QUERY
+  ygg search [--limit N] [--mode auto|lexical|semantic|graph] [-F|-E] [--about TEXT] PATTERN [PATH]
   ygg status [--root PATH] [--check]
   ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH]
 `
@@ -188,6 +188,13 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	root := flags.String("root", "", "repository root, directory, or file scope")
 	limit := flags.Int("limit", 10, "result limit")
 	mode := flags.String("mode", "auto", "auto, lexical, semantic, or graph")
+	fixed := false
+	regexpPattern := false
+	flags.BoolVar(&fixed, "F", false, "match the lexical pattern as a fixed string")
+	flags.BoolVar(&fixed, "fixed-strings", false, "match the lexical pattern as a fixed string")
+	flags.BoolVar(&regexpPattern, "E", false, "match the lexical pattern as a regular expression")
+	flags.BoolVar(&regexpPattern, "regexp", false, "match the lexical pattern as a regular expression")
+	about := flags.String("about", "", "semantic intent used independently of the lexical pattern")
 	flags.Usage = func() {
 		fmt.Fprintf(flagOutput, "Usage of %s:\n", flags.Name())
 		flags.PrintDefaults()
@@ -205,7 +212,31 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		}
 		return r.flagParseResult(flagOutput, err)
 	}
-	query := strings.TrimSpace(strings.Join(flags.Args(), " "))
+	positionals := flags.Args()
+	if *root == "" && len(positionals) > 2 {
+		return r.fail(true, 2, errors.New(
+			"search accepts PATTERN and optional PATH; quote a multiword pattern",
+		))
+	}
+	if fixed && regexpPattern {
+		return r.fail(true, 2, errors.New("--fixed-strings and --regexp are mutually exclusive"))
+	}
+	matchKind := search.MatchText
+	if fixed {
+		matchKind = search.MatchFixed
+	} else if regexpPattern {
+		matchKind = search.MatchRegexp
+	}
+	query := ""
+	resolvedRoot := *root
+	if *root != "" {
+		query = strings.TrimSpace(strings.Join(positionals, " "))
+	} else if len(positionals) > 0 {
+		query = strings.TrimSpace(positionals[0])
+		if len(positionals) == 2 {
+			resolvedRoot = positionals[1]
+		}
+	}
 	if query == "" {
 		return r.fail(true, 2, errors.New("search query is required"))
 	}
@@ -213,7 +244,14 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		return r.fail(true, 2, fmt.Errorf("search limit must be between 1 and %d", search.MaxResults))
 	}
 	started := time.Now()
-	paths, cfg, err := resolve(*root)
+	preflightPlan, err := search.PlanQuery(query, matchKind, *about, "")
+	if err != nil {
+		return r.fail(true, 2, err)
+	}
+	if *mode == "semantic" && preflightPlan.Semantic == nil {
+		return r.fail(true, 2, errors.New("regexp has no semantic text; use --about"))
+	}
+	paths, cfg, err := resolve(resolvedRoot)
 	if err != nil {
 		return r.fail(true, 2, err)
 	}
@@ -225,6 +263,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		result, fallbackErr := search.RunFilesystem(ctx, paths.Root, query, search.FilesystemOptions{
 			Limit: *limit, Scope: paths.Scope, IgnoreGlobs: cfg.IgnoreGlobs,
 			MaxFileBytes: cfg.MaxFileBytes, RequestedMode: *mode,
+			MatchKind: matchKind, About: *about,
 		})
 		if fallbackErr != nil {
 			return r.fail(true, 1, fmt.Errorf("search live working tree: %w", fallbackErr))
@@ -239,6 +278,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	defer value.Close()
 	result, err := search.Run(ctx, value, query, search.Options{
 		Mode: *mode, Limit: *limit, Root: paths.Root, Scope: paths.Scope,
+		MatchKind: matchKind, About: *about,
 		HasExtractors: len(cfg.Plugins) > 0, Embedding: cfg.Embedding,
 	})
 	if errors.Is(err, search.ErrSemanticUnavailable) {

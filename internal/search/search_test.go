@@ -48,6 +48,50 @@ func TestLexicalSearchReturnsCitedRecords(t *testing.T) {
 	}
 }
 
+func TestGrepLexicalFormsMatchContentWithoutPathFalsePositives(t *testing.T) {
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct {
+		path string
+		text string
+	}{
+		{"src/owner.go", "func pushCommandErrorEnvelope() {}"},
+		{"src/pushCommandErrorEnvelope.go", "func unrelated() {}"},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: int64(len(item.text)), MTimeNS: 1},
+			Kind:      "go",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", []contracts.SearchRecord{
+			{Path: item.path, StartLine: 1, EndLine: 1, Kind: "file", Title: item.path, Text: item.path, Source: "core"},
+			{Path: item.path, StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: item.text, Source: "core"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, test := range []struct {
+		pattern string
+		kind    string
+	}{
+		{"push", MatchFixed},
+		{`push.*ErrorEnvelope`, MatchRegexp},
+	} {
+		result, err := Run(ctx, value, test.pattern, Options{
+			Mode: "lexical", Limit: 10, MatchKind: test.kind,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Records) != 1 || result.Records[0].Path != "src/owner.go" {
+			t.Fatalf("kind=%s records=%#v", test.kind, result.Records)
+		}
+	}
+}
+
 func TestGraphSearchReturnsAResolvedImportNeighbor(t *testing.T) {
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
@@ -744,7 +788,7 @@ func TestAutoReportsSemanticFallback(t *testing.T) {
 	}
 }
 
-func TestAutoFusesConfiguredSemanticLane(t *testing.T) {
+func TestAutoFusesRegexpAndExplicitSemanticIntent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body struct {
 			Input []string `json:"input"`
@@ -753,7 +797,7 @@ func TestAutoFusesConfiguredSemanticLane(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		if len(body.Input) != 1 || body.Input[0] != "query: conceptual query" {
+		if len(body.Input) != 1 || body.Input[0] != "query: API command error envelope" {
 			t.Errorf("query embedding input=%q", body.Input)
 		}
 		_ = json.NewEncoder(writer).Encode(map[string]any{
@@ -794,13 +838,15 @@ func TestAutoFusesConfiguredSemanticLane(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Run(ctx, value, "conceptual query", Options{
+	result, err := Run(ctx, value, `push.*ErrorEnvelope`, Options{
 		Mode: "auto", Limit: 5, Root: t.TempDir(), Embedding: &cfg,
+		MatchKind: MatchRegexp, About: "API command error envelope",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ActiveMode != "hybrid" || len(result.Records) != 1 {
+	if result.ActiveMode != "hybrid" || len(result.Records) != 1 ||
+		result.QueryPlan.Semantic == nil || result.QueryPlan.Semantic.Source != "about" {
 		t.Fatalf("result=%#v", result)
 	}
 	if result.Records[0].Path != file.Path || result.Records[0].Retrieval[0] != "semantic" {

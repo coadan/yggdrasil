@@ -64,3 +64,32 @@ func TestRunFilesystemKeepsStructuredAbsenceExact(t *testing.T) {
 		t.Fatalf("records=%#v", result.Records)
 	}
 }
+
+func TestRunFilesystemSupportsFixedAndRegexpPlans(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(
+		filepath.Join(root, "owner.go"),
+		[]byte("func pushCommandErrorEnvelope() {}\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		pattern string
+		kind    string
+	}{
+		{"push", MatchFixed},
+		{`push.*ErrorEnvelope`, MatchRegexp},
+	} {
+		result, err := RunFilesystem(
+			context.Background(), root, test.pattern,
+			FilesystemOptions{Limit: 10, RequestedMode: "auto", MatchKind: test.kind},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Records) != 1 || result.Records[0].Path != "owner.go" ||
+			result.QueryPlan.Lexical.Kind != test.kind {
+			t.Fatalf("kind=%s result=%#v", test.kind, result)
+		}
+	}
+}

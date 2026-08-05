@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/coadan/yggdrasil/internal/project"
+	"github.com/coadan/yggdrasil/internal/search"
 	"github.com/coadan/yggdrasil/internal/store"
 )
 
@@ -712,6 +713,115 @@ func TestDefaultSearchFallsBackToLiveFilesWhenIndexBusy(t *testing.T) {
 	}
 	if len(response.Data.Records) != 0 {
 		t.Fatalf("stale response=%s", stdout.String())
+	}
+}
+
+func TestSearchAcceptsGrepShapedQueryPlans(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "src", "owner.go"),
+		[]byte("package owner\n\n// push command error envelope\nfunc pushCommandErrorEnvelope() {}\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"index", "--root", root, "--no-embed",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+
+	tests := []struct {
+		name           string
+		args           []string
+		wantKind       string
+		wantSemantic   string
+		wantSource     string
+		wantRecordPath string
+	}{
+		{
+			name: "positional scope", args: []string{
+				"search", "push command error envelope", root,
+			},
+			wantKind: search.MatchText, wantSemantic: "push command error envelope",
+			wantSource: "pattern", wantRecordPath: "src/owner.go",
+		},
+		{
+			name: "fixed with explicit intent", args: []string{
+				"search", "-F", "pushCommandErrorEnvelope", "--about",
+				"API command error response envelope", root,
+			},
+			wantKind: search.MatchFixed, wantSemantic: "API command error response envelope",
+			wantSource: "about", wantRecordPath: "src/owner.go",
+		},
+		{
+			name: "regexp", args: []string{
+				"search", "-E", `push.*ErrorEnvelope`, "--mode", "lexical", root,
+			},
+			wantKind: search.MatchRegexp, wantSemantic: "push ErrorEnvelope",
+			wantSource: "regexp-literals", wantRecordPath: "src/owner.go",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout.Reset()
+			stderr.Reset()
+			if code := Main(context.Background(), test.args, &stdout, &stderr); code != 0 {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+			}
+			var response struct {
+				OK   bool `json:"ok"`
+				Data struct {
+					QueryPlan struct {
+						Lexical struct {
+							Kind string `json:"kind"`
+						} `json:"lexical"`
+						Semantic *struct {
+							Text   string `json:"text"`
+							Source string `json:"source"`
+						} `json:"semantic"`
+					} `json:"queryPlan"`
+					Records []struct {
+						Path string `json:"path"`
+					} `json:"records"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if !response.OK || response.Data.QueryPlan.Lexical.Kind != test.wantKind ||
+				response.Data.QueryPlan.Semantic == nil ||
+				response.Data.QueryPlan.Semantic.Text != test.wantSemantic ||
+				response.Data.QueryPlan.Semantic.Source != test.wantSource ||
+				len(response.Data.Records) == 0 ||
+				response.Data.Records[0].Path != test.wantRecordPath {
+				t.Fatalf("response=%s", stdout.String())
+			}
+		})
+	}
+}
+
+func TestSearchRejectsAmbiguousOrInvalidQueryPlans(t *testing.T) {
+	for _, test := range []struct {
+		args    []string
+		message string
+	}{
+		{[]string{"search", "multi", "word", "query"}, "quote a multiword pattern"},
+		{[]string{"search", "-F", "-E", "pattern"}, "mutually exclusive"},
+		{[]string{"search", "-E", "["}, "error parsing regexp"},
+		{[]string{"search", "-E", `\d+`, "--mode", "semantic"}, "use --about"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := Main(context.Background(), test.args, &stdout, &stderr)
+		if code != 2 || stderr.Len() != 0 || !strings.Contains(stdout.String(), test.message) {
+			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", test.args, code, stdout.String(), stderr.String())
+		}
 	}
 }
 
