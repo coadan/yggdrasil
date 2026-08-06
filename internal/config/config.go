@@ -19,7 +19,7 @@ const (
 	DefaultMaxFileBytes   = int64(4 * 1024 * 1024)
 	DefaultTimeoutMS      = 10_000
 	DefaultBatchSize      = 64
-	CoreExtractionVersion = "v2"
+	CoreExtractionVersion = "v3"
 )
 
 type Plugin struct {
