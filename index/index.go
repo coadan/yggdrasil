@@ -54,6 +54,7 @@ type RefreshOptions struct {
 	Full          bool
 	NoEmbed       bool
 	PriorityScope string
+	// PriorityPaths are ordered from highest to lowest expected retrieval impact.
 	PriorityPaths []string
 	// Aging ignores priority for this refresh unit.
 	Aging bool

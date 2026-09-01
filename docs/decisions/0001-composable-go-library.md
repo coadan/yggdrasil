@@ -122,11 +122,13 @@ revision. Provider startup or failure never changes the availability of
 non-semantic retrieval.
 
 The refresher may prioritize vector work using mechanical demand signals: an
-explicitly requested scope, paths returned by concrete retrieval, and changed
-records. Priority affects only the order of bounded derived work. Deterministic
-unprioritized batches age the rest of the corpus so repeated demand cannot
-starve it, and a priority signal never changes ranking scores or readiness
-counts.
+explicitly requested scope, paths returned by concrete retrieval in result
+order, and changed records. Result order is the existing retrieval estimate of
+which files can most affect a subsequent ranked result, so the indexer preserves
+it rather than introducing filename or language heuristics. Priority affects
+only the order of bounded derived work. Deterministic unprioritized batches age
+the rest of the corpus so repeated demand cannot starve it, and a priority
+signal never changes ranking scores or readiness counts.
 
 ## Alternatives
 
