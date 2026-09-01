@@ -222,6 +222,7 @@ func (r *Repository) Refresh(ctx context.Context, opts RefreshOptions) (RefreshR
 		EmbeddingProvider: provider, MaxEmbeddingBatches: batches,
 		EmbeddingPriorityScope: priorityScope,
 		EmbeddingPriorityPaths: priorityPaths,
+		EmbeddingAging:         opts.Aging,
 		ExtractorProviders:     r.extractors,
 		Progress: func(value indexer.Progress) {
 			if opts.Progress == nil {
