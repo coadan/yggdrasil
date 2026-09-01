@@ -1,7 +1,10 @@
 # Agent Guide
 
-Yggdrasil is a search-only Go CLI. Keep the public surface limited to
-`index`, `search`, `status`, and `plugin check`.
+Yggdrasil is a search-only Go retrieval library with a CLI frontend. Preserve
+the composable package direction in
+`docs/decisions/0001-composable-go-library.md`. Keep the CLI surface limited to
+`index`, `search`, `status`, and `plugin check`; retrieval behavior belongs in
+the library rather than the frontend.
 
 Core may use only mechanical repository facts: file discovery, text detection,
 line ranges, parser output, content hashes, explicit plugin records, and search
@@ -15,6 +18,11 @@ not enter the core CLI module.
 Prefer the Go standard library. Do not add a CLI framework, ORM, provider SDK,
 daemon, compatibility layer, HTML renderer, graph model, correction store, work
 queue, or hidden background loop.
+
+Library mechanisms are synchronous, cancellable, and explicit about
+capabilities. Hosts own scheduling and provider lifetime. Do not make query or
+index packages discover configuration, read ambient credentials, construct
+optional providers, or expose SQLite handles.
 
 After each bounded slice, run `go test ./...`, `go vet ./...`, and
 `gofmt -l .`, then commit the slice.
