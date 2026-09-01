@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	embeddingcontract "github.com/coadan/yggdrasil/embedding"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
@@ -524,6 +525,53 @@ func TestRunBuildsConfiguredEmbeddingLane(t *testing.T) {
 	}
 	if requests != firstRequests {
 		t.Fatalf("no-op index called provider: requests %d -> %d", firstRequests, requests)
+	}
+}
+
+type retainedEmbeddingProvider struct {
+	calls      int
+	closeCalls int
+}
+
+func (p *retainedEmbeddingProvider) Embed(_ context.Context, inputs []embeddingcontract.Input) ([]embeddingcontract.Value, error) {
+	p.calls++
+	values := make([]embeddingcontract.Value, len(inputs))
+	for i, input := range inputs {
+		values[i] = embeddingcontract.Value{ID: input.ID, Vector: []float32{1, 0}}
+	}
+	return values, nil
+}
+
+func (p *retainedEmbeddingProvider) Close() error {
+	p.closeCalls++
+	return nil
+}
+
+func TestRunUsesCallerOwnedEmbeddingProvider(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Embedding = &config.Embedding{
+		Kind: "command", Command: []string{"must-not-start"}, Model: "retained",
+		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 8,
+	}
+	provider := &retainedEmbeddingProvider{}
+	summary, err := Run(context.Background(), paths, cfg, Options{EmbeddingProvider: provider})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.EmbeddingStatus != "ready" || summary.Embedded == 0 || provider.calls == 0 {
+		t.Fatalf("summary=%#v provider=%#v", summary, provider)
+	}
+	if provider.closeCalls != 0 {
+		t.Fatalf("caller-owned provider closed %d times", provider.closeCalls)
 	}
 }
 

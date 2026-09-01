@@ -13,6 +13,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	embeddingcontract "github.com/coadan/yggdrasil/embedding"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/embedding"
@@ -50,6 +51,9 @@ type Options struct {
 	About         string
 	HasExtractors bool
 	Embedding     *config.Embedding
+	// EmbeddingProvider is retained and closed by its caller. When nil, Run
+	// constructs and closes the configured provider for CLI compatibility.
+	EmbeddingProvider embeddingcontract.Provider
 }
 
 type Result struct {
@@ -304,19 +308,27 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
-	provider, err := embedding.New(ctx, opts.Root, *opts.Embedding)
-	if err != nil {
-		return semanticFailure(result, opts, lanes, started, err)
+	provider := opts.EmbeddingProvider
+	owned := provider == nil
+	if owned {
+		provider, err = embedding.New(ctx, opts.Root, *opts.Embedding)
+		if err != nil {
+			return semanticFailure(result, opts, lanes, started, err)
+		}
 	}
 	values, embedErr := provider.Embed(ctx, []embedding.Input{{
 		ID: "query", Text: embedding.QueryText(*opts.Embedding, plan.Semantic.Text),
 	}})
-	closeErr := provider.Close()
 	if embedErr != nil {
+		if owned {
+			_ = provider.Close()
+		}
 		return semanticFailure(result, opts, lanes, started, embedErr)
 	}
-	if closeErr != nil {
-		return semanticFailure(result, opts, lanes, started, closeErr)
+	if owned {
+		if closeErr := provider.Close(); closeErr != nil {
+			return semanticFailure(result, opts, lanes, started, closeErr)
+		}
 	}
 	if len(values) != 1 || values[0].ID != "query" {
 		return semanticFailure(result, opts, lanes, started, errors.New("provider returned an invalid query embedding"))

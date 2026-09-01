@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	embeddingcontract "github.com/coadan/yggdrasil/embedding"
 	"github.com/coadan/yggdrasil/internal/chunk"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
@@ -28,7 +29,10 @@ type Options struct {
 	NoEmbed          bool
 	EnsureCurrent    bool
 	EnsureEmbeddings bool
-	Progress         func(Progress)
+	// EmbeddingProvider is retained and closed by its caller. When nil, Run
+	// constructs and closes the configured provider for CLI compatibility.
+	EmbeddingProvider embeddingcontract.Provider
+	Progress          func(Progress)
 }
 
 type Progress struct {
@@ -380,7 +384,8 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		summary.EmbeddingStatus = "skipped"
 	} else if cfg.Embedding != nil {
 		summary.Embedded, summary.EmbeddingStatus, err = embedRecords(
-			ctx, value, paths, *cfg.Embedding, summary.RunID, &summary.Diagnostics, report,
+			ctx, value, paths, *cfg.Embedding, opts.EmbeddingProvider,
+			summary.RunID, &summary.Diagnostics, report,
 		)
 		if err != nil {
 			return summary, err
@@ -448,6 +453,7 @@ func embedRecords(
 	value *store.Store,
 	paths project.Paths,
 	cfg config.Embedding,
+	provider embeddingcontract.Provider,
 	runID string,
 	diagnostics *int,
 	report func(Progress),
@@ -471,13 +477,16 @@ func embedRecords(
 	if len(inputs) == 0 {
 		return 0, "ready", nil
 	}
-	provider, err := embedding.New(ctx, paths.Root, cfg)
-	if err != nil {
-		return 0, embeddingDiagnostic(ctx, value, runID, diagnostics, "provider", err), nil
+	owned := provider == nil
+	if owned {
+		provider, err = embedding.New(ctx, paths.Root, cfg)
+		if err != nil {
+			return 0, embeddingDiagnostic(ctx, value, runID, diagnostics, "provider", err), nil
+		}
 	}
 	closed := false
 	defer func() {
-		if !closed {
+		if owned && !closed {
 			_ = provider.Close()
 		}
 	}()
@@ -530,11 +539,13 @@ func embedRecords(
 			break
 		}
 	}
-	if err := provider.Close(); err != nil {
+	if owned {
+		if err := provider.Close(); err != nil {
+			closed = true
+			return embedded, embeddingDiagnostic(ctx, value, runID, diagnostics, "close", err), nil
+		}
 		closed = true
-		return embedded, embeddingDiagnostic(ctx, value, runID, diagnostics, "close", err), nil
 	}
-	closed = true
 	return embedded, "ready", nil
 }
 
