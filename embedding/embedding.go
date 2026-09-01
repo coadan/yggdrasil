@@ -17,6 +17,8 @@ type Value struct {
 }
 
 type Provider interface {
+	// Embed calls may be retained across index and query operations. Providers
+	// need not support concurrent calls; the host owns serialization.
 	Embed(context.Context, []Input) ([]Value, error)
 	Close() error
 }

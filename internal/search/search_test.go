@@ -11,6 +11,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	embeddingcontract "github.com/coadan/yggdrasil/embedding"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
@@ -786,6 +787,67 @@ func TestAutoReportsSemanticFallback(t *testing.T) {
 	}
 	if result.ActiveMode != "lexical" || result.FallbackReason != "semantic-unconfigured" {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+}
+
+type retainedQueryProvider struct {
+	calls      int
+	closeCalls int
+}
+
+func (p *retainedQueryProvider) Embed(_ context.Context, inputs []embeddingcontract.Input) ([]embeddingcontract.Value, error) {
+	p.calls++
+	return []embeddingcontract.Value{{ID: inputs[0].ID, Vector: []float32{1, 0}}}, nil
+}
+
+func (p *retainedQueryProvider) Close() error {
+	p.closeCalls++
+	return nil
+}
+
+func TestRunUsesCallerOwnedEmbeddingProvider(t *testing.T) {
+	cfg := config.Embedding{
+		Kind: "command", Command: []string{"must-not-start"}, Model: "retained",
+		Dimensions: 2, TimeoutMS: 1_000, QueryPrefix: "query: ",
+	}
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	file := discovery.File{
+		Candidate: discovery.Candidate{Path: "src/target.go", Size: 20, MTimeNS: 1},
+		Kind:      "go",
+	}
+	if err := value.ReplaceFile(ctx, "run", file, "hash", "fingerprint", []contracts.SearchRecord{{
+		Path: file.Path, StartLine: 1, EndLine: 1, Kind: "text-chunk",
+		Text: "semantic target", Source: "core",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := embedding.Fingerprint(cfg)
+	if _, err := value.PrepareEmbeddingLane(ctx, fingerprint, cfg.Model, cfg.Dimensions); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, fingerprint, 10)
+	if err != nil || len(inputs) != 1 {
+		t.Fatalf("inputs=%#v err=%v", inputs, err)
+	}
+	if _, err := value.UpsertEmbeddings(ctx, fingerprint, 2, []store.EmbeddingValue{{
+		ID: inputs[0].ID, InputHash: inputs[0].InputHash, Vector: []float32{1, 0},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &retainedQueryProvider{}
+	result, err := Run(ctx, value, "semantic target", Options{
+		Mode: "auto", Limit: 5, Embedding: &cfg, EmbeddingProvider: provider,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ActiveMode != "hybrid" || provider.calls != 1 || provider.closeCalls != 0 {
+		t.Fatalf("result=%#v provider=%#v", result, provider)
 	}
 }
 
