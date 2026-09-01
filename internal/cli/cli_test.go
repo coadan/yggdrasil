@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/coadan/yggdrasil/internal/project"
-	"github.com/coadan/yggdrasil/internal/search"
 	"github.com/coadan/yggdrasil/internal/store"
+	querycontract "github.com/coadan/yggdrasil/query"
 )
 
 func TestIndexSearchAndStatus(t *testing.T) {
@@ -749,7 +749,7 @@ func TestSearchAcceptsGrepShapedQueryPlans(t *testing.T) {
 			name: "positional scope", args: []string{
 				"search", "push command error envelope", root,
 			},
-			wantKind: search.MatchText, wantSemantic: "push command error envelope",
+			wantKind: querycontract.MatchText, wantSemantic: "push command error envelope",
 			wantSource: "pattern", wantRecordPath: "src/owner.go",
 		},
 		{
@@ -757,14 +757,14 @@ func TestSearchAcceptsGrepShapedQueryPlans(t *testing.T) {
 				"search", "-F", "pushCommandErrorEnvelope", "--about",
 				"API command error response envelope", root,
 			},
-			wantKind: search.MatchFixed, wantSemantic: "API command error response envelope",
+			wantKind: querycontract.MatchFixed, wantSemantic: "API command error response envelope",
 			wantSource: "about", wantRecordPath: "src/owner.go",
 		},
 		{
 			name: "regexp", args: []string{
 				"search", "-E", `push.*ErrorEnvelope`, "--mode", "lexical", root,
 			},
-			wantKind: search.MatchRegexp, wantSemantic: "push ErrorEnvelope",
+			wantKind: querycontract.MatchRegexp, wantSemantic: "push ErrorEnvelope",
 			wantSource: "regexp-literals", wantRecordPath: "src/owner.go",
 		},
 	}

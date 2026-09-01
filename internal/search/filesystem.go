@@ -12,6 +12,7 @@ import (
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
 	"github.com/coadan/yggdrasil/internal/store"
+	querycontract "github.com/coadan/yggdrasil/query"
 )
 
 // FilesystemOptions bounds the live lexical fallback used while the durable
@@ -55,7 +56,7 @@ func RunFilesystem(
 	if opts.RequestedMode == "" {
 		opts.RequestedMode = "auto"
 	}
-	plan, err := PlanQuery(query, opts.MatchKind, opts.About, opts.Scope)
+	plan, err := querycontract.Parse(query, opts.MatchKind, opts.About, opts.Scope)
 	if err != nil {
 		return Result{}, err
 	}
@@ -83,7 +84,7 @@ func RunFilesystem(
 		}
 		evidence, matched := filesystemEvidence(plan, file.Content)
 		pathEvidence := citationEvidence{line: -1}
-		if plan.Lexical.Kind == MatchText &&
+		if plan.Lexical.Kind == querycontract.MatchText &&
 			!literalTermQuery(plan.Lexical.Pattern, queryTerms(plan.Lexical.Pattern)) {
 			pathEvidence = locateEvidence(file.Path, query)
 		}
@@ -148,19 +149,19 @@ func RunFilesystem(
 	return result, nil
 }
 
-func filesystemEvidence(plan QueryPlan, text string) (citationEvidence, bool) {
+func filesystemEvidence(plan querycontract.Plan, text string) (citationEvidence, bool) {
 	switch plan.Lexical.Kind {
-	case MatchFixed:
+	case querycontract.MatchFixed:
 		index := strings.Index(text, plan.Lexical.Pattern)
 		if index < 0 {
 			return citationEvidence{line: -1}, false
 		}
-		evidence := locateEvidence(text, plan.evidenceText())
+		evidence := locateEvidence(text, plan.EvidenceText())
 		evidence.literal = true
 		evidence.line = strings.Count(text[:index], "\n")
 		evidence.terms = max(1, evidence.terms)
 		return evidence, true
-	case MatchRegexp:
+	case querycontract.MatchRegexp:
 		expression, err := regexp.Compile(plan.Lexical.Pattern)
 		if err != nil {
 			return citationEvidence{line: -1}, false
@@ -169,7 +170,7 @@ func filesystemEvidence(plan QueryPlan, text string) (citationEvidence, bool) {
 		if match == nil {
 			return citationEvidence{line: -1}, false
 		}
-		evidence := locateEvidence(text, plan.evidenceText())
+		evidence := locateEvidence(text, plan.EvidenceText())
 		evidence.line = strings.Count(text[:match[0]], "\n")
 		evidence.terms = max(1, evidence.terms)
 		return evidence, true
