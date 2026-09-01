@@ -6,6 +6,19 @@ package embedding
 
 import "context"
 
+// Capability binds a retained provider to the immutable mechanical facts that
+// identify compatible document and query vectors.
+type Capability struct {
+	Provider            Provider
+	ProviderFingerprint string
+	Model               string
+	Dimensions          int
+	QueryPrefix         string
+	DocumentPrefix      string
+	BatchSize           int
+	MaxInputChars       int
+}
+
 type Input struct {
 	ID   string `json:"id"`
 	Text string `json:"text"`
