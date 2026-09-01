@@ -16,6 +16,7 @@ import (
 	"time"
 
 	embeddingcontract "github.com/coadan/yggdrasil/embedding"
+	extractorcontract "github.com/coadan/yggdrasil/extractor"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
@@ -579,6 +580,78 @@ func TestRunPrioritizesRequestedEmbeddingScope(t *testing.T) {
 	if summary.EmbeddingStatus != "partial" || len(provider.texts) != 1 ||
 		!strings.Contains(provider.texts[0], "requested scope") {
 		t.Fatalf("summary=%#v provider=%#v", summary, provider)
+	}
+}
+
+type retainedExtractorProvider struct {
+	calls       int
+	fingerprint string
+}
+
+func (p *retainedExtractorProvider) Descriptor() extractorcontract.Descriptor {
+	fingerprint := p.fingerprint
+	if fingerprint == "" {
+		fingerprint = "v1"
+	}
+	return extractorcontract.Descriptor{ID: "supplied", Fingerprint: fingerprint}
+}
+
+func (p *retainedExtractorProvider) Extract(
+	_ context.Context,
+	file extractorcontract.File,
+) ([]extractorcontract.Record, []extractorcontract.Diagnostic, error) {
+	p.calls++
+	return []extractorcontract.Record{{
+		ID: "owner", StartLine: 1, EndLine: 1, Kind: "navigation",
+		Text: "supplied navigation owner " + file.Path,
+	}}, nil, nil
+}
+
+func TestRunUsesCallerOwnedExtractorProvider(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(filepath.Join(root, "owner.go"), []byte("package owner\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &retainedExtractorProvider{}
+	cfg := config.Default()
+	if _, err := Run(context.Background(), paths, cfg, Options{
+		NoEmbed: true, ExtractorProvider: provider,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("calls=%d", provider.calls)
+	}
+	value, err := store.Open(context.Background(), paths.Database, paths.Root, paths.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := value.ExtractorCandidates(context.Background(), "supplied", "", 10)
+	closeErr := value.Close()
+	if err != nil || closeErr != nil || len(records) != 1 || records[0].Source != "plugin:supplied" {
+		t.Fatalf("records=%#v err=%v close=%v", records, err, closeErr)
+	}
+	if _, err := Run(context.Background(), paths, cfg, Options{
+		NoEmbed: true, EnsureCurrent: true, ExtractorProvider: provider,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("unchanged index called provider: %d", provider.calls)
+	}
+	provider.fingerprint = "v2"
+	if _, err := Run(context.Background(), paths, cfg, Options{
+		NoEmbed: true, EnsureCurrent: true, ExtractorProvider: provider,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 2 {
+		t.Fatalf("changed provider fingerprint was not reindexed: calls=%d", provider.calls)
 	}
 }
 

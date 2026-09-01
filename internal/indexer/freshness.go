@@ -20,8 +20,17 @@ import (
 // extraction state represented by an index. Git repositories use HEAD plus
 // dirty-path metadata so unchanged searches avoid a full discovery scan.
 func FreshnessToken(ctx context.Context, root string, cfg config.Config) (string, error) {
+	return freshnessToken(ctx, root, cfg, config.ExtractionFingerprint(cfg))
+}
+
+func freshnessToken(
+	ctx context.Context,
+	root string,
+	cfg config.Config,
+	extractionFingerprint string,
+) (string, error) {
 	digest := sha256.New()
-	fmt.Fprintln(digest, config.ExtractionFingerprint(cfg))
+	fmt.Fprintln(digest, extractionFingerprint)
 	if cfg.Embedding == nil {
 		fmt.Fprintln(digest, "embedding:none")
 	} else {

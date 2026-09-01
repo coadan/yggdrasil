@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
+	extractorcontract "github.com/coadan/yggdrasil/extractor"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
@@ -23,9 +23,6 @@ const (
 	handshakeTimeout = 2 * time.Second
 	shutdownTimeout  = 2 * time.Second
 	maxResponseBytes = 2 * 1024 * 1024
-	maxRecordText    = 64 * 1024
-	maxMetadataBytes = 16 * 1024
-	maxRecords       = 257
 	maxStderrBytes   = 8 * 1024
 )
 
@@ -258,45 +255,11 @@ func (s *Session) Extract(ctx context.Context, file discovery.File) ([]contracts
 }
 
 func validateRecords(pluginConfig config.Plugin, file discovery.File, records []contracts.SearchRecord) ([]contracts.SearchRecord, error) {
-	if len(records) > maxRecords {
-		return nil, fmt.Errorf("plugin %q returned %d records; maximum is %d", pluginConfig.ID, len(records), maxRecords)
-	}
-	lineCount := strings.Count(file.Content, "\n") + 1
-	ids := map[string]bool{}
-	for i := range records {
-		record := &records[i]
-		if record.ID != "" {
-			if ids[record.ID] {
-				return nil, fmt.Errorf("plugin %q returned duplicate record id %q", pluginConfig.ID, record.ID)
-			}
-			ids[record.ID] = true
-		}
-		if record.Source != "" {
-			return nil, fmt.Errorf("plugin %q attempted to set protected source", pluginConfig.ID)
-		}
-		if record.Path != "" && record.Path != file.Path {
-			return nil, fmt.Errorf("plugin %q record references another file %q", pluginConfig.ID, record.Path)
-		}
-		record.Path = file.Path
-		record.Source = "plugin:" + pluginConfig.ID
-		if record.Kind == "" || strings.TrimSpace(record.Text) == "" {
-			return nil, fmt.Errorf("plugin %q record %d requires kind and text", pluginConfig.ID, i)
-		}
-		if record.StartLine < 1 || record.EndLine < record.StartLine || record.EndLine > lineCount {
-			return nil, fmt.Errorf("plugin %q record %d has invalid line range", pluginConfig.ID, i)
-		}
-		if len(record.Text) > maxRecordText {
-			return nil, fmt.Errorf("plugin %q record %d text exceeds %d bytes", pluginConfig.ID, i, maxRecordText)
-		}
-		if !utf8.ValidString(record.Text) {
-			return nil, fmt.Errorf("plugin %q record %d text is not UTF-8", pluginConfig.ID, i)
-		}
-		metadata, err := json.Marshal(record.Metadata)
-		if err != nil || len(metadata) > maxMetadataBytes {
-			return nil, fmt.Errorf("plugin %q record %d metadata is invalid or too large", pluginConfig.ID, i)
-		}
-	}
-	return records, nil
+	return extractorcontract.NormalizeRecords(extractorcontract.Descriptor{
+		ID: pluginConfig.ID, Fingerprint: pluginConfig.Version,
+	}, extractorcontract.File{
+		Path: file.Path, Kind: file.Kind, ContentHash: file.ContentHash, Content: file.Content,
+	}, records)
 }
 
 func (s *Session) Close() error {

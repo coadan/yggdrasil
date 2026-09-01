@@ -14,6 +14,7 @@ import (
 	"time"
 
 	embeddingcontract "github.com/coadan/yggdrasil/embedding"
+	extractorcontract "github.com/coadan/yggdrasil/extractor"
 	"github.com/coadan/yggdrasil/internal/chunk"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
@@ -32,6 +33,9 @@ type Options struct {
 	// EmbeddingProvider is retained and closed by its caller. When nil, Run
 	// constructs and closes the configured provider for CLI compatibility.
 	EmbeddingProvider embeddingcontract.Provider
+	// ExtractorProvider is retained and closed by its caller. CLI-configured
+	// command extractors continue to run in addition to this capability.
+	ExtractorProvider extractorcontract.Provider
 	// MaxEmbeddingBatches bounds semantic work in this run. Zero completes all
 	// missing vectors for CLI compatibility; a positive value lets a host
 	// progressively schedule bounded work.
@@ -90,6 +94,10 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	if opts.MaxEmbeddingBatches < 0 {
 		return Summary{}, errors.New("maximum embedding batches cannot be negative")
 	}
+	fingerprint, err := extractionFingerprint(cfg, opts.ExtractorProvider)
+	if err != nil {
+		return Summary{}, err
+	}
 	started := time.Now()
 	progressRunID := fmt.Sprintf("run-%d", time.Now().UnixNano())
 	report := func(progress Progress) {
@@ -120,7 +128,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	}
 	report(Progress{Phase: "lock", Completed: 1, Total: 1})
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-	startFreshness, err := FreshnessToken(ctx, paths.Root, cfg)
+	startFreshness, err := freshnessToken(ctx, paths.Root, cfg, fingerprint)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -241,7 +249,6 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	}
 	summary.Scanned = len(candidates)
 	report(Progress{Phase: "discovery", Completed: len(candidates), Total: len(candidates)})
-	fingerprint := config.ExtractionFingerprint(cfg)
 	states, err := value.FileStates(ctx)
 	if err != nil {
 		return summary, err
@@ -343,6 +350,32 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 				Message: diagnostic.Message,
 			})
 		}
+		if opts.ExtractorProvider != nil {
+			descriptor := opts.ExtractorProvider.Descriptor()
+			extractorFile := extractorcontract.File{
+				Path: file.Path, Kind: file.Kind, ContentHash: file.ContentHash, Content: file.Content,
+			}
+			provided, providedDiagnostics, extractErr := opts.ExtractorProvider.Extract(ctx, extractorFile)
+			if extractErr == nil {
+				provided, extractErr = extractorcontract.NormalizeRecords(descriptor, extractorFile, provided)
+			}
+			if extractErr != nil {
+				summary.Diagnostics++
+				diagnostics = append(diagnostics, store.Diagnostic{
+					Path: file.Path, Stage: "extractor-provider:" + descriptor.ID,
+					Message: extractErr.Error(),
+				})
+			} else {
+				records = append(records, provided...)
+			}
+			for _, diagnostic := range providedDiagnostics {
+				summary.Diagnostics++
+				diagnostics = append(diagnostics, store.Diagnostic{
+					Path: file.Path, Stage: "extractor-provider:" + descriptor.ID + ":" + diagnostic.Stage,
+					Message: diagnostic.Message,
+				})
+			}
+		}
 		updates = append(updates, store.FileUpdate{
 			File: file, ContentHash: contentHash, ExtractionFingerprint: fingerprint, Records: records,
 		})
@@ -404,7 +437,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 			return summary, err
 		}
 	}
-	endFreshness, err := FreshnessToken(ctx, paths.Root, cfg)
+	endFreshness, err := freshnessToken(ctx, paths.Root, cfg, fingerprint)
 	if err != nil {
 		return summary, err
 	}
@@ -423,6 +456,22 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		EmbeddingStatus: summary.EmbeddingStatus,
 	})
 	return summary, nil
+}
+
+func extractionFingerprint(
+	cfg config.Config,
+	provider extractorcontract.Provider,
+) (string, error) {
+	fingerprint := config.ExtractionFingerprint(cfg)
+	if provider == nil {
+		return fingerprint, nil
+	}
+	descriptor := provider.Descriptor()
+	if descriptor.ID == "" || descriptor.Fingerprint == "" {
+		return "", errors.New("extractor provider requires an id and fingerprint")
+	}
+	hash := sha256.Sum256([]byte(fingerprint + "\x00" + descriptor.ID + "\x00" + descriptor.Fingerprint))
+	return "sha256:" + hex.EncodeToString(hash[:]), nil
 }
 
 func acquireIndexLock(ctx context.Context, lock *os.File, wait bool) error {
