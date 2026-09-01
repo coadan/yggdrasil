@@ -1,5 +1,5 @@
-// Package search ranks bounded records from the canonical SQLite index.
-package search
+// Package query ranks bounded records from an immutable repository snapshot.
+package query
 
 import (
 	"context"
@@ -13,11 +13,7 @@ import (
 	"unicode/utf8"
 
 	embeddingcontract "github.com/coadan/yggdrasil/embedding"
-	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
-	"github.com/coadan/yggdrasil/internal/embedding"
-	"github.com/coadan/yggdrasil/internal/store"
-	querycontract "github.com/coadan/yggdrasil/query"
 )
 
 const laneRRFK = 60.0
@@ -35,8 +31,8 @@ const targetExcerptRunes = 2400
 
 const (
 	MaxResults    = 100
-	MaxQueryBytes = querycontract.MaxBytes
-	MaxQueryTerms = querycontract.MaxTerms
+	MaxQueryBytes = MaxBytes
+	MaxQueryTerms = MaxTerms
 )
 
 var ErrSemanticUnavailable = errors.New("semantic search is unavailable")
@@ -44,26 +40,18 @@ var ErrSemanticUnavailable = errors.New("semantic search is unavailable")
 type Options struct {
 	Mode          string
 	Limit         int
-	Root          string
 	Scope         string
 	MatchKind     string
 	About         string
 	HasExtractors bool
-	Embedding     *config.Embedding
-	// EmbeddingProvider is retained and closed by its caller. When nil, Run
-	// constructs and closes the configured provider for CLI compatibility.
-	EmbeddingProvider embeddingcontract.Provider
+	Embedding     *embeddingcontract.Capability
 	// MinSemanticCoverage activates semantic work after this fraction of the
 	// requested scope has compatible vectors. Zero preserves the complete-only
 	// policy. Values must otherwise be in (0,1].
 	MinSemanticCoverage float64
 }
 
-type SemanticReadiness = querycontract.SemanticReadiness
-type Result = querycontract.Result
-type RankedRecord = querycontract.RankedRecord
-
-func Run(ctx context.Context, value querycontract.Reader, query string, opts Options) (Result, error) {
+func Run(ctx context.Context, value Reader, query string, opts Options) (Result, error) {
 	started := time.Now()
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -78,7 +66,7 @@ func Run(ctx context.Context, value querycontract.Reader, query string, opts Opt
 	if len(strings.Fields(query)) > MaxQueryTerms {
 		return Result{}, fmt.Errorf("search query exceeds %d terms", MaxQueryTerms)
 	}
-	plan, err := querycontract.Parse(query, opts.MatchKind, opts.About, opts.Scope)
+	plan, err := Parse(query, opts.MatchKind, opts.About, opts.Scope)
 	if err != nil {
 		return Result{}, fmt.Errorf("plan search query: %w", err)
 	}
@@ -107,10 +95,10 @@ func Run(ctx context.Context, value querycontract.Reader, query string, opts Opt
 	structured := false
 	if opts.Mode != "semantic" {
 		terms := queryTerms(query)
-		literal := plan.Lexical.Kind == querycontract.MatchText && literalTermQuery(query, terms)
+		literal := plan.Lexical.Kind == MatchText && literalTermQuery(query, terms)
 		structured = literal
 		switch plan.Lexical.Kind {
-		case querycontract.MatchFixed:
+		case MatchFixed:
 			records, err := value.LiteralCandidates(
 				ctx, "", query, opts.Scope, candidateLimit,
 			)
@@ -118,13 +106,13 @@ func Run(ctx context.Context, value querycontract.Reader, query string, opts Opt
 				return Result{}, fmt.Errorf("fixed search: %w", err)
 			}
 			lanes = append(lanes, lane{name: "fixed", records: records})
-		case querycontract.MatchRegexp:
+		case MatchRegexp:
 			records, err := regexpCandidates(ctx, value, plan, opts.Scope, candidateLimit)
 			if err != nil {
 				return Result{}, fmt.Errorf("regexp search: %w", err)
 			}
 			lanes = append(lanes, lane{name: "regexp", records: records})
-		case querycontract.MatchText:
+		case MatchText:
 			if literal {
 				records, err := value.LiteralCandidates(
 					ctx, ftsAnyQuery(terms), query, opts.Scope, candidateLimit,
@@ -155,7 +143,7 @@ func Run(ctx context.Context, value querycontract.Reader, query string, opts Opt
 				}
 			}
 		}
-		if plan.Lexical.Kind == querycontract.MatchText && !structured {
+		if plan.Lexical.Kind == MatchText && !structured {
 			fts, err := value.LexicalCandidates(
 				ctx, ftsAnyQuery(terms), opts.Scope, candidateLimit,
 			)
@@ -250,7 +238,7 @@ func Run(ctx context.Context, value querycontract.Reader, query string, opts Opt
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
-	fingerprint := embedding.Fingerprint(*opts.Embedding)
+	fingerprint := embeddingcontract.Fingerprint(*opts.Embedding)
 	state, err := value.EmbeddingStateForScope(ctx, fingerprint, opts.Scope)
 	if err != nil {
 		return Result{}, fmt.Errorf("inspect embedding lane: %w", err)
@@ -276,27 +264,15 @@ func Run(ctx context.Context, value querycontract.Reader, query string, opts Opt
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
-	provider := opts.EmbeddingProvider
-	owned := provider == nil
-	if owned {
-		provider, err = embedding.New(ctx, opts.Root, *opts.Embedding)
-		if err != nil {
-			return semanticFailure(result, opts, lanes, started, err)
-		}
+	provider := opts.Embedding.Provider
+	if provider == nil {
+		return semanticFailure(result, opts, lanes, started, errors.New("embedding provider is unavailable"))
 	}
-	values, embedErr := provider.Embed(ctx, []embedding.Input{{
-		ID: "query", Text: embedding.QueryText(*opts.Embedding, plan.Semantic.Text),
+	values, embedErr := provider.Embed(ctx, []embeddingcontract.Input{{
+		ID: "query", Text: opts.Embedding.QueryPrefix + plan.Semantic.Text,
 	}})
 	if embedErr != nil {
-		if owned {
-			_ = provider.Close()
-		}
 		return semanticFailure(result, opts, lanes, started, embedErr)
-	}
-	if owned {
-		if closeErr := provider.Close(); closeErr != nil {
-			return semanticFailure(result, opts, lanes, started, closeErr)
-		}
 	}
 	if len(values) != 1 || values[0].ID != "query" {
 		return semanticFailure(result, opts, lanes, started, errors.New("provider returned an invalid query embedding"))
@@ -344,7 +320,7 @@ func Run(ctx context.Context, value querycontract.Reader, query string, opts Opt
 	return result, nil
 }
 
-func appendSupplementaryPaths(result *Result, records []store.Record) {
+func appendSupplementaryPaths(result *Result, records []Candidate) {
 	seen := make(map[string]bool, len(result.Records)+len(result.MorePaths))
 	for _, record := range result.Records {
 		seen[record.Path] = true
@@ -366,7 +342,7 @@ func appendSupplementaryPaths(result *Result, records []store.Record) {
 
 func graphLane(
 	ctx context.Context,
-	value querycontract.Reader,
+	value Reader,
 	query string,
 	lanes []lane,
 	scope string,
@@ -398,11 +374,11 @@ func graphLane(
 
 func regexpCandidates(
 	ctx context.Context,
-	value querycontract.Reader,
-	plan querycontract.Plan,
+	value Reader,
+	plan Plan,
 	scope string,
 	limit int,
-) ([]store.Record, error) {
+) ([]Candidate, error) {
 	expression, err := regexp.Compile(plan.Lexical.Pattern)
 	if err != nil {
 		return nil, err
@@ -415,7 +391,7 @@ func regexpCandidates(
 	if err != nil {
 		return nil, err
 	}
-	result := make([]store.Record, 0, min(limit, len(records)))
+	result := make([]Candidate, 0, min(limit, len(records)))
 	seenPaths := make(map[string]bool)
 	for _, record := range records {
 		if record.Kind == "file" || !expression.MatchString(record.Text) {
@@ -520,11 +496,11 @@ func promoteGraphHead(
 
 type lane struct {
 	name    string
-	records []store.Record
+	records []Candidate
 }
 
 type fused struct {
-	record    store.Record
+	record    Candidate
 	score     float64
 	retrieval map[string]bool
 	evidence  citationEvidence
@@ -914,7 +890,7 @@ func tokenEvidenceTerms(token string) []string {
 }
 
 func localizedCitation(
-	record store.Record,
+	record Candidate,
 	evidence citationEvidence,
 	excerptLimit int,
 ) (int, int, string, string) {
@@ -986,7 +962,7 @@ func codeIdentifierTermQuery(query string, terms []string) bool {
 	return false
 }
 
-func identifierLiteralRecords(records []store.Record, literal string) []store.Record {
+func identifierLiteralRecords(records []Candidate, literal string) []Candidate {
 	result := records[:0]
 	for _, record := range records {
 		if containsIdentifierLiteral(record.Text, literal) {

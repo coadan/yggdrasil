@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	embeddingcontract "github.com/coadan/yggdrasil/embedding"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
@@ -21,10 +22,9 @@ import (
 	"github.com/coadan/yggdrasil/internal/indexer"
 	"github.com/coadan/yggdrasil/internal/plugin"
 	"github.com/coadan/yggdrasil/internal/project"
-	"github.com/coadan/yggdrasil/internal/search"
 	"github.com/coadan/yggdrasil/internal/status"
 	"github.com/coadan/yggdrasil/internal/store"
-	querycontract "github.com/coadan/yggdrasil/query"
+	search "github.com/coadan/yggdrasil/query"
 )
 
 const usage = `Usage:
@@ -222,11 +222,11 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	if fixed && regexpPattern {
 		return r.fail(true, 2, errors.New("--fixed-strings and --regexp are mutually exclusive"))
 	}
-	matchKind := querycontract.MatchText
+	matchKind := search.MatchText
 	if fixed {
-		matchKind = querycontract.MatchFixed
+		matchKind = search.MatchFixed
 	} else if regexpPattern {
-		matchKind = querycontract.MatchRegexp
+		matchKind = search.MatchRegexp
 	}
 	query := ""
 	resolvedRoot := *root
@@ -245,7 +245,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		return r.fail(true, 2, fmt.Errorf("search limit must be between 1 and %d", search.MaxResults))
 	}
 	started := time.Now()
-	preflightPlan, err := querycontract.Parse(query, matchKind, *about, "")
+	preflightPlan, err := search.Parse(query, matchKind, *about, "")
 	if err != nil {
 		return r.fail(true, 2, err)
 	}
@@ -277,10 +277,24 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	}
 	defer releaseSearchIndexLock(indexLock)
 	defer value.Close()
+	var capability *embeddingcontract.Capability
+	var lazy *lazyEmbeddingProvider
+	if cfg.Embedding != nil {
+		lazy = &lazyEmbeddingProvider{root: paths.Root, config: *cfg.Embedding}
+		defer lazy.Close()
+		capability = &embeddingcontract.Capability{
+			Provider: lazy, ProviderFingerprint: "cli-compatibility",
+			IndexFingerprint: embedding.Fingerprint(*cfg.Embedding),
+			Model:            cfg.Embedding.Model, Dimensions: cfg.Embedding.Dimensions,
+			QueryPrefix:    cfg.Embedding.QueryPrefix,
+			DocumentPrefix: cfg.Embedding.DocumentPrefix,
+			BatchSize:      cfg.Embedding.BatchSize, MaxInputChars: cfg.Embedding.MaxInputChars,
+		}
+	}
 	result, err := search.Run(ctx, value, query, search.Options{
-		Mode: *mode, Limit: *limit, Root: paths.Root, Scope: paths.Scope,
+		Mode: *mode, Limit: *limit, Scope: paths.Scope,
 		MatchKind: matchKind, About: *about,
-		HasExtractors: len(cfg.Plugins) > 0, Embedding: cfg.Embedding,
+		HasExtractors: len(cfg.Plugins) > 0, Embedding: capability,
 	})
 	if errors.Is(err, search.ErrSemanticUnavailable) {
 		return r.fail(true, 3, err)

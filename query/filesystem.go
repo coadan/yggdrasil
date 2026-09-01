@@ -1,4 +1,4 @@
-package search
+package query
 
 import (
 	"context"
@@ -11,24 +11,23 @@ import (
 
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
-	"github.com/coadan/yggdrasil/internal/store"
-	querycontract "github.com/coadan/yggdrasil/query"
 )
 
 // FilesystemOptions bounds the live lexical fallback used while the durable
 // index is being replaced. It deliberately has no semantic or graph inputs.
 type FilesystemOptions struct {
-	Limit         int
-	Scope         string
-	IgnoreGlobs   []string
-	MaxFileBytes  int64
-	RequestedMode string
-	MatchKind     string
-	About         string
+	Limit          int
+	Scope          string
+	IgnoreGlobs    []string
+	MaxFileBytes   int64
+	RequestedMode  string
+	FallbackReason string
+	MatchKind      string
+	About          string
 }
 
 type filesystemCandidate struct {
-	record       store.Record
+	record       Candidate
 	evidence     citationEvidence
 	pathEvidence citationEvidence
 	literal      bool
@@ -56,7 +55,10 @@ func RunFilesystem(
 	if opts.RequestedMode == "" {
 		opts.RequestedMode = "auto"
 	}
-	plan, err := querycontract.Parse(query, opts.MatchKind, opts.About, opts.Scope)
+	if opts.FallbackReason == "" {
+		opts.FallbackReason = "index-busy"
+	}
+	plan, err := Parse(query, opts.MatchKind, opts.About, opts.Scope)
 	if err != nil {
 		return Result{}, err
 	}
@@ -84,7 +86,7 @@ func RunFilesystem(
 		}
 		evidence, matched := filesystemEvidence(plan, file.Content)
 		pathEvidence := citationEvidence{line: -1}
-		if plan.Lexical.Kind == querycontract.MatchText &&
+		if plan.Lexical.Kind == MatchText &&
 			!literalTermQuery(plan.Lexical.Pattern, queryTerms(plan.Lexical.Pattern)) {
 			pathEvidence = locateEvidence(file.Path, query)
 		}
@@ -93,7 +95,7 @@ func RunFilesystem(
 		}
 		lineCount := strings.Count(file.Content, "\n") + 1
 		ranked = append(ranked, filesystemCandidate{
-			record: store.Record{
+			record: Candidate{
 				ID: int64(index + 1), Path: file.Path,
 				StartLine: 1, EndLine: lineCount, Kind: file.Kind,
 				Title: file.Path, Text: file.Content, Source: "filesystem",
@@ -124,7 +126,7 @@ func RunFilesystem(
 	result := Result{
 		Schema: contracts.SearchSchema, Query: query,
 		RequestedMode: opts.RequestedMode, ActiveMode: "lexical",
-		FallbackReason: "index-busy", ElapsedMS: time.Since(started).Milliseconds(),
+		FallbackReason: opts.FallbackReason, ElapsedMS: time.Since(started).Milliseconds(),
 		QueryPlan: plan,
 	}
 	excerptLimit := resultExcerptLimit(opts.Limit)
@@ -149,9 +151,9 @@ func RunFilesystem(
 	return result, nil
 }
 
-func filesystemEvidence(plan querycontract.Plan, text string) (citationEvidence, bool) {
+func filesystemEvidence(plan Plan, text string) (citationEvidence, bool) {
 	switch plan.Lexical.Kind {
-	case querycontract.MatchFixed:
+	case MatchFixed:
 		index := strings.Index(text, plan.Lexical.Pattern)
 		if index < 0 {
 			return citationEvidence{line: -1}, false
@@ -161,7 +163,7 @@ func filesystemEvidence(plan querycontract.Plan, text string) (citationEvidence,
 		evidence.line = strings.Count(text[:index], "\n")
 		evidence.terms = max(1, evidence.terms)
 		return evidence, true
-	case querycontract.MatchRegexp:
+	case MatchRegexp:
 		expression, err := regexp.Compile(plan.Lexical.Pattern)
 		if err != nil {
 			return citationEvidence{line: -1}, false

@@ -21,7 +21,7 @@ import (
 
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
-	querycontract "github.com/coadan/yggdrasil/query"
+	querymodel "github.com/coadan/yggdrasil/query/model"
 	"github.com/ncruces/go-sqlite3"
 	"github.com/ncruces/go-sqlite3/driver"
 	"github.com/ncruces/go-sqlite3/ext/fts5"
@@ -70,7 +70,7 @@ type Counts struct {
 	Diagnostics int `json:"diagnostics"`
 }
 
-type Record = querycontract.Candidate
+type Record = querymodel.Candidate
 
 type EmbeddingInput struct {
 	ID        int64
@@ -89,7 +89,7 @@ type EmbeddingValue struct {
 	Vector    []float32
 }
 
-type EmbeddingState = querycontract.EmbeddingState
+type EmbeddingState = querymodel.EmbeddingState
 
 type Run struct {
 	ID           string         `json:"id"`
@@ -114,6 +114,30 @@ func Open(ctx context.Context, path, root, rootID string) (*Store, error) {
 		return nil, err
 	}
 	return value, nil
+}
+
+// OpenReadOnly opens an existing index without schema initialization or a busy
+// wait. It is used for request-local immutable query snapshots.
+func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
+	uri := (&url.URL{Scheme: "file", Path: path}).String()
+	db, err := driver.Open(
+		uri+"?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(0)",
+		func(conn *sqlite3.Conn) error {
+			if err := fts5.Register(conn); err != nil {
+				return err
+			}
+			return vec1.Register(conn)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &Store{db: db, path: path}, nil
 }
 
 // CloneDatabase creates a transactionally consistent snapshot and gives the

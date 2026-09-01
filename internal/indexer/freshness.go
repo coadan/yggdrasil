@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	extractorcontract "github.com/coadan/yggdrasil/extractor"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/discovery"
 	"github.com/coadan/yggdrasil/internal/embedding"
@@ -21,6 +22,21 @@ import (
 // dirty-path metadata so unchanged searches avoid a full discovery scan.
 func FreshnessToken(ctx context.Context, root string, cfg config.Config) (string, error) {
 	return freshnessToken(ctx, root, cfg, config.ExtractionFingerprint(cfg))
+}
+
+// FreshnessTokenWithExtractor includes a supplied extractor's immutable
+// identity without consulting ambient configuration.
+func FreshnessTokenWithExtractor(
+	ctx context.Context,
+	root string,
+	cfg config.Config,
+	provider extractorcontract.Provider,
+) (string, error) {
+	fingerprint, err := extractionFingerprint(cfg, provider)
+	if err != nil {
+		return "", err
+	}
+	return freshnessToken(ctx, root, cfg, fingerprint)
 }
 
 func freshnessToken(
