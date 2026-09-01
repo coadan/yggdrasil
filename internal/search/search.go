@@ -3,7 +3,6 @@ package search
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
@@ -60,70 +59,9 @@ type Options struct {
 	MinSemanticCoverage float64
 }
 
-type SemanticReadiness struct {
-	State              string  `json:"state"`
-	Embedded           int     `json:"embedded"`
-	Records            int     `json:"records"`
-	Coverage           float64 `json:"coverage"`
-	ActivationCoverage float64 `json:"activationCoverage"`
-}
-
-type Result struct {
-	Schema         string             `json:"schema"`
-	Query          string             `json:"query"`
-	RequestedMode  string             `json:"requestedMode"`
-	ActiveMode     string             `json:"activeMode"`
-	FallbackReason string             `json:"fallbackReason,omitempty"`
-	ElapsedMS      int64              `json:"elapsedMs"`
-	QueryPlan      querycontract.Plan `json:"queryPlan"`
-	Records        []RankedRecord     `json:"records"`
-	MorePaths      []string           `json:"morePaths,omitempty"`
-	Semantic       *SemanticReadiness `json:"semantic,omitempty"`
-}
-
-type RankedRecord struct {
-	Path       string         `json:"path"`
-	StartLine  int            `json:"startLine"`
-	EndLine    int            `json:"endLine"`
-	Kind       string         `json:"kind,omitempty"`
-	Title      string         `json:"title,omitempty"`
-	Excerpt    string         `json:"excerpt"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
-	Source     string         `json:"source,omitempty"`
-	Retrieval  []string       `json:"-"`
-	Score      float64        `json:"-"`
-	internalID int64
-}
-
-func (r RankedRecord) MarshalJSON() ([]byte, error) {
-	type publicRecord struct {
-		Path      string         `json:"path"`
-		StartLine int            `json:"startLine"`
-		EndLine   int            `json:"endLine"`
-		Kind      string         `json:"kind,omitempty"`
-		Title     string         `json:"title,omitempty"`
-		Excerpt   string         `json:"excerpt"`
-		Metadata  map[string]any `json:"metadata,omitempty"`
-		Source    string         `json:"source,omitempty"`
-	}
-	kind := r.Kind
-	if kind == "text-chunk" {
-		kind = ""
-	}
-	title := r.Title
-	if title == r.Path || title == fmt.Sprintf("%s:%d", r.Path, r.StartLine) {
-		title = ""
-	}
-	source := r.Source
-	if source == "core" {
-		source = ""
-	}
-	return json.Marshal(publicRecord{
-		Path: r.Path, StartLine: r.StartLine, EndLine: r.EndLine,
-		Kind: kind, Title: title, Excerpt: r.Excerpt,
-		Metadata: r.Metadata, Source: source,
-	})
-}
+type SemanticReadiness = querycontract.SemanticReadiness
+type Result = querycontract.Result
+type RankedRecord = querycontract.RankedRecord
 
 func Run(ctx context.Context, value *store.Store, query string, opts Options) (Result, error) {
 	started := time.Now()
@@ -726,17 +664,16 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 		startLine, endLine, title, citationExcerpt :=
 			localizedCitation(citation.record, citation.evidence, excerptLimit)
 		result = append(result, RankedRecord{
-			Path:       citation.record.Path,
-			StartLine:  startLine,
-			EndLine:    endLine,
-			Kind:       citation.record.Kind,
-			Title:      title,
-			Excerpt:    citationExcerpt,
-			Metadata:   citation.record.Metadata,
-			Source:     citation.record.Source,
-			Retrieval:  retrieval,
-			Score:      value.score,
-			internalID: citation.record.ID,
+			Path:      citation.record.Path,
+			StartLine: startLine,
+			EndLine:   endLine,
+			Kind:      citation.record.Kind,
+			Title:     title,
+			Excerpt:   citationExcerpt,
+			Metadata:  citation.record.Metadata,
+			Source:    citation.record.Source,
+			Retrieval: retrieval,
+			Score:     value.score,
 		})
 	}
 	return result
