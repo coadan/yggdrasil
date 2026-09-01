@@ -2,6 +2,8 @@
 // external subprocesses.
 package contracts
 
+import "github.com/coadan/yggdrasil/extractor"
+
 const (
 	ConfigSchema        = "ygg.config/v1"
 	ExtractorSchema     = "ygg.extractor/v1"
@@ -12,14 +14,4 @@ const (
 )
 
 // SearchRecord is the sole canonical output of extraction.
-type SearchRecord struct {
-	ID        string         `json:"id,omitempty"`
-	Path      string         `json:"path"`
-	StartLine int            `json:"startLine"`
-	EndLine   int            `json:"endLine"`
-	Kind      string         `json:"kind"`
-	Title     string         `json:"title,omitempty"`
-	Text      string         `json:"text"`
-	Metadata  map[string]any `json:"metadata,omitempty"`
-	Source    string         `json:"source,omitempty"`
-}
+type SearchRecord = extractor.Record
