@@ -466,7 +466,18 @@ func extractionFingerprint(
 	if len(providers) == 0 {
 		return fingerprint, nil
 	}
+	descriptors := make([]extractorcontract.Descriptor, 0, len(cfg.Plugins)+len(providers))
+	for _, plugin := range cfg.Plugins {
+		descriptors = append(descriptors, extractorcontract.CommandDescriptor(extractorcontract.CommandSpec{
+			ID: plugin.ID, Version: plugin.Version,
+			Command: plugin.Command, IncludeGlobs: plugin.IncludeGlobs,
+			TimeoutMS: plugin.TimeoutMS,
+		}))
+	}
 	seen := make(map[string]bool, len(providers))
+	for _, descriptor := range descriptors {
+		seen[descriptor.ID] = true
+	}
 	for _, provider := range providers {
 		if provider == nil {
 			return "", errors.New("extractor provider is nil")
@@ -479,10 +490,9 @@ func extractionFingerprint(
 			return "", fmt.Errorf("duplicate extractor provider id %q", descriptor.ID)
 		}
 		seen[descriptor.ID] = true
-		hash := sha256.Sum256([]byte(fingerprint + "\x00" + descriptor.ID + "\x00" + descriptor.Fingerprint))
-		fingerprint = "sha256:" + hex.EncodeToString(hash[:])
+		descriptors = append(descriptors, descriptor)
 	}
-	return fingerprint, nil
+	return config.ExtractionFingerprintWithProviders(cfg, descriptors), nil
 }
 
 func acquireIndexLock(ctx context.Context, lock *os.File, wait bool) error {

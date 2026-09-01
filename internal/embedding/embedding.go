@@ -56,6 +56,9 @@ func New(ctx context.Context, root string, cfg config.Embedding) (Provider, erro
 }
 
 func Fingerprint(cfg config.Embedding) string {
+	if cfg.Fingerprint != "" {
+		return cfg.Fingerprint
+	}
 	data, _ := json.Marshal(struct {
 		Behavior       string   `json:"behavior"`
 		Kind           string   `json:"kind"`

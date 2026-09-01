@@ -44,24 +44,55 @@ type Snapshot struct {
 
 type RefreshOptions struct {
 	Full          bool
+	NoEmbed       bool
 	PriorityScope string
 	PriorityPaths []string
 	// Aging ignores priority for this refresh unit.
 	Aging bool
 	// EmbeddingBatches bounds vector work. Zero defaults to one batch.
 	EmbeddingBatches int
+	// CompleteEmbeddings runs all remaining batches for explicit maintenance.
+	CompleteEmbeddings bool
+	Progress           func(Progress)
 }
 
 type RefreshResult struct {
-	Scanned         int
-	Indexed         int
-	Unchanged       int
-	Deleted         int
-	Skipped         int
-	Embedded        int
-	EmbeddingStatus string
-	Diagnostics     int
-	Coverage        Readiness
+	RunID           string    `json:"runId"`
+	UpToDate        bool      `json:"upToDate,omitempty"`
+	SeededFrom      string    `json:"seededFrom,omitempty"`
+	Scanned         int       `json:"scanned"`
+	Indexed         int       `json:"indexed"`
+	Unchanged       int       `json:"unchanged"`
+	Reused          int       `json:"reused"`
+	Deleted         int       `json:"deleted"`
+	Skipped         int       `json:"skipped"`
+	Embedded        int       `json:"embedded"`
+	EmbeddingStatus string    `json:"embeddingStatus"`
+	Diagnostics     int       `json:"diagnostics"`
+	PrunedIndexes   int       `json:"prunedIndexes,omitempty"`
+	PrunedBytes     int64     `json:"prunedBytes,omitempty"`
+	PruneSkipped    int       `json:"pruneSkipped,omitempty"`
+	ElapsedMS       int64     `json:"elapsedMs"`
+	Coverage        Readiness `json:"coverage,omitempty"`
+}
+
+type Progress struct {
+	Schema          string `json:"schema"`
+	Phase           string `json:"phase"`
+	RunID           string `json:"runId,omitempty"`
+	Completed       int    `json:"completed"`
+	Total           int    `json:"total"`
+	Path            string `json:"path,omitempty"`
+	Indexed         int    `json:"indexed,omitempty"`
+	Unchanged       int    `json:"unchanged,omitempty"`
+	Reused          int    `json:"reused,omitempty"`
+	Deleted         int    `json:"deleted,omitempty"`
+	Skipped         int    `json:"skipped,omitempty"`
+	Embedded        int    `json:"embedded,omitempty"`
+	EmbeddingModel  string `json:"embeddingModel,omitempty"`
+	EmbeddingStatus string `json:"embeddingStatus,omitempty"`
+	Error           string `json:"error,omitempty"`
+	ElapsedMS       int64  `json:"elapsedMs"`
 }
 
 type Readiness struct {
@@ -156,7 +187,7 @@ func (r *Repository) Refresh(ctx context.Context, opts RefreshOptions) (RefreshR
 		return RefreshResult{}, errors.New("embedding batch limit cannot be negative")
 	}
 	batches := opts.EmbeddingBatches
-	if batches == 0 {
+	if batches == 0 && !opts.CompleteEmbeddings {
 		batches = 1
 	}
 	priorityScope := opts.PriorityScope
@@ -171,20 +202,36 @@ func (r *Repository) Refresh(ctx context.Context, opts RefreshOptions) (RefreshR
 	}
 	summary, err := indexer.Run(ctx, r.paths, r.config, indexer.Options{
 		Full: opts.Full, EnsureCurrent: !opts.Full,
-		EnsureEmbeddings:  r.embedding != nil,
+		NoEmbed: opts.NoEmbed, EnsureEmbeddings: r.embedding != nil && !opts.NoEmbed,
 		EmbeddingProvider: provider, MaxEmbeddingBatches: batches,
 		EmbeddingPriorityScope: priorityScope,
 		EmbeddingPriorityPaths: priorityPaths,
 		ExtractorProviders:     r.extractors,
+		Progress: func(value indexer.Progress) {
+			if opts.Progress == nil {
+				return
+			}
+			opts.Progress(Progress{
+				Schema: value.Schema, Phase: value.Phase, RunID: value.RunID,
+				Completed: value.Completed, Total: value.Total, Path: value.Path,
+				Indexed: value.Indexed, Unchanged: value.Unchanged, Reused: value.Reused,
+				Deleted: value.Deleted, Skipped: value.Skipped, Embedded: value.Embedded,
+				EmbeddingModel: value.EmbeddingModel, EmbeddingStatus: value.EmbeddingStatus,
+				Error: value.Error, ElapsedMS: value.ElapsedMS,
+			})
+		},
 	})
 	if err != nil {
 		return RefreshResult{}, err
 	}
 	result := RefreshResult{
+		RunID: summary.RunID, UpToDate: summary.UpToDate, SeededFrom: summary.SeededFrom,
 		Scanned: summary.Scanned, Indexed: summary.Indexed,
-		Unchanged: summary.Unchanged, Deleted: summary.Deleted,
+		Unchanged: summary.Unchanged, Reused: summary.Reused, Deleted: summary.Deleted,
 		Skipped: summary.Skipped, Embedded: summary.Embedded,
 		EmbeddingStatus: summary.EmbeddingStatus, Diagnostics: summary.Diagnostics,
+		PrunedIndexes: summary.PrunedIndexes, PrunedBytes: summary.PrunedBytes,
+		PruneSkipped: summary.PruneSkipped, ElapsedMS: summary.ElapsedMS,
 	}
 	result.Coverage, err = r.Readiness(ctx, priorityScope)
 	if err != nil && !errors.Is(err, ErrUnavailable) {
@@ -239,5 +286,6 @@ func embeddingConfig(value embedding.Capability) *config.Embedding {
 		Model: value.Model, Dimensions: value.Dimensions,
 		QueryPrefix: value.QueryPrefix, DocumentPrefix: value.DocumentPrefix,
 		TimeoutMS: 10_000, BatchSize: value.BatchSize, MaxInputChars: value.MaxInputChars,
+		Fingerprint: embedding.Fingerprint(value),
 	}
 }

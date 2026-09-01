@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/coadan/yggdrasil/extractor"
 	"github.com/coadan/yggdrasil/internal/contracts"
 )
 
@@ -42,6 +43,7 @@ type Embedding struct {
 	TimeoutMS      int      `json:"timeoutMs,omitempty"`
 	BatchSize      int      `json:"batchSize,omitempty"`
 	MaxInputChars  int      `json:"maxInputChars,omitempty"`
+	Fingerprint    string   `json:"-"`
 }
 
 type Config struct {
@@ -232,16 +234,28 @@ func (c *Config) Validate() error {
 }
 
 func ExtractionFingerprint(c Config) string {
+	descriptors := make([]extractor.Descriptor, len(c.Plugins))
+	for index, plugin := range c.Plugins {
+		descriptors[index] = extractor.CommandDescriptor(extractor.CommandSpec{
+			ID: plugin.ID, Version: plugin.Version,
+			Command: plugin.Command, IncludeGlobs: plugin.IncludeGlobs,
+			TimeoutMS: plugin.TimeoutMS,
+		})
+	}
+	return ExtractionFingerprintWithProviders(c, descriptors)
+}
+
+func ExtractionFingerprintWithProviders(c Config, descriptors []extractor.Descriptor) string {
 	payload := struct {
-		CoreVersion  string   `json:"coreVersion"`
-		MaxFileBytes int64    `json:"maxFileBytes"`
-		IgnoreGlobs  []string `json:"ignoreGlobs"`
-		Plugins      []Plugin `json:"plugins"`
+		CoreVersion  string                 `json:"coreVersion"`
+		MaxFileBytes int64                  `json:"maxFileBytes"`
+		IgnoreGlobs  []string               `json:"ignoreGlobs"`
+		Extractors   []extractor.Descriptor `json:"extractors"`
 	}{
 		CoreVersion:  CoreExtractionVersion,
 		MaxFileBytes: c.MaxFileBytes,
 		IgnoreGlobs:  c.IgnoreGlobs,
-		Plugins:      c.Plugins,
+		Extractors:   descriptors,
 	}
 	data, _ := json.Marshal(payload)
 	sum := sha256.Sum256(data)
