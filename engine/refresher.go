@@ -96,24 +96,23 @@ func StartRefresher(
 }
 
 // Wake records priority for a later refresh unit and returns immediately.
-// Repeated calls coalesce exact paths without changing their first observed
-// rank and retain the most recent nonempty scope.
+// Repeated calls put the newest ranked paths ahead of older pending demand,
+// preserve rank within each call, and retain the most recent nonempty scope.
 func (r *Refresher) Wake(demand Demand) {
 	r.mu.Lock()
 	if demand.Scope != "" {
 		r.pending.Scope = demand.Scope
 	}
+	paths := make([]string, 0, min(MaxPriorityPaths, len(r.pending.Paths)+len(demand.Paths)))
 	seen := make(map[string]bool, len(r.pending.Paths)+len(demand.Paths))
-	for _, path := range r.pending.Paths {
-		seen[path] = true
-	}
-	for _, path := range demand.Paths {
-		if path == "" || seen[path] || len(r.pending.Paths) == MaxPriorityPaths {
+	for _, path := range append(append([]string(nil), demand.Paths...), r.pending.Paths...) {
+		if path == "" || seen[path] || len(paths) == MaxPriorityPaths {
 			continue
 		}
-		r.pending.Paths = append(r.pending.Paths, path)
+		paths = append(paths, path)
 		seen[path] = true
 	}
+	r.pending.Paths = paths
 	r.mu.Unlock()
 	select {
 	case r.wake <- struct{}{}:

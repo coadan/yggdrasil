@@ -34,13 +34,13 @@ func TestRefresherStartsExplicitlyAndCoalescesDemand(t *testing.T) {
 	if first := <-requests; !first.Aging {
 		t.Fatalf("initial demand=%#v", first)
 	}
-	value.Wake(Demand{Scope: "src/", Paths: []string{"a.go", "a.go"}})
-	value.Wake(Demand{Paths: []string{"b.go"}})
+	value.Wake(Demand{Scope: "src/", Paths: []string{"a.go", "shared.go", "a.go"}})
+	value.Wake(Demand{Paths: []string{"b.go", "shared.go"}})
 	close(releaseInitial)
 	select {
 	case demand := <-requests:
 		if demand.Aging || demand.Scope != "src/" ||
-			!reflect.DeepEqual(demand.Paths, []string{"a.go", "b.go"}) {
+			!reflect.DeepEqual(demand.Paths, []string{"b.go", "shared.go", "a.go"}) {
 			t.Fatalf("demand=%#v", demand)
 		}
 	case <-time.After(time.Second):
