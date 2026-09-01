@@ -44,7 +44,9 @@ type Options struct {
 	// work by explicit retrieval demand. They do not change readiness or rank.
 	EmbeddingPriorityPaths []string
 	EmbeddingPriorityScope string
-	Progress               func(Progress)
+	// EmbeddingAging ignores every priority tier for this run.
+	EmbeddingAging bool
+	Progress       func(Progress)
 }
 
 type Progress struct {
@@ -87,6 +89,7 @@ type Summary struct {
 
 const writeBatchSize = 128
 const automaticRefreshWait = 30 * time.Second
+const maxChangedPriorityPaths = 100
 
 var ErrIndexBusy = errors.New("another index run is active")
 
@@ -265,6 +268,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	var refreshes []store.FileRefresh
 	var deletes []string
 	var diagnostics []store.Diagnostic
+	var changedPaths []string
 	flush := func() error {
 		if len(refreshes)+len(updates)+len(deletes)+len(diagnostics) == 0 {
 			return nil
@@ -379,6 +383,9 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		updates = append(updates, store.FileUpdate{
 			File: file, ContentHash: contentHash, ExtractionFingerprint: fingerprint, Records: records,
 		})
+		if len(changedPaths) < maxChangedPriorityPaths {
+			changedPaths = append(changedPaths, candidate.Path)
+		}
 		if err := flushIfFull(); err != nil {
 			return summary, err
 		}
@@ -427,11 +434,17 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	if opts.NoEmbed {
 		summary.EmbeddingStatus = "skipped"
 	} else if cfg.Embedding != nil {
+		priority := store.EmbeddingPriority{
+			Paths: opts.EmbeddingPriorityPaths, Scope: opts.EmbeddingPriorityScope,
+			ChangedPaths: changedPaths,
+		}
+		if opts.EmbeddingAging {
+			priority = store.EmbeddingPriority{}
+		}
 		summary.Embedded, summary.EmbeddingStatus, err = embedRecords(
 			ctx, value, paths, *cfg.Embedding, opts.EmbeddingProvider,
-			opts.MaxEmbeddingBatches, store.EmbeddingPriority{
-				Paths: opts.EmbeddingPriorityPaths, Scope: opts.EmbeddingPriorityScope,
-			}, summary.RunID, &summary.Diagnostics, report,
+			opts.MaxEmbeddingBatches, priority, summary.RunID,
+			&summary.Diagnostics, report,
 		)
 		if err != nil {
 			return summary, err

@@ -83,6 +83,9 @@ type EmbeddingPriority struct {
 	// Paths are ordered from highest to lowest expected retrieval impact.
 	Paths []string
 	Scope string
+	// ChangedPaths were re-extracted in the current index generation. They are
+	// lower priority than explicit demand and scope, but precede cold records.
+	ChangedPaths []string
 }
 
 type EmbeddingValue struct {
@@ -1522,9 +1525,9 @@ func (s *Store) MissingEmbeddingInputs(
 }
 
 // MissingEmbeddingInputsByPriority orders derived work by explicit mechanical
-// demand. Exact paths retain caller order and precede the requested scope; all
-// remaining records stay eligible. Callers can periodically omit priority to
-// age the whole corpus.
+// demand. Exact paths retain caller order and precede the requested scope;
+// records changed in the current generation precede the remaining corpus.
+// Callers can periodically omit priority to age the whole corpus.
 func (s *Store) MissingEmbeddingInputsByPriority(
 	ctx context.Context,
 	fingerprint string,
@@ -1547,6 +1550,18 @@ func (s *Store) MissingEmbeddingInputsByPriority(
 	if len(paths) > 100 {
 		return nil, errors.New("embedding priority exceeds 100 paths")
 	}
+	changedPaths := make([]string, 0, len(priority.ChangedPaths))
+	for _, path := range priority.ChangedPaths {
+		path = strings.TrimSpace(path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		changedPaths = append(changedPaths, path)
+	}
+	if len(changedPaths) > 100 {
+		return nil, errors.New("embedding changed priority exceeds 100 paths")
+	}
 	priorityExpr := "0"
 	var args []any
 	var clauses []string
@@ -1558,8 +1573,16 @@ func (s *Store) MissingEmbeddingInputsByPriority(
 		clauses = append(clauses, "WHEN "+recordScopePredicate+" THEN "+strconv.Itoa(len(paths)))
 		args = append(args, priority.Scope, priority.Scope, priority.Scope, priority.Scope)
 	}
+	changedRank := len(paths)
+	if priority.Scope != "" {
+		changedRank++
+	}
+	for offset, path := range changedPaths {
+		clauses = append(clauses, "WHEN r.path=? THEN "+strconv.Itoa(changedRank+offset))
+		args = append(args, path)
+	}
 	if len(clauses) > 0 {
-		priorityExpr = "CASE " + strings.Join(clauses, " ") + " ELSE " + strconv.Itoa(len(paths)+1) + " END"
+		priorityExpr = "CASE " + strings.Join(clauses, " ") + " ELSE " + strconv.Itoa(changedRank+len(changedPaths)) + " END"
 	}
 	args = append(args, fingerprint, limit)
 	rows, err := s.db.QueryContext(ctx, `

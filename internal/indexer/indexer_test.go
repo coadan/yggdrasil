@@ -583,6 +583,54 @@ func TestRunPrioritizesRequestedEmbeddingScope(t *testing.T) {
 	}
 }
 
+func TestRunPrioritizesFilesChangedInCurrentGeneration(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	for path, content := range map[string]string{
+		"cold.txt":    "x",
+		"changed.txt": "changed file has deliberately longer content",
+	} {
+		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Embedding = &config.Embedding{
+		Kind: "command", Command: []string{"must-not-start"}, Model: "old",
+		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 1,
+	}
+	if _, err := Run(context.Background(), paths, cfg, Options{EmbeddingProvider: &retainedEmbeddingProvider{}}); err != nil {
+		t.Fatal(err)
+	}
+	changed := filepath.Join(root, "changed.txt")
+	if err := os.WriteFile(changed, []byte("updated file has deliberately longer content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(changed, info.ModTime().Add(time.Second), info.ModTime().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Embedding.Model = "new"
+	provider := &retainedEmbeddingProvider{}
+	summary, err := Run(context.Background(), paths, cfg, Options{
+		EmbeddingProvider: provider, MaxEmbeddingBatches: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Indexed != 1 || summary.EmbeddingStatus != "partial" || len(provider.texts) != 1 ||
+		!strings.Contains(provider.texts[0], "updated file") {
+		t.Fatalf("summary=%#v provider=%#v", summary, provider)
+	}
+}
+
 type retainedExtractorProvider struct {
 	calls       int
 	fingerprint string

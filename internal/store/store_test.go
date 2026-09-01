@@ -400,6 +400,7 @@ func TestMissingEmbeddingInputsPreservesRankedPathsThenScope(t *testing.T) {
 	defer value.Close()
 	for _, item := range []struct{ path, text string }{
 		{"cold/short.txt", "x"},
+		{"changed/owner.txt", "changed record"},
 		{"src/scoped.txt", "scoped medium text"},
 		{"docs/first.txt", "first ranked path with deliberately longer text"},
 		{"docs/second.txt", "second ranked path"},
@@ -414,8 +415,9 @@ func TestMissingEmbeddingInputsPreservesRankedPathsThenScope(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	prioritized, err := value.MissingEmbeddingInputsByPriority(ctx, "embed-fp", 3, EmbeddingPriority{
+	prioritized, err := value.MissingEmbeddingInputsByPriority(ctx, "embed-fp", 4, EmbeddingPriority{
 		Paths: []string{"docs/first.txt", "docs/second.txt"}, Scope: "src/",
+		ChangedPaths: []string{"changed/owner.txt"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -428,6 +430,7 @@ func TestMissingEmbeddingInputsPreservesRankedPathsThenScope(t *testing.T) {
 		"first ranked path with deliberately longer text",
 		"second ranked path",
 		"scoped medium text",
+		"changed record",
 	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("got=%q want=%q", got, want)
