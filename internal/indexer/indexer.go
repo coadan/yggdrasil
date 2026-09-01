@@ -32,7 +32,11 @@ type Options struct {
 	// EmbeddingProvider is retained and closed by its caller. When nil, Run
 	// constructs and closes the configured provider for CLI compatibility.
 	EmbeddingProvider embeddingcontract.Provider
-	Progress          func(Progress)
+	// MaxEmbeddingBatches bounds semantic work in this run. Zero completes all
+	// missing vectors for CLI compatibility; a positive value lets a host
+	// progressively schedule bounded work.
+	MaxEmbeddingBatches int
+	Progress            func(Progress)
 }
 
 type Progress struct {
@@ -79,6 +83,9 @@ const automaticRefreshWait = 30 * time.Second
 var ErrIndexBusy = errors.New("another index run is active")
 
 func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Options) (summary Summary, err error) {
+	if opts.MaxEmbeddingBatches < 0 {
+		return Summary{}, errors.New("maximum embedding batches cannot be negative")
+	}
 	started := time.Now()
 	progressRunID := fmt.Sprintf("run-%d", time.Now().UnixNano())
 	report := func(progress Progress) {
@@ -385,7 +392,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	} else if cfg.Embedding != nil {
 		summary.Embedded, summary.EmbeddingStatus, err = embedRecords(
 			ctx, value, paths, *cfg.Embedding, opts.EmbeddingProvider,
-			summary.RunID, &summary.Diagnostics, report,
+			opts.MaxEmbeddingBatches, summary.RunID, &summary.Diagnostics, report,
 		)
 		if err != nil {
 			return summary, err
@@ -454,6 +461,7 @@ func embedRecords(
 	paths project.Paths,
 	cfg config.Embedding,
 	provider embeddingcontract.Provider,
+	maxBatches int,
 	runID string,
 	diagnostics *int,
 	report func(Progress),
@@ -491,6 +499,8 @@ func embedRecords(
 		}
 	}()
 	embedded := 0
+	batches := 0
+	status := "ready"
 	for {
 		request := make([]embedding.Input, len(inputs))
 		byID := make(map[string]store.EmbeddingInput, len(inputs))
@@ -526,6 +536,7 @@ func embedRecords(
 			return embedded, "", err
 		}
 		embedded += upserted
+		batches++
 		state.Embedded += upserted
 		report(Progress{
 			Phase: "embedding", Completed: state.Embedded, Total: state.Records,
@@ -538,6 +549,10 @@ func embedRecords(
 		if len(inputs) == 0 {
 			break
 		}
+		if maxBatches > 0 && batches >= maxBatches {
+			status = "partial"
+			break
+		}
 	}
 	if owned {
 		if err := provider.Close(); err != nil {
@@ -546,7 +561,7 @@ func embedRecords(
 		}
 		closed = true
 	}
-	return embedded, "ready", nil
+	return embedded, status, nil
 }
 
 func embeddingDiagnostic(

@@ -575,6 +575,57 @@ func TestRunUsesCallerOwnedEmbeddingProvider(t *testing.T) {
 	}
 }
 
+func TestRunProgressivelyCompletesEmbeddingBatches(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("content "+name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Embedding = &config.Embedding{
+		Kind: "command", Command: []string{"must-not-start"}, Model: "retained",
+		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 1,
+	}
+	provider := &retainedEmbeddingProvider{}
+	completed := false
+	for attempt := 0; attempt < 10; attempt++ {
+		summary, err := Run(context.Background(), paths, cfg, Options{
+			EnsureCurrent: attempt > 0, EnsureEmbeddings: true,
+			EmbeddingProvider: provider, MaxEmbeddingBatches: 1,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if summary.EmbeddingStatus == "ready" {
+			completed = true
+			break
+		}
+		if summary.EmbeddingStatus != "partial" || summary.Embedded != 1 {
+			t.Fatalf("attempt %d summary=%#v", attempt, summary)
+		}
+	}
+	if !completed || provider.calls < 2 || provider.closeCalls != 0 {
+		t.Fatalf("completed=%v provider=%#v", completed, provider)
+	}
+	calls := provider.calls
+	summary, err := Run(context.Background(), paths, cfg, Options{
+		EnsureCurrent: true, EnsureEmbeddings: true,
+		EmbeddingProvider: provider, MaxEmbeddingBatches: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !summary.UpToDate || summary.EmbeddingStatus != "ready" || provider.calls != calls {
+		t.Fatalf("settled summary=%#v calls=%d want %d", summary, provider.calls, calls)
+	}
+}
+
 func TestEnsureCurrentCompletesSkippedEmbeddingsThenNoOps(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
