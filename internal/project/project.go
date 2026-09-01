@@ -69,13 +69,26 @@ func gitRoot(root string) (string, error) {
 }
 
 func Resolve(explicit string) (Paths, error) {
+	storageRoot, err := storageRoot()
+	if err != nil {
+		return Paths{}, err
+	}
+	return ResolveAt(explicit, storageRoot)
+}
+
+// ResolveAt resolves repository state paths under an explicit storage root.
+// Library callers use this instead of ambient YGG_STORAGE_ROOT discovery.
+func ResolveAt(explicit, storageRoot string) (Paths, error) {
 	root, scope, err := resolveRootScope(explicit)
 	if err != nil {
 		return Paths{}, err
 	}
-	storageRoot, err := storageRoot()
+	if storageRoot == "" {
+		return Paths{}, errors.New("storage root is required")
+	}
+	storageRoot, err = filepath.Abs(storageRoot)
 	if err != nil {
-		return Paths{}, err
+		return Paths{}, fmt.Errorf("resolve storage root: %w", err)
 	}
 	familyRoot := root
 	if output, gitErr := exec.Command(
