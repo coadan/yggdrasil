@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,22 @@ import (
 
 	"github.com/coadan/yggdrasil/embedding"
 	"github.com/coadan/yggdrasil/query"
+	"github.com/ncruces/go-sqlite3"
 )
+
+func TestSnapshotLockErrorsAreFallbackSignals(t *testing.T) {
+	for _, err := range []error{
+		fmt.Errorf("open snapshot: %w", sqlite3.BUSY),
+		fmt.Errorf("read snapshot: %w", sqlite3.LOCKED),
+	} {
+		if !IsSnapshotUnavailable(err) {
+			t.Fatalf("error was not classified as transient: %v", err)
+		}
+	}
+	if IsSnapshotUnavailable(errors.New("database is malformed")) {
+		t.Fatal("non-lock storage error must remain visible")
+	}
+}
 
 type retainedProvider struct {
 	calls int

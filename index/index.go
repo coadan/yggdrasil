@@ -15,10 +15,18 @@ import (
 	"github.com/coadan/yggdrasil/internal/project"
 	"github.com/coadan/yggdrasil/internal/store"
 	"github.com/coadan/yggdrasil/query"
+	"github.com/ncruces/go-sqlite3"
 )
 
 var ErrUnavailable = errors.New("repository index is unavailable")
 var ErrStale = errors.New("repository index is stale")
+
+// IsSnapshotUnavailable reports transient snapshot conditions for which an
+// immediate filesystem fallback is safe. Other storage errors remain visible.
+func IsSnapshotUnavailable(err error) bool {
+	return errors.Is(err, ErrUnavailable) || errors.Is(err, ErrStale) ||
+		errors.Is(err, sqlite3.BUSY) || errors.Is(err, sqlite3.LOCKED)
+}
 
 type Options struct {
 	Root         string
@@ -162,6 +170,9 @@ func (r *Repository) OpenSnapshot(ctx context.Context) (*Snapshot, error) {
 	}
 	value, err := store.OpenReadOnly(ctx, r.paths.Database)
 	if err != nil {
+		if IsSnapshotUnavailable(err) {
+			return nil, ErrUnavailable
+		}
 		return nil, fmt.Errorf("open repository snapshot: %w", err)
 	}
 	current, err := indexer.FreshnessTokenWithExtractors(
@@ -174,6 +185,9 @@ func (r *Repository) OpenSnapshot(ctx context.Context) (*Snapshot, error) {
 	indexed, err := value.IndexFreshnessToken(ctx)
 	if err != nil {
 		value.Close()
+		if IsSnapshotUnavailable(err) {
+			return nil, ErrUnavailable
+		}
 		return nil, err
 	}
 	if current == "" || current != indexed {

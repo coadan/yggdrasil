@@ -71,12 +71,15 @@ func (s *Service) Search(
 	if err == nil {
 		defer snapshot.Close()
 		result, searchErr := query.Run(ctx, snapshot, pattern, opts)
+		if index.IsSnapshotUnavailable(searchErr) {
+			return s.searchFilesystem(ctx, pattern, opts, "index-busy")
+		}
 		if searchErr == nil {
 			s.prioritize(result)
 		}
 		return result, searchErr
 	}
-	if !errors.Is(err, index.ErrUnavailable) && !errors.Is(err, index.ErrStale) {
+	if !index.IsSnapshotUnavailable(err) {
 		return query.Result{}, err
 	}
 	mode := opts.Mode
@@ -89,6 +92,19 @@ func (s *Service) Search(
 	reason := "index-unavailable"
 	if errors.Is(err, index.ErrStale) {
 		reason = "index-stale"
+	}
+	return s.searchFilesystem(ctx, pattern, opts, reason)
+}
+
+func (s *Service) searchFilesystem(
+	ctx context.Context,
+	pattern string,
+	opts query.Options,
+	reason string,
+) (query.Result, error) {
+	mode := opts.Mode
+	if mode == "" {
+		mode = "auto"
 	}
 	result, searchErr := query.RunFilesystem(ctx, s.repository.Root(), pattern, query.FilesystemOptions{
 		Limit: opts.Limit, Scope: opts.Scope,
