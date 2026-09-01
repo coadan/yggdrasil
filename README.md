@@ -184,6 +184,11 @@ from the Go binary; see the [local worker setup](plugins/embedding-local/README.
 See [contracts](docs/contracts.md) for extractor, configuration, and result
 schemas.
 
+Yggdrasil is being separated into a composable Go library with the CLI as one
+frontend. The accepted [library architecture](docs/decisions/0001-composable-go-library.md)
+keeps query, index, extractor, and embedding mechanisms independently usable and
+leaves lifecycle and scheduling with the host.
+
 ## Core ideas
 
 - **Concrete facts first.** Core uses file discovery, file kinds, parser output,
