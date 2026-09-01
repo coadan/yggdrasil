@@ -171,9 +171,11 @@ length must equal the configured dimensions.
 ## JSON CLI envelopes
 
 Operational commands always return JSON with `schema`, `ok`, and either `data`
-or `error`. Search data uses schema `ygg.search.result/v4` and includes the
+or `error`. Search data uses schema `ygg.search.result/v5` and includes the
 requested mode, active mode, fallback reason, timing, resolved `queryPlan`, and
-ranked records with path/line citations. The query plan separates a `text`,
+ranked records with path/line citations. When semantic retrieval is configured,
+the result also reports its state, scope-specific vector counts, coverage, and
+activation threshold. The query plan separates a `text`,
 `fixed`, or `regexp` lexical clause from optional semantic text and its
 `pattern`, `regexp-literals`, or `about` source. Records expose navigation evidence, not internal fusion
 scores or retrieval-lane diagnostics. The default core `text-chunk` kind,

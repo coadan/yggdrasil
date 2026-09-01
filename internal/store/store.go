@@ -1601,14 +1601,26 @@ func (s *Store) UpsertEmbeddings(
 }
 
 func (s *Store) EmbeddingState(ctx context.Context, fingerprint string) (EmbeddingState, error) {
+	return s.EmbeddingStateForScope(ctx, fingerprint, "")
+}
+
+// EmbeddingStateForScope reports compatible vector coverage for one repository
+// scope. An empty scope reports repository-wide coverage.
+func (s *Store) EmbeddingStateForScope(
+	ctx context.Context,
+	fingerprint string,
+	scope string,
+) (EmbeddingState, error) {
 	state := EmbeddingState{Fingerprint: fingerprint}
 	err := s.db.QueryRowContext(ctx,
 		`SELECT model,dimensions FROM embedding_lane WHERE id=1 AND fingerprint=?`,
 		fingerprint).Scan(&state.Model, &state.Dimensions)
 	if errors.Is(err, sql.ErrNoRows) {
 		if err := s.db.QueryRowContext(ctx, `
-			SELECT count(*) FROM records WHERE kind<>'file'
-				AND coalesce(json_extract(metadata_json,'$.semantic'),1)<>0`).Scan(&state.Records); err != nil {
+			SELECT count(*) FROM records r WHERE r.kind<>'file'
+				AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0
+				AND `+recordScopePredicate,
+			scope, scope, scope, scope).Scan(&state.Records); err != nil {
 			return EmbeddingState{}, err
 		}
 		return state, nil
@@ -1618,8 +1630,10 @@ func (s *Store) EmbeddingState(ctx context.Context, fingerprint string) (Embeddi
 	}
 	state.Configured = true
 	if err := s.db.QueryRowContext(ctx, `
-		SELECT count(*) FROM records WHERE kind<>'file'
-			AND coalesce(json_extract(metadata_json,'$.semantic'),1)<>0`).Scan(&state.Records); err != nil {
+		SELECT count(*) FROM records r WHERE r.kind<>'file'
+			AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0
+			AND `+recordScopePredicate,
+		scope, scope, scope, scope).Scan(&state.Records); err != nil {
 		return EmbeddingState{}, err
 	}
 	if err := s.db.QueryRowContext(ctx, `
@@ -1627,8 +1641,9 @@ func (s *Store) EmbeddingState(ctx context.Context, fingerprint string) (Embeddi
 		FROM embedding_records e
 		JOIN records r ON r.id=e.record_id
 		WHERE e.fingerprint=? AND e.input_hash=r.input_hash AND r.kind<>'file'
-			AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0`,
-		fingerprint).Scan(&state.Embedded); err != nil {
+			AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0
+			AND `+recordScopePredicate,
+		fingerprint, scope, scope, scope, scope).Scan(&state.Embedded); err != nil {
 		return EmbeddingState{}, err
 	}
 	state.Complete = state.Embedded == state.Records

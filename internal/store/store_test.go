@@ -341,6 +341,55 @@ func TestEmbeddingLaneExcludesLexicalOnlyExtractorFacts(t *testing.T) {
 	}
 }
 
+func TestEmbeddingStateForScopeExcludesOtherPaths(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, path := range []string{"src/ready.go", "docs/missing.md"} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: path, Size: 20, MTimeNS: 1},
+			Kind:      "text",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, path, "fingerprint", []contracts.SearchRecord{{
+			Path: path, StartLine: 1, EndLine: 1, Kind: "text", Text: path, Source: "core",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := value.PrepareEmbeddingLane(ctx, "embed-fp", "model", 2); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, "embed-fp", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ready EmbeddingInput
+	for _, input := range inputs {
+		if input.Text == "src/ready.go" {
+			ready = input
+		}
+	}
+	if ready.ID == 0 {
+		t.Fatalf("inputs=%#v", inputs)
+	}
+	if _, err := value.UpsertEmbeddings(ctx, "embed-fp", 2, []EmbeddingValue{{
+		ID: ready.ID, InputHash: ready.InputHash, Vector: []float32{1, 0},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	scoped, err := value.EmbeddingStateForScope(ctx, "embed-fp", "src/")
+	if err != nil || !scoped.Complete || scoped.Records != 1 || scoped.Embedded != 1 {
+		t.Fatalf("scoped=%#v err=%v", scoped, err)
+	}
+	all, err := value.EmbeddingState(ctx, "embed-fp")
+	if err != nil || all.Complete || all.Records != 2 || all.Embedded != 1 {
+		t.Fatalf("all=%#v err=%v", all, err)
+	}
+}
+
 func TestLexicalCandidateLimitCountsUniquePaths(t *testing.T) {
 	ctx := context.Background()
 	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
