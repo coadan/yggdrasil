@@ -23,15 +23,18 @@ func newProgressReporter(writer io.Writer) *progressReporter {
 }
 
 func (r *progressReporter) Report(progress indexer.Progress) {
+	r.report(progress.Phase, progress.Completed, progress.Total, progress)
+}
+
+func (r *progressReporter) report(phase string, completed, total int, progress any) {
 	now := time.Now()
-	terminal := progress.Phase == "complete" || progress.Phase == "failed" ||
-		progress.Completed == progress.Total
-	if progress.Phase == r.lastPhase && !terminal &&
+	terminal := phase == "complete" || phase == "failed" || completed == total
+	if phase == r.lastPhase && !terminal &&
 		now.Sub(r.lastReport) < progressInterval {
 		return
 	}
 	if r.encoder.Encode(progress) == nil {
-		r.lastPhase = progress.Phase
+		r.lastPhase = phase
 		r.lastReport = now
 	}
 }

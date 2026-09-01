@@ -4,9 +4,6 @@ package command
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 
 	"github.com/coadan/yggdrasil/extractor"
 	"github.com/coadan/yggdrasil/internal/config"
@@ -14,13 +11,7 @@ import (
 	"github.com/coadan/yggdrasil/internal/plugin"
 )
 
-type Spec struct {
-	ID           string
-	Version      string
-	Command      []string
-	IncludeGlobs []string
-	TimeoutMS    int
-}
+type Spec = extractor.CommandSpec
 
 type Provider struct {
 	descriptor extractor.Descriptor
@@ -41,13 +32,9 @@ func New(ctx context.Context, root string, spec Spec) (*Provider, error) {
 	if err := validation.Validate(); err != nil {
 		return nil, err
 	}
-	payload, _ := json.Marshal(spec)
-	sum := sha256.Sum256(payload)
 	return &Provider{
-		descriptor: extractor.Descriptor{
-			ID: spec.ID, Fingerprint: "sha256:" + hex.EncodeToString(sum[:]),
-		},
-		manager: plugin.NewManager(ctx, root, []config.Plugin{pluginConfig}),
+		descriptor: extractor.CommandDescriptor(spec),
+		manager:    plugin.NewManager(ctx, root, []config.Plugin{pluginConfig}),
 	}, nil
 }
 

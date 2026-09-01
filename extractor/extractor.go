@@ -3,6 +3,8 @@ package extractor
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +21,22 @@ const (
 type Descriptor struct {
 	ID          string
 	Fingerprint string
+}
+
+type CommandSpec struct {
+	ID           string
+	Version      string
+	Command      []string
+	IncludeGlobs []string
+	TimeoutMS    int
+}
+
+func CommandDescriptor(spec CommandSpec) Descriptor {
+	payload, _ := json.Marshal(spec)
+	sum := sha256.Sum256(payload)
+	return Descriptor{
+		ID: spec.ID, Fingerprint: "sha256:" + hex.EncodeToString(sum[:]),
+	}
 }
 
 type File struct {

@@ -14,7 +14,9 @@ import (
 	"syscall"
 	"time"
 
-	embeddingcontract "github.com/coadan/yggdrasil/embedding"
+	extractorcontract "github.com/coadan/yggdrasil/extractor"
+	commandextractor "github.com/coadan/yggdrasil/extractor/command"
+	publicindex "github.com/coadan/yggdrasil/index"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
@@ -169,14 +171,50 @@ func (r *runner) runIndex(ctx context.Context, args []string) int {
 	if err != nil {
 		return r.fail(true, 2, err)
 	}
-	progress := newProgressReporter(r.stderr)
-	summary, err := indexer.Run(ctx, paths, cfg, indexer.Options{
-		Full:             *full,
-		NoEmbed:          *noEmbed,
-		EnsureCurrent:    !*full,
-		EnsureEmbeddings: !*noEmbed,
-		Progress:         progress.Report,
+	providers := make([]extractorcontract.Provider, 0, len(cfg.Plugins))
+	commandProviders := make([]*commandextractor.Provider, 0, len(cfg.Plugins))
+	for _, pluginConfig := range cfg.Plugins {
+		provider, providerErr := commandextractor.New(ctx, paths.Root, commandextractor.Spec{
+			ID: pluginConfig.ID, Version: pluginConfig.Version,
+			Command: pluginConfig.Command, IncludeGlobs: pluginConfig.IncludeGlobs,
+			TimeoutMS: pluginConfig.TimeoutMS,
+		})
+		if providerErr != nil {
+			return r.fail(true, 1, providerErr)
+		}
+		providers = append(providers, provider)
+		commandProviders = append(commandProviders, provider)
+	}
+	capability, lazy := lazyCapability(paths.Root, cfg.Embedding)
+	repository, err := publicindex.Open(publicindex.Options{
+		Root:        paths.Root,
+		StorageRoot: filepath.Dir(filepath.Dir(paths.StateDir)),
+		IgnoreGlobs: cfg.IgnoreGlobs, MaxFileBytes: cfg.MaxFileBytes,
+		Extractors: providers, Embedding: capability,
 	})
+	if err != nil {
+		return r.fail(true, 1, err)
+	}
+	progress := newProgressReporter(r.stderr)
+	summary, err := repository.Refresh(ctx, publicindex.RefreshOptions{
+		Full: *full, NoEmbed: *noEmbed, CompleteEmbeddings: !*noEmbed,
+		Progress: func(value publicindex.Progress) {
+			progress.report(value.Phase, value.Completed, value.Total, value)
+		},
+	})
+	if lazy != nil {
+		if closeErr := lazy.Close(); err == nil && closeErr != nil {
+			err = closeErr
+		}
+	}
+	for _, provider := range commandProviders {
+		if diagnostics := provider.Close(); err == nil && len(diagnostics) > 0 {
+			err = fmt.Errorf(
+				"extractor %s did not close cleanly: %s",
+				provider.Descriptor().ID, diagnostics[0].Message,
+			)
+		}
+	}
 	if err != nil {
 		return r.fail(true, 1, err)
 	}
@@ -277,19 +315,9 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	}
 	defer releaseSearchIndexLock(indexLock)
 	defer value.Close()
-	var capability *embeddingcontract.Capability
-	var lazy *lazyEmbeddingProvider
-	if cfg.Embedding != nil {
-		lazy = &lazyEmbeddingProvider{root: paths.Root, config: *cfg.Embedding}
+	capability, lazy := lazyCapability(paths.Root, cfg.Embedding)
+	if lazy != nil {
 		defer lazy.Close()
-		capability = &embeddingcontract.Capability{
-			Provider: lazy, ProviderFingerprint: "cli-compatibility",
-			IndexFingerprint: embedding.Fingerprint(*cfg.Embedding),
-			Model:            cfg.Embedding.Model, Dimensions: cfg.Embedding.Dimensions,
-			QueryPrefix:    cfg.Embedding.QueryPrefix,
-			DocumentPrefix: cfg.Embedding.DocumentPrefix,
-			BatchSize:      cfg.Embedding.BatchSize, MaxInputChars: cfg.Embedding.MaxInputChars,
-		}
 	}
 	result, err := search.Run(ctx, value, query, search.Options{
 		Mode: *mode, Limit: *limit, Scope: paths.Scope,

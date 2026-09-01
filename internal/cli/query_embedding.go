@@ -16,6 +16,23 @@ type lazyEmbeddingProvider struct {
 	provider embeddingcontract.Provider
 }
 
+func lazyCapability(
+	root string,
+	cfg *config.Embedding,
+) (*embeddingcontract.Capability, *lazyEmbeddingProvider) {
+	if cfg == nil {
+		return nil, nil
+	}
+	lazy := &lazyEmbeddingProvider{root: root, config: *cfg}
+	return &embeddingcontract.Capability{
+		Provider: lazy, ProviderFingerprint: "cli-compatibility",
+		IndexFingerprint: internalembedding.Fingerprint(*cfg),
+		Model:            cfg.Model, Dimensions: cfg.Dimensions,
+		QueryPrefix: cfg.QueryPrefix, DocumentPrefix: cfg.DocumentPrefix,
+		BatchSize: cfg.BatchSize, MaxInputChars: cfg.MaxInputChars,
+	}, lazy
+}
+
 func (p *lazyEmbeddingProvider) Embed(
 	ctx context.Context,
 	inputs []embeddingcontract.Input,
