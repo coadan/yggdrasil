@@ -560,7 +560,7 @@ func TestSearchLazilySeedsLinkedWorktreeIndex(t *testing.T) {
 	}
 }
 
-func TestSearchWaitsForConcurrentIndexCommit(t *testing.T) {
+func TestSearchUsesCurrentSnapshotDuringConcurrentIndexWork(t *testing.T) {
 	isolateCLIUserConfig(t)
 	root := t.TempDir()
 	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
@@ -594,53 +594,29 @@ func TestSearchWaitsForConcurrentIndexCommit(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	done := make(chan int, 1)
-	go func() {
-		done <- Main(context.Background(), []string{
-			"search", "--root", root, "--mode", "lexical", "retired-owner",
-		}, &stdout, &stderr)
-	}()
-	select {
-	case code := <-done:
-		t.Fatalf("search returned before index commit: code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
-	case <-time.After(50 * time.Millisecond):
+	started := time.Now()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "--mode", "lexical", "retired-owner",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
-
-	value, err := store.Open(context.Background(), paths.Database, paths.Root, paths.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := value.DeleteFile(context.Background(), "retired-owner.txt"); err != nil {
-		value.Close()
-		t.Fatal(err)
-	}
-	if err := value.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
-		t.Fatal(err)
-	}
-	locked = false
-
-	select {
-	case code := <-done:
-		if code != 0 {
-			t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("search did not resume after index commit")
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("search waited for index work: %s", elapsed)
 	}
 	var response struct {
 		OK   bool `json:"ok"`
 		Data struct {
-			Records []json.RawMessage `json:"records"`
+			Records []struct {
+				Path string `json:"path"`
+			} `json:"records"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if !response.OK || len(response.Data.Records) != 0 {
-		t.Fatalf("search observed stale records: %s", stdout.String())
+	if !response.OK || len(response.Data.Records) != 1 ||
+		response.Data.Records[0].Path != "retired-owner.txt" {
+		t.Fatalf("search did not use current snapshot: %s", stdout.String())
 	}
 }
 

@@ -53,6 +53,7 @@ type RefreshOptions struct {
 	EmbeddingBatches int
 	// CompleteEmbeddings runs all remaining batches for explicit maintenance.
 	CompleteEmbeddings bool
+	WaitForWriter      bool
 	Progress           func(Progress)
 }
 
@@ -201,7 +202,7 @@ func (r *Repository) Refresh(ctx context.Context, opts RefreshOptions) (RefreshR
 		provider = r.embedding.Provider
 	}
 	summary, err := indexer.Run(ctx, r.paths, r.config, indexer.Options{
-		Full: opts.Full, EnsureCurrent: !opts.Full,
+		Full: opts.Full, EnsureCurrent: opts.WaitForWriter && !opts.Full,
 		NoEmbed: opts.NoEmbed, EnsureEmbeddings: r.embedding != nil && !opts.NoEmbed,
 		EmbeddingProvider: provider, MaxEmbeddingBatches: batches,
 		EmbeddingPriorityScope: priorityScope,
