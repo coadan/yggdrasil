@@ -531,15 +531,55 @@ func TestRunBuildsConfiguredEmbeddingLane(t *testing.T) {
 type retainedEmbeddingProvider struct {
 	calls      int
 	closeCalls int
+	texts      []string
 }
 
 func (p *retainedEmbeddingProvider) Embed(_ context.Context, inputs []embeddingcontract.Input) ([]embeddingcontract.Value, error) {
 	p.calls++
 	values := make([]embeddingcontract.Value, len(inputs))
 	for i, input := range inputs {
+		p.texts = append(p.texts, input.Text)
 		values[i] = embeddingcontract.Value{ID: input.ID, Vector: []float32{1, 0}}
 	}
 	return values, nil
+}
+
+func TestRunPrioritizesRequestedEmbeddingScope(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	for path, content := range map[string]string{
+		"cold/a.txt":     "x",
+		"src/target.txt": "requested scope has longer content",
+	} {
+		full := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Embedding = &config.Embedding{
+		Kind: "command", Command: []string{"must-not-start"}, Model: "retained",
+		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 1,
+	}
+	provider := &retainedEmbeddingProvider{}
+	summary, err := Run(context.Background(), paths, cfg, Options{
+		EmbeddingProvider: provider, MaxEmbeddingBatches: 1,
+		EmbeddingPriorityScope: "src/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.EmbeddingStatus != "partial" || len(provider.texts) != 1 ||
+		!strings.Contains(provider.texts[0], "requested scope") {
+		t.Fatalf("summary=%#v provider=%#v", summary, provider)
+	}
 }
 
 func (p *retainedEmbeddingProvider) Close() error {

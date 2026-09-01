@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/coadan/yggdrasil/internal/contracts"
@@ -387,6 +388,48 @@ func TestEmbeddingStateForScopeExcludesOtherPaths(t *testing.T) {
 	all, err := value.EmbeddingState(ctx, "embed-fp")
 	if err != nil || all.Complete || all.Records != 2 || all.Embedded != 1 {
 		t.Fatalf("all=%#v err=%v", all, err)
+	}
+}
+
+func TestMissingEmbeddingInputsOrdersExactPathsThenScope(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct{ path, text string }{
+		{"cold/short.txt", "x"},
+		{"src/scoped.txt", "scoped medium text"},
+		{"docs/exact.txt", "exact path with deliberately longer text"},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: int64(len(item.text)), MTimeNS: 1},
+			Kind:      "text",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.text, "fingerprint", []contracts.SearchRecord{{
+			Path: item.path, StartLine: 1, EndLine: 1, Kind: "text", Text: item.text, Source: "core",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prioritized, err := value.MissingEmbeddingInputsByPriority(ctx, "embed-fp", 3, EmbeddingPriority{
+		Paths: []string{"docs/exact.txt"}, Scope: "src/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(prioritized))
+	for _, input := range prioritized {
+		got = append(got, input.Text)
+	}
+	want := []string{"exact path with deliberately longer text", "scoped medium text", "x"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("got=%q want=%q", got, want)
+	}
+	unprioritized, err := value.MissingEmbeddingInputs(ctx, "embed-fp", 1)
+	if err != nil || len(unprioritized) != 1 || unprioritized[0].Text != "x" {
+		t.Fatalf("unprioritized=%#v err=%v", unprioritized, err)
 	}
 }
 
