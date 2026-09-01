@@ -54,6 +54,18 @@ type Options struct {
 	// EmbeddingProvider is retained and closed by its caller. When nil, Run
 	// constructs and closes the configured provider for CLI compatibility.
 	EmbeddingProvider embeddingcontract.Provider
+	// MinSemanticCoverage activates semantic work after this fraction of the
+	// requested scope has compatible vectors. Zero preserves the complete-only
+	// policy. Values must otherwise be in (0,1].
+	MinSemanticCoverage float64
+}
+
+type SemanticReadiness struct {
+	State              string  `json:"state"`
+	Embedded           int     `json:"embedded"`
+	Records            int     `json:"records"`
+	Coverage           float64 `json:"coverage"`
+	ActivationCoverage float64 `json:"activationCoverage"`
 }
 
 type Result struct {
@@ -66,6 +78,7 @@ type Result struct {
 	QueryPlan      querycontract.Plan `json:"queryPlan"`
 	Records        []RankedRecord     `json:"records"`
 	MorePaths      []string           `json:"morePaths,omitempty"`
+	Semantic       *SemanticReadiness `json:"semantic,omitempty"`
 }
 
 type RankedRecord struct {
@@ -143,6 +156,13 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	}
 	if opts.Mode != "auto" && opts.Mode != "lexical" && opts.Mode != "semantic" && opts.Mode != "graph" {
 		return Result{}, fmt.Errorf("unsupported search mode %q", opts.Mode)
+	}
+	activationCoverage := opts.MinSemanticCoverage
+	if activationCoverage == 0 {
+		activationCoverage = 1
+	}
+	if activationCoverage <= 0 || activationCoverage > 1 {
+		return Result{}, errors.New("minimum semantic coverage must be greater than zero and at most one")
 	}
 	candidateLimit := max(100, min(MaxResults+maxMorePaths, opts.Limit*10))
 	var lanes []lane
@@ -286,24 +306,34 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		}
 		if opts.Mode == "auto" {
 			result.FallbackReason = "semantic-unconfigured"
+			result.Semantic = &SemanticReadiness{State: "unconfigured", ActivationCoverage: activationCoverage}
 		}
 		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
 	fingerprint := embedding.Fingerprint(*opts.Embedding)
-	state, err := value.EmbeddingState(ctx, fingerprint)
+	state, err := value.EmbeddingStateForScope(ctx, fingerprint, opts.Scope)
 	if err != nil {
 		return Result{}, fmt.Errorf("inspect embedding lane: %w", err)
 	}
-	if !state.Complete {
+	coverage := 0.0
+	if state.Records > 0 {
+		coverage = float64(state.Embedded) / float64(state.Records)
+	}
+	result.Semantic = &SemanticReadiness{
+		State: "warming", Embedded: state.Embedded, Records: state.Records,
+		Coverage: coverage, ActivationCoverage: activationCoverage,
+	}
+	active := state.Records > 0 && coverage >= activationCoverage
+	if !active {
 		if opts.Mode == "semantic" {
 			return Result{}, fmt.Errorf(
 				"%w: index has %d of %d current vectors",
 				ErrSemanticUnavailable, state.Embedded, state.Records,
 			)
 		}
-		result.FallbackReason = "semantic-incomplete"
+		result.FallbackReason = "semantic-below-threshold"
 		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
@@ -337,7 +367,12 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	if err != nil {
 		return Result{}, fmt.Errorf("semantic search: %w", err)
 	}
-	lanes = append(lanes, lane{name: "semantic", records: vectors})
+	semanticLane := lane{name: "semantic", records: vectors}
+	lanes = append(lanes, semanticLane)
+	result.Semantic.State = "ready"
+	if !state.Complete {
+		result.Semantic.State = "active-partial"
+	}
 	if opts.Mode == "semantic" {
 		result.ActiveMode = "semantic"
 	} else {
@@ -348,11 +383,47 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 			}
 			lanes = append(lanes, graph)
 		}
-		result.ActiveMode = "hybrid"
+		if state.Complete {
+			result.ActiveMode = "hybrid"
+		} else {
+			// Partial semantic coverage can surface additional paths, but it must
+			// not displace the concrete lexical and structural result budget.
+			concrete := make([]lane, 0, len(lanes)-1)
+			for _, candidate := range lanes {
+				if candidate.name != "semantic" {
+					concrete = append(concrete, candidate)
+				}
+			}
+			setResultRecords(&result, evidenceQuery, opts.Limit, concrete)
+			appendSupplementaryPaths(&result, semanticLane.records)
+			result.FallbackReason = "semantic-partial"
+			result.ElapsedMS = time.Since(started).Milliseconds()
+			return result, nil
+		}
 	}
 	setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
 	result.ElapsedMS = time.Since(started).Milliseconds()
 	return result, nil
+}
+
+func appendSupplementaryPaths(result *Result, records []store.Record) {
+	seen := make(map[string]bool, len(result.Records)+len(result.MorePaths))
+	for _, record := range result.Records {
+		seen[record.Path] = true
+	}
+	for _, path := range result.MorePaths {
+		seen[path] = true
+	}
+	for _, record := range records {
+		if seen[record.Path] {
+			continue
+		}
+		result.MorePaths = append(result.MorePaths, record.Path)
+		seen[record.Path] = true
+		if len(result.MorePaths) == maxMorePaths {
+			return
+		}
+	}
 }
 
 func graphLane(

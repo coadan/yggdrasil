@@ -22,9 +22,10 @@ coverage advances in the background.
 ## Decision
 
 Yggdrasil remains a search-only system and becomes a set of composable public Go
-packages. It owns retrieval mechanics and contracts. Hosts own composition,
-lifecycle, scheduling, and presentation. The `ygg` executable is a frontend over
-the public packages and contains no separate retrieval implementation.
+packages. It owns retrieval mechanics, contracts, and an optional observable
+refresh scheduler. Hosts own composition, process lifetime, and presentation.
+The `ygg` executable is a frontend over the public packages and contains no
+separate retrieval implementation.
 
 The intended dependency direction is:
 
@@ -63,8 +64,8 @@ The packages have these responsibilities:
   bounded provider adapters. Query and lexical indexing do not depend on an
   embedding implementation.
 - `engine` is an optional opinionated composition for consumers that want the
-  complete stack. It coordinates mechanisms but does not own an unobservable
-  background scheduler.
+  complete stack. Its explicitly started `Refresher` continuously advances
+  source freshness and semantic coverage in bounded work units.
 
 Public interfaces are defined by the consuming package and expose Go values,
 not SQLite handles or CLI envelopes. Existing internal implementation packages
@@ -72,11 +73,13 @@ may move, merge, or remain behind these boundaries. The package list describes
 coherent capabilities; it is not a requirement to export every implementation
 type.
 
-Mechanisms never start hidden background loops. Hosts may retain an engine and
-providers, call bounded refresh batches between other work, prioritize a recent
-query scope, and observe coverage after each batch. The standalone CLI may run
-the same operations synchronously for explicit maintenance. Cancellation and
-close are part of every retained capability contract.
+Mechanisms never start hidden background loops. A host explicitly starts and
+closes `engine.Refresher`, can wake it after worktree changes or searches, and
+can inspect its current phase, coverage, last success, and bounded failure. The
+refresher owns debounce, single-writer serialization, bounded batches, and
+retry backoff so hosts do not reproduce retrieval scheduling. The standalone
+CLI may run the same mechanisms synchronously for explicit maintenance.
+Cancellation and close are part of every retained capability contract.
 
 The CLI continues to own flags, environment and configuration-file discovery,
 versioned JSON envelopes, exit codes, and terminal progress formatting. Library
@@ -93,17 +96,37 @@ adapter.
 
 ## Progressive capability contract
 
-Search uses one immutable index/readiness snapshot and returns immediately from
-the lanes available in that snapshot. Lexical, path, extractor, and graph lanes
-remain usable while vectors are absent, stale, or being built. Semantic state,
-coverage, freshness, and fallback reason are result facts rather than implicit
-control flow.
+Search never waits for the refresher or its writer lock. It uses one immutable
+current index/readiness snapshot when available. While the initial index is
+missing, source freshness is stale, or the writer is publishing a batch, search
+falls back immediately to bounded live-filesystem lexical and path evidence.
+Lexical, path, extractor, and graph lanes remain usable whenever their current
+snapshot is ready while vectors are absent, stale, or being built. Semantic
+state, coverage, freshness, and fallback reason are result facts rather than
+implicit control flow.
 
-Partial semantic coverage may provide marked supplementary candidates. It does
-not displace the concrete result budget or claim complete hybrid ranking. Full
-hybrid ranking requires compatible vector coverage for the requested scope and
-repository revision. Provider startup or failure never changes the availability
-of non-semantic retrieval.
+The refresher starts with an immediate source-freshness pass, then observes a
+bounded interval and explicit wake signals. A search may prioritize its scope
+for later semantic batches but never joins or awaits that work. Refresh failure
+updates readiness and backoff; it does not turn an otherwise valid search into
+an indexing error.
+
+Semantic activation uses compatible coverage for the exact requested scope,
+compared with an explicit host-supplied threshold. The complete-only default is
+retained until a composition chooses and validates a lower threshold. Below the
+threshold no query embedding work starts. Above it, partial coverage may provide
+marked supplementary candidates; those candidates do not displace the concrete
+result budget or claim complete hybrid ranking. Full hybrid ranking requires
+complete compatible vector coverage for the requested scope and repository
+revision. Provider startup or failure never changes the availability of
+non-semantic retrieval.
+
+The refresher may prioritize vector work using mechanical demand signals: an
+explicitly requested scope, paths returned by concrete retrieval, and changed
+records. Priority affects only the order of bounded derived work. Deterministic
+unprioritized batches age the rest of the corpus so repeated demand cannot
+starve it, and a priority signal never changes ranking scores or readiness
+counts.
 
 ## Alternatives
 
@@ -140,6 +163,6 @@ versioned contract changes them.
   independent use and only creates type conversion.
 - Split an implementation into another public package only after a concrete
   consumer cannot compose through the existing interfaces.
-- Reconsider host-owned scheduling if two independent hosts reproduce the same
-  coordination bugs and a visible reusable scheduler would remove them without
-  introducing hidden work.
+- Split the scheduler from `engine` if a concrete host needs different timing
+  while preserving the same observable wake, status, cancellation, and
+  single-writer contract.

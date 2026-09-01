@@ -851,6 +851,81 @@ func TestRunUsesCallerOwnedEmbeddingProvider(t *testing.T) {
 	}
 }
 
+func TestAutoActivatesPartialSemanticCoverageWithoutDisplacingConcreteEvidence(t *testing.T) {
+	cfg := config.Embedding{
+		Kind: "command", Command: []string{"must-not-start"}, Model: "retained",
+		Dimensions: 2, TimeoutMS: 1_000, QueryPrefix: "query: ",
+	}
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct{ path, text string }{
+		{"src/concrete.go", "needle concrete evidence"},
+		{"src/semantic.go", "conceptually related"},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: int64(len(item.text)), MTimeNS: 1},
+			Kind:      "go",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.text, "fingerprint", []contracts.SearchRecord{{
+			Path: item.path, StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: item.text, Source: "core",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fingerprint := embedding.Fingerprint(cfg)
+	if _, err := value.PrepareEmbeddingLane(ctx, fingerprint, cfg.Model, cfg.Dimensions); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, fingerprint, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var semantic store.EmbeddingInput
+	for _, input := range inputs {
+		if input.Text == "conceptually related" {
+			semantic = input
+		}
+	}
+	if semantic.ID == 0 {
+		t.Fatalf("inputs=%#v", inputs)
+	}
+	if _, err := value.UpsertEmbeddings(ctx, fingerprint, 2, []store.EmbeddingValue{{
+		ID: semantic.ID, InputHash: semantic.InputHash, Vector: []float32{1, 0},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &retainedQueryProvider{}
+	below, err := Run(ctx, value, "needle", Options{
+		Mode: "auto", Limit: 1, Scope: "src/", Embedding: &cfg,
+		EmbeddingProvider: provider, MinSemanticCoverage: 0.75,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 0 || below.FallbackReason != "semantic-below-threshold" ||
+		below.Semantic == nil || below.Semantic.Coverage != 0.5 {
+		t.Fatalf("below=%#v provider=%#v", below, provider)
+	}
+	active, err := Run(ctx, value, "needle", Options{
+		Mode: "auto", Limit: 1, Scope: "src/", Embedding: &cfg,
+		EmbeddingProvider: provider, MinSemanticCoverage: 0.5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 || active.ActiveMode != "lexical" ||
+		active.FallbackReason != "semantic-partial" || active.Semantic == nil ||
+		active.Semantic.State != "active-partial" || len(active.Records) != 1 ||
+		active.Records[0].Path != "src/concrete.go" ||
+		len(active.MorePaths) != 1 || active.MorePaths[0] != "src/semantic.go" {
+		t.Fatalf("active=%#v provider=%#v", active, provider)
+	}
+}
+
 func TestAutoFusesRegexpAndExplicitSemanticIntent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body struct {

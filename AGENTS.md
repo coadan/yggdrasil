@@ -20,9 +20,11 @@ daemon, compatibility layer, HTML renderer, graph model, correction store, work
 queue, or hidden background loop.
 
 Library mechanisms are synchronous, cancellable, and explicit about
-capabilities. Hosts own scheduling and provider lifetime. Do not make query or
-index packages discover configuration, read ambient credentials, construct
-optional providers, or expose SQLite handles.
+capabilities. The optional engine refresher owns observable bounded scheduling;
+hosts explicitly start and close it and retain provider lifetime. Search must
+never wait for indexing or semantic coverage. Do not make query or index
+packages discover configuration, read ambient credentials, construct optional
+providers, or expose SQLite handles.
 
 After each bounded slice, run `go test ./...`, `go vet ./...`, and
 `gofmt -l .`, then commit the slice.
