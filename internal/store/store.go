@@ -16,6 +16,7 @@ import (
 	pathpkg "path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,6 +80,7 @@ type EmbeddingInput struct {
 }
 
 type EmbeddingPriority struct {
+	// Paths are ordered from highest to lowest expected retrieval impact.
 	Paths []string
 	Scope string
 }
@@ -1520,8 +1522,9 @@ func (s *Store) MissingEmbeddingInputs(
 }
 
 // MissingEmbeddingInputsByPriority orders derived work by explicit mechanical
-// demand. Exact paths precede the requested scope; all remaining records stay
-// eligible. Callers can periodically omit priority to age the whole corpus.
+// demand. Exact paths retain caller order and precede the requested scope; all
+// remaining records stay eligible. Callers can periodically omit priority to
+// age the whole corpus.
 func (s *Store) MissingEmbeddingInputsByPriority(
 	ctx context.Context,
 	fingerprint string,
@@ -1547,18 +1550,16 @@ func (s *Store) MissingEmbeddingInputsByPriority(
 	priorityExpr := "0"
 	var args []any
 	var clauses []string
-	if len(paths) > 0 {
-		clauses = append(clauses, "WHEN r.path IN ("+placeholders(len(paths))+") THEN 0")
-		for _, path := range paths {
-			args = append(args, path)
-		}
+	for rank, path := range paths {
+		clauses = append(clauses, "WHEN r.path=? THEN "+strconv.Itoa(rank))
+		args = append(args, path)
 	}
 	if priority.Scope != "" {
-		clauses = append(clauses, "WHEN "+recordScopePredicate+" THEN 1")
+		clauses = append(clauses, "WHEN "+recordScopePredicate+" THEN "+strconv.Itoa(len(paths)))
 		args = append(args, priority.Scope, priority.Scope, priority.Scope, priority.Scope)
 	}
 	if len(clauses) > 0 {
-		priorityExpr = "CASE " + strings.Join(clauses, " ") + " ELSE 2 END"
+		priorityExpr = "CASE " + strings.Join(clauses, " ") + " ELSE " + strconv.Itoa(len(paths)+1) + " END"
 	}
 	args = append(args, fingerprint, limit)
 	rows, err := s.db.QueryContext(ctx, `

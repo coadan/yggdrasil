@@ -13,6 +13,7 @@ const MaxPriorityPaths = 100
 // Demand contains mechanical hints for the next bounded refresh unit.
 type Demand struct {
 	Scope string
+	// Paths are ordered from highest to lowest expected retrieval impact.
 	Paths []string
 	// Aging is set by the refresher when priority must be ignored for one unit.
 	Aging bool
@@ -95,7 +96,8 @@ func StartRefresher(
 }
 
 // Wake records priority for a later refresh unit and returns immediately.
-// Repeated calls coalesce exact paths and retain the most recent nonempty scope.
+// Repeated calls coalesce exact paths without changing their first observed
+// rank and retain the most recent nonempty scope.
 func (r *Refresher) Wake(demand Demand) {
 	r.mu.Lock()
 	if demand.Scope != "" {

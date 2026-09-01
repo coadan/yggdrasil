@@ -391,7 +391,7 @@ func TestEmbeddingStateForScopeExcludesOtherPaths(t *testing.T) {
 	}
 }
 
-func TestMissingEmbeddingInputsOrdersExactPathsThenScope(t *testing.T) {
+func TestMissingEmbeddingInputsPreservesRankedPathsThenScope(t *testing.T) {
 	ctx := context.Background()
 	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
 	if err != nil {
@@ -401,7 +401,8 @@ func TestMissingEmbeddingInputsOrdersExactPathsThenScope(t *testing.T) {
 	for _, item := range []struct{ path, text string }{
 		{"cold/short.txt", "x"},
 		{"src/scoped.txt", "scoped medium text"},
-		{"docs/exact.txt", "exact path with deliberately longer text"},
+		{"docs/first.txt", "first ranked path with deliberately longer text"},
+		{"docs/second.txt", "second ranked path"},
 	} {
 		file := discovery.File{
 			Candidate: discovery.Candidate{Path: item.path, Size: int64(len(item.text)), MTimeNS: 1},
@@ -414,7 +415,7 @@ func TestMissingEmbeddingInputsOrdersExactPathsThenScope(t *testing.T) {
 		}
 	}
 	prioritized, err := value.MissingEmbeddingInputsByPriority(ctx, "embed-fp", 3, EmbeddingPriority{
-		Paths: []string{"docs/exact.txt"}, Scope: "src/",
+		Paths: []string{"docs/first.txt", "docs/second.txt"}, Scope: "src/",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -423,7 +424,11 @@ func TestMissingEmbeddingInputsOrdersExactPathsThenScope(t *testing.T) {
 	for _, input := range prioritized {
 		got = append(got, input.Text)
 	}
-	want := []string{"exact path with deliberately longer text", "scoped medium text", "x"}
+	want := []string{
+		"first ranked path with deliberately longer text",
+		"second ranked path",
+		"scoped medium text",
+	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("got=%q want=%q", got, want)
 	}
