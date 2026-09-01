@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	embeddingcontract "github.com/coadan/yggdrasil/embedding"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 )
@@ -29,20 +30,9 @@ const maxProviderError = 8 * 1024
 const defaultMaxProviderInputChars = 6000
 const embeddingBehaviorVersion = "v3"
 
-type Input struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
-}
-
-type Value struct {
-	ID     string    `json:"id"`
-	Vector []float32 `json:"vector"`
-}
-
-type Provider interface {
-	Embed(context.Context, []Input) ([]Value, error)
-	Close() error
-}
+type Input = embeddingcontract.Input
+type Value = embeddingcontract.Value
+type Provider = embeddingcontract.Provider
 
 func New(ctx context.Context, root string, cfg config.Embedding) (Provider, error) {
 	switch cfg.Kind {
