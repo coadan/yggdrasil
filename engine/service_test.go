@@ -45,7 +45,7 @@ func TestServiceFallsBackWithoutWaitingThenUsesPublishedSnapshot(t *testing.T) {
 	}
 	provider := &blockingExtractor{started: make(chan struct{}), release: make(chan struct{})}
 	repository, err := index.Open(index.Options{
-		Root: root, StorageRoot: t.TempDir(), Extractor: provider,
+		Root: root, StorageRoot: t.TempDir(), Extractors: []extractor.Provider{provider},
 	})
 	if err != nil {
 		t.Fatal(err)

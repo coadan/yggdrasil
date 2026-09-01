@@ -620,7 +620,7 @@ func TestRunUsesCallerOwnedExtractorProvider(t *testing.T) {
 	provider := &retainedExtractorProvider{}
 	cfg := config.Default()
 	if _, err := Run(context.Background(), paths, cfg, Options{
-		NoEmbed: true, ExtractorProvider: provider,
+		NoEmbed: true, ExtractorProviders: []extractorcontract.Provider{provider},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +637,7 @@ func TestRunUsesCallerOwnedExtractorProvider(t *testing.T) {
 		t.Fatalf("records=%#v err=%v close=%v", records, err, closeErr)
 	}
 	if _, err := Run(context.Background(), paths, cfg, Options{
-		NoEmbed: true, EnsureCurrent: true, ExtractorProvider: provider,
+		NoEmbed: true, EnsureCurrent: true, ExtractorProviders: []extractorcontract.Provider{provider},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -646,7 +646,7 @@ func TestRunUsesCallerOwnedExtractorProvider(t *testing.T) {
 	}
 	provider.fingerprint = "v2"
 	if _, err := Run(context.Background(), paths, cfg, Options{
-		NoEmbed: true, EnsureCurrent: true, ExtractorProvider: provider,
+		NoEmbed: true, EnsureCurrent: true, ExtractorProviders: []extractorcontract.Provider{provider},
 	}); err != nil {
 		t.Fatal(err)
 	}

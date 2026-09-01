@@ -25,15 +25,15 @@ type Options struct {
 	StorageRoot  string
 	IgnoreGlobs  []string
 	MaxFileBytes int64
-	Extractor    extractor.Provider
+	Extractors   []extractor.Provider
 	Embedding    *embedding.Capability
 }
 
 type Repository struct {
-	paths     project.Paths
-	config    config.Config
-	extractor extractor.Provider
-	embedding *embedding.Capability
+	paths      project.Paths
+	config     config.Config
+	extractors []extractor.Provider
+	embedding  *embedding.Capability
 }
 
 // Snapshot owns one read-only query connection.
@@ -97,7 +97,9 @@ func Open(opts Options) (*Repository, error) {
 		return nil, err
 	}
 	return &Repository{
-		paths: paths, config: cfg, extractor: opts.Extractor, embedding: opts.Embedding,
+		paths: paths, config: cfg,
+		extractors: append([]extractor.Provider(nil), opts.Extractors...),
+		embedding:  opts.Embedding,
 	}, nil
 }
 
@@ -107,7 +109,7 @@ func (r *Repository) IgnoreGlobs() []string {
 	return append([]string(nil), r.config.IgnoreGlobs...)
 }
 func (r *Repository) MaxFileBytes() int64 { return r.config.MaxFileBytes }
-func (r *Repository) HasExtractor() bool  { return r.extractor != nil }
+func (r *Repository) HasExtractor() bool  { return len(r.extractors) > 0 }
 func (r *Repository) Embedding() *embedding.Capability {
 	if r.embedding == nil {
 		return nil
@@ -130,8 +132,8 @@ func (r *Repository) OpenSnapshot(ctx context.Context) (*Snapshot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open repository snapshot: %w", err)
 	}
-	current, err := indexer.FreshnessTokenWithExtractor(
-		ctx, r.paths.Root, r.config, r.extractor,
+	current, err := indexer.FreshnessTokenWithExtractors(
+		ctx, r.paths.Root, r.config, r.extractors,
 	)
 	if err != nil {
 		value.Close()
@@ -173,7 +175,7 @@ func (r *Repository) Refresh(ctx context.Context, opts RefreshOptions) (RefreshR
 		EmbeddingProvider: provider, MaxEmbeddingBatches: batches,
 		EmbeddingPriorityScope: priorityScope,
 		EmbeddingPriorityPaths: priorityPaths,
-		ExtractorProvider:      r.extractor,
+		ExtractorProviders:     r.extractors,
 	})
 	if err != nil {
 		return RefreshResult{}, err
