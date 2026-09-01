@@ -33,9 +33,9 @@ type Options struct {
 	// EmbeddingProvider is retained and closed by its caller. When nil, Run
 	// constructs and closes the configured provider for CLI compatibility.
 	EmbeddingProvider embeddingcontract.Provider
-	// ExtractorProvider is retained and closed by its caller. CLI-configured
-	// command extractors continue to run in addition to this capability.
-	ExtractorProvider extractorcontract.Provider
+	// ExtractorProviders are retained and closed by their caller. CLI-configured
+	// command extractors continue to run in addition to these capabilities.
+	ExtractorProviders []extractorcontract.Provider
 	// MaxEmbeddingBatches bounds semantic work in this run. Zero completes all
 	// missing vectors for CLI compatibility; a positive value lets a host
 	// progressively schedule bounded work.
@@ -94,7 +94,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	if opts.MaxEmbeddingBatches < 0 {
 		return Summary{}, errors.New("maximum embedding batches cannot be negative")
 	}
-	fingerprint, err := extractionFingerprint(cfg, opts.ExtractorProvider)
+	fingerprint, err := extractionFingerprint(cfg, opts.ExtractorProviders)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -350,12 +350,12 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 				Message: diagnostic.Message,
 			})
 		}
-		if opts.ExtractorProvider != nil {
-			descriptor := opts.ExtractorProvider.Descriptor()
+		for _, extractorProvider := range opts.ExtractorProviders {
+			descriptor := extractorProvider.Descriptor()
 			extractorFile := extractorcontract.File{
 				Path: file.Path, Kind: file.Kind, ContentHash: file.ContentHash, Content: file.Content,
 			}
-			provided, providedDiagnostics, extractErr := opts.ExtractorProvider.Extract(ctx, extractorFile)
+			provided, providedDiagnostics, extractErr := extractorProvider.Extract(ctx, extractorFile)
 			if extractErr == nil {
 				provided, extractErr = extractorcontract.NormalizeRecords(descriptor, extractorFile, provided)
 			}
@@ -460,18 +460,29 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 
 func extractionFingerprint(
 	cfg config.Config,
-	provider extractorcontract.Provider,
+	providers []extractorcontract.Provider,
 ) (string, error) {
 	fingerprint := config.ExtractionFingerprint(cfg)
-	if provider == nil {
+	if len(providers) == 0 {
 		return fingerprint, nil
 	}
-	descriptor := provider.Descriptor()
-	if descriptor.ID == "" || descriptor.Fingerprint == "" {
-		return "", errors.New("extractor provider requires an id and fingerprint")
+	seen := make(map[string]bool, len(providers))
+	for _, provider := range providers {
+		if provider == nil {
+			return "", errors.New("extractor provider is nil")
+		}
+		descriptor := provider.Descriptor()
+		if descriptor.ID == "" || descriptor.Fingerprint == "" {
+			return "", errors.New("extractor provider requires an id and fingerprint")
+		}
+		if seen[descriptor.ID] {
+			return "", fmt.Errorf("duplicate extractor provider id %q", descriptor.ID)
+		}
+		seen[descriptor.ID] = true
+		hash := sha256.Sum256([]byte(fingerprint + "\x00" + descriptor.ID + "\x00" + descriptor.Fingerprint))
+		fingerprint = "sha256:" + hex.EncodeToString(hash[:])
 	}
-	hash := sha256.Sum256([]byte(fingerprint + "\x00" + descriptor.ID + "\x00" + descriptor.Fingerprint))
-	return "sha256:" + hex.EncodeToString(hash[:]), nil
+	return fingerprint, nil
 }
 
 func acquireIndexLock(ctx context.Context, lock *os.File, wait bool) error {

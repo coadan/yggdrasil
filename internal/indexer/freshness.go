@@ -24,15 +24,15 @@ func FreshnessToken(ctx context.Context, root string, cfg config.Config) (string
 	return freshnessToken(ctx, root, cfg, config.ExtractionFingerprint(cfg))
 }
 
-// FreshnessTokenWithExtractor includes a supplied extractor's immutable
+// FreshnessTokenWithExtractors includes supplied extractors' immutable
 // identity without consulting ambient configuration.
-func FreshnessTokenWithExtractor(
+func FreshnessTokenWithExtractors(
 	ctx context.Context,
 	root string,
 	cfg config.Config,
-	provider extractorcontract.Provider,
+	providers []extractorcontract.Provider,
 ) (string, error) {
-	fingerprint, err := extractionFingerprint(cfg, provider)
+	fingerprint, err := extractionFingerprint(cfg, providers)
 	if err != nil {
 		return "", err
 	}
