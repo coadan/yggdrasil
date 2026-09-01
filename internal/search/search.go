@@ -63,7 +63,7 @@ type SemanticReadiness = querycontract.SemanticReadiness
 type Result = querycontract.Result
 type RankedRecord = querycontract.RankedRecord
 
-func Run(ctx context.Context, value *store.Store, query string, opts Options) (Result, error) {
+func Run(ctx context.Context, value querycontract.Reader, query string, opts Options) (Result, error) {
 	started := time.Now()
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -366,7 +366,7 @@ func appendSupplementaryPaths(result *Result, records []store.Record) {
 
 func graphLane(
 	ctx context.Context,
-	value *store.Store,
+	value querycontract.Reader,
 	query string,
 	lanes []lane,
 	scope string,
@@ -398,7 +398,7 @@ func graphLane(
 
 func regexpCandidates(
 	ctx context.Context,
-	value *store.Store,
+	value querycontract.Reader,
 	plan querycontract.Plan,
 	scope string,
 	limit int,

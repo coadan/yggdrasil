@@ -21,6 +21,7 @@ import (
 
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
+	querycontract "github.com/coadan/yggdrasil/query"
 	"github.com/ncruces/go-sqlite3"
 	"github.com/ncruces/go-sqlite3/driver"
 	"github.com/ncruces/go-sqlite3/ext/fts5"
@@ -69,18 +70,7 @@ type Counts struct {
 	Diagnostics int `json:"diagnostics"`
 }
 
-type Record struct {
-	ID        int64
-	InputHash string
-	Path      string
-	StartLine int
-	EndLine   int
-	Kind      string
-	Title     string
-	Text      string
-	Metadata  map[string]any
-	Source    string
-}
+type Record = querycontract.Candidate
 
 type EmbeddingInput struct {
 	ID        int64
@@ -99,15 +89,7 @@ type EmbeddingValue struct {
 	Vector    []float32
 }
 
-type EmbeddingState struct {
-	Configured  bool   `json:"configured"`
-	Fingerprint string `json:"fingerprint,omitempty"`
-	Model       string `json:"model,omitempty"`
-	Dimensions  int    `json:"dimensions,omitempty"`
-	Embedded    int    `json:"embedded"`
-	Records     int    `json:"records"`
-	Complete    bool   `json:"complete"`
-}
+type EmbeddingState = querycontract.EmbeddingState
 
 type Run struct {
 	ID           string         `json:"id"`
