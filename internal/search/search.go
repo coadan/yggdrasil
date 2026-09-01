@@ -17,6 +17,7 @@ import (
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/store"
+	querycontract "github.com/coadan/yggdrasil/query"
 )
 
 const laneRRFK = 60.0
@@ -34,8 +35,8 @@ const targetExcerptRunes = 2400
 
 const (
 	MaxResults    = 100
-	MaxQueryBytes = 16 * 1024
-	MaxQueryTerms = 256
+	MaxQueryBytes = querycontract.MaxBytes
+	MaxQueryTerms = querycontract.MaxTerms
 )
 
 var ErrSemanticUnavailable = errors.New("semantic search is unavailable")
@@ -52,15 +53,15 @@ type Options struct {
 }
 
 type Result struct {
-	Schema         string         `json:"schema"`
-	Query          string         `json:"query"`
-	RequestedMode  string         `json:"requestedMode"`
-	ActiveMode     string         `json:"activeMode"`
-	FallbackReason string         `json:"fallbackReason,omitempty"`
-	ElapsedMS      int64          `json:"elapsedMs"`
-	QueryPlan      QueryPlan      `json:"queryPlan"`
-	Records        []RankedRecord `json:"records"`
-	MorePaths      []string       `json:"morePaths,omitempty"`
+	Schema         string             `json:"schema"`
+	Query          string             `json:"query"`
+	RequestedMode  string             `json:"requestedMode"`
+	ActiveMode     string             `json:"activeMode"`
+	FallbackReason string             `json:"fallbackReason,omitempty"`
+	ElapsedMS      int64              `json:"elapsedMs"`
+	QueryPlan      querycontract.Plan `json:"queryPlan"`
+	Records        []RankedRecord     `json:"records"`
+	MorePaths      []string           `json:"morePaths,omitempty"`
 }
 
 type RankedRecord struct {
@@ -122,11 +123,11 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	if len(strings.Fields(query)) > MaxQueryTerms {
 		return Result{}, fmt.Errorf("search query exceeds %d terms", MaxQueryTerms)
 	}
-	plan, err := PlanQuery(query, opts.MatchKind, opts.About, opts.Scope)
+	plan, err := querycontract.Parse(query, opts.MatchKind, opts.About, opts.Scope)
 	if err != nil {
 		return Result{}, fmt.Errorf("plan search query: %w", err)
 	}
-	evidenceQuery := plan.evidenceText()
+	evidenceQuery := plan.EvidenceText()
 	if opts.Limit == 0 {
 		opts.Limit = 10
 	}
@@ -144,10 +145,10 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	structured := false
 	if opts.Mode != "semantic" {
 		terms := queryTerms(query)
-		literal := plan.Lexical.Kind == MatchText && literalTermQuery(query, terms)
+		literal := plan.Lexical.Kind == querycontract.MatchText && literalTermQuery(query, terms)
 		structured = literal
 		switch plan.Lexical.Kind {
-		case MatchFixed:
+		case querycontract.MatchFixed:
 			records, err := value.LiteralCandidates(
 				ctx, "", query, opts.Scope, candidateLimit,
 			)
@@ -155,13 +156,13 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 				return Result{}, fmt.Errorf("fixed search: %w", err)
 			}
 			lanes = append(lanes, lane{name: "fixed", records: records})
-		case MatchRegexp:
+		case querycontract.MatchRegexp:
 			records, err := regexpCandidates(ctx, value, plan, opts.Scope, candidateLimit)
 			if err != nil {
 				return Result{}, fmt.Errorf("regexp search: %w", err)
 			}
 			lanes = append(lanes, lane{name: "regexp", records: records})
-		case MatchText:
+		case querycontract.MatchText:
 			if literal {
 				records, err := value.LiteralCandidates(
 					ctx, ftsAnyQuery(terms), query, opts.Scope, candidateLimit,
@@ -192,7 +193,7 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 				}
 			}
 		}
-		if plan.Lexical.Kind == MatchText && !structured {
+		if plan.Lexical.Kind == querycontract.MatchText && !structured {
 			fts, err := value.LexicalCandidates(
 				ctx, ftsAnyQuery(terms), opts.Scope, candidateLimit,
 			)
@@ -377,7 +378,7 @@ func graphLane(
 func regexpCandidates(
 	ctx context.Context,
 	value *store.Store,
-	plan QueryPlan,
+	plan querycontract.Plan,
 	scope string,
 	limit int,
 ) ([]store.Record, error) {
@@ -419,7 +420,7 @@ func semanticFailure(
 		return Result{}, fmt.Errorf("%w: %v", ErrSemanticUnavailable, cause)
 	}
 	result.FallbackReason = "semantic-provider-error"
-	setResultRecords(&result, result.QueryPlan.evidenceText(), opts.Limit, lanes)
+	setResultRecords(&result, result.QueryPlan.EvidenceText(), opts.Limit, lanes)
 	result.ElapsedMS = time.Since(started).Milliseconds()
 	return result, nil
 }

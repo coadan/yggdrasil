@@ -24,6 +24,7 @@ import (
 	"github.com/coadan/yggdrasil/internal/search"
 	"github.com/coadan/yggdrasil/internal/status"
 	"github.com/coadan/yggdrasil/internal/store"
+	querycontract "github.com/coadan/yggdrasil/query"
 )
 
 const usage = `Usage:
@@ -221,11 +222,11 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	if fixed && regexpPattern {
 		return r.fail(true, 2, errors.New("--fixed-strings and --regexp are mutually exclusive"))
 	}
-	matchKind := search.MatchText
+	matchKind := querycontract.MatchText
 	if fixed {
-		matchKind = search.MatchFixed
+		matchKind = querycontract.MatchFixed
 	} else if regexpPattern {
-		matchKind = search.MatchRegexp
+		matchKind = querycontract.MatchRegexp
 	}
 	query := ""
 	resolvedRoot := *root
@@ -244,7 +245,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		return r.fail(true, 2, fmt.Errorf("search limit must be between 1 and %d", search.MaxResults))
 	}
 	started := time.Now()
-	preflightPlan, err := search.PlanQuery(query, matchKind, *about, "")
+	preflightPlan, err := querycontract.Parse(query, matchKind, *about, "")
 	if err != nil {
 		return r.fail(true, 2, err)
 	}

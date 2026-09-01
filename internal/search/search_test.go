@@ -16,6 +16,7 @@ import (
 	"github.com/coadan/yggdrasil/internal/discovery"
 	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/store"
+	querycontract "github.com/coadan/yggdrasil/query"
 )
 
 func TestLexicalSearchReturnsCitedRecords(t *testing.T) {
@@ -77,8 +78,8 @@ func TestGrepLexicalFormsMatchContentWithoutPathFalsePositives(t *testing.T) {
 		pattern string
 		kind    string
 	}{
-		{"push", MatchFixed},
-		{`push.*ErrorEnvelope`, MatchRegexp},
+		{"push", querycontract.MatchFixed},
+		{`push.*ErrorEnvelope`, querycontract.MatchRegexp},
 	} {
 		result, err := Run(ctx, value, test.pattern, Options{
 			Mode: "lexical", Limit: 10, MatchKind: test.kind,
@@ -840,7 +841,7 @@ func TestAutoFusesRegexpAndExplicitSemanticIntent(t *testing.T) {
 	}
 	result, err := Run(ctx, value, `push.*ErrorEnvelope`, Options{
 		Mode: "auto", Limit: 5, Root: t.TempDir(), Embedding: &cfg,
-		MatchKind: MatchRegexp, About: "API command error envelope",
+		MatchKind: querycontract.MatchRegexp, About: "API command error envelope",
 	})
 	if err != nil {
 		t.Fatal(err)
