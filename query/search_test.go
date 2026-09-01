@@ -1,4 +1,4 @@
-package search
+package query
 
 import (
 	"context"
@@ -17,7 +17,6 @@ import (
 	"github.com/coadan/yggdrasil/internal/discovery"
 	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/store"
-	querycontract "github.com/coadan/yggdrasil/query"
 )
 
 func TestLexicalSearchReturnsCitedRecords(t *testing.T) {
@@ -79,8 +78,8 @@ func TestGrepLexicalFormsMatchContentWithoutPathFalsePositives(t *testing.T) {
 		pattern string
 		kind    string
 	}{
-		{"push", querycontract.MatchFixed},
-		{`push.*ErrorEnvelope`, querycontract.MatchRegexp},
+		{"push", MatchFixed},
+		{`push.*ErrorEnvelope`, MatchRegexp},
 	} {
 		result, err := Run(ctx, value, test.pattern, Options{
 			Mode: "lexical", Limit: 10, MatchKind: test.kind,
@@ -156,8 +155,8 @@ func TestGraphSearchReturnsAResolvedImportNeighbor(t *testing.T) {
 		t.Fatalf("citation=%#v", result.Records[0])
 	}
 	seeded, err := graphLane(ctx, value, "private", []lane{
-		{name: "lexical", records: []store.Record{{ID: 100, Path: "src/owner.ts", Text: "private"}}},
-		{name: "semantic", records: []store.Record{{ID: 101, Path: "src/noise.ts", Text: "private"}}},
+		{name: "lexical", records: []Candidate{{ID: 100, Path: "src/owner.ts", Text: "private"}}},
+		{name: "semantic", records: []Candidate{{ID: 101, Path: "src/noise.ts", Text: "private"}}},
 	}, "", 5)
 	if err != nil {
 		t.Fatal(err)
@@ -268,14 +267,14 @@ func TestFusionCombinesDifferentRecordsAfterThePrecisionHead(t *testing.T) {
 	ranked := fuse("lifecycle failure", 3, maxExcerptRunes, []lane{
 		{
 			name: "lexical",
-			records: []store.Record{
+			records: []Candidate{
 				{ID: 1, Path: "src/lexical-only.go", StartLine: 1, EndLine: 1, Text: "lifecycle failure"},
 				{ID: 2, Path: "src/owner.go", StartLine: 10, EndLine: 10, Text: "lifecycle"},
 			},
 		},
 		{
 			name: "semantic",
-			records: []store.Record{
+			records: []Candidate{
 				{ID: 3, Path: "src/semantic-only.go", StartLine: 1, EndLine: 1, Text: "failure handling"},
 				{ID: 4, Path: "src/owner.go", StartLine: 20, EndLine: 20, Text: "failure"},
 			},
@@ -295,21 +294,21 @@ func TestFusionCombinesDifferentRecordsAfterThePrecisionHead(t *testing.T) {
 }
 
 func TestAutoReservesTheLastTopTenSlotForTheStrongestGraphNeighbor(t *testing.T) {
-	var lexical []store.Record
+	var lexical []Candidate
 	for index := range 40 {
-		lexical = append(lexical, store.Record{
+		lexical = append(lexical, Candidate{
 			ID: int64(index + 1), Path: fmt.Sprintf("src/direct-%02d.go", index),
 			StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: "direct evidence",
 		})
 	}
-	graph := store.Record{
+	graph := Candidate{
 		ID: 100, Path: "src/linked-owner.go",
 		StartLine: 1, EndLine: 1, Kind: "import", Text: "linked owner",
 	}
 	result := Result{RequestedMode: "auto", ActiveMode: "hybrid"}
 	setResultRecords(&result, "direct evidence", 10, []lane{
 		{name: "lexical", records: lexical},
-		{name: "graph", records: []store.Record{graph}},
+		{name: "graph", records: []Candidate{graph}},
 	})
 	if len(result.Records) != 10 || result.Records[0].Path != "src/direct-00.go" ||
 		result.Records[9].Path != graph.Path || len(result.MorePaths) != maxMorePaths ||
@@ -329,7 +328,7 @@ func TestFusionBalancesRetrieverFamiliesInsteadOfLaneCount(t *testing.T) {
 		for index := range 20 {
 			lexicalLanes[laneIndex].records = append(
 				lexicalLanes[laneIndex].records,
-				store.Record{
+				Candidate{
 					ID:        int64(1000*laneIndex + index + 1),
 					Path:      fmt.Sprintf("noise/%02d.go", index),
 					StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: "broad lexical noise",
@@ -339,7 +338,7 @@ func TestFusionBalancesRetrieverFamiliesInsteadOfLaneCount(t *testing.T) {
 	}
 	lanes := append(lexicalLanes, lane{
 		name: "semantic",
-		records: []store.Record{{
+		records: []Candidate{{
 			ID: 99999, Path: "src/semantic-owner.go",
 			StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: "semantic owner",
 		}},
@@ -446,7 +445,7 @@ func TestAutoTreatsStructuredTermsAsExactAndReturnsNoPartialPathNoise(t *testing
 		Model: "must-not-run", Dimensions: 2, TimeoutMS: 1,
 	}
 	result, err := Run(ctx, value, "retired-progression-card", Options{
-		Mode: "auto", Limit: 10, Embedding: &cfg,
+		Mode: "auto", Limit: 10, Embedding: testCapability(t, ctx, cfg, nil),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -455,7 +454,7 @@ func TestAutoTreatsStructuredTermsAsExactAndReturnsNoPartialPathNoise(t *testing
 		t.Fatalf("retired result=%#v", result)
 	}
 	result, err = Run(ctx, value, "active-progression-card", Options{
-		Mode: "auto", Limit: 10, Embedding: &cfg,
+		Mode: "auto", Limit: 10, Embedding: testCapability(t, ctx, cfg, nil),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -562,7 +561,7 @@ func TestAutoTreatsBareCodeIdentifierAsCaseSensitiveLiteral(t *testing.T) {
 		Model: "must-not-run", Dimensions: 2, TimeoutMS: 1,
 	}
 	result, err := Run(ctx, value, "ContentStack", Options{
-		Mode: "auto", Limit: 10, Embedding: &cfg,
+		Mode: "auto", Limit: 10, Embedding: testCapability(t, ctx, cfg, nil),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -805,6 +804,30 @@ func (p *retainedQueryProvider) Close() error {
 	return nil
 }
 
+func testCapability(
+	t *testing.T,
+	ctx context.Context,
+	cfg config.Embedding,
+	provider embeddingcontract.Provider,
+) *embeddingcontract.Capability {
+	t.Helper()
+	if provider == nil {
+		var err error
+		provider, err = embedding.New(ctx, t.TempDir(), cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = provider.Close() })
+	}
+	return &embeddingcontract.Capability{
+		Provider: provider, ProviderFingerprint: "legacy-test",
+		IndexFingerprint: embedding.Fingerprint(cfg),
+		Model:            cfg.Model, Dimensions: cfg.Dimensions,
+		QueryPrefix: cfg.QueryPrefix, DocumentPrefix: cfg.DocumentPrefix,
+		BatchSize: cfg.BatchSize, MaxInputChars: cfg.MaxInputChars,
+	}
+}
+
 func TestRunUsesCallerOwnedEmbeddingProvider(t *testing.T) {
 	cfg := config.Embedding{
 		Kind: "command", Command: []string{"must-not-start"}, Model: "retained",
@@ -841,7 +864,7 @@ func TestRunUsesCallerOwnedEmbeddingProvider(t *testing.T) {
 	}
 	provider := &retainedQueryProvider{}
 	result, err := Run(ctx, value, "semantic target", Options{
-		Mode: "auto", Limit: 5, Embedding: &cfg, EmbeddingProvider: provider,
+		Mode: "auto", Limit: 5, Embedding: testCapability(t, ctx, cfg, provider),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -900,8 +923,8 @@ func TestAutoActivatesPartialSemanticCoverageWithoutDisplacingConcreteEvidence(t
 	}
 	provider := &retainedQueryProvider{}
 	below, err := Run(ctx, value, "needle", Options{
-		Mode: "auto", Limit: 1, Scope: "src/", Embedding: &cfg,
-		EmbeddingProvider: provider, MinSemanticCoverage: 0.75,
+		Mode: "auto", Limit: 1, Scope: "src/",
+		Embedding: testCapability(t, ctx, cfg, provider), MinSemanticCoverage: 0.75,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -911,8 +934,8 @@ func TestAutoActivatesPartialSemanticCoverageWithoutDisplacingConcreteEvidence(t
 		t.Fatalf("below=%#v provider=%#v", below, provider)
 	}
 	active, err := Run(ctx, value, "needle", Options{
-		Mode: "auto", Limit: 1, Scope: "src/", Embedding: &cfg,
-		EmbeddingProvider: provider, MinSemanticCoverage: 0.5,
+		Mode: "auto", Limit: 1, Scope: "src/",
+		Embedding: testCapability(t, ctx, cfg, provider), MinSemanticCoverage: 0.5,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -977,8 +1000,8 @@ func TestAutoFusesRegexpAndExplicitSemanticIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := Run(ctx, value, `push.*ErrorEnvelope`, Options{
-		Mode: "auto", Limit: 5, Root: t.TempDir(), Embedding: &cfg,
-		MatchKind: querycontract.MatchRegexp, About: "API command error envelope",
+		Mode: "auto", Limit: 5, Embedding: testCapability(t, ctx, cfg, nil),
+		MatchKind: MatchRegexp, About: "API command error envelope",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1052,7 +1075,7 @@ func TestHybridSearchCitesDenseLexicalEvidenceInsteadOfSemanticFileTail(t *testi
 		t.Fatal(err)
 	}
 	result, err := Run(ctx, value, "DetailSection mandates", Options{
-		Mode: "auto", Limit: 5, Root: t.TempDir(), Embedding: &cfg,
+		Mode: "auto", Limit: 5, Embedding: testCapability(t, ctx, cfg, nil),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1083,11 +1106,11 @@ func TestSearchRejectsUnboundedInputs(t *testing.T) {
 
 func TestPromoteThirdRootPreservesTopTwoResults(t *testing.T) {
 	values := []*fused{
-		{record: store.Record{Path: "docs/first.md"}},
-		{record: store.Record{Path: "docs/second.md"}},
-		{record: store.Record{Path: "docs/third.md"}},
-		{record: store.Record{Path: "src/owner.go"}},
-		{record: store.Record{Path: "tests/owner_test.go"}},
+		{record: Candidate{Path: "docs/first.md"}},
+		{record: Candidate{Path: "docs/second.md"}},
+		{record: Candidate{Path: "docs/third.md"}},
+		{record: Candidate{Path: "src/owner.go"}},
+		{record: Candidate{Path: "tests/owner_test.go"}},
 	}
 	promoteThirdRoot(values)
 	got := make([]string, 0, len(values))
@@ -1193,7 +1216,7 @@ func TestCitationEvidenceUsesTokenBoundariesInsteadOfIdentifierSubstrings(t *tes
 	text := "function installJournalizedConsumerismComponentship() {}\n" +
 		strings.Repeat("unrelated props\n", 10) +
 		`<DetailCallout data-kind="environment">`
-	record := store.Record{
+	record := Candidate{
 		Path: path, StartLine: 1, EndLine: 12, Kind: "text-chunk",
 		Title: path + ":1", Text: text, Source: "core",
 	}

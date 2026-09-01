@@ -12,8 +12,8 @@ import (
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/indexer"
 	"github.com/coadan/yggdrasil/internal/project"
-	"github.com/coadan/yggdrasil/internal/search"
 	"github.com/coadan/yggdrasil/internal/store"
+	search "github.com/coadan/yggdrasil/query"
 )
 
 type parityCase struct {

@@ -11,13 +11,14 @@ import (
 	"github.com/coadan/yggdrasil/embedding"
 	"github.com/coadan/yggdrasil/extractor"
 	"github.com/coadan/yggdrasil/internal/config"
-	internalembedding "github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/indexer"
 	"github.com/coadan/yggdrasil/internal/project"
 	"github.com/coadan/yggdrasil/internal/store"
+	"github.com/coadan/yggdrasil/query"
 )
 
 var ErrUnavailable = errors.New("repository index is unavailable")
+var ErrStale = errors.New("repository index is stale")
 
 type Options struct {
 	Root         string
@@ -33,6 +34,12 @@ type Repository struct {
 	config    config.Config
 	extractor extractor.Provider
 	embedding *embedding.Capability
+}
+
+// Snapshot owns one read-only query connection.
+type Snapshot struct {
+	query.Reader
+	close func() error
 }
 
 type RefreshOptions struct {
@@ -96,6 +103,51 @@ func Open(opts Options) (*Repository, error) {
 
 func (r *Repository) Root() string  { return r.paths.Root }
 func (r *Repository) Scope() string { return r.paths.Scope }
+func (r *Repository) IgnoreGlobs() []string {
+	return append([]string(nil), r.config.IgnoreGlobs...)
+}
+func (r *Repository) MaxFileBytes() int64 { return r.config.MaxFileBytes }
+func (r *Repository) HasExtractor() bool  { return r.extractor != nil }
+func (r *Repository) Embedding() *embedding.Capability {
+	if r.embedding == nil {
+		return nil
+	}
+	value := *r.embedding
+	return &value
+}
+
+func (s *Snapshot) Close() error { return s.close() }
+
+// OpenSnapshot returns one current read-only index view. It never starts or
+// waits for refresh; missing or stale indexes are explicit fallback signals.
+func (r *Repository) OpenSnapshot(ctx context.Context) (*Snapshot, error) {
+	if _, err := os.Stat(r.paths.Database); errors.Is(err, os.ErrNotExist) {
+		return nil, ErrUnavailable
+	} else if err != nil {
+		return nil, err
+	}
+	value, err := store.OpenReadOnly(ctx, r.paths.Database)
+	if err != nil {
+		return nil, fmt.Errorf("open repository snapshot: %w", err)
+	}
+	current, err := indexer.FreshnessTokenWithExtractor(
+		ctx, r.paths.Root, r.config, r.extractor,
+	)
+	if err != nil {
+		value.Close()
+		return nil, err
+	}
+	indexed, err := value.IndexFreshnessToken(ctx)
+	if err != nil {
+		value.Close()
+		return nil, err
+	}
+	if current == "" || current != indexed {
+		value.Close()
+		return nil, ErrStale
+	}
+	return &Snapshot{Reader: value, close: value.Close}, nil
+}
 
 func (r *Repository) Refresh(ctx context.Context, opts RefreshOptions) (RefreshResult, error) {
 	if opts.EmbeddingBatches < 0 {
@@ -148,13 +200,13 @@ func (r *Repository) Readiness(ctx context.Context, scope string) (Readiness, er
 	} else if err != nil {
 		return Readiness{}, err
 	}
-	value, err := store.Open(ctx, r.paths.Database, r.paths.Root, r.paths.ID)
+	value, err := store.OpenReadOnly(ctx, r.paths.Database)
 	if err != nil {
 		return Readiness{}, fmt.Errorf("open repository index: %w", err)
 	}
 	defer value.Close()
 	state, err := value.EmbeddingStateForScope(
-		ctx, internalembedding.Fingerprint(*r.config.Embedding), scope,
+		ctx, embedding.Fingerprint(*r.embedding), scope,
 	)
 	if err != nil {
 		return Readiness{}, err

@@ -22,8 +22,8 @@ import (
 	"github.com/coadan/yggdrasil/internal/discovery"
 	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/project"
-	"github.com/coadan/yggdrasil/internal/search"
 	"github.com/coadan/yggdrasil/internal/store"
+	search "github.com/coadan/yggdrasil/query"
 )
 
 func TestRunIsIncrementalAndDeletesMissingFiles(t *testing.T) {
@@ -318,7 +318,7 @@ func assertWorktreeSearch(t *testing.T, paths project.Paths, query string, want 
 	}
 	defer value.Close()
 	result, err := search.Run(context.Background(), value, query, search.Options{
-		Mode: "lexical", Limit: 10, Root: paths.Root,
+		Mode: "lexical", Limit: 10,
 	})
 	if err != nil {
 		t.Fatal(err)

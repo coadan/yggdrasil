@@ -1,12 +1,10 @@
-package search
+package query
 
 import (
 	"context"
 	"os"
 	"path/filepath"
 	"testing"
-
-	querycontract "github.com/coadan/yggdrasil/query"
 )
 
 func TestRunFilesystemUsesCurrentFilesAndCitations(t *testing.T) {
@@ -79,8 +77,8 @@ func TestRunFilesystemSupportsFixedAndRegexpPlans(t *testing.T) {
 		pattern string
 		kind    string
 	}{
-		{"push", querycontract.MatchFixed},
-		{`push.*ErrorEnvelope`, querycontract.MatchRegexp},
+		{"push", MatchFixed},
+		{`push.*ErrorEnvelope`, MatchRegexp},
 	} {
 		result, err := RunFilesystem(
 			context.Background(), root, test.pattern,

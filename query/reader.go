@@ -1,31 +1,15 @@
 package query
 
-import "context"
+import (
+	"context"
+
+	"github.com/coadan/yggdrasil/query/model"
+)
 
 // Candidate is an indexed retrieval fact consumed by ranking. Storage-specific
 // row handles remain ordinary values and are never exposed as database handles.
-type Candidate struct {
-	ID        int64
-	InputHash string
-	Path      string
-	StartLine int
-	EndLine   int
-	Kind      string
-	Title     string
-	Text      string
-	Metadata  map[string]any
-	Source    string
-}
-
-type EmbeddingState struct {
-	Configured  bool   `json:"configured"`
-	Fingerprint string `json:"fingerprint,omitempty"`
-	Model       string `json:"model,omitempty"`
-	Dimensions  int    `json:"dimensions,omitempty"`
-	Embedded    int    `json:"embedded"`
-	Records     int    `json:"records"`
-	Complete    bool   `json:"complete"`
-}
+type Candidate = model.Candidate
+type EmbeddingState = model.EmbeddingState
 
 // Reader is the narrow immutable snapshot consumed by repository ranking.
 // Implementations must return promptly or honor context cancellation.
