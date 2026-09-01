@@ -36,7 +36,11 @@ type Options struct {
 	// missing vectors for CLI compatibility; a positive value lets a host
 	// progressively schedule bounded work.
 	MaxEmbeddingBatches int
-	Progress            func(Progress)
+	// EmbeddingPriorityPaths and EmbeddingPriorityScope order bounded semantic
+	// work by explicit retrieval demand. They do not change readiness or rank.
+	EmbeddingPriorityPaths []string
+	EmbeddingPriorityScope string
+	Progress               func(Progress)
 }
 
 type Progress struct {
@@ -392,7 +396,9 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	} else if cfg.Embedding != nil {
 		summary.Embedded, summary.EmbeddingStatus, err = embedRecords(
 			ctx, value, paths, *cfg.Embedding, opts.EmbeddingProvider,
-			opts.MaxEmbeddingBatches, summary.RunID, &summary.Diagnostics, report,
+			opts.MaxEmbeddingBatches, store.EmbeddingPriority{
+				Paths: opts.EmbeddingPriorityPaths, Scope: opts.EmbeddingPriorityScope,
+			}, summary.RunID, &summary.Diagnostics, report,
 		)
 		if err != nil {
 			return summary, err
@@ -462,6 +468,7 @@ func embedRecords(
 	cfg config.Embedding,
 	provider embeddingcontract.Provider,
 	maxBatches int,
+	priority store.EmbeddingPriority,
 	runID string,
 	diagnostics *int,
 	report func(Progress),
@@ -478,7 +485,7 @@ func embedRecords(
 		Phase: "embedding", Completed: state.Embedded, Total: state.Records,
 		EmbeddingModel: cfg.Model,
 	})
-	inputs, err := value.MissingEmbeddingInputs(ctx, fingerprint, cfg.BatchSize)
+	inputs, err := value.MissingEmbeddingInputsByPriority(ctx, fingerprint, cfg.BatchSize, priority)
 	if err != nil {
 		return 0, "", err
 	}
@@ -542,7 +549,7 @@ func embedRecords(
 			Phase: "embedding", Completed: state.Embedded, Total: state.Records,
 			Embedded: embedded, EmbeddingModel: cfg.Model,
 		})
-		inputs, err = value.MissingEmbeddingInputs(ctx, fingerprint, cfg.BatchSize)
+		inputs, err = value.MissingEmbeddingInputsByPriority(ctx, fingerprint, cfg.BatchSize, priority)
 		if err != nil {
 			return embedded, "", err
 		}

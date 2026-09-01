@@ -88,6 +88,11 @@ type EmbeddingInput struct {
 	Text      string
 }
 
+type EmbeddingPriority struct {
+	Paths []string
+	Scope string
+}
+
 type EmbeddingValue struct {
 	ID        int64
 	InputHash string
@@ -1505,10 +1510,56 @@ func (s *Store) MissingEmbeddingInputs(
 	fingerprint string,
 	limit int,
 ) ([]EmbeddingInput, error) {
+	return s.MissingEmbeddingInputsByPriority(ctx, fingerprint, limit, EmbeddingPriority{})
+}
+
+// MissingEmbeddingInputsByPriority orders derived work by explicit mechanical
+// demand. Exact paths precede the requested scope; all remaining records stay
+// eligible. Callers can periodically omit priority to age the whole corpus.
+func (s *Store) MissingEmbeddingInputsByPriority(
+	ctx context.Context,
+	fingerprint string,
+	limit int,
+	priority EmbeddingPriority,
+) ([]EmbeddingInput, error) {
+	if limit < 1 {
+		return nil, errors.New("embedding input limit must be positive")
+	}
+	paths := make([]string, 0, len(priority.Paths))
+	seen := make(map[string]bool, len(priority.Paths))
+	for _, path := range priority.Paths {
+		path = strings.TrimSpace(path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		paths = append(paths, path)
+	}
+	if len(paths) > 100 {
+		return nil, errors.New("embedding priority exceeds 100 paths")
+	}
+	priorityExpr := "0"
+	var args []any
+	var clauses []string
+	if len(paths) > 0 {
+		clauses = append(clauses, "WHEN r.path IN ("+placeholders(len(paths))+") THEN 0")
+		for _, path := range paths {
+			args = append(args, path)
+		}
+	}
+	if priority.Scope != "" {
+		clauses = append(clauses, "WHEN "+recordScopePredicate+" THEN 1")
+		args = append(args, priority.Scope, priority.Scope, priority.Scope, priority.Scope)
+	}
+	if len(clauses) > 0 {
+		priorityExpr = "CASE " + strings.Join(clauses, " ") + " ELSE 2 END"
+	}
+	args = append(args, fingerprint, limit)
 	rows, err := s.db.QueryContext(ctx, `
 		WITH missing AS (
 			SELECT r.id,r.input_hash,
-				CASE WHEN r.title='' THEN r.text ELSE r.title||char(10)||r.text END AS input_text
+				CASE WHEN r.title='' THEN r.text ELSE r.title||char(10)||r.text END AS input_text,
+				`+priorityExpr+` AS priority
 			FROM records r
 			LEFT JOIN embedding_records e
 				ON e.record_id=r.id AND e.input_hash=r.input_hash AND e.fingerprint=?
@@ -1516,11 +1567,11 @@ func (s *Store) MissingEmbeddingInputs(
 				AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0
 				AND e.record_id IS NULL
 		)
-		SELECT min(id),input_hash,input_text
+		SELECT min(id),input_hash,input_text,min(priority) AS priority
 		FROM missing
 		GROUP BY input_hash,input_text
-		ORDER BY length(input_text),min(id)
-		LIMIT ?`, fingerprint, limit)
+		ORDER BY priority,length(input_text),min(id)
+		LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1528,7 +1579,8 @@ func (s *Store) MissingEmbeddingInputs(
 	var result []EmbeddingInput
 	for rows.Next() {
 		var input EmbeddingInput
-		if err := rows.Scan(&input.ID, &input.InputHash, &input.Text); err != nil {
+		var priority int
+		if err := rows.Scan(&input.ID, &input.InputHash, &input.Text, &priority); err != nil {
 			return nil, err
 		}
 		result = append(result, input)
