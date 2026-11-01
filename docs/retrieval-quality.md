@@ -116,3 +116,39 @@ stalled-Git regression verifies cancellation before the process's normal exit.
 Raw matched model, replay, memory, and parity evidence is retained under
 `.workbench/tasks/retrieval-granularity/evidence/`. These robustness changes do
 not establish an improvement in intent ranking or agent task completion.
+
+## Evidence-matching CPU follow-up
+
+Profiling the bounded fallback showed that per-line token maps and their
+allocations dominated CPU and garbage-collection work. Evidence matching now
+keeps only query-relevant terms in a reusable five-line window, streams input
+lines, and stops after the earliest window reaches the maximum possible term
+coverage. Active term counters avoid rescanning the full query at each
+source position; a 256-term benchmark fell from about 4.38 ms to 0.09 ms.
+Case-delimited aliases, first-occurrence casing, literal priority,
+window boundaries, and source coordinates retain their previous behavior.
+Citation extraction now finds a byte offset instead of splitting and joining
+the entire source record, and returns an independent bounded excerpt.
+
+On the same generated 1,000-file corpus, three baseline runs took 6.548–6.760
+seconds (median 6.675 seconds). The final streamed runs had a median of
+0.085 seconds and identical result hashes. Individual measurements are retained
+in `profile-accepted.json` beside the task. A separate near-4-MiB
+newline-heavy file reduced peak RSS from 327,811,072 to 15,138,816 bytes, with
+identical empty results. These are controlled synthetic measurements, not
+claims about all repository searches.
+
+Evidence-matching benchmarks include early complete matches, late code matches,
+Unicode, and empty lines. Compatibility fixtures also run against the baseline
+through a temporary build overlay. Nine frozen-source query variants and 67 deterministic mixed-query cases
+retained their result hashes, and all per-case paths, expected-owner ranks, noise and
+citation rates matched across the ten public and eight private lexical replay
+cases. Aggregate recall/MRR remain 0.830/0.790 public and 0.292/0.438 private.
+No ranking improvement is claimed.
+
+The Python protocol integration test now uses the existing normal provider
+timeout rather than a shorter startup budget that timed out under concurrent
+package initialization. Production timeouts and dedicated timeout tests are
+unchanged. Raw profiles, timing repetitions, benchmark output, baseline-overlay
+checks and replay comparisons are under
+`.workbench/tasks/evidence-cpu/evidence/`.

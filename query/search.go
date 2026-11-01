@@ -927,8 +927,8 @@ func tokenEvidenceTerms(token string) []string {
 }
 
 // visitEvidenceTokenParts emits case-delimited components in addition to the
-// full token handled by the caller. Source lines need not allocate a set of
-// unrelated words, while query groups can still deduplicate their aliases.
+// full token handled by the caller. Source callers filter components as they
+// arrive; query callers collect distinct aliases.
 func visitEvidenceTokenParts(token string, visit func(string)) {
 	if !strings.ContainsFunc(token, unicode.IsUpper) {
 		return

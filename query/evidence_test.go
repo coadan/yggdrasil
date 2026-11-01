@@ -26,6 +26,9 @@ func TestLocateEvidenceWindowAndTokenSemantics(t *testing.T) {
 		{"overlapping aliases", "fooBar", "FooBar foo bar", citationEvidence{terms: 3, line: 0}},
 		{"numeric boundary", "HTTP2Server", "http2 server", citationEvidence{terms: 2, line: 0}},
 		{"empty source", "", "missing token", citationEvidence{line: -1}},
+		{"shared aliases leave the window", "foo\nbar\n\n\n\n\nbaz", "FooBar bar baz", citationEvidence{terms: 2, line: 0}},
+		{"repeated terms remain active", "foo\nfoo\nfoo\nfoo\n\n\n\nbar", "foo bar", citationEvidence{terms: 2, line: 5}},
+		{"shared aliases reenter", "bar\n\n\n\n\nfoo", "FooBar foo", citationEvidence{terms: 2, line: 3}},
 		{"punctuation", "anything", "??", citationEvidence{line: -1}},
 		{"no evidence", "nothing present", "missing token", citationEvidence{line: -1}},
 	}
