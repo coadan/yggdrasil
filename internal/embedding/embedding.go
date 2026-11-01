@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	embeddingcontract "github.com/coadan/yggdrasil/embedding"
 	"github.com/coadan/yggdrasil/internal/config"
@@ -28,6 +29,7 @@ const maxProviderResponse = 16 * 1024 * 1024
 const maxProviderStderr = 1024 * 1024
 const maxProviderError = 8 * 1024
 const defaultMaxProviderInputChars = 6000
+const minRecoveredInputChars = 256
 const embeddingBehaviorVersion = "v3"
 
 type Input = embeddingcontract.Input
@@ -102,26 +104,60 @@ func (p *httpProvider) Embed(ctx context.Context, inputs []Input) ([]Value, erro
 	for i := range inputs {
 		texts[i] = truncateChars(inputs[i].Text, providerInputLimit(p.cfg))
 	}
+	return p.embedRecovering(ctx, inputs, texts)
+}
+
+// embedRecovering isolates inputs the provider rejects. Character limits cannot
+// bound provider tokens for dense text, so a rejected batch is split and a
+// rejected input is shortened instead of failing the entire repository.
+func (p *httpProvider) embedRecovering(ctx context.Context, inputs []Input, texts []string) ([]Value, error) {
+	values, status, err := p.embedTexts(ctx, inputs, texts)
+	if err == nil {
+		return values, nil
+	}
+	if (status != http.StatusBadRequest && status != http.StatusRequestEntityTooLarge) || ctx.Err() != nil {
+		return nil, err
+	}
+	if len(inputs) > 1 {
+		middle := len(inputs) / 2
+		first, err := p.embedRecovering(ctx, inputs[:middle], texts[:middle])
+		if err != nil {
+			return nil, err
+		}
+		second, err := p.embedRecovering(ctx, inputs[middle:], texts[middle:])
+		if err != nil {
+			return nil, err
+		}
+		return append(first, second...), nil
+	}
+	shorter := utf8.RuneCountInString(texts[0]) / 2
+	if shorter < minRecoveredInputChars {
+		return nil, err
+	}
+	return p.embedRecovering(ctx, inputs, []string{truncateChars(texts[0], shorter)})
+}
+
+func (p *httpProvider) embedTexts(ctx context.Context, inputs []Input, texts []string) ([]Value, int, error) {
 	payload, err := json.Marshal(map[string]any{
 		"model": p.cfg.Model, "input": texts, "encoding_format": "float",
 	})
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	for attempt := 0; ; attempt++ {
 		values, status, err := p.embedOnce(ctx, inputs, payload)
 		if err == nil {
-			return values, nil
+			return values, status, nil
 		}
 		retryable := status == 0 || status == 429 || status == 529 || status >= 500
 		if !retryable || attempt >= p.maxRetries || ctx.Err() != nil {
-			return nil, err
+			return nil, status, err
 		}
 		timer := time.NewTimer(p.retryBackoff * time.Duration(1<<attempt))
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, ctx.Err()
+			return nil, status, ctx.Err()
 		case <-timer.C:
 		}
 	}

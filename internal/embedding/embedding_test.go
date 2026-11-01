@@ -320,3 +320,90 @@ func runCommandProviderBoundHelper() {
 		}
 	}
 }
+
+func TestHTTPProviderIsolatesAndShortensRejectedInput(t *testing.T) {
+	const accepted = 500
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Input []string `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		type item struct {
+			Index     int       `json:"index"`
+			Embedding []float32 `json:"embedding"`
+		}
+		data := make([]item, len(request.Input))
+		for index, text := range request.Input {
+			if len(text) > accepted {
+				http.Error(w, "input too dense", http.StatusBadRequest)
+				return
+			}
+			data[index] = item{Index: index, Embedding: []float32{float32(len(text))}}
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data})
+	}))
+	defer server.Close()
+	provider := &httpProvider{
+		cfg:    config.Embedding{Model: "m", Dimensions: 1, Endpoint: server.URL, MaxInputChars: 1000},
+		client: server.Client(),
+	}
+	values, err := provider.Embed(context.Background(), []Input{
+		{ID: "first", Text: "short"},
+		{ID: "dense", Text: strings.Repeat("x", 1000)},
+		{ID: "last", Text: "tiny"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 3 || values[0].ID != "first" || values[1].ID != "dense" || values[2].ID != "last" {
+		t.Fatalf("values=%#v", values)
+	}
+	if values[1].Vector[0] != accepted {
+		t.Fatalf("dense input length=%v", values[1].Vector[0])
+	}
+}
+
+func TestHTTPProviderBoundsRejectedInputRecovery(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		http.Error(w, "bad request", http.StatusBadRequest)
+	}))
+	defer server.Close()
+	provider := &httpProvider{
+		cfg:    config.Embedding{Model: "m", Dimensions: 1, Endpoint: server.URL, MaxInputChars: 4000},
+		client: server.Client(),
+	}
+	_, err := provider.Embed(context.Background(), []Input{{ID: "a", Text: strings.Repeat("x", 4000)}})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 400") {
+		t.Fatalf("err=%v", err)
+	}
+	if requests.Load() != 4 {
+		t.Fatalf("requests=%d", requests.Load())
+	}
+}
+
+func TestHTTPProviderDoesNotShortenOnOtherFailures(t *testing.T) {
+	var lengths []int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Input []string `json:"input"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&request)
+		lengths = append(lengths, len(request.Input[0]))
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	provider := &httpProvider{
+		cfg:    config.Embedding{Model: "m", Dimensions: 1, Endpoint: server.URL, MaxInputChars: 4000},
+		client: server.Client(),
+	}
+	if _, err := provider.Embed(context.Background(), []Input{{ID: "a", Text: strings.Repeat("x", 2000)}}); err == nil {
+		t.Fatal("expected failure")
+	}
+	if len(lengths) != 1 || lengths[0] != 2000 {
+		t.Fatalf("lengths=%v", lengths)
+	}
+}
