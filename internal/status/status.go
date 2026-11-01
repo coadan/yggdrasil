@@ -96,7 +96,7 @@ func Inspect(ctx context.Context, paths project.Paths, cfg config.Config, opts O
 		result.EmbeddingProvider = checkProvider(ctx, paths.Root, cfg.Embedding)
 	}
 	if _, err := os.Stat(paths.Database); errors.Is(err, os.ErrNotExist) {
-		candidates, discoverErr := discovery.Candidates(paths.Root, cfg.IgnoreGlobs)
+		candidates, discoverErr := discovery.Candidates(ctx, paths.Root, cfg.IgnoreGlobs)
 		if discoverErr != nil {
 			return Result{}, discoverErr
 		}
@@ -126,7 +126,7 @@ func Inspect(ctx context.Context, paths project.Paths, cfg config.Config, opts O
 		}
 		result.Embedding = &state
 	}
-	candidates, err := discovery.Candidates(paths.Root, cfg.IgnoreGlobs)
+	candidates, err := discovery.Candidates(ctx, paths.Root, cfg.IgnoreGlobs)
 	if err != nil {
 		return Result{}, err
 	}

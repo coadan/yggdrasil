@@ -1,10 +1,14 @@
 package discovery
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 const testMaxBytes = int64(1024)
@@ -70,7 +74,7 @@ func TestCandidatesAndReadText(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "skip.bin"), []byte{0, 1}, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	candidates, err := Candidates(root, nil)
+	candidates, err := Candidates(context.Background(), root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +101,7 @@ func TestDiscoveryDoesNotFollowRepositorySymlinks(t *testing.T) {
 	if err := os.Symlink(outside, link); err != nil {
 		t.Fatal(err)
 	}
-	candidates, err := Candidates(root, nil)
+	candidates, err := Candidates(context.Background(), root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,5 +113,37 @@ func TestDiscoveryDoesNotFollowRepositorySymlinks(t *testing.T) {
 	}, 1024)
 	if err != nil || skipped == nil || skipped.Reason != "non-regular" {
 		t.Fatalf("skipped=%#v err=%v", skipped, err)
+	}
+}
+
+func TestCandidatesHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := Candidates(ctx, t.TempDir(), nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v", err)
+	}
+	if _, err := walkPaths(ctx, t.TempDir()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("walk err=%v", err)
+	}
+}
+
+func TestCandidatesCancelsGitWithoutStartingFallbackWalk(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fixture uses a shell executable")
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexec /bin/sleep 30\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	_, err := Candidates(ctx, t.TempDir(), nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err=%v", err)
+	}
+	if time.Since(started) > 5*time.Second {
+		t.Fatal("discovery waited for the Git process instead of cancellation")
 	}
 }

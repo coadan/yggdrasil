@@ -55,7 +55,7 @@ func freshnessToken(
 	if err := gitFreshness(ctx, digest, root); err == nil {
 		return "sha256:" + hex.EncodeToString(digest.Sum(nil)), nil
 	}
-	candidates, err := discovery.Candidates(root, cfg.IgnoreGlobs)
+	candidates, err := discovery.Candidates(ctx, root, cfg.IgnoreGlobs)
 	if err != nil {
 		return "", fmt.Errorf("discover freshness state: %w", err)
 	}

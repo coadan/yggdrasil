@@ -3,6 +3,7 @@ package discovery
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -36,16 +37,25 @@ type Skipped struct {
 
 var envAssignment = regexp.MustCompile(`^(\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*(?:=|:)).*$`)
 
-func Candidates(root string, ignoreGlobs []string) ([]Candidate, error) {
-	paths, err := gitPaths(root)
+func Candidates(ctx context.Context, root string, ignoreGlobs []string) ([]Candidate, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	paths, err := gitPaths(ctx, root)
 	if err != nil {
-		paths, err = walkPaths(root)
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		paths, err = walkPaths(ctx, root)
 	}
 	if err != nil {
 		return nil, err
 	}
 	result := make([]Candidate, 0, len(paths))
 	for _, rel := range paths {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		if ignored(rel, ignoreGlobs) {
 			continue
 		}
@@ -60,6 +70,9 @@ func Candidates(root string, ignoreGlobs []string) ([]Candidate, error) {
 		})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Path < result[j].Path })
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -170,9 +183,12 @@ func ignored(rel string, patterns []string) bool {
 	return false
 }
 
-func gitPaths(root string) ([]string, error) {
-	cmd := exec.Command("git", "-C", root, "ls-files", "-co", "--exclude-standard", "-z")
+func gitPaths(ctx context.Context, root string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-co", "--exclude-standard", "-z")
 	output, err := cmd.Output()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -186,9 +202,12 @@ func gitPaths(root string) ([]string, error) {
 	return paths, nil
 }
 
-func walkPaths(root string) ([]string, error) {
+func walkPaths(ctx context.Context, root string) ([]string, error) {
 	var paths []string
 	err := filepath.WalkDir(root, func(value string, entry fs.DirEntry, err error) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err != nil {
 			if errors.Is(err, fs.ErrPermission) {
 				return nil

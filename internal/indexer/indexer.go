@@ -246,7 +246,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	}()
 
 	report(Progress{Phase: "discovery"})
-	candidates, err := discovery.Candidates(paths.Root, cfg.IgnoreGlobs)
+	candidates, err := discovery.Candidates(ctx, paths.Root, cfg.IgnoreGlobs)
 	if err != nil {
 		return summary, err
 	}

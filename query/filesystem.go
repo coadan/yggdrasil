@@ -77,7 +77,7 @@ func RunFilesystem(
 			return Result{}, err
 		}
 	}
-	candidates, err := discovery.Candidates(root, opts.IgnoreGlobs)
+	candidates, err := discovery.Candidates(ctx, root, opts.IgnoreGlobs)
 	if err != nil {
 		return Result{}, err
 	}
