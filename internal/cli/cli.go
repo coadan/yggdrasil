@@ -269,21 +269,14 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		return r.fail(true, 1, snapshotErr)
 	}
 	refresh := snapshotErr != nil
-	if snapshotErr == nil && *mode != "lexical" && cfg.Embedding != nil {
-		readiness, readinessErr := repository.index.Readiness(ctx, paths.Scope)
-		if readinessErr != nil {
-			snapshot.Close()
-			return r.fail(true, 1, readinessErr)
-		}
-		refresh = !readiness.Complete
-	}
+
 	if refresh && snapshot != nil {
 		_ = snapshot.Close()
 		snapshot = nil
 	}
 	if refresh {
 		_, err = repository.index.Refresh(ctx, publicindex.RefreshOptions{
-			CompleteEmbeddings: *mode != "lexical",
+			NoEmbed: true,
 			Progress: func(value publicindex.Progress) {
 				progress.report(value.Phase, value.Completed, value.Total, value)
 			},

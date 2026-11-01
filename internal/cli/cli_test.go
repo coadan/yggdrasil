@@ -115,7 +115,7 @@ func TestSearchInitializesAnUnindexedRepository(t *testing.T) {
 	}
 }
 
-func TestAutoSearchCompletesConfiguredEmbeddingsButLexicalDoesNot(t *testing.T) {
+func TestAutoSearchUsesAvailableCoverageWithoutCompletingEmbeddings(t *testing.T) {
 	isolateCLIUserConfig(t)
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -192,10 +192,51 @@ func TestAutoSearchCompletesConfiguredEmbeddingsButLexicalDoesNot(t *testing.T) 
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Data.ActiveMode != "hybrid" || response.Data.FallbackReason != "" || requests < 2 {
+	if response.Data.ActiveMode != "lexical" || response.Data.FallbackReason != "semantic-below-threshold" || requests != 0 {
 		t.Fatalf("requests=%d response=%s", requests, stdout.String())
 	}
-	assertProgressPhases(t, stderr.String(), "lock", "discovery", "index", "embedding", "complete")
+	// Explicit maintenance completes coverage; subsequent search can use it.
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{"index", "--root", root}, &stdout, &stderr); code != 0 {
+		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if requests == 0 {
+		t.Fatal("explicit index did not embed documents")
+	}
+	beforeQuery := requests
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{"search", "--root", root, "embedding readiness"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Data.ActiveMode != "hybrid" || requests != beforeQuery+1 {
+		t.Fatalf("requests=%d response=%s", requests, stdout.String())
+	}
+	// A fresh repository also initializes text without sending embedding work.
+	fresh := t.TempDir()
+	if err := os.Mkdir(filepath.Join(fresh, ".ygg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fresh, ".ygg", "config.json"), rawConfig, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fresh, "owner.txt"), []byte("embedding readiness"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	beforeQuery = requests
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{"search", "--root", fresh, "embedding readiness"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("fresh search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if requests != beforeQuery {
+		t.Fatalf("fresh search sent embedding work: %d", requests-beforeQuery)
+	}
+
 }
 
 func TestSearchAcceptsFlagsAfterQueryAndLegacyJSONAssertion(t *testing.T) {
