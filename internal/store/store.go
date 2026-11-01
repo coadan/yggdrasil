@@ -33,8 +33,9 @@ const schemaVersion = "5"
 const indexFreshnessKey = "index_freshness_token"
 
 type Store struct {
-	db   *sql.DB
-	path string
+	db     *sql.DB
+	readTx *sql.Tx
+	path   string
 }
 
 type FileState struct {
@@ -122,7 +123,8 @@ func Open(ctx context.Context, path, root, rootID string) (*Store, error) {
 }
 
 // OpenReadOnly opens an existing index without schema initialization or a busy
-// wait. It is used for request-local immutable query snapshots.
+// wait. Reads share one transaction until Close or ctx cancellation. The first
+// read pins its generation; later statements cannot see concurrent commits.
 func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
 	uri := (&url.URL{Scheme: "file", Path: path}).String()
 	db, err := driver.Open(
@@ -142,7 +144,12 @@ func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	return &Store{db: db, path: path}, nil
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &Store{db: db, readTx: tx, path: path}, nil
 }
 
 // CloneDatabase creates a transactionally consistent snapshot and gives the
@@ -210,7 +217,7 @@ func CloneDatabase(
 
 func (s *Store) PendingSeed(ctx context.Context) (string, error) {
 	var source string
-	err := s.db.QueryRowContext(
+	err := s.queryRowContext(
 		ctx, `SELECT value FROM meta WHERE key='worktree_seed_source'`,
 	).Scan(&source)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -220,13 +227,13 @@ func (s *Store) PendingSeed(ctx context.Context) (string, error) {
 }
 
 func (s *Store) CompleteSeed(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, `DELETE FROM meta WHERE key='worktree_seed_source'`)
+	_, err := s.execContext(ctx, `DELETE FROM meta WHERE key='worktree_seed_source'`)
 	return err
 }
 
 func (s *Store) IndexFreshnessToken(ctx context.Context) (string, error) {
 	var token string
-	err := s.db.QueryRowContext(
+	err := s.queryRowContext(
 		ctx, `SELECT value FROM meta WHERE key=?`, indexFreshnessKey,
 	).Scan(&token)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -237,10 +244,10 @@ func (s *Store) IndexFreshnessToken(ctx context.Context) (string, error) {
 
 func (s *Store) SetIndexFreshnessToken(ctx context.Context, token string) error {
 	if token == "" {
-		_, err := s.db.ExecContext(ctx, `DELETE FROM meta WHERE key=?`, indexFreshnessKey)
+		_, err := s.execContext(ctx, `DELETE FROM meta WHERE key=?`, indexFreshnessKey)
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execContext(ctx, `
 		INSERT INTO meta(key,value) VALUES(?,?)
 		ON CONFLICT(key) DO UPDATE SET value=excluded.value`,
 		indexFreshnessKey, token)
@@ -263,7 +270,42 @@ func openDatabase(path string) (*sql.DB, error) {
 }
 
 func (s *Store) Close() error {
-	return s.db.Close()
+	var err error
+	if s.readTx != nil {
+		err = s.readTx.Rollback()
+		if errors.Is(err, sql.ErrTxDone) {
+			err = nil
+		}
+	}
+	return errors.Join(err, s.db.Close())
+}
+
+func (s *Store) queryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	if s.readTx != nil {
+		return s.readTx.QueryContext(ctx, query, args...)
+	}
+	return s.db.QueryContext(ctx, query, args...)
+}
+
+func (s *Store) queryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	if s.readTx != nil {
+		return s.readTx.QueryRowContext(ctx, query, args...)
+	}
+	return s.db.QueryRowContext(ctx, query, args...)
+}
+
+func (s *Store) execContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	if s.readTx != nil {
+		return nil, sqlite3.READONLY
+	}
+	return s.db.ExecContext(ctx, query, args...)
+}
+
+func (s *Store) beginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	if s.readTx != nil {
+		return nil, sqlite3.READONLY
+	}
+	return s.db.BeginTx(ctx, opts)
 }
 
 func (s *Store) Path() string {
@@ -411,15 +453,15 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		)`,
 	}
 	for _, statement := range statements {
-		if _, err := s.db.ExecContext(ctx, statement); err != nil {
+		if _, err := s.execContext(ctx, statement); err != nil {
 			return fmt.Errorf("initialize sqlite: %w", err)
 		}
 	}
 	var version string
-	err := s.db.QueryRowContext(ctx, `SELECT value FROM meta WHERE key='schema_version'`).Scan(&version)
+	err := s.queryRowContext(ctx, `SELECT value FROM meta WHERE key='schema_version'`).Scan(&version)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		if _, err := s.db.ExecContext(ctx, `INSERT INTO meta(key,value) VALUES('schema_version',?)`, schemaVersion); err != nil {
+		if _, err := s.execContext(ctx, `INSERT INTO meta(key,value) VALUES('schema_version',?)`, schemaVersion); err != nil {
 			return err
 		}
 	case err != nil:
@@ -449,19 +491,19 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		return fmt.Errorf("index schema %s is incompatible with %s; run ygg index --full", version, schemaVersion)
 	}
 	var extractorFTSVersion string
-	err = s.db.QueryRowContext(
+	err = s.queryRowContext(
 		ctx, `SELECT value FROM meta WHERE key='extractor_fts_version'`,
 	).Scan(&extractorFTSVersion)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		if _, err := s.db.ExecContext(ctx, `
+		if _, err := s.execContext(ctx, `
 			INSERT INTO extractor_fts(rowid,path,title,text)
 			SELECT id,path,title,text FROM records
 			WHERE source LIKE 'plugin:%'
 				AND coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`); err != nil {
 			return fmt.Errorf("build extractor index: %w", err)
 		}
-		if _, err := s.db.ExecContext(
+		if _, err := s.execContext(
 			ctx, `INSERT INTO meta(key,value) VALUES('extractor_fts_version','2')`,
 		); err != nil {
 			return err
@@ -472,10 +514,10 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		return fmt.Errorf("unsupported extractor index version %s", extractorFTSVersion)
 	}
 	var storedID, storedRoot string
-	err = s.db.QueryRowContext(ctx, `SELECT root_id, root FROM repository WHERE id=1`).Scan(&storedID, &storedRoot)
+	err = s.queryRowContext(ctx, `SELECT root_id, root FROM repository WHERE id=1`).Scan(&storedID, &storedRoot)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		_, err = s.db.ExecContext(ctx, `INSERT INTO repository(id,root_id,root) VALUES(1,?,?)`, rootID, root)
+		_, err = s.execContext(ctx, `INSERT INTO repository(id,root_id,root) VALUES(1,?,?)`, rootID, root)
 		return err
 	case err != nil:
 		return err
@@ -490,20 +532,20 @@ func (s *Store) migrateV3ToV4(ctx context.Context) error {
 	if err := s.RebuildGraph(ctx); err != nil {
 		return fmt.Errorf("build mechanical graph: %w", err)
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE meta SET value='4' WHERE key='schema_version'`)
+	_, err := s.execContext(ctx, `UPDATE meta SET value='4' WHERE key='schema_version'`)
 	return err
 }
 
 func (s *Store) migrateV4ToV5(ctx context.Context) error {
-	if _, err := s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS records_input_hash_idx ON records(input_hash)`); err != nil {
+	if _, err := s.execContext(ctx, `CREATE INDEX IF NOT EXISTS records_input_hash_idx ON records(input_hash)`); err != nil {
 		return fmt.Errorf("index embedding input hashes: %w", err)
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE meta SET value='5' WHERE key='schema_version'`)
+	_, err := s.execContext(ctx, `UPDATE meta SET value='5' WHERE key='schema_version'`)
 	return err
 }
 
 func (s *Store) migrateV2ToV3(ctx context.Context) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -591,7 +633,7 @@ func searchTriggerStatements() []string {
 }
 
 func (s *Store) BeginRun(ctx context.Context, runID string) error {
-	_, err := s.db.ExecContext(ctx,
+	_, err := s.execContext(ctx,
 		`INSERT INTO index_runs(id,started_at_ms,status) VALUES(?,?,'running')`,
 		runID, time.Now().UnixMilli())
 	return err
@@ -602,14 +644,14 @@ func (s *Store) FinishRun(ctx context.Context, runID, status string, summary any
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx,
+	_, err = s.execContext(ctx,
 		`UPDATE index_runs SET finished_at_ms=?, status=?, summary_json=? WHERE id=?`,
 		time.Now().UnixMilli(), status, string(data), runID)
 	return err
 }
 
 func (s *Store) FileStates(ctx context.Context) (map[string]FileState, error) {
-	rows, err := s.db.QueryContext(ctx,
+	rows, err := s.queryContext(ctx,
 		`SELECT path,size,mtime_ns,content_hash,extraction_fingerprint FROM files ORDER BY path`)
 	if err != nil {
 		return nil, err
@@ -639,7 +681,7 @@ func (s *Store) ReplaceFile(
 	contentHash, fingerprint string,
 	records []contracts.SearchRecord,
 ) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -699,7 +741,7 @@ func replaceFile(ctx context.Context, tx *sql.Tx, runID string, update FileUpdat
 }
 
 func (s *Store) DeleteFile(ctx context.Context, path string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -755,7 +797,7 @@ func deleteFileRecords(ctx context.Context, tx *sql.Tx, fileID int64) error {
 }
 
 func (s *Store) AddDiagnostic(ctx context.Context, runID, path, stage, message string) error {
-	_, err := s.db.ExecContext(ctx, `
+	_, err := s.execContext(ctx, `
 		INSERT INTO diagnostics(run_id,path,stage,message,created_at_ms)
 		VALUES(?,?,?,?,?)`, runID, path, stage, message, time.Now().UnixMilli())
 	return err
@@ -769,7 +811,7 @@ func (s *Store) ApplyBatch(
 	deletes []string,
 	diagnostics []Diagnostic,
 ) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -1044,7 +1086,7 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 		`SELECT count(*) FROM graph_edges`: &counts.GraphEdges,
 		`SELECT count(*) FROM diagnostics`: &counts.Diagnostics,
 	} {
-		if err := s.db.QueryRowContext(ctx, query).Scan(target); err != nil {
+		if err := s.queryRowContext(ctx, query).Scan(target); err != nil {
 			return Counts{}, err
 		}
 	}
@@ -1054,7 +1096,7 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 // RebuildGraph derives only explicit extractor relationships and mechanically
 // resolvable local import/export targets. It does not infer project meaning.
 func (s *Store) RebuildGraph(ctx context.Context) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -1165,7 +1207,7 @@ func (s *Store) GraphCandidates(
 		return nil, nil
 	}
 	args := append(stringArgs(seedPaths), stringArgs(seedPaths)...)
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.queryContext(ctx, `
 		SELECT source_path,target_path,relation,record_id
 		FROM graph_edges
 		WHERE target_path IS NOT NULL AND source_path<>target_path
@@ -1231,7 +1273,7 @@ func (s *Store) GraphCandidates(
 	if len(paths) == 0 {
 		return nil, nil
 	}
-	rows, err = s.db.QueryContext(ctx, `
+	rows, err = s.queryContext(ctx, `
 		SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
 		FROM records r
 		WHERE path IN (`+placeholders(len(paths))+`)
@@ -1283,7 +1325,7 @@ func (s *Store) LexicalCandidates(
 	limit int,
 ) ([]Record, error) {
 	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
-		rows, err := s.db.QueryContext(ctx, `
+		rows, err := s.queryContext(ctx, `
 			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 			FROM record_fts
 			JOIN records r ON r.id=record_fts.rowid
@@ -1304,7 +1346,7 @@ func (s *Store) LiteralCandidates(
 ) ([]Record, error) {
 	if query == "" {
 		return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
-			rows, err := s.db.QueryContext(ctx, `
+			rows, err := s.queryContext(ctx, `
 				SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
 				FROM records r
 				WHERE r.kind<>'file' AND instr(r.text,?) > 0 AND `+lexicalRecordPredicate+`
@@ -1318,7 +1360,7 @@ func (s *Store) LiteralCandidates(
 		})
 	}
 	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
-		rows, err := s.db.QueryContext(ctx, `
+		rows, err := s.queryContext(ctx, `
 			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 			FROM record_fts
 			JOIN records r ON r.id=record_fts.rowid
@@ -1341,7 +1383,7 @@ func (s *Store) LexicalRecords(
 	query, scope string,
 ) ([]Record, error) {
 	if query == "" {
-		rows, err := s.db.QueryContext(ctx, `
+		rows, err := s.queryContext(ctx, `
 			SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
 			FROM records r
 			WHERE `+lexicalRecordPredicate+` AND `+recordScopePredicate+`
@@ -1351,7 +1393,7 @@ func (s *Store) LexicalRecords(
 		}
 		return scanRecords(rows)
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.queryContext(ctx, `
 		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 		FROM record_fts
 		JOIN records r ON r.id=record_fts.rowid
@@ -1370,7 +1412,7 @@ func (s *Store) ExtractorCandidates(
 	limit int,
 ) ([]Record, error) {
 	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
-		rows, err := s.db.QueryContext(ctx, `
+		rows, err := s.queryContext(ctx, `
 			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 			FROM extractor_fts
 			JOIN records r ON r.id=extractor_fts.rowid
@@ -1436,7 +1478,7 @@ func (s *Store) PathCandidates(
 		LIMIT ?`)
 	args = append(args, scope, scope, scope, scope)
 	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, query.String(), args...)
+	rows, err := s.queryContext(ctx, query.String(), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1479,14 +1521,14 @@ func (s *Store) PrepareEmbeddingLane(
 	dimensions int,
 ) (bool, error) {
 	var currentFingerprint string
-	err := s.db.QueryRowContext(ctx, `SELECT fingerprint FROM embedding_lane WHERE id=1`).Scan(&currentFingerprint)
+	err := s.queryRowContext(ctx, `SELECT fingerprint FROM embedding_lane WHERE id=1`).Scan(&currentFingerprint)
 	if err == nil && currentFingerprint == fingerprint {
 		return false, nil
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return false, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
@@ -1585,7 +1627,7 @@ func (s *Store) MissingEmbeddingInputsByPriority(
 		priorityExpr = "CASE " + strings.Join(clauses, " ") + " ELSE " + strconv.Itoa(changedRank+len(changedPaths)) + " END"
 	}
 	args = append(args, fingerprint, limit)
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.queryContext(ctx, `
 		WITH missing AS (
 			SELECT r.id,r.input_hash,
 				CASE WHEN r.title='' THEN r.text ELSE r.title||char(10)||r.text END AS input_text,
@@ -1624,7 +1666,7 @@ func (s *Store) UpsertEmbeddings(
 	dimensions int,
 	values []EmbeddingValue,
 ) (int, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.beginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -1694,11 +1736,11 @@ func (s *Store) EmbeddingStateForScope(
 	scope string,
 ) (EmbeddingState, error) {
 	state := EmbeddingState{Fingerprint: fingerprint}
-	err := s.db.QueryRowContext(ctx,
+	err := s.queryRowContext(ctx,
 		`SELECT model,dimensions FROM embedding_lane WHERE id=1 AND fingerprint=?`,
 		fingerprint).Scan(&state.Model, &state.Dimensions)
 	if errors.Is(err, sql.ErrNoRows) {
-		if err := s.db.QueryRowContext(ctx, `
+		if err := s.queryRowContext(ctx, `
 			SELECT count(*) FROM records r WHERE r.kind<>'file'
 				AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0
 				AND `+recordScopePredicate,
@@ -1711,14 +1753,14 @@ func (s *Store) EmbeddingStateForScope(
 		return EmbeddingState{}, err
 	}
 	state.Configured = true
-	if err := s.db.QueryRowContext(ctx, `
+	if err := s.queryRowContext(ctx, `
 		SELECT count(*) FROM records r WHERE r.kind<>'file'
 			AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0
 			AND `+recordScopePredicate,
 		scope, scope, scope, scope).Scan(&state.Records); err != nil {
 		return EmbeddingState{}, err
 	}
-	if err := s.db.QueryRowContext(ctx, `
+	if err := s.queryRowContext(ctx, `
 		SELECT count(*)
 		FROM embedding_records e
 		JOIN records r ON r.id=e.record_id
@@ -1740,7 +1782,7 @@ func (s *Store) VectorCandidates(
 ) ([]Record, error) {
 	vectorLimit := limit
 	var total int
-	if err := s.db.QueryRowContext(ctx, `
+	if err := s.queryRowContext(ctx, `
 		SELECT count(*) FROM record_vectors v
 		JOIN records r ON r.id=v.rowid
 		WHERE coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0`).Scan(&total); err != nil {
@@ -1751,7 +1793,7 @@ func (s *Store) VectorCandidates(
 	}
 	if scope != "" {
 		var scoped int
-		if err := s.db.QueryRowContext(
+		if err := s.queryRowContext(
 			ctx,
 			`SELECT count(*) FROM records r WHERE `+recordScopePredicate+`
 				AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0`,
@@ -1768,7 +1810,7 @@ func (s *Store) VectorCandidates(
 		vectorLimit = min(total, max(limit, estimated*2))
 	}
 	for {
-		rows, err := s.db.QueryContext(ctx, `
+		rows, err := s.queryContext(ctx, `
 			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 			FROM record_vectors(?,?) v
 			JOIN records r ON r.id=v.rowid
@@ -1837,7 +1879,7 @@ func (s *Store) LatestRun(ctx context.Context) (*Run, error) {
 	var run Run
 	var finished sql.NullInt64
 	var summary sql.NullString
-	err := s.db.QueryRowContext(ctx, `
+	err := s.queryRowContext(ctx, `
 		SELECT id,started_at_ms,finished_at_ms,status,summary_json
 		FROM index_runs
 		ORDER BY started_at_ms DESC

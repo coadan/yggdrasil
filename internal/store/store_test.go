@@ -2,15 +2,114 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
+	"github.com/ncruces/go-sqlite3"
 )
+
+func TestReadOnlySnapshotCancellationAndWriteRejection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "search.sqlite3")
+	writer, err := Open(context.Background(), path, "/repo", "root-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	reader, err := OpenReadOnly(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	bounded, stop := context.WithTimeout(context.Background(), time.Second)
+	defer stop()
+	if err := reader.SetIndexFreshnessToken(bounded, "forbidden"); !errors.Is(err, sqlite3.READONLY) {
+		t.Fatalf("direct mutation: %v", err)
+	}
+	if err := reader.DeleteFile(bounded, "missing.txt"); !errors.Is(err, sqlite3.READONLY) {
+		t.Fatalf("transactional mutation: %v", err)
+	}
+	if _, err := reader.Counts(bounded); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if _, err := reader.Counts(ctx); err == nil {
+		t.Fatal("canceled snapshot read succeeded")
+	}
+	for range 2 {
+		if err := reader.Close(); err != nil {
+			t.Fatalf("close canceled snapshot: %v", err)
+		}
+	}
+	if err := writer.SetIndexFreshnessToken(bounded, "writer-still-usable"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestReadOnlySnapshotKeepsEmbeddingLane(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "search.sqlite3")
+	writer, err := Open(ctx, path, "/repo", "root-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	file := discovery.File{Candidate: discovery.Candidate{Path: "owner.txt", Size: 6, MTimeNS: 1}, Kind: "txt", Content: "marker"}
+	if err := writer.ReplaceFile(ctx, "run", file, "hash", "fp", []contracts.SearchRecord{{
+		Path: "owner.txt", StartLine: 1, EndLine: 1, Kind: "text", Text: "marker", Source: "core",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	prepare := func(fingerprint string, vector []float32) {
+		t.Helper()
+		if _, err := writer.PrepareEmbeddingLane(ctx, fingerprint, fingerprint, len(vector)); err != nil {
+			t.Fatal(err)
+		}
+		inputs, err := writer.MissingEmbeddingInputs(ctx, fingerprint, 10)
+		if err != nil || len(inputs) != 1 {
+			t.Fatalf("inputs=%#v err=%v", inputs, err)
+		}
+		if _, err := writer.UpsertEmbeddings(ctx, fingerprint, len(vector), []EmbeddingValue{{
+			ID: inputs[0].ID, InputHash: inputs[0].InputHash, Vector: vector,
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prepare("old", []float32{1, 0})
+	reader, err := OpenReadOnly(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	check := func(value *Store, fingerprint string, vector []float32) {
+		t.Helper()
+		state, err := value.EmbeddingState(ctx, fingerprint)
+		if err != nil || !state.Configured || !state.Complete || state.Dimensions != len(vector) {
+			t.Fatalf("state=%#v err=%v", state, err)
+		}
+		results, err := value.VectorCandidates(ctx, vector, "", 5)
+		if err != nil || len(results) != 1 || results[0].Path != "owner.txt" {
+			t.Fatalf("vectors=%#v err=%v", results, err)
+		}
+	}
+	check(reader, "old", []float32{1, 0})
+	prepare("new", []float32{0, 1, 0})
+	check(reader, "old", []float32{1, 0})
+	current, err := OpenReadOnly(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer current.Close()
+	check(current, "new", []float32{0, 1, 0})
+}
 
 func TestReplaceAndDeleteFileOwnsRecords(t *testing.T) {
 	ctx := context.Background()

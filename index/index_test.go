@@ -29,6 +29,54 @@ func TestSnapshotLockErrorsAreFallbackSignals(t *testing.T) {
 	}
 }
 
+func TestSnapshotKeepsGenerationAcrossRefresh(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.txt")
+	write := func(text string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("marker old-generation\n")
+	repository, err := Open(Options{Root: root, StorageRoot: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refresh := func() {
+		t.Helper()
+		bounded, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		if _, err := repository.Refresh(bounded, RefreshOptions{NoEmbed: true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refresh()
+	snapshot, err := repository.OpenSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer snapshot.Close()
+	check := func(reader query.Reader, want string) {
+		t.Helper()
+		result, err := query.Run(ctx, reader, "marker", query.Options{Mode: "lexical", Limit: 5})
+		if err != nil || len(result.Records) != 1 || !strings.Contains(result.Records[0].Excerpt, want) {
+			t.Fatalf("want %q, result=%#v err=%v", want, result, err)
+		}
+	}
+	check(snapshot, "old-generation")
+	write("marker new-generation with an extra fact\n")
+	refresh() // An open reader must not prevent the WAL writer from committing.
+	check(snapshot, "old-generation")
+	current, err := repository.OpenSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer current.Close()
+	check(current, "new-generation")
+}
+
 type retainedProvider struct {
 	calls int
 	texts []string
