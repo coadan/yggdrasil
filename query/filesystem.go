@@ -124,11 +124,10 @@ func RunFilesystem(
 		if position >= candidateLimit {
 			continue
 		}
-		// Retain only bounded citations. Clone short tail excerpts too, so
-		// they cannot keep an otherwise discarded file buffer alive.
+		// localizedCitation returns an independent bounded excerpt, so even
+		// a short tail cannot keep the otherwise discarded file buffer alive.
 		value.record.StartLine, value.record.EndLine, value.record.Title, value.record.Text =
 			localizedCitation(value.record, value.evidence, excerptLimit)
-		value.record.Text = strings.Clone(value.record.Text)
 		if len(ranked) < candidateLimit {
 			ranked = append(ranked, filesystemCandidate{})
 		}

@@ -11,6 +11,7 @@ func TestLocateEvidenceWindowAndTokenSemantics(t *testing.T) {
 		want              citationEvidence
 	}{
 		{"literal identifier", "func HTTPServer() {}", "HTTPServer", citationEvidence{terms: 1, line: 0, literal: true}},
+		{"late literal identifier", strings.Repeat("\n", 20) + "func HTTPServer() {}", "HTTPServer", citationEvidence{terms: 1, line: 20, literal: true}},
 		{"identifier components", "func NewHTTPServer() {}", "HTTPServer", citationEvidence{terms: 1, line: 0}},
 		{"five line window", "a\nb\nc\nd\ne", "a e", citationEvidence{terms: 2, line: 2}},
 		{"separate windows", "a\nb\nc\nd\ne\nf", "a f", citationEvidence{terms: 1, line: 0}},
@@ -40,6 +41,7 @@ var evidenceBenchmarkResult citationEvidence
 
 func BenchmarkLocateEvidence(b *testing.B) {
 	cases := []struct{ name, text, query string }{
+		{"blank", strings.Repeat("\n", 512), "missing token"},
 		{"plain", "fallback marker\n" + strings.Repeat("padding value for bounded retrieval memory\n", 512), "fallback marker"},
 		{"code", strings.Repeat("const fieldValue = unrelatedState;\n", 512) + "return responseEnvelope;\n", "response envelope"},
 		{"unicode", strings.Repeat("ΚαταγραφήHTTP μνήμη πεδίο\n", 512), "διαδρομή μνήμη"},
@@ -52,5 +54,21 @@ func BenchmarkLocateEvidence(b *testing.B) {
 				evidenceBenchmarkResult = locateEvidence(c.text, c.query)
 			}
 		})
+	}
+}
+
+func TestLocalizedCitationKeepsDeclaredSourceCoordinates(t *testing.T) {
+	text := strings.Repeat("αβγ\n", 12) + "target μνήμη\nlast\n"
+	record := Candidate{Path: "src/greek.go", Title: "src/greek.go:10", StartLine: 10, EndLine: 24, Text: text}
+	start, end, title, got := localizedCitation(record, locateEvidence(text, "target μνήμη"), maxExcerptRunes)
+	want := strings.Repeat("αβγ\n", 4) + "target μνήμη\nlast"
+	if start != 18 || end != 23 || title != "src/greek.go:18" || got != want {
+		t.Fatalf("citation=%d:%d %q %q", start, end, title, got)
+	}
+
+	record = Candidate{Path: "summary.go", Title: "summary.go:2", StartLine: 2, EndLine: 2, Text: "field owner\nneedle target"}
+	start, end, title, got = localizedCitation(record, locateEvidence(record.Text, "needle target"), maxExcerptRunes)
+	if start != 2 || end != 2 || title != record.Title || got != record.Text {
+		t.Fatalf("short span=%d:%d %q %q", start, end, title, got)
 	}
 }

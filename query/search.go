@@ -780,7 +780,6 @@ func locateEvidence(text, query string) citationEvidence {
 	if line := literalEvidenceLine(text, query); line >= 0 {
 		return citationEvidence{terms: 1, line: line, literal: true}
 	}
-	lines := strings.Split(text, "\n")
 	groups := evidenceTermGroups(query)
 	if len(groups) == 0 {
 		return citationEvidence{line: -1}
@@ -791,53 +790,13 @@ func locateEvidence(text, query string) citationEvidence {
 			wanted[term] = true
 		}
 	}
-	// Only the current five-line window can affect this citation. Fill its
-	// ring lazily and reuse maps rather than retaining every source word.
+	// Only the current five-line window can affect this citation. Reuse its
+	// maps and stream lines so neither source words nor line headers accumulate.
 	var lineTerms [5]map[string]bool
 	seenTokens := make(map[string]bool)
-	filled := 0
 	best := citationEvidence{line: -1}
-	for line := range lines {
-		start := max(0, line-2)
-		end := min(len(lines), line+3)
-		for filled < end {
-			slot := filled % len(lineTerms)
-			clear(lineTerms[slot])
-			clear(seenTokens)
-			add := func(term string) {
-				if !wanted[term] {
-					return
-				}
-				if lineTerms[slot] == nil {
-					lineTerms[slot] = make(map[string]bool)
-				}
-				lineTerms[slot][term] = true
-			}
-			for token := range strings.FieldsFuncSeq(lines[filled], func(r rune) bool {
-				return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-			}) {
-				lower := strings.ToLower(token)
-				if seenTokens[lower] {
-					continue
-				}
-				seenTokens[lower] = true
-				add(lower)
-				// A case-delimited component must occur inside the folded full
-				// token. Bound this prefilter to short queries; longer queries
-				// use the regular tokenizer without a term-by-token product.
-				if len(wanted) > maxEvidencePrefilterTerms {
-					visitEvidenceTokenParts(token, add)
-				} else {
-					for term := range wanted {
-						if len(term) < len(lower) && strings.Contains(lower, term) {
-							visitEvidenceTokenParts(token, add)
-							break
-						}
-					}
-				}
-			}
-			filled++
-		}
+	scoreWindow := func(center, end int) bool {
+		start := max(0, center-2)
 		matched := 0
 		for _, group := range groups {
 			found := false
@@ -857,10 +816,58 @@ func locateEvidence(text, query string) citationEvidence {
 			}
 		}
 		if matched > best.terms {
-			best = citationEvidence{terms: matched, line: line}
+			best = citationEvidence{terms: matched, line: center}
 			if matched == len(groups) {
-				return best
+				return true
 			}
+		}
+		return false
+	}
+	count := 0
+	for sourceLine := range strings.SplitSeq(text, "\n") {
+		slot := count % len(lineTerms)
+		clear(lineTerms[slot])
+		clear(seenTokens)
+		add := func(term string) {
+			if !wanted[term] {
+				return
+			}
+			if lineTerms[slot] == nil {
+				lineTerms[slot] = make(map[string]bool)
+			}
+			lineTerms[slot][term] = true
+		}
+		for token := range strings.FieldsFuncSeq(sourceLine, func(r rune) bool {
+			return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+		}) {
+			lower := strings.ToLower(token)
+			if seenTokens[lower] {
+				continue
+			}
+			seenTokens[lower] = true
+			add(lower)
+			// A case-delimited component must occur inside the folded full
+			// token. Bound this prefilter to short queries; longer queries
+			// use the regular tokenizer without a term-by-token product.
+			if len(wanted) > maxEvidencePrefilterTerms {
+				visitEvidenceTokenParts(token, add)
+			} else {
+				for term := range wanted {
+					if len(term) < len(lower) && strings.Contains(lower, term) {
+						visitEvidenceTokenParts(token, add)
+						break
+					}
+				}
+			}
+		}
+		count++
+		if count >= 3 && scoreWindow(count-3, count) {
+			return best
+		}
+	}
+	for center := max(0, count-2); center < count; center++ {
+		if scoreWindow(center, count) {
+			return best
 		}
 	}
 	return best
@@ -872,11 +879,13 @@ func literalEvidenceLine(text, query string) int {
 		return -1
 	}
 	identifier := codeIdentifierTermQuery(query, terms)
-	for index, line := range strings.Split(text, "\n") {
+	index := 0
+	for line := range strings.SplitSeq(text, "\n") {
 		if (!identifier && strings.Contains(line, query)) ||
 			(identifier && containsIdentifierLiteral(line, query)) {
 			return index
 		}
+		index++
 	}
 	return -1
 }
@@ -940,13 +949,19 @@ func localizedCitation(
 	evidence citationEvidence,
 	excerptLimit int,
 ) (int, int, string, string) {
-	lines := strings.Split(record.Text, "\n")
 	if evidence.terms == 0 || evidence.line < 0 ||
-		record.EndLine-record.StartLine+1 < len(lines) {
-		return record.StartLine, record.EndLine, record.Title, excerpt(record.Text, excerptLimit)
+		record.EndLine-record.StartLine+1 < strings.Count(record.Text, "\n")+1 {
+		return record.StartLine, record.EndLine, record.Title, strings.Clone(excerpt(record.Text, excerptLimit))
 	}
 	start := max(0, evidence.line-2)
-	text := excerpt(strings.Join(lines[start:], "\n"), excerptLimit)
+	offset := 0
+	for index, skipped := 0, 0; index < len(record.Text) && skipped < start; index++ {
+		if record.Text[index] == '\n' {
+			skipped++
+			offset = index + 1
+		}
+	}
+	text := strings.Clone(excerpt(record.Text[offset:], excerptLimit))
 	startLine := record.StartLine + start
 	endLine := min(record.EndLine, startLine+strings.Count(text, "\n"))
 	title := record.Title
