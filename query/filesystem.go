@@ -1,11 +1,13 @@
 package query
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"regexp"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -42,12 +44,18 @@ func RunFilesystem(
 	opts FilesystemOptions,
 ) (Result, error) {
 	started := time.Now()
+	if err := ctx.Err(); err != nil {
+		return Result{}, err
+	}
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return Result{}, errors.New("search query is required")
 	}
-	if opts.Limit <= 0 {
+	if opts.Limit == 0 {
 		opts.Limit = 10
+	}
+	if opts.Limit < 0 || opts.Limit > MaxResults {
+		return Result{}, fmt.Errorf("search limit must be between 1 and %d", MaxResults)
 	}
 	if opts.MaxFileBytes <= 0 {
 		opts.MaxFileBytes = 4 * 1024 * 1024
@@ -62,11 +70,20 @@ func RunFilesystem(
 	if err != nil {
 		return Result{}, err
 	}
+	var expression *regexp.Regexp
+	if plan.Lexical.Kind == MatchRegexp {
+		expression, err = regexp.Compile(plan.Lexical.Pattern)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	candidates, err := discovery.Candidates(root, opts.IgnoreGlobs)
 	if err != nil {
 		return Result{}, err
 	}
-	ranked := make([]filesystemCandidate, 0, min(len(candidates), opts.Limit+maxMorePaths))
+	candidateLimit := opts.Limit + maxMorePaths
+	excerptLimit := resultExcerptLimit(opts.Limit)
+	ranked := make([]filesystemCandidate, 0, min(len(candidates), candidateLimit))
 	for index, candidate := range candidates {
 		if err := ctx.Err(); err != nil {
 			return Result{}, err
@@ -84,7 +101,7 @@ func RunFilesystem(
 		if skipped != nil {
 			continue
 		}
-		evidence, matched := filesystemEvidence(plan, file.Content)
+		evidence, matched := filesystemEvidence(plan, file.Content, expression)
 		pathEvidence := citationEvidence{line: -1}
 		if plan.Lexical.Kind == MatchText &&
 			!literalTermQuery(plan.Lexical.Pattern, queryTerms(plan.Lexical.Pattern)) {
@@ -94,7 +111,7 @@ func RunFilesystem(
 			continue
 		}
 		lineCount := strings.Count(file.Content, "\n") + 1
-		ranked = append(ranked, filesystemCandidate{
+		value := filesystemCandidate{
 			record: Candidate{
 				ID: int64(index + 1), Path: file.Path,
 				StartLine: 1, EndLine: lineCount, Kind: file.Kind,
@@ -102,43 +119,35 @@ func RunFilesystem(
 			},
 			evidence: evidence, pathEvidence: pathEvidence,
 			literal: evidence.literal,
-		})
+		}
+		position, _ := slices.BinarySearchFunc(ranked, value, compareFilesystemCandidates)
+		if position >= candidateLimit {
+			continue
+		}
+		// Retain only bounded citations. Clone short tail excerpts too, so
+		// they cannot keep an otherwise discarded file buffer alive.
+		value.record.StartLine, value.record.EndLine, value.record.Title, value.record.Text =
+			localizedCitation(value.record, value.evidence, excerptLimit)
+		value.record.Text = strings.Clone(value.record.Text)
+		if len(ranked) < candidateLimit {
+			ranked = append(ranked, filesystemCandidate{})
+		}
+		copy(ranked[position+1:], ranked[position:len(ranked)-1])
+		ranked[position] = value
 	}
-	sort.Slice(ranked, func(i, j int) bool {
-		left, right := ranked[i], ranked[j]
-		if left.literal != right.literal {
-			return left.literal
-		}
-		if left.evidence.terms != right.evidence.terms {
-			return left.evidence.terms > right.evidence.terms
-		}
-		if left.pathEvidence.terms != right.pathEvidence.terms {
-			return left.pathEvidence.terms > right.pathEvidence.terms
-		}
-		if left.evidence.line != right.evidence.line {
-			return left.evidence.line < right.evidence.line
-		}
-		if len(left.record.Path) != len(right.record.Path) {
-			return len(left.record.Path) < len(right.record.Path)
-		}
-		return left.record.Path < right.record.Path
-	})
+
 	result := Result{
 		Schema: contracts.SearchSchema, Query: query,
 		RequestedMode: opts.RequestedMode, ActiveMode: "lexical",
 		FallbackReason: opts.FallbackReason, ElapsedMS: time.Since(started).Milliseconds(),
 		QueryPlan: plan,
 	}
-	excerptLimit := resultExcerptLimit(opts.Limit)
 	resultLimit := min(opts.Limit, len(ranked))
 	result.Records = make([]RankedRecord, 0, resultLimit)
 	for _, candidate := range ranked[:resultLimit] {
-		startLine, endLine, title, text := localizedCitation(
-			candidate.record, candidate.evidence, excerptLimit,
-		)
 		result.Records = append(result.Records, RankedRecord{
-			Path: candidate.record.Path, StartLine: startLine, EndLine: endLine,
-			Kind: candidate.record.Kind, Title: title, Excerpt: text,
+			Path: candidate.record.Path, StartLine: candidate.record.StartLine, EndLine: candidate.record.EndLine,
+			Kind: candidate.record.Kind, Title: candidate.record.Title, Excerpt: candidate.record.Text,
 			Source: candidate.record.Source, Retrieval: []string{"filesystem"},
 		})
 	}
@@ -151,7 +160,29 @@ func RunFilesystem(
 	return result, nil
 }
 
-func filesystemEvidence(plan Plan, text string) (citationEvidence, bool) {
+func compareFilesystemCandidates(left, right filesystemCandidate) int {
+	if left.literal != right.literal {
+		if left.literal {
+			return -1
+		}
+		return 1
+	}
+	if order := cmp.Compare(right.evidence.terms, left.evidence.terms); order != 0 {
+		return order
+	}
+	if order := cmp.Compare(right.pathEvidence.terms, left.pathEvidence.terms); order != 0 {
+		return order
+	}
+	if order := cmp.Compare(left.evidence.line, right.evidence.line); order != 0 {
+		return order
+	}
+	if order := cmp.Compare(len(left.record.Path), len(right.record.Path)); order != 0 {
+		return order
+	}
+	return strings.Compare(left.record.Path, right.record.Path)
+}
+
+func filesystemEvidence(plan Plan, text string, expression *regexp.Regexp) (citationEvidence, bool) {
 	switch plan.Lexical.Kind {
 	case MatchFixed:
 		index := strings.Index(text, plan.Lexical.Pattern)
@@ -164,10 +195,6 @@ func filesystemEvidence(plan Plan, text string) (citationEvidence, bool) {
 		evidence.terms = max(1, evidence.terms)
 		return evidence, true
 	case MatchRegexp:
-		expression, err := regexp.Compile(plan.Lexical.Pattern)
-		if err != nil {
-			return citationEvidence{line: -1}, false
-		}
 		match := expression.FindStringIndex(text)
 		if match == nil {
 			return citationEvidence{line: -1}, false
