@@ -1,0 +1,32 @@
+{
+  "mode": "local",
+  "branch": "main",
+  "hooks": {
+    "check": [
+      {
+        "name": "test",
+        "command": [
+          "go",
+          "test",
+          "./..."
+        ]
+      },
+      {
+        "name": "vet",
+        "command": [
+          "go",
+          "vet",
+          "./..."
+        ]
+      },
+      {
+        "name": "format",
+        "command": [
+          "sh",
+          "-c",
+          "test -z \"$(gofmt -l .)\""
+        ]
+      }
+    ]
+  }
+}
