@@ -236,7 +236,6 @@ func TestAutoSearchUsesAvailableCoverageWithoutCompletingEmbeddings(t *testing.T
 	if requests != beforeQuery {
 		t.Fatalf("fresh search sent embedding work: %d", requests-beforeQuery)
 	}
-
 }
 
 func TestSearchAcceptsFlagsAfterQueryAndLegacyJSONAssertion(t *testing.T) {

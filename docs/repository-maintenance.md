@@ -36,3 +36,10 @@ strings until a replacement binary or new release is installed.
 `AGENTS.md` contains checkout-level search guidance. No global Claude file was
 found at `~/.claude/CLAUDE.md` in this environment. Global configuration and
 plugin installation were not changed by this repository cleanup.
+
+## Local retrieval follow-up
+
+The retrieval-quality task integrates `origin/search-query-expressivity` at
+`ea76b201` into the local line while preserving the cleanup commits. This
+restores the latest engine and configured query-prefix support. It does not
+change `origin/main` or publish a release. See [local retrieval evaluation](retrieval-quality.md).

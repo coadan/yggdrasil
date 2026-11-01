@@ -269,7 +269,6 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		return r.fail(true, 1, snapshotErr)
 	}
 	refresh := snapshotErr != nil
-
 	if refresh && snapshot != nil {
 		_ = snapshot.Close()
 		snapshot = nil

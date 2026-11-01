@@ -1,7 +1,7 @@
 # Decision: make Yggdrasil a composable Go retrieval library
 
-Date: 2026-09-01  
-Status: accepted  
+Date: 2026-09-01
+Status: accepted
 Commitment: staged, with CLI compatibility gates
 
 ## Context
