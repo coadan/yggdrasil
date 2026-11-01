@@ -1,0 +1,30 @@
+{
+  "schema": "ygg.config/v1",
+  "ignoreGlobs": [".ygg/config.json"],
+  "maxFileBytes": 4194304,
+  "plugins": [
+    {
+      "id": "go",
+      "version": "0.3.0",
+      "command": ["bin/ygg-extract-go"],
+      "includeGlobs": ["**/*.go"],
+      "timeoutMs": 10000
+    },
+    {
+      "id": "typescript",
+      "version": "0.3.0",
+      "command": ["bin/ygg-extract-typescript"],
+      "includeGlobs": ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx"],
+      "timeoutMs": 10000
+    }
+  ],
+  "embedding": {
+    "kind": "openai-compatible",
+    "endpoint": "http://127.0.0.1:11434/v1/embeddings",
+    "model": "all-minilm:latest",
+    "dimensions": 384,
+    "timeoutMs": 60000,
+    "batchSize": 64,
+    "maxInputChars": 4000
+  }
+}

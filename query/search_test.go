@@ -1,4 +1,4 @@
-package search
+package query
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	embeddingcontract "github.com/coadan/yggdrasil/embedding"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
@@ -45,6 +46,134 @@ func TestLexicalSearchReturnsCitedRecords(t *testing.T) {
 	}
 	if result.Records[0].StartLine == 0 || result.Records[0].Excerpt == "" {
 		t.Fatalf("missing citation: %#v", result.Records[0])
+	}
+}
+
+func TestGrepLexicalFormsMatchContentWithoutPathFalsePositives(t *testing.T) {
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct {
+		path string
+		text string
+	}{
+		{"src/owner.go", "func pushCommandErrorEnvelope() {}"},
+		{"src/pushCommandErrorEnvelope.go", "func unrelated() {}"},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: int64(len(item.text)), MTimeNS: 1},
+			Kind:      "go",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", []contracts.SearchRecord{
+			{Path: item.path, StartLine: 1, EndLine: 1, Kind: "file", Title: item.path, Text: item.path, Source: "core"},
+			{Path: item.path, StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: item.text, Source: "core"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, test := range []struct {
+		pattern string
+		kind    string
+	}{
+		{"push", MatchFixed},
+		{`push.*ErrorEnvelope`, MatchRegexp},
+	} {
+		result, err := Run(ctx, value, test.pattern, Options{
+			Mode: "lexical", Limit: 10, MatchKind: test.kind,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Records) != 1 || result.Records[0].Path != "src/owner.go" {
+			t.Fatalf("kind=%s records=%#v", test.kind, result.Records)
+		}
+	}
+}
+
+func TestGraphSearchReturnsAResolvedImportNeighbor(t *testing.T) {
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct {
+		path    string
+		records []contracts.SearchRecord
+	}{
+		{
+			path: "src/owner.ts",
+			records: []contracts.SearchRecord{{
+				Path: "src/owner.ts", StartLine: 4, EndLine: 8, Kind: "typescript-function",
+				Title: "ownRoute", Text: "function ownRoute private topology detail", Source: "plugin:typescript",
+			}},
+		},
+		{
+			path: "src/consumer.ts",
+			records: []contracts.SearchRecord{{
+				Path: "src/consumer.ts", StartLine: 2, EndLine: 2, Kind: "typescript-import",
+				Title: "./owner", Text: `import "./owner"`, Source: "plugin:typescript",
+			}},
+		},
+		{
+			path: "src/noise.ts",
+			records: []contracts.SearchRecord{
+				{Path: "src/noise.ts", StartLine: 1, EndLine: 1, Kind: "typescript-function", Title: "noise", Text: "private", Source: "plugin:typescript"},
+				{Path: "src/noise.ts", StartLine: 2, EndLine: 2, Kind: "typescript-import", Title: "./a-target", Text: `import "./a-target"`, Source: "plugin:typescript"},
+			},
+		},
+		{
+			path: "src/a-target.ts",
+			records: []contracts.SearchRecord{{
+				Path: "src/a-target.ts", StartLine: 1, EndLine: 1, Kind: "typescript-function",
+				Title: "target", Text: "unrelated target", Source: "plugin:typescript",
+			}},
+		},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: 20, MTimeNS: 1},
+			Kind:      "typescript",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", item.records); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := value.RebuildGraph(ctx); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Run(ctx, value, "private topology detail", Options{Mode: "graph", Limit: 5, HasExtractors: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ActiveMode != "graph" || len(result.Records) < 1 || result.Records[0].Path != "src/consumer.ts" {
+		t.Fatalf("result=%#v", result)
+	}
+	if result.Records[0].Kind != "typescript-import" {
+		t.Fatalf("citation=%#v", result.Records[0])
+	}
+	seeded, err := graphLane(ctx, value, "private", []lane{
+		{name: "lexical", records: []Candidate{{ID: 100, Path: "src/owner.ts", Text: "private"}}},
+		{name: "semantic", records: []Candidate{{ID: 101, Path: "src/noise.ts", Text: "private"}}},
+	}, "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seeded.records) == 0 || seeded.records[0].Path != "src/consumer.ts" {
+		t.Fatalf("direct-seeded graph=%#v", seeded.records)
+	}
+	auto, err := Run(ctx, value, "ownRoute", Options{Mode: "auto", Limit: 5, HasExtractors: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if auto.ActiveMode != "hybrid" || len(auto.Records) < 2 ||
+		auto.Records[0].Path != "src/owner.ts" || auto.Records[1].Path != "src/consumer.ts" {
+		t.Fatalf("auto result=%#v", auto)
+	}
+	if got := strings.Join(auto.Records[1].Retrieval, ","); got != "graph" {
+		t.Fatalf("neighbor retrieval=%q", got)
 	}
 }
 
@@ -138,14 +267,14 @@ func TestFusionCombinesDifferentRecordsAfterThePrecisionHead(t *testing.T) {
 	ranked := fuse("lifecycle failure", 3, maxExcerptRunes, []lane{
 		{
 			name: "lexical",
-			records: []store.Record{
+			records: []Candidate{
 				{ID: 1, Path: "src/lexical-only.go", StartLine: 1, EndLine: 1, Text: "lifecycle failure"},
 				{ID: 2, Path: "src/owner.go", StartLine: 10, EndLine: 10, Text: "lifecycle"},
 			},
 		},
 		{
 			name: "semantic",
-			records: []store.Record{
+			records: []Candidate{
 				{ID: 3, Path: "src/semantic-only.go", StartLine: 1, EndLine: 1, Text: "failure handling"},
 				{ID: 4, Path: "src/owner.go", StartLine: 20, EndLine: 20, Text: "failure"},
 			},
@@ -161,6 +290,69 @@ func TestFusionCombinesDifferentRecordsAfterThePrecisionHead(t *testing.T) {
 	}
 	if got := strings.Join(ranked[1].Retrieval, ","); got != "lexical,semantic" {
 		t.Fatalf("retrieval=%q", got)
+	}
+}
+
+func TestAutoReservesTheLastTopTenSlotForTheStrongestGraphNeighbor(t *testing.T) {
+	var lexical []Candidate
+	for index := range 40 {
+		lexical = append(lexical, Candidate{
+			ID: int64(index + 1), Path: fmt.Sprintf("src/direct-%02d.go", index),
+			StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: "direct evidence",
+		})
+	}
+	graph := Candidate{
+		ID: 100, Path: "src/linked-owner.go",
+		StartLine: 1, EndLine: 1, Kind: "import", Text: "linked owner",
+	}
+	result := Result{RequestedMode: "auto", ActiveMode: "hybrid"}
+	setResultRecords(&result, "direct evidence", 10, []lane{
+		{name: "lexical", records: lexical},
+		{name: "graph", records: []Candidate{graph}},
+	})
+	if len(result.Records) != 10 || result.Records[0].Path != "src/direct-00.go" ||
+		result.Records[9].Path != graph.Path || len(result.MorePaths) != maxMorePaths ||
+		result.MorePaths[maxMorePaths-1] != "src/direct-09.go" {
+		t.Fatalf("records=%#v", result.Records)
+	}
+}
+
+func TestFusionBalancesRetrieverFamiliesInsteadOfLaneCount(t *testing.T) {
+	lexicalLanes := []lane{
+		{name: "exact"},
+		{name: "all-terms"},
+		{name: "lexical"},
+		{name: "path"},
+	}
+	for laneIndex := range lexicalLanes {
+		for index := range 20 {
+			lexicalLanes[laneIndex].records = append(
+				lexicalLanes[laneIndex].records,
+				Candidate{
+					ID:        int64(1000*laneIndex + index + 1),
+					Path:      fmt.Sprintf("noise/%02d.go", index),
+					StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: "broad lexical noise",
+				},
+			)
+		}
+	}
+	lanes := append(lexicalLanes, lane{
+		name: "semantic",
+		records: []Candidate{{
+			ID: 99999, Path: "src/semantic-owner.go",
+			StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: "semantic owner",
+		}},
+	})
+	ranked := fuse("semantic owner", 10, maxExcerptRunes, lanes)
+	ownerRank := -1
+	for index, record := range ranked {
+		if record.Path == "src/semantic-owner.go" {
+			ownerRank = index + 1
+			break
+		}
+	}
+	if ownerRank != 2 {
+		t.Fatalf("semantic owner rank=%d records=%#v", ownerRank, ranked)
 	}
 }
 
@@ -253,7 +445,7 @@ func TestAutoTreatsStructuredTermsAsExactAndReturnsNoPartialPathNoise(t *testing
 		Model: "must-not-run", Dimensions: 2, TimeoutMS: 1,
 	}
 	result, err := Run(ctx, value, "retired-progression-card", Options{
-		Mode: "auto", Limit: 10, Embedding: &cfg,
+		Mode: "auto", Limit: 10, Embedding: testCapability(t, ctx, cfg, nil),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +454,7 @@ func TestAutoTreatsStructuredTermsAsExactAndReturnsNoPartialPathNoise(t *testing
 		t.Fatalf("retired result=%#v", result)
 	}
 	result, err = Run(ctx, value, "active-progression-card", Options{
-		Mode: "auto", Limit: 10, Embedding: &cfg,
+		Mode: "auto", Limit: 10, Embedding: testCapability(t, ctx, cfg, nil),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -369,7 +561,7 @@ func TestAutoTreatsBareCodeIdentifierAsCaseSensitiveLiteral(t *testing.T) {
 		Model: "must-not-run", Dimensions: 2, TimeoutMS: 1,
 	}
 	result, err := Run(ctx, value, "ContentStack", Options{
-		Mode: "auto", Limit: 10, Embedding: &cfg,
+		Mode: "auto", Limit: 10, Embedding: testCapability(t, ctx, cfg, nil),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -597,8 +789,178 @@ func TestAutoReportsSemanticFallback(t *testing.T) {
 	}
 }
 
-func TestAutoFusesConfiguredSemanticLane(t *testing.T) {
+type retainedQueryProvider struct {
+	calls      int
+	closeCalls int
+}
+
+func (p *retainedQueryProvider) Embed(_ context.Context, inputs []embeddingcontract.Input) ([]embeddingcontract.Value, error) {
+	p.calls++
+	return []embeddingcontract.Value{{ID: inputs[0].ID, Vector: []float32{1, 0}}}, nil
+}
+
+func (p *retainedQueryProvider) Close() error {
+	p.closeCalls++
+	return nil
+}
+
+func testCapability(
+	t *testing.T,
+	ctx context.Context,
+	cfg config.Embedding,
+	provider embeddingcontract.Provider,
+) *embeddingcontract.Capability {
+	t.Helper()
+	if provider == nil {
+		var err error
+		provider, err = embedding.New(ctx, t.TempDir(), cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = provider.Close() })
+	}
+	return &embeddingcontract.Capability{
+		Provider: provider, ProviderFingerprint: "legacy-test",
+		IndexFingerprint: embedding.Fingerprint(cfg),
+		Model:            cfg.Model, Dimensions: cfg.Dimensions,
+		QueryPrefix: cfg.QueryPrefix, DocumentPrefix: cfg.DocumentPrefix,
+		BatchSize: cfg.BatchSize, MaxInputChars: cfg.MaxInputChars,
+	}
+}
+
+func TestRunUsesCallerOwnedEmbeddingProvider(t *testing.T) {
+	cfg := config.Embedding{
+		Kind: "command", Command: []string{"must-not-start"}, Model: "retained",
+		Dimensions: 2, TimeoutMS: 1_000, QueryPrefix: "query: ",
+	}
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	file := discovery.File{
+		Candidate: discovery.Candidate{Path: "src/target.go", Size: 20, MTimeNS: 1},
+		Kind:      "go",
+	}
+	if err := value.ReplaceFile(ctx, "run", file, "hash", "fingerprint", []contracts.SearchRecord{{
+		Path: file.Path, StartLine: 1, EndLine: 1, Kind: "text-chunk",
+		Text: "semantic target", Source: "core",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := embedding.Fingerprint(cfg)
+	if _, err := value.PrepareEmbeddingLane(ctx, fingerprint, cfg.Model, cfg.Dimensions); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, fingerprint, 10)
+	if err != nil || len(inputs) != 1 {
+		t.Fatalf("inputs=%#v err=%v", inputs, err)
+	}
+	if _, err := value.UpsertEmbeddings(ctx, fingerprint, 2, []store.EmbeddingValue{{
+		ID: inputs[0].ID, InputHash: inputs[0].InputHash, Vector: []float32{1, 0},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &retainedQueryProvider{}
+	result, err := Run(ctx, value, "semantic target", Options{
+		Mode: "auto", Limit: 5, Embedding: testCapability(t, ctx, cfg, provider),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ActiveMode != "hybrid" || provider.calls != 1 || provider.closeCalls != 0 {
+		t.Fatalf("result=%#v provider=%#v", result, provider)
+	}
+}
+
+func TestAutoActivatesPartialSemanticCoverageWithoutDisplacingConcreteEvidence(t *testing.T) {
+	cfg := config.Embedding{
+		Kind: "command", Command: []string{"must-not-start"}, Model: "retained",
+		Dimensions: 2, TimeoutMS: 1_000, QueryPrefix: "query: ",
+	}
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, item := range []struct{ path, text string }{
+		{"src/concrete.go", "needle concrete evidence"},
+		{"src/semantic.go", "conceptually related"},
+	} {
+		file := discovery.File{
+			Candidate: discovery.Candidate{Path: item.path, Size: int64(len(item.text)), MTimeNS: 1},
+			Kind:      "go",
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.text, "fingerprint", []contracts.SearchRecord{{
+			Path: item.path, StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: item.text, Source: "core",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fingerprint := embedding.Fingerprint(cfg)
+	if _, err := value.PrepareEmbeddingLane(ctx, fingerprint, cfg.Model, cfg.Dimensions); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, fingerprint, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var semantic store.EmbeddingInput
+	for _, input := range inputs {
+		if input.Text == "conceptually related" {
+			semantic = input
+		}
+	}
+	if semantic.ID == 0 {
+		t.Fatalf("inputs=%#v", inputs)
+	}
+	if _, err := value.UpsertEmbeddings(ctx, fingerprint, 2, []store.EmbeddingValue{{
+		ID: semantic.ID, InputHash: semantic.InputHash, Vector: []float32{1, 0},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &retainedQueryProvider{}
+	below, err := Run(ctx, value, "needle", Options{
+		Mode: "auto", Limit: 1, Scope: "src/",
+		Embedding: testCapability(t, ctx, cfg, provider), MinSemanticCoverage: 0.75,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 0 || below.FallbackReason != "semantic-below-threshold" ||
+		below.Semantic == nil || below.Semantic.Coverage != 0.5 {
+		t.Fatalf("below=%#v provider=%#v", below, provider)
+	}
+	active, err := Run(ctx, value, "needle", Options{
+		Mode: "auto", Limit: 1, Scope: "src/",
+		Embedding: testCapability(t, ctx, cfg, provider), MinSemanticCoverage: 0.5,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 || active.ActiveMode != "lexical" ||
+		active.FallbackReason != "semantic-partial" || active.Semantic == nil ||
+		active.Semantic.State != "active-partial" || len(active.Records) != 1 ||
+		active.Records[0].Path != "src/concrete.go" ||
+		len(active.MorePaths) != 1 || active.MorePaths[0] != "src/semantic.go" {
+		t.Fatalf("active=%#v provider=%#v", active, provider)
+	}
+}
+
+func TestAutoFusesRegexpAndExplicitSemanticIntent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Input []string `json:"input"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		if len(body.Input) != 1 || body.Input[0] != "query: API command error envelope" {
+			t.Errorf("query embedding input=%q", body.Input)
+		}
 		_ = json.NewEncoder(writer).Encode(map[string]any{
 			"data": []map[string]any{{"index": 0, "embedding": []float32{1, 0}}},
 		})
@@ -606,7 +968,7 @@ func TestAutoFusesConfiguredSemanticLane(t *testing.T) {
 	defer server.Close()
 	cfg := config.Embedding{
 		Kind: "openai-compatible", Endpoint: server.URL, Model: "test",
-		Dimensions: 2, TimeoutMS: 1_000,
+		Dimensions: 2, TimeoutMS: 1_000, QueryPrefix: "query: ",
 	}
 	ctx := context.Background()
 	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
@@ -632,18 +994,20 @@ func TestAutoFusesConfiguredSemanticLane(t *testing.T) {
 	if err != nil || len(inputs) != 1 {
 		t.Fatalf("inputs=%#v err=%v", inputs, err)
 	}
-	if err := value.UpsertEmbeddings(ctx, fingerprint, 2, []store.EmbeddingValue{{
+	if _, err := value.UpsertEmbeddings(ctx, fingerprint, 2, []store.EmbeddingValue{{
 		ID: inputs[0].ID, InputHash: inputs[0].InputHash, Vector: []float32{1, 0},
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Run(ctx, value, "conceptual query", Options{
-		Mode: "auto", Limit: 5, Root: t.TempDir(), Embedding: &cfg,
+	result, err := Run(ctx, value, `push.*ErrorEnvelope`, Options{
+		Mode: "auto", Limit: 5, Embedding: testCapability(t, ctx, cfg, nil),
+		MatchKind: MatchRegexp, About: "API command error envelope",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ActiveMode != "hybrid" || len(result.Records) != 1 {
+	if result.ActiveMode != "hybrid" || len(result.Records) != 1 ||
+		result.QueryPlan.Semantic == nil || result.QueryPlan.Semantic.Source != "about" {
 		t.Fatalf("result=%#v", result)
 	}
 	if result.Records[0].Path != file.Path || result.Records[0].Retrieval[0] != "semantic" {
@@ -707,11 +1071,11 @@ func TestHybridSearchCitesDenseLexicalEvidenceInsteadOfSemanticFileTail(t *testi
 			ID: input.ID, InputHash: input.InputHash, Vector: vector,
 		})
 	}
-	if err := value.UpsertEmbeddings(ctx, fingerprint, 2, vectors); err != nil {
+	if _, err := value.UpsertEmbeddings(ctx, fingerprint, 2, vectors); err != nil {
 		t.Fatal(err)
 	}
 	result, err := Run(ctx, value, "DetailSection mandates", Options{
-		Mode: "auto", Limit: 5, Root: t.TempDir(), Embedding: &cfg,
+		Mode: "auto", Limit: 5, Embedding: testCapability(t, ctx, cfg, nil),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -742,11 +1106,11 @@ func TestSearchRejectsUnboundedInputs(t *testing.T) {
 
 func TestPromoteThirdRootPreservesTopTwoResults(t *testing.T) {
 	values := []*fused{
-		{record: store.Record{Path: "docs/first.md"}},
-		{record: store.Record{Path: "docs/second.md"}},
-		{record: store.Record{Path: "docs/third.md"}},
-		{record: store.Record{Path: "src/owner.go"}},
-		{record: store.Record{Path: "tests/owner_test.go"}},
+		{record: Candidate{Path: "docs/first.md"}},
+		{record: Candidate{Path: "docs/second.md"}},
+		{record: Candidate{Path: "docs/third.md"}},
+		{record: Candidate{Path: "src/owner.go"}},
+		{record: Candidate{Path: "tests/owner_test.go"}},
 	}
 	promoteThirdRoot(values)
 	got := make([]string, 0, len(values))
@@ -852,7 +1216,7 @@ func TestCitationEvidenceUsesTokenBoundariesInsteadOfIdentifierSubstrings(t *tes
 	text := "function installJournalizedConsumerismComponentship() {}\n" +
 		strings.Repeat("unrelated props\n", 10) +
 		`<DetailCallout data-kind="environment">`
-	record := store.Record{
+	record := Candidate{
 		Path: path, StartLine: 1, EndLine: 12, Kind: "text-chunk",
 		Title: path + ":1", Text: text, Source: "core",
 	}

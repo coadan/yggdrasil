@@ -13,19 +13,23 @@ import (
 	"math"
 	"net/url"
 	"os"
+	pathpkg "path"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
+	querymodel "github.com/coadan/yggdrasil/query/model"
 	"github.com/ncruces/go-sqlite3"
 	"github.com/ncruces/go-sqlite3/driver"
 	"github.com/ncruces/go-sqlite3/ext/fts5"
 	"github.com/ncruces/go-sqlite3/ext/vec1"
 )
 
-const schemaVersion = "2"
+const schemaVersion = "5"
 const indexFreshnessKey = "index_freshness_token"
 
 type Store struct {
@@ -63,26 +67,25 @@ type Diagnostic struct {
 type Counts struct {
 	Files       int `json:"files"`
 	Records     int `json:"records"`
+	GraphEdges  int `json:"graphEdges"`
 	Diagnostics int `json:"diagnostics"`
 }
 
-type Record struct {
-	ID        int64
-	InputHash string
-	Path      string
-	StartLine int
-	EndLine   int
-	Kind      string
-	Title     string
-	Text      string
-	Metadata  map[string]any
-	Source    string
-}
+type Record = querymodel.Candidate
 
 type EmbeddingInput struct {
 	ID        int64
 	InputHash string
 	Text      string
+}
+
+type EmbeddingPriority struct {
+	// Paths are ordered from highest to lowest expected retrieval impact.
+	Paths []string
+	Scope string
+	// ChangedPaths were re-extracted in the current index generation. They are
+	// lower priority than explicit demand and scope, but precede cold records.
+	ChangedPaths []string
 }
 
 type EmbeddingValue struct {
@@ -91,15 +94,7 @@ type EmbeddingValue struct {
 	Vector    []float32
 }
 
-type EmbeddingState struct {
-	Configured  bool   `json:"configured"`
-	Fingerprint string `json:"fingerprint,omitempty"`
-	Model       string `json:"model,omitempty"`
-	Dimensions  int    `json:"dimensions,omitempty"`
-	Embedded    int    `json:"embedded"`
-	Records     int    `json:"records"`
-	Complete    bool   `json:"complete"`
-}
+type EmbeddingState = querymodel.EmbeddingState
 
 type Run struct {
 	ID           string         `json:"id"`
@@ -124,6 +119,30 @@ func Open(ctx context.Context, path, root, rootID string) (*Store, error) {
 		return nil, err
 	}
 	return value, nil
+}
+
+// OpenReadOnly opens an existing index without schema initialization or a busy
+// wait. It is used for request-local immutable query snapshots.
+func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
+	uri := (&url.URL{Scheme: "file", Path: path}).String()
+	db, err := driver.Open(
+		uri+"?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(0)",
+		func(conn *sqlite3.Conn) error {
+			if err := fts5.Register(conn); err != nil {
+				return err
+			}
+			return vec1.Register(conn)
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return &Store{db: db, path: path}, nil
 }
 
 // CloneDatabase creates a transactionally consistent snapshot and gives the
@@ -298,6 +317,7 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 			,input_hash TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS records_path_file_idx ON records(path) WHERE kind='file'`,
+		`CREATE INDEX IF NOT EXISTS records_input_hash_idx ON records(input_hash)`,
 		`CREATE TABLE IF NOT EXISTS embedding_lane (
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			fingerprint TEXT NOT NULL,
@@ -323,41 +343,64 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 			content_rowid='id',
 			tokenize='unicode61'
 		)`,
-		`CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records BEGIN
+		`CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records
+		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO record_fts(rowid, path, title, text)
 			VALUES (new.id, new.path, new.title, new.text);
 		END`,
-		`CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records BEGIN
+		`CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records
+		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO record_fts(record_fts, rowid, path, title, text)
 			VALUES ('delete', old.id, old.path, old.title, old.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_embedding_ad AFTER DELETE ON records BEGIN
 			DELETE FROM embedding_records WHERE record_id=old.id;
 		END`,
-		`CREATE TRIGGER IF NOT EXISTS records_au AFTER UPDATE ON records BEGIN
+		`CREATE TRIGGER IF NOT EXISTS records_au_delete AFTER UPDATE ON records
+		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO record_fts(record_fts, rowid, path, title, text)
 			VALUES ('delete', old.id, old.path, old.title, old.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_au_insert AFTER UPDATE ON records
+		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO record_fts(rowid, path, title, text)
 			VALUES (new.id, new.path, new.title, new.text);
 		END`,
 		`CREATE TRIGGER IF NOT EXISTS records_extractor_ai AFTER INSERT ON records
-		WHEN new.source LIKE 'plugin:%' BEGIN
+		WHEN new.source LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO extractor_fts(rowid, path, title, text)
 			VALUES (new.id, new.path, new.title, new.text);
 		END`,
 		`CREATE TRIGGER IF NOT EXISTS records_extractor_ad AFTER DELETE ON records
-		WHEN old.source LIKE 'plugin:%' BEGIN
+		WHEN old.source LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO extractor_fts(extractor_fts, rowid, path, title, text)
 			VALUES ('delete', old.id, old.path, old.title, old.text);
 		END`,
 		`CREATE TRIGGER IF NOT EXISTS records_extractor_au_delete AFTER UPDATE ON records
-		WHEN old.source LIKE 'plugin:%' BEGIN
+		WHEN old.source LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO extractor_fts(extractor_fts, rowid, path, title, text)
 			VALUES ('delete', old.id, old.path, old.title, old.text);
 		END`,
 		`CREATE TRIGGER IF NOT EXISTS records_extractor_au_insert AFTER UPDATE ON records
-		WHEN new.source LIKE 'plugin:%' BEGIN
+		WHEN new.source LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO extractor_fts(rowid, path, title, text)
 			VALUES (new.id, new.path, new.title, new.text);
 		END`,
+		`CREATE TABLE IF NOT EXISTS graph_edges (
+			id INTEGER PRIMARY KEY,
+			source_path TEXT NOT NULL,
+			relation TEXT NOT NULL,
+			target TEXT NOT NULL,
+			target_path TEXT,
+			record_id INTEGER NOT NULL REFERENCES records(id) ON DELETE CASCADE,
+			UNIQUE(record_id,relation,target)
+		)`,
+		`CREATE INDEX IF NOT EXISTS graph_edges_source_idx ON graph_edges(source_path)`,
+		`CREATE INDEX IF NOT EXISTS graph_edges_target_path_idx ON graph_edges(target_path)`,
 		`CREATE TABLE IF NOT EXISTS diagnostics (
 			id INTEGER PRIMARY KEY,
 			run_id TEXT NOT NULL,
@@ -381,6 +424,27 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		}
 	case err != nil:
 		return err
+	case version == "2":
+		if err := s.migrateV2ToV3(ctx); err != nil {
+			return err
+		}
+		if err := s.migrateV3ToV4(ctx); err != nil {
+			return err
+		}
+		if err := s.migrateV4ToV5(ctx); err != nil {
+			return err
+		}
+	case version == "3":
+		if err := s.migrateV3ToV4(ctx); err != nil {
+			return err
+		}
+		if err := s.migrateV4ToV5(ctx); err != nil {
+			return err
+		}
+	case version == "4":
+		if err := s.migrateV4ToV5(ctx); err != nil {
+			return err
+		}
 	case version != schemaVersion:
 		return fmt.Errorf("index schema %s is incompatible with %s; run ygg index --full", version, schemaVersion)
 	}
@@ -392,17 +456,19 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 	case errors.Is(err, sql.ErrNoRows):
 		if _, err := s.db.ExecContext(ctx, `
 			INSERT INTO extractor_fts(rowid,path,title,text)
-			SELECT id,path,title,text FROM records WHERE source LIKE 'plugin:%'`); err != nil {
+			SELECT id,path,title,text FROM records
+			WHERE source LIKE 'plugin:%'
+				AND coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`); err != nil {
 			return fmt.Errorf("build extractor index: %w", err)
 		}
 		if _, err := s.db.ExecContext(
-			ctx, `INSERT INTO meta(key,value) VALUES('extractor_fts_version','1')`,
+			ctx, `INSERT INTO meta(key,value) VALUES('extractor_fts_version','2')`,
 		); err != nil {
 			return err
 		}
 	case err != nil:
 		return err
-	case extractorFTSVersion != "1":
+	case extractorFTSVersion != "2":
 		return fmt.Errorf("unsupported extractor index version %s", extractorFTSVersion)
 	}
 	var storedID, storedRoot string
@@ -417,6 +483,110 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		return fmt.Errorf("index belongs to repository %s at %s", storedID, storedRoot)
 	default:
 		return nil
+	}
+}
+
+func (s *Store) migrateV3ToV4(ctx context.Context) error {
+	if err := s.RebuildGraph(ctx); err != nil {
+		return fmt.Errorf("build mechanical graph: %w", err)
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE meta SET value='4' WHERE key='schema_version'`)
+	return err
+}
+
+func (s *Store) migrateV4ToV5(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS records_input_hash_idx ON records(input_hash)`); err != nil {
+		return fmt.Errorf("index embedding input hashes: %w", err)
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE meta SET value='5' WHERE key='schema_version'`)
+	return err
+}
+
+func (s *Store) migrateV2ToV3(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, name := range []string{
+		"records_ai", "records_ad", "records_au", "records_au_delete", "records_au_insert",
+		"records_embedding_ad", "records_extractor_ai", "records_extractor_ad",
+		"records_extractor_au_delete", "records_extractor_au_insert",
+	} {
+		if _, err := tx.ExecContext(ctx, `DROP TRIGGER IF EXISTS `+name); err != nil {
+			return fmt.Errorf("drop search trigger %s: %w", name, err)
+		}
+	}
+	for _, statement := range searchTriggerStatements() {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("create search trigger: %w", err)
+		}
+	}
+	for _, statement := range []string{
+		`INSERT INTO record_fts(record_fts) VALUES('delete-all')`,
+		`INSERT INTO record_fts(rowid,path,title,text)
+		 SELECT id,path,title,text FROM records
+		 WHERE coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`,
+		`INSERT INTO extractor_fts(extractor_fts) VALUES('delete-all')`,
+		`INSERT INTO extractor_fts(rowid,path,title,text)
+		 SELECT id,path,title,text FROM records
+		 WHERE source LIKE 'plugin:%'
+			AND coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`,
+		`UPDATE meta SET value='2' WHERE key='extractor_fts_version'`,
+		`UPDATE meta SET value='3' WHERE key='schema_version'`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("migrate search index: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+func searchTriggerStatements() []string {
+	return []string{
+		`CREATE TRIGGER records_ai AFTER INSERT ON records
+		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO record_fts(rowid,path,title,text) VALUES(new.id,new.path,new.title,new.text);
+		END`,
+		`CREATE TRIGGER records_ad AFTER DELETE ON records
+		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO record_fts(record_fts,rowid,path,title,text)
+			VALUES('delete',old.id,old.path,old.title,old.text);
+		END`,
+		`CREATE TRIGGER records_embedding_ad AFTER DELETE ON records BEGIN
+			DELETE FROM embedding_records WHERE record_id=old.id;
+		END`,
+		`CREATE TRIGGER records_au_delete AFTER UPDATE ON records
+		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO record_fts(record_fts,rowid,path,title,text)
+			VALUES('delete',old.id,old.path,old.title,old.text);
+		END`,
+		`CREATE TRIGGER records_au_insert AFTER UPDATE ON records
+		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO record_fts(rowid,path,title,text) VALUES(new.id,new.path,new.title,new.text);
+		END`,
+		`CREATE TRIGGER records_extractor_ai AFTER INSERT ON records
+		WHEN new.source LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO extractor_fts(rowid,path,title,text) VALUES(new.id,new.path,new.title,new.text);
+		END`,
+		`CREATE TRIGGER records_extractor_ad AFTER DELETE ON records
+		WHEN old.source LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO extractor_fts(extractor_fts,rowid,path,title,text)
+			VALUES('delete',old.id,old.path,old.title,old.text);
+		END`,
+		`CREATE TRIGGER records_extractor_au_delete AFTER UPDATE ON records
+		WHEN old.source LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO extractor_fts(extractor_fts,rowid,path,title,text)
+			VALUES('delete',old.id,old.path,old.title,old.text);
+		END`,
+		`CREATE TRIGGER records_extractor_au_insert AFTER UPDATE ON records
+		WHEN new.source LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO extractor_fts(rowid,path,title,text) VALUES(new.id,new.path,new.title,new.text);
+		END`,
 	}
 }
 
@@ -871,6 +1041,7 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 	for query, target := range map[string]*int{
 		`SELECT count(*) FROM files`:       &counts.Files,
 		`SELECT count(*) FROM records`:     &counts.Records,
+		`SELECT count(*) FROM graph_edges`: &counts.GraphEdges,
 		`SELECT count(*) FROM diagnostics`: &counts.Diagnostics,
 	} {
 		if err := s.db.QueryRowContext(ctx, query).Scan(target); err != nil {
@@ -880,24 +1051,250 @@ func (s *Store) Counts(ctx context.Context) (Counts, error) {
 	return counts, nil
 }
 
+// RebuildGraph derives only explicit extractor relationships and mechanically
+// resolvable local import/export targets. It does not infer project meaning.
+func (s *Store) RebuildGraph(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM graph_edges`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO graph_edges(source_path,relation,target,target_path,record_id)
+		SELECT path,kind,title,NULL,id
+		FROM records
+		WHERE source LIKE 'plugin:%' AND title<>''
+			AND (kind LIKE '%-import' OR kind LIKE '%-export')
+			AND coalesce(json_extract(metadata_json,'$.structural'),0)=0`); err != nil {
+		return fmt.Errorf("derive graph edges: %w", err)
+	}
+	files := make(map[string]bool)
+	rows, err := tx.QueryContext(ctx, `SELECT path FROM files`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			rows.Close()
+			return err
+		}
+		files[path] = true
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	type unresolvedEdge struct {
+		id     int64
+		source string
+		target string
+	}
+	rows, err = tx.QueryContext(ctx, `
+		SELECT id,source_path,target FROM graph_edges WHERE target_path IS NULL`)
+	if err != nil {
+		return err
+	}
+	var unresolved []unresolvedEdge
+	for rows.Next() {
+		var edge unresolvedEdge
+		if err := rows.Scan(&edge.id, &edge.source, &edge.target); err != nil {
+			rows.Close()
+			return err
+		}
+		unresolved = append(unresolved, edge)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	statement, err := tx.PrepareContext(ctx, `UPDATE graph_edges SET target_path=? WHERE id=?`)
+	if err != nil {
+		return err
+	}
+	defer statement.Close()
+	for _, edge := range unresolved {
+		if target := resolveGraphTarget(edge.source, edge.target, files); target != "" {
+			if _, err := statement.ExecContext(ctx, target, edge.id); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+func resolveGraphTarget(source, target string, files map[string]bool) string {
+	if !strings.HasPrefix(target, ".") {
+		return ""
+	}
+	if index := strings.IndexAny(target, "?#"); index >= 0 {
+		target = target[:index]
+	}
+	base := pathpkg.Clean(pathpkg.Join(pathpkg.Dir(source), target))
+	candidates := []string{base}
+	withoutExtension := strings.TrimSuffix(base, pathpkg.Ext(base))
+	extensions := []string{pathpkg.Ext(source), ".ts", ".tsx", ".js", ".jsx", ".go", ".py"}
+	seen := map[string]bool{base: true}
+	for _, extension := range extensions {
+		if extension == "" {
+			continue
+		}
+		for _, candidate := range []string{withoutExtension + extension, pathpkg.Join(base, "index"+extension)} {
+			if !seen[candidate] {
+				seen[candidate] = true
+				candidates = append(candidates, candidate)
+			}
+		}
+	}
+	for _, candidate := range candidates {
+		if files[candidate] {
+			return candidate
+		}
+	}
+	return ""
+}
+
+func (s *Store) GraphCandidates(
+	ctx context.Context,
+	seedPaths []string,
+	scope string,
+	limit int,
+) ([]Record, error) {
+	if len(seedPaths) == 0 || limit <= 0 {
+		return nil, nil
+	}
+	args := append(stringArgs(seedPaths), stringArgs(seedPaths)...)
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT source_path,target_path,relation,record_id
+		FROM graph_edges
+		WHERE target_path IS NOT NULL AND source_path<>target_path
+			AND (source_path IN (`+placeholders(len(seedPaths))+`)
+				OR target_path IN (`+placeholders(len(seedPaths))+`))`, args...)
+	if err != nil {
+		return nil, err
+	}
+	type neighbor struct {
+		score      float64
+		evidenceID int64
+	}
+	neighbors := make(map[string]neighbor)
+	seedRanks := make(map[string]int, len(seedPaths))
+	for index, path := range seedPaths {
+		seedRanks[path] = index + 1
+	}
+	for rows.Next() {
+		var source, target string
+		var relation string
+		var evidenceID int64
+		if err := rows.Scan(&source, &target, &relation, &evidenceID); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		path := target
+		seedPath := source
+		evidence := int64(0)
+		if _, targetIsSeed := seedRanks[target]; targetIsSeed {
+			path = source
+			seedPath = target
+			evidence = evidenceID
+		}
+		if _, pathIsSeed := seedRanks[path]; pathIsSeed || !pathInScope(path, scope) {
+			continue
+		}
+		value := neighbors[path]
+		score := graphRelationWeight(relation) / (60 + float64(seedRanks[seedPath]))
+		if score > value.score {
+			value.score = score
+			value.evidenceID = evidence
+		} else if score == value.score && value.evidenceID == 0 && evidence != 0 {
+			value.evidenceID = evidence
+		}
+		neighbors[path] = value
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(neighbors))
+	for path := range neighbors {
+		paths = append(paths, path)
+	}
+	sort.Slice(paths, func(i, j int) bool {
+		if neighbors[paths[i]].score != neighbors[paths[j]].score {
+			return neighbors[paths[i]].score > neighbors[paths[j]].score
+		}
+		return paths[i] < paths[j]
+	})
+	if len(paths) > limit {
+		paths = paths[:limit]
+	}
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	rows, err = s.db.QueryContext(ctx, `
+		SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
+		FROM records r
+		WHERE path IN (`+placeholders(len(paths))+`)
+			AND coalesce(json_extract(metadata_json,'$.lexical'),1)<>0
+		ORDER BY path,CASE WHEN kind='file' THEN 1 ELSE 0 END,start_line,id`, stringArgs(paths)...)
+	if err != nil {
+		return nil, err
+	}
+	records, err := scanRecords(rows)
+	if err != nil {
+		return nil, err
+	}
+	byPath := make(map[string]Record, len(paths))
+	for _, record := range records {
+		current, exists := byPath[record.Path]
+		if !exists || record.ID == neighbors[record.Path].evidenceID || current.Kind == "file" {
+			byPath[record.Path] = record
+		}
+	}
+	result := make([]Record, 0, len(paths))
+	for _, path := range paths {
+		if record, ok := byPath[path]; ok {
+			result = append(result, record)
+		}
+	}
+	return result, nil
+}
+
+func graphRelationWeight(relation string) float64 {
+	switch {
+	case strings.HasSuffix(relation, "-import"), strings.HasSuffix(relation, "-export"):
+		return 0.6
+	default:
+		return 0.25
+	}
+}
+
+func pathInScope(path, scope string) bool {
+	scope = strings.TrimSuffix(scope, "/")
+	return scope == "" || path == scope || strings.HasPrefix(path, scope+"/")
+}
+
 const recordScopePredicate = `(?='' OR r.path=? OR substr(r.path,1,length(?))=?)`
+const lexicalRecordPredicate = `coalesce(json_extract(r.metadata_json,'$.lexical'),1)<>0`
 
 func (s *Store) LexicalCandidates(
 	ctx context.Context,
 	query, scope string,
 	limit int,
 ) ([]Record, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
-		FROM record_fts
-		JOIN records r ON r.id=record_fts.rowid
-		WHERE record_fts MATCH ? AND `+recordScopePredicate+`
-		ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
-		LIMIT ?`, query, scope, scope, scope, scope, limit)
-	if err != nil {
-		return nil, err
-	}
-	return scanRecords(rows)
+	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+			FROM record_fts
+			JOIN records r ON r.id=record_fts.rowid
+			WHERE record_fts MATCH ? AND `+lexicalRecordPredicate+` AND `+recordScopePredicate+`
+			ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
+			LIMIT ?`, query, scope, scope, scope, scope, recordLimit)
+		if err != nil {
+			return nil, err
+		}
+		return scanRecords(rows)
+	})
 }
 
 func (s *Store) LiteralCandidates(
@@ -905,13 +1302,62 @@ func (s *Store) LiteralCandidates(
 	query, literal, scope string,
 	limit int,
 ) ([]Record, error) {
+	if query == "" {
+		return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
+			rows, err := s.db.QueryContext(ctx, `
+				SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
+				FROM records r
+				WHERE r.kind<>'file' AND instr(r.text,?) > 0 AND `+lexicalRecordPredicate+`
+					AND `+recordScopePredicate+`
+				ORDER BY r.path,r.start_line,r.id
+				LIMIT ?`, literal, scope, scope, scope, scope, recordLimit)
+			if err != nil {
+				return nil, err
+			}
+			return scanRecords(rows)
+		})
+	}
+	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+			FROM record_fts
+			JOIN records r ON r.id=record_fts.rowid
+			WHERE record_fts MATCH ? AND r.kind<>'file' AND instr(r.text,?) > 0
+				AND `+lexicalRecordPredicate+` AND `+recordScopePredicate+`
+			ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
+			LIMIT ?`, query, literal, scope, scope, scope, scope, recordLimit)
+		if err != nil {
+			return nil, err
+		}
+		return scanRecords(rows)
+	})
+}
+
+// LexicalRecords returns mechanically ordered records for an exact matcher.
+// An empty FTS query intentionally scans the bounded repository scope so a
+// regular expression without stable literal terms remains correct.
+func (s *Store) LexicalRecords(
+	ctx context.Context,
+	query, scope string,
+) ([]Record, error) {
+	if query == "" {
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT id,input_hash,path,start_line,end_line,kind,title,text,metadata_json,source
+			FROM records r
+			WHERE `+lexicalRecordPredicate+` AND `+recordScopePredicate+`
+			ORDER BY r.path,r.start_line,r.id`, scope, scope, scope, scope)
+		if err != nil {
+			return nil, err
+		}
+		return scanRecords(rows)
+	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
 		FROM record_fts
 		JOIN records r ON r.id=record_fts.rowid
-		WHERE record_fts MATCH ? AND instr(r.text,?) > 0 AND `+recordScopePredicate+`
-		ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
-		LIMIT ?`, query, literal, scope, scope, scope, scope, limit)
+		WHERE record_fts MATCH ? AND `+lexicalRecordPredicate+` AND `+recordScopePredicate+`
+		ORDER BY bm25(record_fts,8.0,4.0,1.0),r.path,r.start_line,r.id`,
+		query, scope, scope, scope, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -923,17 +1369,40 @@ func (s *Store) ExtractorCandidates(
 	query, scope string,
 	limit int,
 ) ([]Record, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
-		FROM extractor_fts
-		JOIN records r ON r.id=extractor_fts.rowid
-		WHERE extractor_fts MATCH ? AND `+recordScopePredicate+`
-		ORDER BY bm25(extractor_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
-		LIMIT ?`, query, scope, scope, scope, scope, limit)
-	if err != nil {
-		return nil, err
+	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
+		rows, err := s.db.QueryContext(ctx, `
+			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+			FROM extractor_fts
+			JOIN records r ON r.id=extractor_fts.rowid
+			WHERE extractor_fts MATCH ? AND `+lexicalRecordPredicate+` AND `+recordScopePredicate+`
+			ORDER BY bm25(extractor_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
+			LIMIT ?`, query, scope, scope, scope, scope, recordLimit)
+		if err != nil {
+			return nil, err
+		}
+		return scanRecords(rows)
+	})
+}
+
+func uniquePathCandidates(
+	limit int,
+	load func(recordLimit int) ([]Record, error),
+) ([]Record, error) {
+	if limit <= 0 {
+		return nil, nil
 	}
-	return scanRecords(rows)
+	recordLimit := limit
+	for {
+		records, err := load(recordLimit)
+		if err != nil {
+			return nil, err
+		}
+		unique := firstRecordsByPath(records, limit)
+		if len(unique) == limit || len(records) < recordLimit {
+			return recordsThroughUniquePathLimit(records, limit), nil
+		}
+		recordLimit *= 2
+	}
 }
 
 func (s *Store) PathCandidates(
@@ -1052,14 +1521,87 @@ func (s *Store) MissingEmbeddingInputs(
 	fingerprint string,
 	limit int,
 ) ([]EmbeddingInput, error) {
+	return s.MissingEmbeddingInputsByPriority(ctx, fingerprint, limit, EmbeddingPriority{})
+}
+
+// MissingEmbeddingInputsByPriority orders derived work by explicit mechanical
+// demand. Exact paths retain caller order and precede the requested scope;
+// records changed in the current generation precede the remaining corpus.
+// Callers can periodically omit priority to age the whole corpus.
+func (s *Store) MissingEmbeddingInputsByPriority(
+	ctx context.Context,
+	fingerprint string,
+	limit int,
+	priority EmbeddingPriority,
+) ([]EmbeddingInput, error) {
+	if limit < 1 {
+		return nil, errors.New("embedding input limit must be positive")
+	}
+	paths := make([]string, 0, len(priority.Paths))
+	seen := make(map[string]bool, len(priority.Paths))
+	for _, path := range priority.Paths {
+		path = strings.TrimSpace(path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		paths = append(paths, path)
+	}
+	if len(paths) > 100 {
+		return nil, errors.New("embedding priority exceeds 100 paths")
+	}
+	changedPaths := make([]string, 0, len(priority.ChangedPaths))
+	for _, path := range priority.ChangedPaths {
+		path = strings.TrimSpace(path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		changedPaths = append(changedPaths, path)
+	}
+	if len(changedPaths) > 100 {
+		return nil, errors.New("embedding changed priority exceeds 100 paths")
+	}
+	priorityExpr := "0"
+	var args []any
+	var clauses []string
+	for rank, path := range paths {
+		clauses = append(clauses, "WHEN r.path=? THEN "+strconv.Itoa(rank))
+		args = append(args, path)
+	}
+	if priority.Scope != "" {
+		clauses = append(clauses, "WHEN "+recordScopePredicate+" THEN "+strconv.Itoa(len(paths)))
+		args = append(args, priority.Scope, priority.Scope, priority.Scope, priority.Scope)
+	}
+	changedRank := len(paths)
+	if priority.Scope != "" {
+		changedRank++
+	}
+	for offset, path := range changedPaths {
+		clauses = append(clauses, "WHEN r.path=? THEN "+strconv.Itoa(changedRank+offset))
+		args = append(args, path)
+	}
+	if len(clauses) > 0 {
+		priorityExpr = "CASE " + strings.Join(clauses, " ") + " ELSE " + strconv.Itoa(changedRank+len(changedPaths)) + " END"
+	}
+	args = append(args, fingerprint, limit)
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id,r.input_hash,CASE WHEN r.title='' THEN r.text ELSE r.title||char(10)||r.text END
-		FROM records r
-		LEFT JOIN embedding_records e
-			ON e.record_id=r.id AND e.input_hash=r.input_hash AND e.fingerprint=?
-		WHERE e.record_id IS NULL
-		ORDER BY r.id
-		LIMIT ?`, fingerprint, limit)
+		WITH missing AS (
+			SELECT r.id,r.input_hash,
+				CASE WHEN r.title='' THEN r.text ELSE r.title||char(10)||r.text END AS input_text,
+				`+priorityExpr+` AS priority
+			FROM records r
+			LEFT JOIN embedding_records e
+				ON e.record_id=r.id AND e.input_hash=r.input_hash AND e.fingerprint=?
+			WHERE r.kind<>'file'
+				AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0
+				AND e.record_id IS NULL
+		)
+		SELECT min(id),input_hash,input_text,min(priority) AS priority
+		FROM missing
+		GROUP BY input_hash,input_text
+		ORDER BY priority,length(input_text),min(id)
+		LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1067,7 +1609,8 @@ func (s *Store) MissingEmbeddingInputs(
 	var result []EmbeddingInput
 	for rows.Next() {
 		var input EmbeddingInput
-		if err := rows.Scan(&input.ID, &input.InputHash, &input.Text); err != nil {
+		var priority int
+		if err := rows.Scan(&input.ID, &input.InputHash, &input.Text, &priority); err != nil {
 			return nil, err
 		}
 		result = append(result, input)
@@ -1080,43 +1623,86 @@ func (s *Store) UpsertEmbeddings(
 	fingerprint string,
 	dimensions int,
 	values []EmbeddingValue,
-) error {
+) (int, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer tx.Rollback()
+	upserted := 0
 	for _, value := range values {
 		if len(value.Vector) != dimensions {
-			return fmt.Errorf("record %d vector has %d dimensions, want %d", value.ID, len(value.Vector), dimensions)
+			return 0, fmt.Errorf("record %d vector has %d dimensions, want %d", value.ID, len(value.Vector), dimensions)
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM record_vectors WHERE rowid=?`, value.ID); err != nil {
-			return err
+		rows, err := tx.QueryContext(ctx, `
+			SELECT id FROM records
+			WHERE input_hash=? AND kind<>'file'
+				AND coalesce(json_extract(metadata_json,'$.semantic'),1)<>0
+			ORDER BY id`, value.InputHash)
+		if err != nil {
+			return 0, err
 		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO record_vectors(rowid,vector) VALUES(?,?)`,
-			value.ID, encodeVector(value.Vector)); err != nil {
-			return err
+		var ids []int64
+		representative := false
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return 0, err
+			}
+			ids = append(ids, id)
+			representative = representative || id == value.ID
 		}
-		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO embedding_records(record_id,input_hash,fingerprint)
-			VALUES(?,?,?)
-			ON CONFLICT(record_id) DO UPDATE SET
-				input_hash=excluded.input_hash,fingerprint=excluded.fingerprint`,
-			value.ID, value.InputHash, fingerprint); err != nil {
-			return err
+		if err := rows.Close(); err != nil {
+			return 0, err
+		}
+		if !representative {
+			return 0, fmt.Errorf("record %d does not match embedding input hash", value.ID)
+		}
+		for _, id := range ids {
+			if _, err := tx.ExecContext(ctx, `DELETE FROM record_vectors WHERE rowid=?`, id); err != nil {
+				return 0, err
+			}
+			if _, err := tx.ExecContext(ctx,
+				`INSERT INTO record_vectors(rowid,vector) VALUES(?,?)`,
+				id, encodeVector(value.Vector)); err != nil {
+				return 0, err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO embedding_records(record_id,input_hash,fingerprint)
+				VALUES(?,?,?)
+				ON CONFLICT(record_id) DO UPDATE SET
+					input_hash=excluded.input_hash,fingerprint=excluded.fingerprint`,
+				id, value.InputHash, fingerprint); err != nil {
+				return 0, err
+			}
+			upserted++
 		}
 	}
-	return tx.Commit()
+	return upserted, tx.Commit()
 }
 
 func (s *Store) EmbeddingState(ctx context.Context, fingerprint string) (EmbeddingState, error) {
+	return s.EmbeddingStateForScope(ctx, fingerprint, "")
+}
+
+// EmbeddingStateForScope reports compatible vector coverage for one repository
+// scope. An empty scope reports repository-wide coverage.
+func (s *Store) EmbeddingStateForScope(
+	ctx context.Context,
+	fingerprint string,
+	scope string,
+) (EmbeddingState, error) {
 	state := EmbeddingState{Fingerprint: fingerprint}
 	err := s.db.QueryRowContext(ctx,
 		`SELECT model,dimensions FROM embedding_lane WHERE id=1 AND fingerprint=?`,
 		fingerprint).Scan(&state.Model, &state.Dimensions)
 	if errors.Is(err, sql.ErrNoRows) {
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM records`).Scan(&state.Records); err != nil {
+		if err := s.db.QueryRowContext(ctx, `
+			SELECT count(*) FROM records r WHERE r.kind<>'file'
+				AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0
+				AND `+recordScopePredicate,
+			scope, scope, scope, scope).Scan(&state.Records); err != nil {
 			return EmbeddingState{}, err
 		}
 		return state, nil
@@ -1125,18 +1711,24 @@ func (s *Store) EmbeddingState(ctx context.Context, fingerprint string) (Embeddi
 		return EmbeddingState{}, err
 	}
 	state.Configured = true
-	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM records`).Scan(&state.Records); err != nil {
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM records r WHERE r.kind<>'file'
+			AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0
+			AND `+recordScopePredicate,
+		scope, scope, scope, scope).Scan(&state.Records); err != nil {
 		return EmbeddingState{}, err
 	}
 	if err := s.db.QueryRowContext(ctx, `
 		SELECT count(*)
 		FROM embedding_records e
 		JOIN records r ON r.id=e.record_id
-		WHERE e.fingerprint=? AND e.input_hash=r.input_hash`,
-		fingerprint).Scan(&state.Embedded); err != nil {
+		WHERE e.fingerprint=? AND e.input_hash=r.input_hash AND r.kind<>'file'
+			AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0
+			AND `+recordScopePredicate,
+		fingerprint, scope, scope, scope, scope).Scan(&state.Embedded); err != nil {
 		return EmbeddingState{}, err
 	}
-	state.Complete = state.Records > 0 && state.Embedded == state.Records
+	state.Complete = state.Embedded == state.Records
 	return state, nil
 }
 
@@ -1147,20 +1739,27 @@ func (s *Store) VectorCandidates(
 	limit int,
 ) ([]Record, error) {
 	vectorLimit := limit
-	total := limit
+	var total int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM record_vectors v
+		JOIN records r ON r.id=v.rowid
+		WHERE coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0`).Scan(&total); err != nil {
+		return nil, err
+	}
+	if total == 0 {
+		return nil, nil
+	}
 	if scope != "" {
-		if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM record_vectors`).Scan(&total); err != nil {
-			return nil, err
-		}
 		var scoped int
 		if err := s.db.QueryRowContext(
 			ctx,
-			`SELECT count(*) FROM records r WHERE `+recordScopePredicate,
+			`SELECT count(*) FROM records r WHERE `+recordScopePredicate+`
+				AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0`,
 			scope, scope, scope, scope,
 		).Scan(&scoped); err != nil {
 			return nil, err
 		}
-		if total == 0 || scoped == 0 {
+		if scoped == 0 {
 			return nil, nil
 		}
 		// Start from the scope's mechanical share of records, then expand until
@@ -1174,8 +1773,8 @@ func (s *Store) VectorCandidates(
 			FROM record_vectors(?,?) v
 			JOIN records r ON r.id=v.rowid
 			WHERE `+recordScopePredicate+`
-			LIMIT ?`,
-			encodeVector(vector), vectorLimit, scope, scope, scope, scope, limit)
+				AND coalesce(json_extract(r.metadata_json,'$.semantic'),1)<>0`,
+			encodeVector(vector), vectorLimit, scope, scope, scope, scope)
 		if err != nil {
 			return nil, err
 		}
@@ -1183,11 +1782,42 @@ func (s *Store) VectorCandidates(
 		if err != nil {
 			return nil, err
 		}
-		if scope == "" || len(records) == limit || vectorLimit == total {
-			return records, nil
+		selected := firstRecordsByPath(records, limit)
+		if len(selected) == limit || vectorLimit == total {
+			return recordsThroughUniquePathLimit(records, limit), nil
 		}
 		vectorLimit = min(total, vectorLimit*2)
 	}
+}
+
+func recordsThroughUniquePathLimit(records []Record, limit int) []Record {
+	seen := make(map[string]bool, min(limit, len(records)))
+	for index, record := range records {
+		if seen[record.Path] {
+			continue
+		}
+		seen[record.Path] = true
+		if len(seen) == limit {
+			return records[:index+1]
+		}
+	}
+	return records
+}
+
+func firstRecordsByPath(records []Record, limit int) []Record {
+	seen := make(map[string]bool, min(limit, len(records)))
+	result := make([]Record, 0, min(limit, len(records)))
+	for _, record := range records {
+		if seen[record.Path] {
+			continue
+		}
+		seen[record.Path] = true
+		result = append(result, record)
+		if len(result) == limit {
+			break
+		}
+	}
+	return result
 }
 
 func recordInputHash(title, text string) string {

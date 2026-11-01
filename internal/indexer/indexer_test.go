@@ -10,17 +10,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
+	embeddingcontract "github.com/coadan/yggdrasil/embedding"
+	extractorcontract "github.com/coadan/yggdrasil/extractor"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
 	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/project"
-	"github.com/coadan/yggdrasil/internal/search"
 	"github.com/coadan/yggdrasil/internal/store"
+	search "github.com/coadan/yggdrasil/query"
 )
 
 func TestRunIsIncrementalAndDeletesMissingFiles(t *testing.T) {
@@ -133,6 +136,11 @@ func TestLinkedGitWorktreesHaveIsolatedIndexesAndDiscovery(t *testing.T) {
 			t.Error(err)
 			return
 		}
+		for _, input := range body.Input {
+			if !strings.HasPrefix(input, "document: ") {
+				t.Errorf("document embedding input=%q", input)
+			}
+		}
 		data := make([]map[string]any, len(body.Input))
 		for i := range body.Input {
 			data[i] = map[string]any{"index": i, "embedding": []float32{1, 0}}
@@ -143,14 +151,14 @@ func TestLinkedGitWorktreesHaveIsolatedIndexesAndDiscovery(t *testing.T) {
 	cfg := config.Default()
 	cfg.Embedding = &config.Embedding{
 		Kind: "openai-compatible", Endpoint: server.URL, Model: "worktree-test",
-		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 64,
+		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 64, DocumentPrefix: "document: ",
 	}
 	primarySummary, err := Run(context.Background(), primaryPaths, cfg, Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if primarySummary.SeededFrom != "" || primarySummary.Indexed != 3 ||
-		primarySummary.Embedded != 6 {
+		primarySummary.Embedded != 3 {
 		t.Fatalf("primary summary=%#v", primarySummary)
 	}
 	linkedSummary, err := Run(context.Background(), linkedPaths, cfg, Options{})
@@ -159,7 +167,7 @@ func TestLinkedGitWorktreesHaveIsolatedIndexesAndDiscovery(t *testing.T) {
 	}
 	if linkedSummary.SeededFrom != primaryPaths.Root || linkedSummary.Reused != 1 ||
 		linkedSummary.Indexed != 2 || linkedSummary.Deleted != 1 ||
-		linkedSummary.Embedded != 4 || linkedSummary.EmbeddingStatus != "ready" {
+		linkedSummary.Embedded != 2 || linkedSummary.EmbeddingStatus != "ready" {
 		t.Fatalf("linked summary=%#v", linkedSummary)
 	}
 
@@ -310,7 +318,7 @@ func assertWorktreeSearch(t *testing.T, paths project.Paths, query string, want 
 	}
 	defer value.Close()
 	result, err := search.Run(context.Background(), value, query, search.Options{
-		Mode: "lexical", Limit: 10, Root: paths.Root,
+		Mode: "lexical", Limit: 10,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -518,6 +526,264 @@ func TestRunBuildsConfiguredEmbeddingLane(t *testing.T) {
 	}
 	if requests != firstRequests {
 		t.Fatalf("no-op index called provider: requests %d -> %d", firstRequests, requests)
+	}
+}
+
+type retainedEmbeddingProvider struct {
+	calls      int
+	closeCalls int
+	texts      []string
+}
+
+func (p *retainedEmbeddingProvider) Embed(_ context.Context, inputs []embeddingcontract.Input) ([]embeddingcontract.Value, error) {
+	p.calls++
+	values := make([]embeddingcontract.Value, len(inputs))
+	for i, input := range inputs {
+		p.texts = append(p.texts, input.Text)
+		values[i] = embeddingcontract.Value{ID: input.ID, Vector: []float32{1, 0}}
+	}
+	return values, nil
+}
+
+func TestRunPrioritizesRequestedEmbeddingScope(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	for path, content := range map[string]string{
+		"cold/a.txt":     "x",
+		"src/target.txt": "requested scope has longer content",
+	} {
+		full := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Embedding = &config.Embedding{
+		Kind: "command", Command: []string{"must-not-start"}, Model: "retained",
+		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 1,
+	}
+	provider := &retainedEmbeddingProvider{}
+	summary, err := Run(context.Background(), paths, cfg, Options{
+		EmbeddingProvider: provider, MaxEmbeddingBatches: 1,
+		EmbeddingPriorityScope: "src/",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.EmbeddingStatus != "partial" || len(provider.texts) != 1 ||
+		!strings.Contains(provider.texts[0], "requested scope") {
+		t.Fatalf("summary=%#v provider=%#v", summary, provider)
+	}
+}
+
+func TestRunPrioritizesFilesChangedInCurrentGeneration(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	for path, content := range map[string]string{
+		"cold.txt":    "x",
+		"changed.txt": "changed file has deliberately longer content",
+	} {
+		if err := os.WriteFile(filepath.Join(root, path), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Embedding = &config.Embedding{
+		Kind: "command", Command: []string{"must-not-start"}, Model: "old",
+		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 1,
+	}
+	if _, err := Run(context.Background(), paths, cfg, Options{EmbeddingProvider: &retainedEmbeddingProvider{}}); err != nil {
+		t.Fatal(err)
+	}
+	changed := filepath.Join(root, "changed.txt")
+	if err := os.WriteFile(changed, []byte("updated file has deliberately longer content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(changed, info.ModTime().Add(time.Second), info.ModTime().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Embedding.Model = "new"
+	provider := &retainedEmbeddingProvider{}
+	summary, err := Run(context.Background(), paths, cfg, Options{
+		EmbeddingProvider: provider, MaxEmbeddingBatches: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Indexed != 1 || summary.EmbeddingStatus != "partial" || len(provider.texts) != 1 ||
+		!strings.Contains(provider.texts[0], "updated file") {
+		t.Fatalf("summary=%#v provider=%#v", summary, provider)
+	}
+}
+
+type retainedExtractorProvider struct {
+	calls       int
+	fingerprint string
+}
+
+func (p *retainedExtractorProvider) Descriptor() extractorcontract.Descriptor {
+	fingerprint := p.fingerprint
+	if fingerprint == "" {
+		fingerprint = "v1"
+	}
+	return extractorcontract.Descriptor{ID: "supplied", Fingerprint: fingerprint}
+}
+
+func (p *retainedExtractorProvider) Extract(
+	_ context.Context,
+	file extractorcontract.File,
+) ([]extractorcontract.Record, []extractorcontract.Diagnostic, error) {
+	p.calls++
+	return []extractorcontract.Record{{
+		ID: "owner", StartLine: 1, EndLine: 1, Kind: "navigation",
+		Text: "supplied navigation owner " + file.Path,
+	}}, nil, nil
+}
+
+func TestRunUsesCallerOwnedExtractorProvider(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(filepath.Join(root, "owner.go"), []byte("package owner\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &retainedExtractorProvider{}
+	cfg := config.Default()
+	if _, err := Run(context.Background(), paths, cfg, Options{
+		NoEmbed: true, ExtractorProviders: []extractorcontract.Provider{provider},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("calls=%d", provider.calls)
+	}
+	value, err := store.Open(context.Background(), paths.Database, paths.Root, paths.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := value.ExtractorCandidates(context.Background(), "supplied", "", 10)
+	closeErr := value.Close()
+	if err != nil || closeErr != nil || len(records) != 1 || records[0].Source != "plugin:supplied" {
+		t.Fatalf("records=%#v err=%v close=%v", records, err, closeErr)
+	}
+	if _, err := Run(context.Background(), paths, cfg, Options{
+		NoEmbed: true, EnsureCurrent: true, ExtractorProviders: []extractorcontract.Provider{provider},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("unchanged index called provider: %d", provider.calls)
+	}
+	provider.fingerprint = "v2"
+	if _, err := Run(context.Background(), paths, cfg, Options{
+		NoEmbed: true, EnsureCurrent: true, ExtractorProviders: []extractorcontract.Provider{provider},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if provider.calls != 2 {
+		t.Fatalf("changed provider fingerprint was not reindexed: calls=%d", provider.calls)
+	}
+}
+
+func (p *retainedEmbeddingProvider) Close() error {
+	p.closeCalls++
+	return nil
+}
+
+func TestRunUsesCallerOwnedEmbeddingProvider(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Embedding = &config.Embedding{
+		Kind: "command", Command: []string{"must-not-start"}, Model: "retained",
+		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 8,
+	}
+	provider := &retainedEmbeddingProvider{}
+	summary, err := Run(context.Background(), paths, cfg, Options{EmbeddingProvider: provider})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.EmbeddingStatus != "ready" || summary.Embedded == 0 || provider.calls == 0 {
+		t.Fatalf("summary=%#v provider=%#v", summary, provider)
+	}
+	if provider.closeCalls != 0 {
+		t.Fatalf("caller-owned provider closed %d times", provider.closeCalls)
+	}
+}
+
+func TestRunProgressivelyCompletesEmbeddingBatches(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	for _, name := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("content "+name), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Embedding = &config.Embedding{
+		Kind: "command", Command: []string{"must-not-start"}, Model: "retained",
+		Dimensions: 2, TimeoutMS: 1_000, BatchSize: 1,
+	}
+	provider := &retainedEmbeddingProvider{}
+	completed := false
+	for attempt := 0; attempt < 10; attempt++ {
+		summary, err := Run(context.Background(), paths, cfg, Options{
+			EnsureCurrent: attempt > 0, EnsureEmbeddings: true,
+			EmbeddingProvider: provider, MaxEmbeddingBatches: 1,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if summary.EmbeddingStatus == "ready" {
+			completed = true
+			break
+		}
+		if summary.EmbeddingStatus != "partial" || summary.Embedded != 1 {
+			t.Fatalf("attempt %d summary=%#v", attempt, summary)
+		}
+	}
+	if !completed || provider.calls < 2 || provider.closeCalls != 0 {
+		t.Fatalf("completed=%v provider=%#v", completed, provider)
+	}
+	calls := provider.calls
+	summary, err := Run(context.Background(), paths, cfg, Options{
+		EnsureCurrent: true, EnsureEmbeddings: true,
+		EmbeddingProvider: provider, MaxEmbeddingBatches: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !summary.UpToDate || summary.EmbeddingStatus != "ready" || provider.calls != calls {
+		t.Fatalf("settled summary=%#v calls=%d want %d", summary, provider.calls, calls)
 	}
 }
 

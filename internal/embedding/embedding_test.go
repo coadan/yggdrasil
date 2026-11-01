@@ -52,6 +52,40 @@ func TestHTTPProviderPreservesInputIDs(t *testing.T) {
 	}
 }
 
+func TestFingerprintSeparatesVectorIdentityFromRuntimeTuning(t *testing.T) {
+	base := config.Embedding{
+		Kind: "openai-compatible", Endpoint: "http://localhost", Model: "model",
+		Dimensions: 384, TimeoutMS: 1_000, BatchSize: 8, MaxInputChars: 4_000,
+	}
+	tuned := base
+	tuned.TimeoutMS = 120_000
+	tuned.BatchSize = 1
+	tuned.APIKeyEnv = "OTHER_KEY"
+	tuned.QueryPrefix = "Instruct: code search\nQuery: "
+	if Fingerprint(base) != Fingerprint(tuned) {
+		t.Fatal("runtime tuning or query shaping invalidated stored document vectors")
+	}
+	tuned.DocumentPrefix = "Document: "
+	if Fingerprint(base) == Fingerprint(tuned) {
+		t.Fatal("document shaping did not invalidate stored vectors")
+	}
+	tuned = base
+	tuned.Model = "another-model"
+	if Fingerprint(base) == Fingerprint(tuned) {
+		t.Fatal("model change did not invalidate stored vectors")
+	}
+}
+
+func TestEmbeddingInputPrefixesArePurposeSpecific(t *testing.T) {
+	cfg := config.Embedding{QueryPrefix: "query: ", DocumentPrefix: "document: "}
+	if got := QueryText(cfg, "owner"); got != "query: owner" {
+		t.Fatalf("query text = %q", got)
+	}
+	if got := DocumentText(cfg, "owner"); got != "document: owner" {
+		t.Fatalf("document text = %q", got)
+	}
+}
+
 func TestHTTPProviderBoundsInputAndRetriesTransientStatus(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

@@ -1,28 +1,29 @@
-// Package search ranks bounded records from the canonical SQLite index.
-package search
+// Package query ranks bounded records from an immutable repository snapshot.
+package query
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/coadan/yggdrasil/internal/config"
+	embeddingcontract "github.com/coadan/yggdrasil/embedding"
 	"github.com/coadan/yggdrasil/internal/contracts"
-	"github.com/coadan/yggdrasil/internal/embedding"
-	"github.com/coadan/yggdrasil/internal/store"
 )
 
-const rrfK = 60.0
+const laneRRFK = 60.0
+const familyRRFK = 10.0
 const maxPathTerms = 6
 const maxStructuredAnchors = 4
 const maxMorePaths = 20
 const extractorLaneWeight = 0.5
+const graphFamilyWeight = 0.20
+const graphSeedLimit = 20
 const recordHeadResults = 1
 const maxExcerptRunes = 280
 const minExcerptRunes = 120
@@ -30,8 +31,8 @@ const targetExcerptRunes = 2400
 
 const (
 	MaxResults    = 100
-	MaxQueryBytes = 16 * 1024
-	MaxQueryTerms = 256
+	MaxQueryBytes = MaxBytes
+	MaxQueryTerms = MaxTerms
 )
 
 var ErrSemanticUnavailable = errors.New("semantic search is unavailable")
@@ -39,68 +40,18 @@ var ErrSemanticUnavailable = errors.New("semantic search is unavailable")
 type Options struct {
 	Mode          string
 	Limit         int
-	Root          string
 	Scope         string
+	MatchKind     string
+	About         string
 	HasExtractors bool
-	Embedding     *config.Embedding
+	Embedding     *embeddingcontract.Capability
+	// MinSemanticCoverage activates semantic work after this fraction of the
+	// requested scope has compatible vectors. Zero preserves the complete-only
+	// policy. Values must otherwise be in (0,1].
+	MinSemanticCoverage float64
 }
 
-type Result struct {
-	Schema         string         `json:"schema"`
-	Query          string         `json:"query"`
-	RequestedMode  string         `json:"requestedMode"`
-	ActiveMode     string         `json:"activeMode"`
-	FallbackReason string         `json:"fallbackReason,omitempty"`
-	ElapsedMS      int64          `json:"elapsedMs"`
-	Records        []RankedRecord `json:"records"`
-	MorePaths      []string       `json:"morePaths,omitempty"`
-}
-
-type RankedRecord struct {
-	Path       string         `json:"path"`
-	StartLine  int            `json:"startLine"`
-	EndLine    int            `json:"endLine"`
-	Kind       string         `json:"kind,omitempty"`
-	Title      string         `json:"title,omitempty"`
-	Excerpt    string         `json:"excerpt"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
-	Source     string         `json:"source,omitempty"`
-	Retrieval  []string       `json:"-"`
-	Score      float64        `json:"-"`
-	internalID int64
-}
-
-func (r RankedRecord) MarshalJSON() ([]byte, error) {
-	type publicRecord struct {
-		Path      string         `json:"path"`
-		StartLine int            `json:"startLine"`
-		EndLine   int            `json:"endLine"`
-		Kind      string         `json:"kind,omitempty"`
-		Title     string         `json:"title,omitempty"`
-		Excerpt   string         `json:"excerpt"`
-		Metadata  map[string]any `json:"metadata,omitempty"`
-		Source    string         `json:"source,omitempty"`
-	}
-	kind := r.Kind
-	if kind == "text-chunk" {
-		kind = ""
-	}
-	title := r.Title
-	if title == r.Path || title == fmt.Sprintf("%s:%d", r.Path, r.StartLine) {
-		title = ""
-	}
-	source := r.Source
-	if source == "core" {
-		source = ""
-	}
-	return json.Marshal(publicRecord{
-		Path: r.Path, StartLine: r.StartLine, EndLine: r.EndLine,
-		Kind: kind, Title: title, Excerpt: r.Excerpt,
-		Metadata: r.Metadata, Source: source,
-	})
-}
-
-func Run(ctx context.Context, value *store.Store, query string, opts Options) (Result, error) {
+func Run(ctx context.Context, value Reader, query string, opts Options) (Result, error) {
 	started := time.Now()
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -115,6 +66,11 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	if len(strings.Fields(query)) > MaxQueryTerms {
 		return Result{}, fmt.Errorf("search query exceeds %d terms", MaxQueryTerms)
 	}
+	plan, err := Parse(query, opts.MatchKind, opts.About, opts.Scope)
+	if err != nil {
+		return Result{}, fmt.Errorf("plan search query: %w", err)
+	}
+	evidenceQuery := plan.EvidenceText()
 	if opts.Limit == 0 {
 		opts.Limit = 10
 	}
@@ -124,46 +80,70 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	if opts.Mode == "" {
 		opts.Mode = "auto"
 	}
-	if opts.Mode != "auto" && opts.Mode != "lexical" && opts.Mode != "semantic" {
+	if opts.Mode != "auto" && opts.Mode != "lexical" && opts.Mode != "semantic" && opts.Mode != "graph" {
 		return Result{}, fmt.Errorf("unsupported search mode %q", opts.Mode)
 	}
-	candidateLimit := max(100, opts.Limit*10)
+	activationCoverage := opts.MinSemanticCoverage
+	if activationCoverage == 0 {
+		activationCoverage = 1
+	}
+	if activationCoverage <= 0 || activationCoverage > 1 {
+		return Result{}, errors.New("minimum semantic coverage must be greater than zero and at most one")
+	}
+	candidateLimit := max(100, min(MaxResults+maxMorePaths, opts.Limit*10))
 	var lanes []lane
 	structured := false
 	if opts.Mode != "semantic" {
 		terms := queryTerms(query)
-		literal := literalTermQuery(query, terms)
+		literal := plan.Lexical.Kind == MatchText && literalTermQuery(query, terms)
 		structured = literal
-		if literal {
+		switch plan.Lexical.Kind {
+		case MatchFixed:
 			records, err := value.LiteralCandidates(
-				ctx, ftsAnyQuery(terms), query, opts.Scope, candidateLimit,
+				ctx, "", query, opts.Scope, candidateLimit,
 			)
 			if err != nil {
-				return Result{}, fmt.Errorf("literal search: %w", err)
+				return Result{}, fmt.Errorf("fixed search: %w", err)
 			}
-			if codeIdentifierTermQuery(query, terms) {
-				records = identifierLiteralRecords(records, query)
-			}
-			lanes = append(lanes, lane{name: "literal", records: records})
-		} else if len(terms) > 1 {
-			phrase, err := value.LexicalCandidates(
-				ctx, ftsPhraseQuery(terms), opts.Scope, candidateLimit,
-			)
+			lanes = append(lanes, lane{name: "fixed", records: records})
+		case MatchRegexp:
+			records, err := regexpCandidates(ctx, value, plan, opts.Scope, candidateLimit)
 			if err != nil {
-				return Result{}, fmt.Errorf("exact lexical search: %w", err)
+				return Result{}, fmt.Errorf("regexp search: %w", err)
 			}
-			lanes = append(lanes, lane{name: "exact", records: phrase})
-			if !structured {
-				all, err := value.LexicalCandidates(
-					ctx, ftsAllQuery(terms), opts.Scope, candidateLimit,
+			lanes = append(lanes, lane{name: "regexp", records: records})
+		case MatchText:
+			if literal {
+				records, err := value.LiteralCandidates(
+					ctx, ftsAnyQuery(terms), query, opts.Scope, candidateLimit,
 				)
 				if err != nil {
-					return Result{}, fmt.Errorf("all-term lexical search: %w", err)
+					return Result{}, fmt.Errorf("literal search: %w", err)
 				}
-				lanes = append(lanes, lane{name: "all-terms", records: all})
+				if codeIdentifierTermQuery(query, terms) {
+					records = identifierLiteralRecords(records, query)
+				}
+				lanes = append(lanes, lane{name: "literal", records: records})
+			} else if len(terms) > 1 {
+				phrase, err := value.LexicalCandidates(
+					ctx, ftsPhraseQuery(terms), opts.Scope, candidateLimit,
+				)
+				if err != nil {
+					return Result{}, fmt.Errorf("exact lexical search: %w", err)
+				}
+				lanes = append(lanes, lane{name: "exact", records: phrase})
+				if !structured {
+					all, err := value.LexicalCandidates(
+						ctx, ftsAllQuery(terms), opts.Scope, candidateLimit,
+					)
+					if err != nil {
+						return Result{}, fmt.Errorf("all-term lexical search: %w", err)
+					}
+					lanes = append(lanes, lane{name: "all-terms", records: all})
+				}
 			}
 		}
-		if !structured {
+		if plan.Lexical.Kind == MatchText && !structured {
 			fts, err := value.LexicalCandidates(
 				ctx, ftsAnyQuery(terms), opts.Scope, candidateLimit,
 			)
@@ -203,16 +183,46 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	result := Result{
 		Schema:        contracts.SearchSchema,
 		Query:         query,
+		QueryPlan:     plan,
 		RequestedMode: opts.Mode,
 		ActiveMode:    "lexical",
 	}
 	if opts.Mode == "lexical" {
-		setResultRecords(&result, query, opts.Limit, lanes)
+		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
+		result.ElapsedMS = time.Since(started).Milliseconds()
+		return result, nil
+	}
+	if opts.Mode == "graph" {
+		graph, err := graphLane(ctx, value, evidenceQuery, lanes, opts.Scope, candidateLimit)
+		if err != nil {
+			return Result{}, err
+		}
+		result.ActiveMode = "graph"
+		setResultRecords(&result, evidenceQuery, opts.Limit, []lane{graph})
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
 	if structured && opts.Mode == "auto" {
-		setResultRecords(&result, query, opts.Limit, lanes)
+		if opts.HasExtractors {
+			graph, graphErr := graphLane(ctx, value, evidenceQuery, lanes, opts.Scope, candidateLimit)
+			if graphErr != nil {
+				return Result{}, graphErr
+			}
+			if len(graph.records) > 0 {
+				lanes = append(lanes, graph)
+				result.ActiveMode = "hybrid"
+			}
+		}
+		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
+		result.ElapsedMS = time.Since(started).Milliseconds()
+		return result, nil
+	}
+	if plan.Semantic == nil {
+		if opts.Mode == "semantic" {
+			return Result{}, fmt.Errorf("%w: regexp has no semantic text; use --about", ErrSemanticUnavailable)
+		}
+		result.FallbackReason = "semantic-query-empty"
+		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
@@ -222,39 +232,47 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 		}
 		if opts.Mode == "auto" {
 			result.FallbackReason = "semantic-unconfigured"
+			result.Semantic = &SemanticReadiness{State: "unconfigured", ActivationCoverage: activationCoverage}
 		}
-		setResultRecords(&result, query, opts.Limit, lanes)
+		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
-	fingerprint := embedding.Fingerprint(*opts.Embedding)
-	state, err := value.EmbeddingState(ctx, fingerprint)
+	fingerprint := embeddingcontract.Fingerprint(*opts.Embedding)
+	state, err := value.EmbeddingStateForScope(ctx, fingerprint, opts.Scope)
 	if err != nil {
 		return Result{}, fmt.Errorf("inspect embedding lane: %w", err)
 	}
-	if !state.Complete {
+	coverage := 0.0
+	if state.Records > 0 {
+		coverage = float64(state.Embedded) / float64(state.Records)
+	}
+	result.Semantic = &SemanticReadiness{
+		State: "warming", Embedded: state.Embedded, Records: state.Records,
+		Coverage: coverage, ActivationCoverage: activationCoverage,
+	}
+	active := state.Records > 0 && coverage >= activationCoverage
+	if !active {
 		if opts.Mode == "semantic" {
 			return Result{}, fmt.Errorf(
 				"%w: index has %d of %d current vectors",
 				ErrSemanticUnavailable, state.Embedded, state.Records,
 			)
 		}
-		result.FallbackReason = "semantic-incomplete"
-		setResultRecords(&result, query, opts.Limit, lanes)
+		result.FallbackReason = "semantic-below-threshold"
+		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
-	provider, err := embedding.New(ctx, opts.Root, *opts.Embedding)
-	if err != nil {
-		return semanticFailure(result, opts, lanes, started, err)
+	provider := opts.Embedding.Provider
+	if provider == nil {
+		return semanticFailure(result, opts, lanes, started, errors.New("embedding provider is unavailable"))
 	}
-	values, embedErr := provider.Embed(ctx, []embedding.Input{{ID: "query", Text: query}})
-	closeErr := provider.Close()
+	values, embedErr := provider.Embed(ctx, []embeddingcontract.Input{{
+		ID: "query", Text: opts.Embedding.QueryPrefix + plan.Semantic.Text,
+	}})
 	if embedErr != nil {
 		return semanticFailure(result, opts, lanes, started, embedErr)
-	}
-	if closeErr != nil {
-		return semanticFailure(result, opts, lanes, started, closeErr)
 	}
 	if len(values) != 1 || values[0].ID != "query" {
 		return semanticFailure(result, opts, lanes, started, errors.New("provider returned an invalid query embedding"))
@@ -263,14 +281,128 @@ func Run(ctx context.Context, value *store.Store, query string, opts Options) (R
 	if err != nil {
 		return Result{}, fmt.Errorf("semantic search: %w", err)
 	}
-	lanes = append(lanes, lane{name: "semantic", records: vectors})
+	semanticLane := lane{name: "semantic", records: vectors}
+	lanes = append(lanes, semanticLane)
+	result.Semantic.State = "ready"
+	if !state.Complete {
+		result.Semantic.State = "active-partial"
+	}
 	if opts.Mode == "semantic" {
 		result.ActiveMode = "semantic"
 	} else {
-		result.ActiveMode = "hybrid"
+		if opts.HasExtractors {
+			graph, graphErr := graphLane(ctx, value, evidenceQuery, lanes, opts.Scope, candidateLimit)
+			if graphErr != nil {
+				return Result{}, graphErr
+			}
+			lanes = append(lanes, graph)
+		}
+		if state.Complete {
+			result.ActiveMode = "hybrid"
+		} else {
+			// Partial semantic coverage can surface additional paths, but it must
+			// not displace the concrete lexical and structural result budget.
+			concrete := make([]lane, 0, len(lanes)-1)
+			for _, candidate := range lanes {
+				if candidate.name != "semantic" {
+					concrete = append(concrete, candidate)
+				}
+			}
+			setResultRecords(&result, evidenceQuery, opts.Limit, concrete)
+			appendSupplementaryPaths(&result, semanticLane.records)
+			result.FallbackReason = "semantic-partial"
+			result.ElapsedMS = time.Since(started).Milliseconds()
+			return result, nil
+		}
 	}
-	setResultRecords(&result, query, opts.Limit, lanes)
+	setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
 	result.ElapsedMS = time.Since(started).Milliseconds()
+	return result, nil
+}
+
+func appendSupplementaryPaths(result *Result, records []Candidate) {
+	seen := make(map[string]bool, len(result.Records)+len(result.MorePaths))
+	for _, record := range result.Records {
+		seen[record.Path] = true
+	}
+	for _, path := range result.MorePaths {
+		seen[path] = true
+	}
+	for _, record := range records {
+		if seen[record.Path] {
+			continue
+		}
+		result.MorePaths = append(result.MorePaths, record.Path)
+		seen[record.Path] = true
+		if len(result.MorePaths) == maxMorePaths {
+			return
+		}
+	}
+}
+
+func graphLane(
+	ctx context.Context,
+	value Reader,
+	query string,
+	lanes []lane,
+	scope string,
+	limit int,
+) (lane, error) {
+	direct := make([]lane, 0, len(lanes))
+	hasDirectRecords := false
+	for _, candidate := range lanes {
+		if candidate.name == "semantic" || candidate.name == "graph" {
+			continue
+		}
+		direct = append(direct, candidate)
+		hasDirectRecords = hasDirectRecords || len(candidate.records) > 0
+	}
+	if hasDirectRecords {
+		lanes = direct
+	}
+	seedRecords := fuse(query, graphSeedLimit, maxExcerptRunes, lanes)
+	seeds := make([]string, 0, len(seedRecords))
+	for _, record := range seedRecords {
+		seeds = append(seeds, record.Path)
+	}
+	records, err := value.GraphCandidates(ctx, seeds, scope, limit)
+	if err != nil {
+		return lane{}, fmt.Errorf("graph search: %w", err)
+	}
+	return lane{name: "graph", records: records}, nil
+}
+
+func regexpCandidates(
+	ctx context.Context,
+	value Reader,
+	plan Plan,
+	scope string,
+	limit int,
+) ([]Candidate, error) {
+	expression, err := regexp.Compile(plan.Lexical.Pattern)
+	if err != nil {
+		return nil, err
+	}
+	// FTS token boundaries are not a safe prefilter for a regular expression:
+	// a literal such as "push" can match inside pushCommand while unicode61
+	// indexes the latter as one token. Scan indexed lexical records so regexp
+	// matching retains grep's no-false-negative guarantee.
+	records, err := value.LexicalRecords(ctx, "", scope)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Candidate, 0, min(limit, len(records)))
+	seenPaths := make(map[string]bool)
+	for _, record := range records {
+		if record.Kind == "file" || !expression.MatchString(record.Text) {
+			continue
+		}
+		result = append(result, record)
+		seenPaths[record.Path] = true
+		if len(seenPaths) == limit {
+			break
+		}
+	}
 	return result, nil
 }
 
@@ -285,36 +417,90 @@ func semanticFailure(
 		return Result{}, fmt.Errorf("%w: %v", ErrSemanticUnavailable, cause)
 	}
 	result.FallbackReason = "semantic-provider-error"
-	setResultRecords(&result, result.Query, opts.Limit, lanes)
+	setResultRecords(&result, result.QueryPlan.EvidenceText(), opts.Limit, lanes)
 	result.ElapsedMS = time.Since(started).Milliseconds()
 	return result, nil
 }
 
 func setResultRecords(result *Result, query string, limit int, lanes []lane) {
+	excerptLimit := resultExcerptLimit(limit)
 	ranked := fuse(
 		query,
 		min(MaxResults, limit+maxMorePaths),
-		resultExcerptLimit(limit),
+		excerptLimit,
 		lanes,
 	)
+	if result.RequestedMode == "auto" && result.ActiveMode == "hybrid" && limit > 1 {
+		ranked = promoteGraphHead(ranked, query, excerptLimit, lanes, min(limit, 10)-1)
+	}
 	if len(ranked) <= limit {
 		result.Records = ranked
 		return
 	}
 	result.Records = ranked[:limit]
-	result.MorePaths = make([]string, 0, len(ranked)-limit)
+	result.MorePaths = make([]string, 0, min(maxMorePaths, len(ranked)-limit))
 	for _, record := range ranked[limit:] {
+		if len(result.MorePaths) == maxMorePaths {
+			break
+		}
 		result.MorePaths = append(result.MorePaths, record.Path)
 	}
 }
 
+func promoteGraphHead(
+	ranked []RankedRecord,
+	query string,
+	excerptLimit int,
+	lanes []lane,
+	target int,
+) []RankedRecord {
+	var graph lane
+	for _, candidate := range lanes {
+		if candidate.name == "graph" && len(candidate.records) > 0 {
+			graph = candidate
+			break
+		}
+	}
+	if len(graph.records) == 0 || target < 1 {
+		return ranked
+	}
+	index := -1
+	for candidate := range ranked {
+		if ranked[candidate].Path == graph.records[0].Path {
+			index = candidate
+			break
+		}
+	}
+	if index < 0 {
+		head := fuse(query, 1, excerptLimit, []lane{graph})
+		if len(head) == 0 {
+			return ranked
+		}
+		ranked = append(ranked, head[0])
+		index = len(ranked) - 1
+	}
+	if index <= target || target >= len(ranked) {
+		return ranked
+	}
+	graphValue := ranked[index]
+	displaced := ranked[target]
+	ranked = append(ranked[:index], ranked[index+1:]...)
+	ranked[target] = graphValue
+	ranked = append(ranked, displaced)
+	overflowEnd := min(len(ranked)-1, target+maxMorePaths)
+	if last := len(ranked) - 1; last > overflowEnd {
+		ranked[last], ranked[overflowEnd] = ranked[overflowEnd], ranked[last]
+	}
+	return ranked
+}
+
 type lane struct {
 	name    string
-	records []store.Record
+	records []Candidate
 }
 
 type fused struct {
-	record    store.Record
+	record    Candidate
 	score     float64
 	retrieval map[string]bool
 	evidence  citationEvidence
@@ -323,14 +509,20 @@ type fused struct {
 func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 	values := map[int64]*fused{}
 	pathEvidence := make(map[string]*fused)
-	pathScores := make(map[string]float64)
+	familyScores := make(map[string]map[string]float64)
 	pathRetrieval := make(map[string]map[string]bool)
 	for _, candidateLane := range lanes {
+		family := retrievalFamily(candidateLane.name)
+		if familyScores[family] == nil {
+			familyScores[family] = make(map[string]float64)
+		}
 		seenPaths := make(map[string]bool)
 		for rank, record := range candidateLane.records {
-			score := 1.0 / (rrfK + float64(rank+1))
+			score := 1.0 / (laneRRFK + float64(rank+1))
 			if candidateLane.name == "extractor" {
 				score *= extractorLaneWeight
+			} else if candidateLane.name == "graph" {
+				score *= graphFamilyWeight
 			}
 			// Search results are files, while retrieval lanes return file,
 			// chunk, and extractor records. Count only the best record for a
@@ -338,7 +530,7 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 			// result identity.
 			if !seenPaths[record.Path] {
 				seenPaths[record.Path] = true
-				pathScores[record.Path] += score
+				familyScores[family][record.Path] += score
 				if pathRetrieval[record.Path] == nil {
 					pathRetrieval[record.Path] = make(map[string]bool)
 				}
@@ -357,6 +549,7 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 			value.retrieval[candidateLane.name] = true
 		}
 	}
+	pathScores := fuseRetrievalFamilies(familyScores)
 	for path, evidence := range pathEvidence {
 		var best *fused
 		for _, value := range values {
@@ -447,18 +640,60 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 		startLine, endLine, title, citationExcerpt :=
 			localizedCitation(citation.record, citation.evidence, excerptLimit)
 		result = append(result, RankedRecord{
-			Path:       citation.record.Path,
-			StartLine:  startLine,
-			EndLine:    endLine,
-			Kind:       citation.record.Kind,
-			Title:      title,
-			Excerpt:    citationExcerpt,
-			Metadata:   citation.record.Metadata,
-			Source:     citation.record.Source,
-			Retrieval:  retrieval,
-			Score:      value.score,
-			internalID: citation.record.ID,
+			Path:      citation.record.Path,
+			StartLine: startLine,
+			EndLine:   endLine,
+			Kind:      citation.record.Kind,
+			Title:     title,
+			Excerpt:   citationExcerpt,
+			Metadata:  citation.record.Metadata,
+			Source:    citation.record.Source,
+			Retrieval: retrieval,
+			Score:     value.score,
 		})
+	}
+	return result
+}
+
+func retrievalFamily(laneName string) string {
+	switch laneName {
+	case "semantic", "extractor", "graph":
+		return laneName
+	default:
+		return "lexical"
+	}
+}
+
+func fuseRetrievalFamilies(families map[string]map[string]float64) map[string]float64 {
+	result := make(map[string]float64)
+	for _, family := range []string{"lexical", "semantic", "extractor", "graph"} {
+		scores := families[family]
+		if len(scores) == 0 {
+			continue
+		}
+		type pathScore struct {
+			path  string
+			score float64
+		}
+		ordered := make([]pathScore, 0, len(scores))
+		for path, score := range scores {
+			ordered = append(ordered, pathScore{path: path, score: score})
+		}
+		sort.Slice(ordered, func(i, j int) bool {
+			if ordered[i].score != ordered[j].score {
+				return ordered[i].score > ordered[j].score
+			}
+			return ordered[i].path < ordered[j].path
+		})
+		weight := 1.0
+		if family == "extractor" {
+			weight = extractorLaneWeight
+		} else if family == "graph" {
+			weight = graphFamilyWeight
+		}
+		for rank, value := range ordered {
+			result[value.path] += weight / (familyRRFK + float64(rank+1))
+		}
 	}
 	return result
 }
@@ -532,9 +767,9 @@ func betterCitation(candidate, current *fused) bool {
 }
 
 func citationLanePriority(retrieval map[string]bool) int {
-	for index, name := range []string{"literal", "exact", "all-terms", "anchor", "extractor", "lexical"} {
+	for index, name := range []string{"fixed", "regexp", "literal", "exact", "all-terms", "anchor", "extractor", "lexical"} {
 		if retrieval[name] {
-			return 6 - index
+			return 8 - index
 		}
 	}
 	return 0
@@ -655,7 +890,7 @@ func tokenEvidenceTerms(token string) []string {
 }
 
 func localizedCitation(
-	record store.Record,
+	record Candidate,
 	evidence citationEvidence,
 	excerptLimit int,
 ) (int, int, string, string) {
@@ -727,7 +962,7 @@ func codeIdentifierTermQuery(query string, terms []string) bool {
 	return false
 }
 
-func identifierLiteralRecords(records []store.Record, literal string) []store.Record {
+func identifierLiteralRecords(records []Candidate, literal string) []Candidate {
 	result := records[:0]
 	for _, record := range records {
 		if containsIdentifierLiteral(record.Text, literal) {

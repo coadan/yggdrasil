@@ -11,32 +11,28 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
+	publicindex "github.com/coadan/yggdrasil/index"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
-	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/indexer"
 	"github.com/coadan/yggdrasil/internal/plugin"
 	"github.com/coadan/yggdrasil/internal/project"
-	"github.com/coadan/yggdrasil/internal/search"
 	"github.com/coadan/yggdrasil/internal/status"
-	"github.com/coadan/yggdrasil/internal/store"
+	search "github.com/coadan/yggdrasil/query"
 )
 
 const usage = `Usage:
   ygg version
   ygg index [--root PATH] [--full] [--no-embed]
-  ygg search [--root PATH] [--limit N] [--mode auto|lexical|semantic] QUERY
+  ygg search [--limit N] [--mode auto|lexical|semantic|graph] [-F|-E] [--about TEXT] PATTERN [PATH]
   ygg status [--root PATH] [--check]
   ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH]
 `
 
 var Version = "devel"
-
-const searchIndexWait = 30 * time.Second
 
 type envelope struct {
 	Schema string     `json:"schema"`
@@ -166,12 +162,21 @@ func (r *runner) runIndex(ctx context.Context, args []string) int {
 	if err != nil {
 		return r.fail(true, 2, err)
 	}
-	summary, err := indexer.Run(ctx, paths, cfg, indexer.Options{
-		Full:             *full,
-		NoEmbed:          *noEmbed,
-		EnsureCurrent:    !*full,
-		EnsureEmbeddings: !*noEmbed,
+	repository, err := openCLIRepository(ctx, paths, cfg)
+	if err != nil {
+		return r.fail(true, 1, err)
+	}
+	progress := newProgressReporter(r.stderr)
+	summary, err := repository.index.Refresh(ctx, publicindex.RefreshOptions{
+		Full: *full, NoEmbed: *noEmbed, CompleteEmbeddings: !*noEmbed,
+		WaitForWriter: true,
+		Progress: func(value publicindex.Progress) {
+			progress.report(value.Phase, value.Completed, value.Total, value)
+		},
 	})
+	if closeErr := repository.Close(); err == nil && closeErr != nil {
+		err = closeErr
+	}
 	if err != nil {
 		return r.fail(true, 1, err)
 	}
@@ -183,7 +188,14 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	flags, flagOutput := newOperationalFlagSet("search")
 	root := flags.String("root", "", "repository root, directory, or file scope")
 	limit := flags.Int("limit", 10, "result limit")
-	mode := flags.String("mode", "auto", "auto, lexical, or semantic")
+	mode := flags.String("mode", "auto", "auto, lexical, semantic, or graph")
+	fixed := false
+	regexpPattern := false
+	flags.BoolVar(&fixed, "F", false, "match the lexical pattern as a fixed string")
+	flags.BoolVar(&fixed, "fixed-strings", false, "match the lexical pattern as a fixed string")
+	flags.BoolVar(&regexpPattern, "E", false, "match the lexical pattern as a regular expression")
+	flags.BoolVar(&regexpPattern, "regexp", false, "match the lexical pattern as a regular expression")
+	about := flags.String("about", "", "semantic intent used independently of the lexical pattern")
 	flags.Usage = func() {
 		fmt.Fprintf(flagOutput, "Usage of %s:\n", flags.Name())
 		flags.PrintDefaults()
@@ -201,7 +213,31 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		}
 		return r.flagParseResult(flagOutput, err)
 	}
-	query := strings.TrimSpace(strings.Join(flags.Args(), " "))
+	positionals := flags.Args()
+	if *root == "" && len(positionals) > 2 {
+		return r.fail(true, 2, errors.New(
+			"search accepts PATTERN and optional PATH; quote a multiword pattern",
+		))
+	}
+	if fixed && regexpPattern {
+		return r.fail(true, 2, errors.New("--fixed-strings and --regexp are mutually exclusive"))
+	}
+	matchKind := search.MatchText
+	if fixed {
+		matchKind = search.MatchFixed
+	} else if regexpPattern {
+		matchKind = search.MatchRegexp
+	}
+	query := ""
+	resolvedRoot := *root
+	if *root != "" {
+		query = strings.TrimSpace(strings.Join(positionals, " "))
+	} else if len(positionals) > 0 {
+		query = strings.TrimSpace(positionals[0])
+		if len(positionals) == 2 {
+			resolvedRoot = positionals[1]
+		}
+	}
 	if query == "" {
 		return r.fail(true, 2, errors.New("search query is required"))
 	}
@@ -209,19 +245,73 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		return r.fail(true, 2, fmt.Errorf("search limit must be between 1 and %d", search.MaxResults))
 	}
 	started := time.Now()
-	paths, cfg, err := resolve(*root)
+	preflightPlan, err := search.Parse(query, matchKind, *about, "")
 	if err != nil {
 		return r.fail(true, 2, err)
 	}
-	indexLock, value, err := prepareSearchIndex(ctx, paths, cfg, *mode != "lexical")
+	if *mode == "semantic" && preflightPlan.Semantic == nil {
+		return r.fail(true, 2, errors.New("regexp has no semantic text; use --about"))
+	}
+	paths, cfg, err := resolve(resolvedRoot)
+	if err != nil {
+		return r.fail(true, 2, err)
+	}
+	repository, err := openCLIRepository(ctx, paths, cfg)
 	if err != nil {
 		return r.fail(true, 1, err)
 	}
-	defer releaseSearchIndexLock(indexLock)
-	defer value.Close()
-	result, err := search.Run(ctx, value, query, search.Options{
-		Mode: *mode, Limit: *limit, Root: paths.Root, Scope: paths.Scope,
-		HasExtractors: len(cfg.Plugins) > 0, Embedding: cfg.Embedding,
+	defer repository.Close()
+	progress := newProgressReporter(r.stderr)
+	snapshot, snapshotErr := repository.index.OpenSnapshot(ctx)
+	if snapshotErr != nil &&
+		!errors.Is(snapshotErr, publicindex.ErrUnavailable) &&
+		!errors.Is(snapshotErr, publicindex.ErrStale) {
+		return r.fail(true, 1, snapshotErr)
+	}
+	refresh := snapshotErr != nil
+	if snapshotErr == nil && *mode != "lexical" && cfg.Embedding != nil {
+		readiness, readinessErr := repository.index.Readiness(ctx, paths.Scope)
+		if readinessErr != nil {
+			snapshot.Close()
+			return r.fail(true, 1, readinessErr)
+		}
+		refresh = !readiness.Complete
+	}
+	if refresh && snapshot != nil {
+		_ = snapshot.Close()
+		snapshot = nil
+	}
+	if refresh {
+		_, err = repository.index.Refresh(ctx, publicindex.RefreshOptions{
+			CompleteEmbeddings: *mode != "lexical",
+			Progress: func(value publicindex.Progress) {
+				progress.report(value.Phase, value.Completed, value.Total, value)
+			},
+		})
+		if err == nil {
+			snapshot, err = repository.index.OpenSnapshot(ctx)
+		}
+	}
+	if errors.Is(err, indexer.ErrIndexBusy) && (*mode == "auto" || *mode == "lexical") {
+		result, fallbackErr := search.RunFilesystem(ctx, paths.Root, query, search.FilesystemOptions{
+			Limit: *limit, Scope: paths.Scope, IgnoreGlobs: cfg.IgnoreGlobs,
+			MaxFileBytes: cfg.MaxFileBytes, RequestedMode: *mode,
+			MatchKind: matchKind, About: *about,
+		})
+		if fallbackErr != nil {
+			return r.fail(true, 1, fmt.Errorf("search live working tree: %w", fallbackErr))
+		}
+		result.ElapsedMS = time.Since(started).Milliseconds()
+		return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
+	}
+	if err != nil {
+		return r.fail(true, 1, err)
+	}
+	defer snapshot.Close()
+	result, err := search.Run(ctx, snapshot, query, search.Options{
+		Mode: *mode, Limit: *limit, Scope: paths.Scope,
+		MatchKind: matchKind, About: *about,
+		HasExtractors: len(cfg.Plugins) > 0, Embedding: repository.index.Embedding(),
 	})
 	if errors.Is(err, search.ErrSemanticUnavailable) {
 		return r.fail(true, 3, err)
@@ -231,69 +321,6 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	}
 	result.ElapsedMS = time.Since(started).Milliseconds()
 	return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
-}
-
-func prepareSearchIndex(
-	ctx context.Context,
-	paths project.Paths,
-	cfg config.Config,
-	ensureEmbeddings bool,
-) (*os.File, *store.Store, error) {
-	embeddingAttempted := false
-	for range 3 {
-		indexLock, err := acquireSearchIndexLock(ctx, paths.IndexLock, searchIndexWait)
-		if err != nil {
-			return nil, nil, err
-		}
-		if _, err := os.Stat(paths.Database); errors.Is(err, os.ErrNotExist) {
-			releaseSearchIndexLock(indexLock)
-		} else if err != nil {
-			releaseSearchIndexLock(indexLock)
-			return nil, nil, err
-		} else {
-			value, openErr := store.Open(ctx, paths.Database, paths.Root, paths.ID)
-			if openErr != nil {
-				releaseSearchIndexLock(indexLock)
-				return nil, nil, openErr
-			}
-			current, tokenErr := indexer.FreshnessToken(ctx, paths.Root, cfg)
-			if tokenErr != nil {
-				value.Close()
-				releaseSearchIndexLock(indexLock)
-				return nil, nil, tokenErr
-			}
-			indexed, tokenErr := value.IndexFreshnessToken(ctx)
-			if tokenErr != nil {
-				value.Close()
-				releaseSearchIndexLock(indexLock)
-				return nil, nil, tokenErr
-			}
-			ready := current == indexed
-			if ready && ensureEmbeddings && cfg.Embedding != nil && !embeddingAttempted {
-				state, stateErr := value.EmbeddingState(
-					ctx, embedding.Fingerprint(*cfg.Embedding),
-				)
-				if stateErr != nil {
-					value.Close()
-					releaseSearchIndexLock(indexLock)
-					return nil, nil, stateErr
-				}
-				ready = state.Complete
-			}
-			if ready {
-				return indexLock, value, nil
-			}
-			value.Close()
-			releaseSearchIndexLock(indexLock)
-		}
-		if _, err := indexer.Run(ctx, paths, cfg, indexer.Options{
-			EnsureCurrent: true, EnsureEmbeddings: ensureEmbeddings,
-		}); err != nil {
-			return nil, nil, fmt.Errorf("refresh repository index: %w", err)
-		}
-		embeddingAttempted = ensureEmbeddings && cfg.Embedding != nil
-	}
-	return nil, nil, errors.New("repository changed repeatedly during index refresh; retry search")
 }
 
 func parseInterspersed(flags *flag.FlagSet, args []string) error {
@@ -366,47 +393,6 @@ func (r *runner) flagParseResult(output *strings.Builder, err error) int {
 		return 0
 	}
 	return r.fail(true, 2, err)
-}
-
-func acquireSearchIndexLock(ctx context.Context, path string, wait time.Duration) (*os.File, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return nil, fmt.Errorf("create index state directory: %w", err)
-	}
-	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("open index lock: %w", err)
-	}
-	timer := time.NewTimer(wait)
-	defer timer.Stop()
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		err = syscall.Flock(int(lock.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
-		if err == nil {
-			return lock, nil
-		}
-		if !errors.Is(err, syscall.EWOULDBLOCK) && !errors.Is(err, syscall.EAGAIN) {
-			lock.Close()
-			return nil, fmt.Errorf("lock index for search: %w", err)
-		}
-		select {
-		case <-ctx.Done():
-			lock.Close()
-			return nil, ctx.Err()
-		case <-timer.C:
-			lock.Close()
-			return nil, errors.New("index is still running; retry search")
-		case <-ticker.C:
-		}
-	}
-}
-
-func releaseSearchIndexLock(lock *os.File) {
-	if lock == nil {
-		return
-	}
-	_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-	_ = lock.Close()
 }
 
 func (r *runner) runStatus(ctx context.Context, args []string) int {

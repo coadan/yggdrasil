@@ -18,9 +18,9 @@ import (
 )
 
 const (
-	schema     = "ygg.extractor/v1"
-	maxRecords = 256
-	maxText    = 64*1024 - 1
+	schema   = "ygg.extractor/v1"
+	maxFacts = 256
+	maxText  = 64*1024 - 1
 )
 
 type message struct {
@@ -34,12 +34,13 @@ type message struct {
 }
 
 type record struct {
-	ID        string `json:"id"`
-	StartLine int    `json:"startLine"`
-	EndLine   int    `json:"endLine"`
-	Kind      string `json:"kind"`
-	Title     string `json:"title,omitempty"`
-	Text      string `json:"text"`
+	ID        string         `json:"id"`
+	StartLine int            `json:"startLine"`
+	EndLine   int            `json:"endLine"`
+	Kind      string         `json:"kind"`
+	Title     string         `json:"title,omitempty"`
+	Text      string         `json:"text"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
 type diagnostic struct {
@@ -103,30 +104,37 @@ func extract(path, content string) ([]record, []diagnostic) {
 	if tree == nil {
 		return nil, diagnostics
 	}
-	var records []record
-	add := func(value record) {
-		if len(records) < maxRecords {
+	var facts []record
+	addFact := func(value record) {
+		if len(facts) < maxFacts {
 			value.Text = truncate(value.Text)
-			records = append(records, value)
+			if value.Metadata == nil {
+				value.Metadata = make(map[string]any)
+			}
+			value.Metadata["semantic"] = false
+			facts = append(facts, value)
 		}
 	}
 	for _, declaration := range tree.Decls {
+		if len(facts) == maxFacts {
+			break
+		}
 		switch value := declaration.(type) {
 		case *ast.FuncDecl:
 			kind := "go-function"
 			if value.Recv != nil {
 				kind = "go-method"
 			}
-			end := value.End()
+			headerEnd := value.End()
 			if value.Body != nil {
-				end = value.Body.Lbrace
+				headerEnd = value.Body.Lbrace
 			}
 			startLine := files.Position(value.Pos()).Line
-			endLine := files.Position(end).Line
-			add(record{
+			headerEndLine := files.Position(headerEnd).Line
+			addFact(record{
 				ID:        fmt.Sprintf("%s:%d:%s", kind, startLine, value.Name.Name),
-				StartLine: startLine, EndLine: endLine, Kind: kind, Title: value.Name.Name,
-				Text: sourceText(files, content, value.Pos(), end) + "\n" + identifierWords(value.Name.Name),
+				StartLine: startLine, EndLine: headerEndLine, Kind: kind, Title: value.Name.Name,
+				Text: sourceText(files, content, value.Pos(), headerEnd) + "\n" + identifierWords(value.Name.Name),
 			})
 		case *ast.GenDecl:
 			for _, spec := range value.Specs {
@@ -138,14 +146,14 @@ func extract(path, content string) ([]record, []diagnostic) {
 					}
 					startLine := files.Position(item.Pos()).Line
 					endLine := files.Position(item.End()).Line
-					add(record{
+					addFact(record{
 						ID:        fmt.Sprintf("go-import:%d:%s", startLine, title),
 						StartLine: startLine, EndLine: endLine, Kind: "go-import", Title: title,
 						Text: sourceText(files, content, item.Pos(), item.End()),
 					})
 				case *ast.TypeSpec:
 					line := files.Position(item.Pos()).Line
-					add(record{
+					addFact(record{
 						ID:        fmt.Sprintf("go-type:%d:%s", line, item.Name.Name),
 						StartLine: line, EndLine: line, Kind: "go-type", Title: item.Name.Name,
 						Text: lineText(content, line) + "\n" + identifierWords(item.Name.Name),
@@ -154,7 +162,7 @@ func extract(path, content string) ([]record, []diagnostic) {
 					for _, name := range item.Names {
 						line := files.Position(name.Pos()).Line
 						kind := "go-" + value.Tok.String()
-						add(record{
+						addFact(record{
 							ID:        fmt.Sprintf("%s:%d:%s", kind, line, name.Name),
 							StartLine: line, EndLine: line, Kind: kind, Title: name.Name,
 							Text: lineText(content, line) + "\n" + identifierWords(name.Name),
@@ -164,7 +172,24 @@ func extract(path, content string) ([]record, []diagnostic) {
 			}
 		}
 	}
+	records := facts
+	if len(facts) > 0 {
+		records = append([]record{navigationRecord(path, facts)}, records...)
+	}
 	return records, diagnostics
+}
+
+func navigationRecord(path string, records []record) record {
+	var text strings.Builder
+	fmt.Fprintf(&text, "file %s\nkind go\n", path)
+	for _, value := range records {
+		fmt.Fprintf(&text, "%s %s\n", value.Kind, value.Title)
+	}
+	return record{
+		ID: "go-navigation:1", StartLine: 1, EndLine: 1,
+		Kind: "go-navigation", Title: path, Text: truncate(strings.TrimSpace(text.String())),
+		Metadata: map[string]any{"facts": len(records), "lexical": false},
+	}
 }
 
 func sourceText(files *token.FileSet, content string, start, end token.Pos) string {

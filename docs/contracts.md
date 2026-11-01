@@ -13,6 +13,8 @@ embedding provider shared by repositories and linked worktrees:
     "endpoint": "http://127.0.0.1:11434/v1/embeddings",
     "model": "all-minilm:latest",
     "dimensions": 384,
+    "queryPrefix": "",
+    "documentPrefix": "",
     "timeoutMs": 60000,
     "batchSize": 64,
     "maxInputChars": 6000
@@ -40,14 +42,14 @@ The optional repository configuration is `.ygg/config.json`:
     },
     {
       "id": "go",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "command": ["ygg-extract-go"],
       "includeGlobs": ["**/*.go"],
       "timeoutMs": 10000
     },
     {
       "id": "typescript",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "command": ["ygg-extract-typescript"],
       "includeGlobs": ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx"],
       "timeoutMs": 10000
@@ -66,7 +68,7 @@ The optional repository configuration is `.ygg/config.json`:
     },
     {
       "id": "python",
-      "version": "0.1.0",
+      "version": "0.3.0",
       "command": ["plugins/python/ygg-extract-python"],
       "includeGlobs": ["**/*.py"],
       "timeoutMs": 10000
@@ -81,6 +83,11 @@ that repository.
 
 Embedding `kind` is either `command` or `openai-compatible`. A command provider
 uses `command` argv instead of `endpoint` and `apiKeyEnv`.
+
+`queryPrefix` and `documentPrefix` are optional provider-neutral input shaping.
+Changing `documentPrefix`, the model, dimensions, endpoint, command, or input
+limit invalidates stored vectors. Changing `queryPrefix`, timeout, batch size,
+or API-key environment does not rebuild document vectors.
 
 The bundled local worker is one command-provider implementation. Use absolute
 paths because the command's working directory is the repository being indexed:
@@ -164,9 +171,13 @@ length must equal the configured dimensions.
 ## JSON CLI envelopes
 
 Operational commands always return JSON with `schema`, `ok`, and either `data`
-or `error`. Search data uses schema `ygg.search.result/v3` and includes the
-requested mode, active mode, fallback reason, timings, and ranked records with
-path/line citations. Records expose navigation evidence, not internal fusion
+or `error`. Search data uses schema `ygg.search.result/v5` and includes the
+requested mode, active mode, fallback reason, timing, resolved `queryPlan`, and
+ranked records with path/line citations. When semantic retrieval is configured,
+the result also reports its state, scope-specific vector counts, coverage, and
+activation threshold. The query plan separates a `text`,
+`fixed`, or `regexp` lexical clause from optional semantic text and its
+`pattern`, `regexp-literals`, or `about` source. Records expose navigation evidence, not internal fusion
 scores or retrieval-lane diagnostics. The default core `text-chunk` kind,
 `core` source, and a title equal to `path:startLine` are implicit and omitted;
 extractor-specific kinds, titles, sources, and metadata remain explicit.
@@ -179,6 +190,12 @@ required indexing, and retrieval.
 When embeddings are configured, `auto` and `semantic` searches complete missing
 vectors before retrieval. A provider failure remains an explicit lexical
 fallback in `auto`; `lexical` never starts an embedding provider.
+Index work streams `ygg.index.progress/v1` JSON lines on stderr while reserving
+stdout for the final `ygg.cli/v1` envelope. Progress phases are `lock`, `seed`,
+`discovery`, `index`, `embedding`, `complete`, and `failed`. Events include
+mechanical completed/total counters, elapsed time, current path when useful,
+and phase-specific index or embedding counts. Intermediate events are throttled;
+phase transitions and terminal counters are always emitted.
 Fusion ranks files independently from their returned citation. When multiple
 records from one file contribute, the citation uses the bounded source window
 with the densest query-term evidence; `startLine`, `endLine`, and a line-based
@@ -193,9 +210,9 @@ The first `limit` files include citations. When additional bounded candidates
 exist, `morePaths` contains up to twenty subsequent ranked paths without
 excerpts so callers can choose a narrower follow-up without doubling the
 default context payload.
-When `search --root` names a repository subdirectory or file, that relative
-path is a mechanical prefix or exact-file scope applied before candidate limits
-in lexical, path, extractor, and semantic retrieval. Returned citations remain
+`search PATTERN [PATH]` treats the optional repository subdirectory or file as
+a mechanical prefix or exact-file scope applied before candidate limits
+in lexical, path, extractor, semantic, and graph retrieval. Returned citations remain
 relative to the repository root rather than the scoped path.
 Single structured terms containing syntax such as `-`, `.`, `#`, `<`, `=`, or `(`
 use a case-sensitive literal lane in `auto` mode. An FTS token prefilter keeps
@@ -205,6 +222,10 @@ path-stem matches. A single case-marked code identifier such as `ContentStack`,
 `Metric`, `runTask`, or `API` uses the same literal lane, while lowercase
 conceptual terms retain normal hybrid retrieval. Explicit `semantic` mode
 remains semantic-only.
+When extractor graph facts are configured, an exact `auto` result is also used
+as a one-hop graph seed. The exact lexical owner remains the precision head;
+mechanically linked import/export neighbors follow without invoking an
+embedding provider.
 Queries beginning with `-` follow the standard flag terminator, for example
 `ygg search -- "--json"`. The temporary redundant `--json` output assertion is
 recognized only before that terminator and cannot consume literal query text.
@@ -212,10 +233,22 @@ Broad queries containing a mixed-case identifier or two or more other structured
 anchors also retain bounded per-anchor lexical lanes. This keeps an exact symbol
 represented among surrounding conceptual terms without treating one natural
 hyphenated phrase as code.
+Retrieval lane candidate limits count distinct file paths, not records, so a
+file with many chunks cannot consume another file's candidate slot. Each lane
+retains its highest-ranked record for the path as citation evidence.
 Retrieval lanes return records, but the public result identity is a file path.
 Fusion therefore preserves the top record-level path as its precision head,
-then combines the best record per lane at file-path identity for the
-remaining results. Record-level evidence still selects the cited line range.
+combines correlated lane variants within lexical, semantic, extractor, and
+graph families, then applies balanced reciprocal-rank fusion across those
+families at file-path identity for the remaining results. Graph candidates are
+one-hop neighbors derived only from explicit extractor import/export facts and
+mechanically resolved repository-relative targets; seed rank determines their
+order. In `auto`, the strongest graph neighbor may occupy the final top-ten
+slot; the displaced direct candidate remains at the end of the bounded
+`morePaths` window instead of shifting intervening ranks. This prevents the
+number of lexical query variants from outweighing a strong semantic or
+structural rank by construction. Record-level evidence still selects the cited
+line range.
 This lets lexical and semantic hits in different chunks corroborate one file
 without allowing cross-chunk evidence to displace the strongest direct record
 match.

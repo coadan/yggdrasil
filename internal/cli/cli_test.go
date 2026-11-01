@@ -16,6 +16,7 @@ import (
 
 	"github.com/coadan/yggdrasil/internal/project"
 	"github.com/coadan/yggdrasil/internal/store"
+	querycontract "github.com/coadan/yggdrasil/query"
 )
 
 func TestIndexSearchAndStatus(t *testing.T) {
@@ -29,6 +30,7 @@ func TestIndexSearchAndStatus(t *testing.T) {
 	if code := Main(context.Background(), []string{"index", "--root", root}, &stdout, &stderr); code != 0 {
 		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
+	assertProgressPhases(t, stderr.String(), "lock", "discovery", "index", "complete")
 	paths, err := project.Resolve(root)
 	if err != nil {
 		t.Fatal(err)
@@ -102,6 +104,7 @@ func TestSearchInitializesAnUnindexedRepository(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
+	assertProgressPhases(t, stderr.String(), "lock", "discovery", "index", "complete")
 	assertSearchPaths(t, stdout.Bytes(), []string{"owner.txt"})
 	paths, err := project.Resolve(root)
 	if err != nil {
@@ -192,6 +195,7 @@ func TestAutoSearchCompletesConfiguredEmbeddingsButLexicalDoesNot(t *testing.T) 
 	if response.Data.ActiveMode != "hybrid" || response.Data.FallbackReason != "" || requests < 2 {
 		t.Fatalf("requests=%d response=%s", requests, stdout.String())
 	}
+	assertProgressPhases(t, stderr.String(), "lock", "discovery", "index", "embedding", "complete")
 }
 
 func TestSearchAcceptsFlagsAfterQueryAndLegacyJSONAssertion(t *testing.T) {
@@ -460,6 +464,38 @@ func assertSearchPaths(t *testing.T, output []byte, want []string) {
 	}
 }
 
+func assertProgressPhases(t *testing.T, output string, want ...string) {
+	t.Helper()
+	var got []string
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		if line == "" {
+			continue
+		}
+		var event struct {
+			Schema string `json:"schema"`
+			Phase  string `json:"phase"`
+		}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("invalid progress event %q: %v", line, err)
+		}
+		if event.Schema != "ygg.index.progress/v1" {
+			t.Fatalf("progress schema=%q event=%s", event.Schema, line)
+		}
+		if len(got) == 0 || got[len(got)-1] != event.Phase {
+			got = append(got, event.Phase)
+		}
+	}
+	position := 0
+	for _, phase := range got {
+		if position < len(want) && phase == want[position] {
+			position++
+		}
+	}
+	if position != len(want) {
+		t.Fatalf("progress phases=%q want subsequence=%q output=%s", got, want, output)
+	}
+}
+
 func TestSearchLazilySeedsLinkedWorktreeIndex(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
@@ -524,7 +560,7 @@ func TestSearchLazilySeedsLinkedWorktreeIndex(t *testing.T) {
 	}
 }
 
-func TestSearchWaitsForConcurrentIndexCommit(t *testing.T) {
+func TestSearchUsesCurrentSnapshotDuringConcurrentIndexWork(t *testing.T) {
 	isolateCLIUserConfig(t)
 	root := t.TempDir()
 	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
@@ -558,53 +594,210 @@ func TestSearchWaitsForConcurrentIndexCommit(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	done := make(chan int, 1)
-	go func() {
-		done <- Main(context.Background(), []string{
-			"search", "--root", root, "--mode", "lexical", "retired-owner",
-		}, &stdout, &stderr)
-	}()
-	select {
-	case code := <-done:
-		t.Fatalf("search returned before index commit: code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
-	case <-time.After(50 * time.Millisecond):
+	started := time.Now()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "--mode", "lexical", "retired-owner",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 	}
-
-	value, err := store.Open(context.Background(), paths.Database, paths.Root, paths.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := value.DeleteFile(context.Background(), "retired-owner.txt"); err != nil {
-		value.Close()
-		t.Fatal(err)
-	}
-	if err := value.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_UN); err != nil {
-		t.Fatal(err)
-	}
-	locked = false
-
-	select {
-	case code := <-done:
-		if code != 0 {
-			t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("search did not resume after index commit")
+	if elapsed := time.Since(started); elapsed > 200*time.Millisecond {
+		t.Fatalf("search waited for index work: %s", elapsed)
 	}
 	var response struct {
 		OK   bool `json:"ok"`
 		Data struct {
-			Records []json.RawMessage `json:"records"`
+			Records []struct {
+				Path string `json:"path"`
+			} `json:"records"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if !response.OK || len(response.Data.Records) != 0 {
-		t.Fatalf("search observed stale records: %s", stdout.String())
+	if !response.OK || len(response.Data.Records) != 1 ||
+		response.Data.Records[0].Path != "retired-owner.txt" {
+		t.Fatalf("search did not use current snapshot: %s", stdout.String())
+	}
+}
+
+func TestDefaultSearchFallsBackToLiveFilesWhenIndexBusy(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	owner := filepath.Join(root, "owner.txt")
+	if err := os.WriteFile(owner, []byte("retiredbusymarker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"index", "--root", root, "--no-embed",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if err := os.WriteFile(owner, []byte("currentbusymarker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := os.OpenFile(paths.IndexLock, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "currentbusymarker",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var response struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			ActiveMode     string `json:"activeMode"`
+			FallbackReason string `json:"fallbackReason"`
+			Records        []struct {
+				Path string `json:"path"`
+			} `json:"records"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.OK || response.Data.ActiveMode != "lexical" ||
+		response.Data.FallbackReason != "index-busy" ||
+		len(response.Data.Records) != 1 || response.Data.Records[0].Path != "owner.txt" {
+		t.Fatalf("response=%s", stdout.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "retiredbusymarker",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("absence search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Data.Records) != 0 {
+		t.Fatalf("stale response=%s", stdout.String())
+	}
+}
+
+func TestSearchAcceptsGrepShapedQueryPlans(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(root, "src", "owner.go"),
+		[]byte("package owner\n\n// push command error envelope\nfunc pushCommandErrorEnvelope() {}\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"index", "--root", root, "--no-embed",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+
+	tests := []struct {
+		name           string
+		args           []string
+		wantKind       string
+		wantSemantic   string
+		wantSource     string
+		wantRecordPath string
+	}{
+		{
+			name: "positional scope", args: []string{
+				"search", "push command error envelope", root,
+			},
+			wantKind: querycontract.MatchText, wantSemantic: "push command error envelope",
+			wantSource: "pattern", wantRecordPath: "src/owner.go",
+		},
+		{
+			name: "fixed with explicit intent", args: []string{
+				"search", "-F", "pushCommandErrorEnvelope", "--about",
+				"API command error response envelope", root,
+			},
+			wantKind: querycontract.MatchFixed, wantSemantic: "API command error response envelope",
+			wantSource: "about", wantRecordPath: "src/owner.go",
+		},
+		{
+			name: "regexp", args: []string{
+				"search", "-E", `push.*ErrorEnvelope`, "--mode", "lexical", root,
+			},
+			wantKind: querycontract.MatchRegexp, wantSemantic: "push ErrorEnvelope",
+			wantSource: "regexp-literals", wantRecordPath: "src/owner.go",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stdout.Reset()
+			stderr.Reset()
+			if code := Main(context.Background(), test.args, &stdout, &stderr); code != 0 {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+			}
+			var response struct {
+				OK   bool `json:"ok"`
+				Data struct {
+					QueryPlan struct {
+						Lexical struct {
+							Kind string `json:"kind"`
+						} `json:"lexical"`
+						Semantic *struct {
+							Text   string `json:"text"`
+							Source string `json:"source"`
+						} `json:"semantic"`
+					} `json:"queryPlan"`
+					Records []struct {
+						Path string `json:"path"`
+					} `json:"records"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if !response.OK || response.Data.QueryPlan.Lexical.Kind != test.wantKind ||
+				response.Data.QueryPlan.Semantic == nil ||
+				response.Data.QueryPlan.Semantic.Text != test.wantSemantic ||
+				response.Data.QueryPlan.Semantic.Source != test.wantSource ||
+				len(response.Data.Records) == 0 ||
+				response.Data.Records[0].Path != test.wantRecordPath {
+				t.Fatalf("response=%s", stdout.String())
+			}
+		})
+	}
+}
+
+func TestSearchRejectsAmbiguousOrInvalidQueryPlans(t *testing.T) {
+	for _, test := range []struct {
+		args    []string
+		message string
+	}{
+		{[]string{"search", "multi", "word", "query"}, "quote a multiword pattern"},
+		{[]string{"search", "-F", "-E", "pattern"}, "mutually exclusive"},
+		{[]string{"search", "-E", "["}, "error parsing regexp"},
+		{[]string{"search", "-E", `\d+`, "--mode", "semantic"}, "use --about"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := Main(context.Background(), test.args, &stdout, &stderr)
+		if code != 2 || stderr.Len() != 0 || !strings.Contains(stdout.String(), test.message) {
+			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", test.args, code, stdout.String(), stderr.String())
+		}
 	}
 }
 

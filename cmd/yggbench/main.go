@@ -20,7 +20,7 @@ func main() {
 	work := flag.String("work", ".dev/bench/work", "generated state directory")
 	binary := flag.String("ygg", "bin/ygg", "candidate ygg binary")
 	benchmarkConfig := flag.String("config", "", "optional extractor or embedding benchmark config")
-	mode := flag.String("mode", "lexical", "lexical, auto, or semantic search mode")
+	mode := flag.String("mode", "lexical", "lexical, auto, semantic, or graph search mode")
 	out := flag.String("out", ".dev/bench/report.json", "report output")
 	prepare := flag.Bool("prepare", false, "clone and pin missing benchmark checkouts")
 	checkOnly := flag.Bool("check-only", false, "verify revisions and ground truth without running searches")

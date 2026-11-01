@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	schema     = "ygg.extractor/v1"
-	maxRecords = 256
-	maxText    = 64*1024 - 1
+	schema   = "ygg.extractor/v1"
+	maxFacts = 256
+	maxText  = 64*1024 - 1
 )
 
 type message struct {
@@ -25,17 +25,19 @@ type message struct {
 	Schema    string `json:"schema,omitempty"`
 	RequestID string `json:"requestId,omitempty"`
 	File      struct {
+		Path    string `json:"path"`
 		Content string `json:"content"`
 	} `json:"file,omitempty"`
 }
 
 type record struct {
-	ID        string `json:"id"`
-	StartLine int    `json:"startLine"`
-	EndLine   int    `json:"endLine"`
-	Kind      string `json:"kind"`
-	Title     string `json:"title,omitempty"`
-	Text      string `json:"text"`
+	ID        string         `json:"id"`
+	StartLine int            `json:"startLine"`
+	EndLine   int            `json:"endLine"`
+	Kind      string         `json:"kind"`
+	Title     string         `json:"title,omitempty"`
+	Text      string         `json:"text"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
 type token struct {
@@ -70,7 +72,7 @@ func run(input io.Reader, output io.Writer) error {
 				return err
 			}
 		case "file":
-			records := extract(value.File.Content)
+			records := extract(value.File.Path, value.File.Content)
 			files++
 			recordCount += len(records)
 			if err := encoder.Encode(map[string]any{
@@ -90,12 +92,12 @@ func run(input io.Reader, output io.Writer) error {
 	return inputScanner.Err()
 }
 
-func extract(content string) []record {
+func extract(path, content string) []record {
 	tokens := scan(content)
 	lines := strings.Split(content, "\n")
-	var records []record
+	var facts []record
 	depth := 0
-	for index := 0; index < len(tokens) && len(records) < maxRecords; index++ {
+	for index := 0; index < len(tokens) && len(facts) < maxFacts; index++ {
 		current := tokens[index]
 		if current.text == "}" && depth > 0 {
 			depth--
@@ -103,7 +105,7 @@ func extract(content string) []record {
 		if depth == 0 && current.text == "import" {
 			if moduleIndex := importModule(tokens, index); moduleIndex > index {
 				module := trimString(tokens[moduleIndex].text)
-				records = append(records, makeRecord(
+				facts = append(facts, makeRecord(
 					"typescript-import", module, current.line,
 					lineText(lines, current.line)+"\n"+module,
 				))
@@ -114,7 +116,7 @@ func extract(content string) []record {
 		if depth == 0 && current.text == "export" {
 			if moduleIndex := exportModule(tokens, index); moduleIndex > index {
 				module := trimString(tokens[moduleIndex].text)
-				records = append(records, makeRecord(
+				facts = append(facts, makeRecord(
 					"typescript-export", module, current.line,
 					lineText(lines, current.line)+"\n"+module,
 				))
@@ -125,7 +127,7 @@ func extract(content string) []record {
 		if depth == 0 && declarationKind(current.text) != "" {
 			if name := nextIdentifier(tokens, index+1); name.text != "" {
 				kind := declarationKind(current.text)
-				records = append(records, makeRecord(
+				facts = append(facts, makeRecord(
 					kind, name.text, current.line,
 					lineText(lines, current.line)+"\n"+identifierWords(name.text),
 				))
@@ -134,6 +136,10 @@ func extract(content string) []record {
 		if current.text == "{" {
 			depth++
 		}
+	}
+	records := facts
+	if len(facts) > 0 {
+		records = append([]record{navigationRecord(path, facts)}, records...)
 	}
 	return records
 }
@@ -240,6 +246,21 @@ func makeRecord(kind, title string, line int, text string) record {
 	return record{
 		ID:        kind + ":" + fmt.Sprint(line) + ":" + title,
 		StartLine: line, EndLine: line, Kind: kind, Title: title, Text: truncate(text),
+		Metadata: map[string]any{"semantic": false},
+	}
+}
+
+func navigationRecord(path string, records []record) record {
+	var text strings.Builder
+	fmt.Fprintf(&text, "file %s\nkind typescript\n", path)
+	for _, value := range records {
+		fmt.Fprintf(&text, "%s %s\n", value.Kind, value.Title)
+	}
+	return record{
+		ID: "typescript-navigation:1", StartLine: 1, EndLine: 1,
+		Kind: "typescript-navigation", Title: path,
+		Text:     truncate(strings.TrimSpace(text.String())),
+		Metadata: map[string]any{"facts": len(records), "lexical": false},
 	}
 }
 

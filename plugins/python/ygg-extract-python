@@ -6,7 +6,7 @@ import json
 import sys
 
 SCHEMA = "ygg.extractor/v1"
-MAX_RECORDS = 256
+MAX_FACTS = 256
 
 
 def words(name):
@@ -28,7 +28,10 @@ def words(name):
 
 
 def record(kind, title, line, source, metadata=None):
-    text = source.splitlines()[line - 1].strip() if 0 < line <= len(source.splitlines()) else title
+    lines = source.splitlines()
+    text = lines[line - 1].strip() if 0 < line <= len(lines) else title
+    metadata = dict(metadata or {})
+    metadata["semantic"] = False
     return {
         "id": f"{kind}:{line}:{title}",
         "startLine": line,
@@ -36,7 +39,21 @@ def record(kind, title, line, source, metadata=None):
         "kind": kind,
         "title": title,
         "text": f"{text}\n{words(title)}",
-        **({"metadata": metadata} if metadata else {}),
+        "metadata": metadata,
+    }
+
+
+def navigation_record(filename, records):
+    lines = [f"file {filename}", "kind python"]
+    lines.extend(f'{item["kind"]} {item["title"]}' for item in records)
+    return {
+        "id": "python-navigation:1",
+        "startLine": 1,
+        "endLine": 1,
+        "kind": "python-navigation",
+        "title": filename,
+        "text": "\n".join(lines),
+        "metadata": {"facts": len(records), "lexical": False},
     }
 
 
@@ -58,16 +75,17 @@ def extract(source, filename):
             message = f"line {error.lineno}: {message}"
         return [], [{"message": message}]
 
-    records = []
+    facts = []
     for node in tree.body:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             for target in import_targets(node):
-                records.append(record("python-import", target, node.lineno, source))
+                if len(facts) < MAX_FACTS:
+                    facts.append(record("python-import", target, node.lineno, source))
         elif isinstance(node, ast.ClassDef):
-            records.append(record("python-class", node.name, node.lineno, source))
+            facts.append(record("python-class", node.name, node.lineno, source))
             for child in node.body:
-                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    records.append(
+                if len(facts) < MAX_FACTS and isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    facts.append(
                         record(
                             "python-method",
                             f"{node.name}.{child.name}",
@@ -77,7 +95,7 @@ def extract(source, filename):
                         )
                     )
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            records.append(
+            facts.append(
                 record(
                     "python-function",
                     node.name,
@@ -86,9 +104,13 @@ def extract(source, filename):
                     {"async": isinstance(node, ast.AsyncFunctionDef)},
                 )
             )
-        if len(records) >= MAX_RECORDS:
+        if len(facts) >= MAX_FACTS:
             break
-    return records[:MAX_RECORDS], []
+    facts = facts[:MAX_FACTS]
+    records = facts
+    if facts:
+        records.insert(0, navigation_record(filename, facts))
+    return records, []
 
 
 def emit(value):

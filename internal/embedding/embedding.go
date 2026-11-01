@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	embeddingcontract "github.com/coadan/yggdrasil/embedding"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 )
@@ -27,22 +28,11 @@ const maxProviderResponse = 16 * 1024 * 1024
 const maxProviderStderr = 1024 * 1024
 const maxProviderError = 8 * 1024
 const defaultMaxProviderInputChars = 6000
-const embeddingBehaviorVersion = "v2"
+const embeddingBehaviorVersion = "v3"
 
-type Input struct {
-	ID   string `json:"id"`
-	Text string `json:"text"`
-}
-
-type Value struct {
-	ID     string    `json:"id"`
-	Vector []float32 `json:"vector"`
-}
-
-type Provider interface {
-	Embed(context.Context, []Input) ([]Value, error)
-	Close() error
-}
+type Input = embeddingcontract.Input
+type Value = embeddingcontract.Value
+type Provider = embeddingcontract.Provider
 
 func New(ctx context.Context, root string, cfg config.Embedding) (Provider, error) {
 	switch cfg.Kind {
@@ -66,12 +56,38 @@ func New(ctx context.Context, root string, cfg config.Embedding) (Provider, erro
 }
 
 func Fingerprint(cfg config.Embedding) string {
+	if cfg.Fingerprint != "" {
+		return cfg.Fingerprint
+	}
 	data, _ := json.Marshal(struct {
-		Behavior string           `json:"behavior"`
-		Config   config.Embedding `json:"config"`
-	}{Behavior: embeddingBehaviorVersion, Config: cfg})
+		Behavior       string   `json:"behavior"`
+		Kind           string   `json:"kind"`
+		Command        []string `json:"command,omitempty"`
+		Endpoint       string   `json:"endpoint,omitempty"`
+		Model          string   `json:"model"`
+		Dimensions     int      `json:"dimensions"`
+		DocumentPrefix string   `json:"documentPrefix,omitempty"`
+		MaxInputChars  int      `json:"maxInputChars"`
+	}{
+		Behavior:       embeddingBehaviorVersion,
+		Kind:           cfg.Kind,
+		Command:        cfg.Command,
+		Endpoint:       cfg.Endpoint,
+		Model:          cfg.Model,
+		Dimensions:     cfg.Dimensions,
+		DocumentPrefix: cfg.DocumentPrefix,
+		MaxInputChars:  providerInputLimit(cfg),
+	})
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+func QueryText(cfg config.Embedding, text string) string {
+	return cfg.QueryPrefix + text
+}
+
+func DocumentText(cfg config.Embedding, text string) string {
+	return cfg.DocumentPrefix + text
 }
 
 type httpProvider struct {

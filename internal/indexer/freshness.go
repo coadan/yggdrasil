@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	extractorcontract "github.com/coadan/yggdrasil/extractor"
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/discovery"
 	"github.com/coadan/yggdrasil/internal/embedding"
@@ -20,8 +21,32 @@ import (
 // extraction state represented by an index. Git repositories use HEAD plus
 // dirty-path metadata so unchanged searches avoid a full discovery scan.
 func FreshnessToken(ctx context.Context, root string, cfg config.Config) (string, error) {
+	return freshnessToken(ctx, root, cfg, config.ExtractionFingerprint(cfg))
+}
+
+// FreshnessTokenWithExtractors includes supplied extractors' immutable
+// identity without consulting ambient configuration.
+func FreshnessTokenWithExtractors(
+	ctx context.Context,
+	root string,
+	cfg config.Config,
+	providers []extractorcontract.Provider,
+) (string, error) {
+	fingerprint, err := extractionFingerprint(cfg, providers)
+	if err != nil {
+		return "", err
+	}
+	return freshnessToken(ctx, root, cfg, fingerprint)
+}
+
+func freshnessToken(
+	ctx context.Context,
+	root string,
+	cfg config.Config,
+	extractionFingerprint string,
+) (string, error) {
 	digest := sha256.New()
-	fmt.Fprintln(digest, config.ExtractionFingerprint(cfg))
+	fmt.Fprintln(digest, extractionFingerprint)
 	if cfg.Embedding == nil {
 		fmt.Fprintln(digest, "embedding:none")
 	} else {

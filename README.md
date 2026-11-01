@@ -46,8 +46,6 @@ it is not migrated or loaded by the Go CLI.
   they are not.
 - **Parser-owned extension.** Run-scoped JSONL extractor executables can emit
   structured records without adding their dependencies to core.
-- **Measured claims.** Performance and relevance claims belong to hash-bearing,
-  replayable benchmark reports—not product anecdotes.
 
 ## Install and try
 
@@ -68,19 +66,27 @@ Or download a matching binary and `SHA256SUMS` from the
 Search any Git checkout:
 
 ```sh
-ygg search --root /path/to/repository "where is request routing configured"
+ygg search "where is request routing configured" /path/to/repository
 ygg status --root /path/to/repository
 ```
 
 Search always writes a JSON envelope. Result records are under `data.records`;
 additional ranked paths, when present, are under `data.morePaths`.
 
+Search uses the grep-shaped form `ygg search PATTERN [PATH]`. The default
+`auto` mode sends plain pattern text through lexical and configured semantic
+retrieval. `-F`/`--fixed-strings` makes the lexical clause an exact string;
+`-E`/`--regexp` makes it a Go regular expression. These flags constrain only
+lexical evidence. `--about TEXT` supplies semantic intent independently, so an
+agent can combine an exact symbol or regular expression with a conceptual
+description. `--mode lexical` remains deterministic and model-free.
+
 The first search initializes the repository when needed. Use `ygg index` only
 for an explicit rebuild, index-only refresh, or embedding maintenance.
 
-For a mechanically bounded search, pass a repository subdirectory or file such
-as `--root /path/to/repository/src/app` or
-`--root /path/to/repository/src/app/router.go`. Yggdrasil reuses the
+For a mechanically bounded search, pass a repository subdirectory or file as
+the optional path, such as `ygg search "request routing" src/app` or
+`ygg search -F RegisterRoute src/app/router.go`. Yggdrasil reuses the
 repository's one index, filters every retrieval lane to that scope, and keeps
 citations repository-relative (`src/app/...`).
 
@@ -105,6 +111,11 @@ ygg plugin check
 ```
 
 Every operational command returns a stable versioned JSON envelope by default.
+Search results include `data.queryPlan`, which records the resolved lexical
+kind and pattern, semantic text and source, and repository-relative scope.
+Indexing progress is emitted as `ygg.index.progress/v1` JSON lines on stderr,
+including when `search` initializes, refreshes, or embeds an index. The final
+`ygg.cli/v1` result remains the only value written to stdout.
 Indexes live outside repositories under `$YGG_STORAGE_ROOT/indexes/`, or
 `~/.local/share/ygg/indexes/` by default. `index --full` replaces an incompatible
 or intentionally stale database; normal indexing is incremental.
@@ -123,6 +134,11 @@ processed. After a successful index, Yggdrasil removes same-family databases
 whose Git worktrees are no longer registered and whose roots no longer exist.
 Busy databases and any unmarked or foreign state are preserved. The JSON index
 summary reports `seededFrom`, `reused`, and reclaimed index count/bytes.
+If another process is actively indexing, default and lexical search degrade to
+a live working-tree lexical scan and report `fallbackReason: "index-busy"`.
+This avoids both an operational failure and stale deleted paths. Explicit
+semantic and graph ablation modes report the busy index because they require
+indexed evidence and must not silently change retrieval meaning.
 
 ## Optional extraction and semantic recall
 
@@ -135,35 +151,38 @@ settings; an explicit repository embedding overrides the user default, while
 mechanically chunked text records. Plugins add parser-owned records over a
 bounded JSONL protocol and are started once per index run.
 
-`search --mode auto` uses lexical and path recall by default. When every current
-record has a vector for the configured embedding fingerprint, it fuses the
-semantic lane with reciprocal-rank fusion. Missing, incomplete, or failed
-semantic recall is reported explicitly and lexical results remain available.
-Use `--mode lexical` or `--mode semantic` only for ablation and diagnosis.
+`search --mode auto` uses lexical and path recall by default. Configured
+extractors add mechanically resolved local import/export neighbors, including
+for exact identifiers without invoking an embedding model. When every current
+semantic record has a vector for the configured embedding fingerprint, `auto`
+also fuses semantic recall. Missing, incomplete, or failed semantic recall is
+reported explicitly and lexical results remain available. Use `--mode lexical`,
+`--mode semantic`, or `--mode graph` only for ablation and diagnosis.
 
 The repository includes four optional, dependency-free extractor executables:
 
 ```sh
-make build
-bin/ygg plugin check markdown --root /path/to/configured/repository
+ygg plugin check markdown --root /path/to/configured/repository
 ```
 
-`ygg-extract-markdown` emits sections and fences, `ygg-extract-go` uses the Go
-parser for declarations and imports, and `ygg-extract-typescript` emits
-top-level JavaScript/TypeScript declarations and module links.
+`ygg-extract-markdown` emits sections and fences. The Go, TypeScript, and
+Python extractors emit a compact per-file navigation record together with
+imports and parser-bounded declaration signatures. Core chunks retain the
+implementation text used for semantic retrieval; the compact navigation record
+adds one mechanically bounded symbol and dependency summary per file. The
+individual declaration and import facts remain lexical and graph evidence, so
+they do not multiply local embedding work.
 `ygg-extract-manifest` emits package, dependency, script, workspace, and
 toolchain facts from `package.json`, `go.mod`, `Cargo.toml`, and
-`pyproject.toml`. None are linked into the core CLI. The
-[legacy parity inventory](docs/extractor-parity.md) records structured coverage
-and remaining gaps without treating generic text indexing as full parity.
+`pyproject.toml`. None are linked into the core CLI.
 
 The optional `plugins/python/ygg-extract-python` adapter uses Python's
 standard-library AST for imports and declarations. It requires a Python 3
 runtime but no third-party packages.
 
-The optional `plugins/jvm-dotnet/ygg-extract-jvm-dotnet` adapter ports the
-legacy tree-sitter worker facts for Java and C#. Its pinned parser bundle lives
-in a separate virtual environment and is not part of the Go module graph.
+The optional `plugins/jvm-dotnet/ygg-extract-jvm-dotnet` adapter extracts Java
+and C# facts. Its parser bundle lives in a separate virtual environment and is
+not part of the Go module graph.
 
 The optional `plugins/clojure/ygg-extract-clojure` adapter emits one sparse,
 bounded parser summary per Clojure file. It keeps namespaces, requires, and
@@ -179,9 +198,13 @@ Sentence Transformers model, normalizes its vectors, and stays alive across an
 index or search run. Its Python, PyTorch, and model dependencies are isolated
 from the Go binary; see the [local worker setup](plugins/embedding-local/README.md).
 
-See [contracts](docs/contracts.md) for the extractor, configuration, and result
-schemas. See [embedding parity](docs/embedding-parity.md) for the OpenRouter
-configuration, verified smoke evidence, and remaining legacy differences.
+See [contracts](docs/contracts.md) for extractor, configuration, and result
+schemas.
+
+Yggdrasil is being separated into a composable Go library with the CLI as one
+frontend. The accepted [library architecture](docs/decisions/0001-composable-go-library.md)
+keeps query, index, extractor, and embedding mechanisms independently usable and
+leaves lifecycle and scheduling with the host.
 
 ## Core ideas
 
@@ -199,35 +222,6 @@ configuration, verified smoke evidence, and remaining legacy differences.
   provider account, background process, or repository-local database.
 - **Replaceable integrations.** Extractors and embeddings use explicit,
   provider-neutral subprocess or HTTP contracts.
-- **Evidence before claims.** The shell baseline and Yggdrasil run against the
-  same pinned pre-fix repository states.
-
-## Benchmarks
-
-`yggbench` is a separate developer binary, not a `ygg` command. Each tracked
-case:
-
-1. pins the parent revision before a real fix;
-2. fetches the fixing revision only to verify curated changed-path ground truth;
-3. indexes and searches without exposing the fixing diff;
-4. measures full, no-op, and one-file incremental indexing;
-5. measures fresh-process search, citations, recall, MRR, and result noise;
-6. compares a mechanically match-count-ranked ripgrep lane; and
-7. records candidate and suite hashes with environment details.
-
-```sh
-make benchmark-check
-make benchmark-quick
-```
-
-The tracked replay corpus covers multiple languages, problem classes, and
-architecture classes across real repositories. The
-[dogfood protocol](docs/dogfood.md) additionally exercises
-`breyta-workbench` and `void2`. These repositories are test inputs, not
-endorsements, and results apply only to the exact binary, suite, and machine
-recorded in a report.
-
-See [benchmarking](docs/benchmarking.md) for methodology and report fields.
 
 ## How Yggdrasil compares
 
@@ -240,26 +234,3 @@ This is a capability map, not a leaderboard.
 | [Repomix](https://repomix.com/guide/) | One AI-friendly repository snapshot. | A caller needs bounded relevant records rather than a one-shot full-repository export. |
 | [Serena](https://github.com/oraios/serena) | LSP/IDE-backed symbol retrieval, editing, and refactoring. | Search must stay a small standalone CLI; use Serena when symbol-aware editing is the actual requirement. |
 | [Sourcegraph Code Search](https://sourcegraph.com/docs/code-search) | Hosted organization-scale code search and navigation. | Repository state and search should remain local and provider-independent; use Sourcegraph for hosted cross-repository scale. |
-
-## Development
-
-```sh
-make check
-make benchmark-dogfood
-make benchmark-check
-make release VERSION=0.3.0-rc.1
-```
-
-The release target stamps the requested version into all four CGO-free
-macOS/Linux binaries, writes their checksums under `dist/`, and executes the
-native artifact to verify its version. Pushing a `v*` tag reruns these gates and
-publishes the binaries, checksums, and dogfood report as GitHub release assets.
-
-The core module has one direct dependency: the pure-Go SQLite implementation
-providing SQLite, FTS5, and Vec1. Extractor plugins are separate Go modules so
-parser dependencies do not enter the CLI.
-
-Generated checkouts, indexes, and reports stay under `.dev/bench/`. See
-[architecture](docs/architecture.md), [contracts](docs/contracts.md),
-[supersession scope](docs/supersession.md), and
-[dogfood evidence](docs/dogfood.md) for the maintained boundaries.

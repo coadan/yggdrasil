@@ -13,8 +13,11 @@ import (
 	"syscall"
 	"time"
 
+	embeddingcontract "github.com/coadan/yggdrasil/embedding"
+	extractorcontract "github.com/coadan/yggdrasil/extractor"
 	"github.com/coadan/yggdrasil/internal/chunk"
 	"github.com/coadan/yggdrasil/internal/config"
+	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
 	"github.com/coadan/yggdrasil/internal/embedding"
 	"github.com/coadan/yggdrasil/internal/plugin"
@@ -27,6 +30,42 @@ type Options struct {
 	NoEmbed          bool
 	EnsureCurrent    bool
 	EnsureEmbeddings bool
+	// EmbeddingProvider is retained and closed by its caller. When nil, Run
+	// constructs and closes the configured provider for CLI compatibility.
+	EmbeddingProvider embeddingcontract.Provider
+	// ExtractorProviders are retained and closed by their caller. CLI-configured
+	// command extractors continue to run in addition to these capabilities.
+	ExtractorProviders []extractorcontract.Provider
+	// MaxEmbeddingBatches bounds semantic work in this run. Zero completes all
+	// missing vectors for CLI compatibility; a positive value lets a host
+	// progressively schedule bounded work.
+	MaxEmbeddingBatches int
+	// EmbeddingPriorityPaths and EmbeddingPriorityScope order bounded semantic
+	// work by explicit retrieval demand. They do not change readiness or rank.
+	EmbeddingPriorityPaths []string
+	EmbeddingPriorityScope string
+	// EmbeddingAging ignores every priority tier for this run.
+	EmbeddingAging bool
+	Progress       func(Progress)
+}
+
+type Progress struct {
+	Schema          string `json:"schema"`
+	Phase           string `json:"phase"`
+	RunID           string `json:"runId,omitempty"`
+	Completed       int    `json:"completed"`
+	Total           int    `json:"total"`
+	Path            string `json:"path,omitempty"`
+	Indexed         int    `json:"indexed,omitempty"`
+	Unchanged       int    `json:"unchanged,omitempty"`
+	Reused          int    `json:"reused,omitempty"`
+	Deleted         int    `json:"deleted,omitempty"`
+	Skipped         int    `json:"skipped,omitempty"`
+	Embedded        int    `json:"embedded,omitempty"`
+	EmbeddingModel  string `json:"embeddingModel,omitempty"`
+	EmbeddingStatus string `json:"embeddingStatus,omitempty"`
+	Error           string `json:"error,omitempty"`
+	ElapsedMS       int64  `json:"elapsedMs"`
 }
 
 type Summary struct {
@@ -50,11 +89,34 @@ type Summary struct {
 
 const writeBatchSize = 128
 const automaticRefreshWait = 30 * time.Second
+const maxChangedPriorityPaths = 100
 
 var ErrIndexBusy = errors.New("another index run is active")
 
 func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Options) (summary Summary, err error) {
+	if opts.MaxEmbeddingBatches < 0 {
+		return Summary{}, errors.New("maximum embedding batches cannot be negative")
+	}
+	fingerprint, err := extractionFingerprint(cfg, opts.ExtractorProviders)
+	if err != nil {
+		return Summary{}, err
+	}
 	started := time.Now()
+	progressRunID := fmt.Sprintf("run-%d", time.Now().UnixNano())
+	report := func(progress Progress) {
+		if opts.Progress == nil {
+			return
+		}
+		progress.Schema = contracts.IndexProgressSchema
+		progress.RunID = progressRunID
+		progress.ElapsedMS = time.Since(started).Milliseconds()
+		opts.Progress(progress)
+	}
+	defer func() {
+		if err != nil {
+			report(Progress{Phase: "failed", Error: err.Error()})
+		}
+	}()
 	if err := os.MkdirAll(paths.StateDir, 0o755); err != nil {
 		return Summary{}, fmt.Errorf("create state directory: %w", err)
 	}
@@ -63,11 +125,13 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		return Summary{}, fmt.Errorf("open index lock: %w", err)
 	}
 	defer lock.Close()
+	report(Progress{Phase: "lock", Total: 1})
 	if err := acquireIndexLock(ctx, lock, opts.EnsureCurrent); err != nil {
 		return Summary{}, err
 	}
+	report(Progress{Phase: "lock", Completed: 1, Total: 1})
 	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
-	startFreshness, err := FreshnessToken(ctx, paths.Root, cfg)
+	startFreshness, err := freshnessToken(ctx, paths.Root, cfg, fingerprint)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -108,6 +172,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 				summary.PrunedIndexes, summary.PrunedBytes, summary.PruneSkipped =
 					pruneRetiredIndexes(ctx, paths)
 				summary.ElapsedMS = time.Since(started).Milliseconds()
+				report(Progress{Phase: "complete", Completed: 1, Total: 1})
 				return summary, nil
 			}
 		} else if !os.IsNotExist(statErr) {
@@ -133,6 +198,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 				return Summary{}, fmt.Errorf("find worktree seed: %w", seedErr)
 			}
 			if len(seeds) > 0 {
+				report(Progress{Phase: "seed", Total: 1})
 				var seedErr error
 				for _, seed := range seeds {
 					seedErr = store.CloneDatabase(
@@ -146,6 +212,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 				if !cloned {
 					return Summary{}, fmt.Errorf("seed worktree index: %w", seedErr)
 				}
+				report(Progress{Phase: "seed", Completed: 1, Total: 1})
 			}
 		} else if statErr != nil {
 			return Summary{}, fmt.Errorf("stat index: %w", statErr)
@@ -163,7 +230,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	seeded := seedSource != ""
 	summary.SeededFrom = seedSource
 
-	summary.RunID = fmt.Sprintf("run-%d", time.Now().UnixNano())
+	summary.RunID = progressRunID
 	if err := value.BeginRun(ctx, summary.RunID); err != nil {
 		return Summary{}, err
 	}
@@ -178,12 +245,13 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		}
 	}()
 
+	report(Progress{Phase: "discovery"})
 	candidates, err := discovery.Candidates(paths.Root, cfg.IgnoreGlobs)
 	if err != nil {
 		return summary, err
 	}
 	summary.Scanned = len(candidates)
-	fingerprint := config.ExtractionFingerprint(cfg)
+	report(Progress{Phase: "discovery", Completed: len(candidates), Total: len(candidates)})
 	states, err := value.FileStates(ctx)
 	if err != nil {
 		return summary, err
@@ -200,6 +268,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	var refreshes []store.FileRefresh
 	var deletes []string
 	var diagnostics []store.Diagnostic
+	var changedPaths []string
 	flush := func() error {
 		if len(refreshes)+len(updates)+len(deletes)+len(diagnostics) == 0 {
 			return nil
@@ -221,7 +290,12 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		}
 		return flush()
 	}
-	for _, candidate := range candidates {
+	for index, candidate := range candidates {
+		report(Progress{
+			Phase: "index", Completed: index, Total: len(candidates), Path: candidate.Path,
+			Indexed: summary.Indexed, Unchanged: summary.Unchanged, Reused: summary.Reused,
+			Deleted: summary.Deleted, Skipped: summary.Skipped,
+		})
 		present[candidate.Path] = true
 		state, exists := states[candidate.Path]
 		if !opts.Full && !seeded && exists &&
@@ -280,14 +354,48 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 				Message: diagnostic.Message,
 			})
 		}
+		for _, extractorProvider := range opts.ExtractorProviders {
+			descriptor := extractorProvider.Descriptor()
+			extractorFile := extractorcontract.File{
+				Path: file.Path, Kind: file.Kind, ContentHash: file.ContentHash, Content: file.Content,
+			}
+			provided, providedDiagnostics, extractErr := extractorProvider.Extract(ctx, extractorFile)
+			if extractErr == nil {
+				provided, extractErr = extractorcontract.NormalizeRecords(descriptor, extractorFile, provided)
+			}
+			if extractErr != nil {
+				summary.Diagnostics++
+				diagnostics = append(diagnostics, store.Diagnostic{
+					Path: file.Path, Stage: "extractor-provider:" + descriptor.ID,
+					Message: extractErr.Error(),
+				})
+			} else {
+				records = append(records, provided...)
+			}
+			for _, diagnostic := range providedDiagnostics {
+				summary.Diagnostics++
+				diagnostics = append(diagnostics, store.Diagnostic{
+					Path: file.Path, Stage: "extractor-provider:" + descriptor.ID + ":" + diagnostic.Stage,
+					Message: diagnostic.Message,
+				})
+			}
+		}
 		updates = append(updates, store.FileUpdate{
 			File: file, ContentHash: contentHash, ExtractionFingerprint: fingerprint, Records: records,
 		})
+		if len(changedPaths) < maxChangedPriorityPaths {
+			changedPaths = append(changedPaths, candidate.Path)
+		}
 		if err := flushIfFull(); err != nil {
 			return summary, err
 		}
 		summary.Indexed++
 	}
+	report(Progress{
+		Phase: "index", Completed: len(candidates), Total: len(candidates),
+		Indexed: summary.Indexed, Unchanged: summary.Unchanged, Reused: summary.Reused,
+		Deleted: summary.Deleted, Skipped: summary.Skipped,
+	})
 	existing := make([]string, 0, len(states))
 	for path := range states {
 		existing = append(existing, path)
@@ -314,6 +422,9 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	if err := flush(); err != nil {
 		return summary, err
 	}
+	if err := value.RebuildGraph(ctx); err != nil {
+		return summary, fmt.Errorf("rebuild mechanical graph: %w", err)
+	}
 	if seeded {
 		if err := value.CompleteSeed(ctx); err != nil {
 			return summary, fmt.Errorf("complete worktree seed: %w", err)
@@ -323,14 +434,23 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	if opts.NoEmbed {
 		summary.EmbeddingStatus = "skipped"
 	} else if cfg.Embedding != nil {
+		priority := store.EmbeddingPriority{
+			Paths: opts.EmbeddingPriorityPaths, Scope: opts.EmbeddingPriorityScope,
+			ChangedPaths: changedPaths,
+		}
+		if opts.EmbeddingAging {
+			priority = store.EmbeddingPriority{}
+		}
 		summary.Embedded, summary.EmbeddingStatus, err = embedRecords(
-			ctx, value, paths, *cfg.Embedding, summary.RunID, &summary.Diagnostics,
+			ctx, value, paths, *cfg.Embedding, opts.EmbeddingProvider,
+			opts.MaxEmbeddingBatches, priority, summary.RunID,
+			&summary.Diagnostics, report,
 		)
 		if err != nil {
 			return summary, err
 		}
 	}
-	endFreshness, err := FreshnessToken(ctx, paths.Root, cfg)
+	endFreshness, err := freshnessToken(ctx, paths.Root, cfg, fingerprint)
 	if err != nil {
 		return summary, err
 	}
@@ -342,7 +462,50 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 	}
 	summary.PrunedIndexes, summary.PrunedBytes, summary.PruneSkipped =
 		pruneRetiredIndexes(ctx, paths)
+	report(Progress{
+		Phase: "complete", Completed: summary.Scanned, Total: summary.Scanned,
+		Indexed: summary.Indexed, Unchanged: summary.Unchanged, Reused: summary.Reused,
+		Deleted: summary.Deleted, Skipped: summary.Skipped, Embedded: summary.Embedded,
+		EmbeddingStatus: summary.EmbeddingStatus,
+	})
 	return summary, nil
+}
+
+func extractionFingerprint(
+	cfg config.Config,
+	providers []extractorcontract.Provider,
+) (string, error) {
+	fingerprint := config.ExtractionFingerprint(cfg)
+	if len(providers) == 0 {
+		return fingerprint, nil
+	}
+	descriptors := make([]extractorcontract.Descriptor, 0, len(cfg.Plugins)+len(providers))
+	for _, plugin := range cfg.Plugins {
+		descriptors = append(descriptors, extractorcontract.CommandDescriptor(extractorcontract.CommandSpec{
+			ID: plugin.ID, Version: plugin.Version,
+			Command: plugin.Command, IncludeGlobs: plugin.IncludeGlobs,
+			TimeoutMS: plugin.TimeoutMS,
+		}))
+	}
+	seen := make(map[string]bool, len(providers))
+	for _, descriptor := range descriptors {
+		seen[descriptor.ID] = true
+	}
+	for _, provider := range providers {
+		if provider == nil {
+			return "", errors.New("extractor provider is nil")
+		}
+		descriptor := provider.Descriptor()
+		if descriptor.ID == "" || descriptor.Fingerprint == "" {
+			return "", errors.New("extractor provider requires an id and fingerprint")
+		}
+		if seen[descriptor.ID] {
+			return "", fmt.Errorf("duplicate extractor provider id %q", descriptor.ID)
+		}
+		seen[descriptor.ID] = true
+		descriptors = append(descriptors, descriptor)
+	}
+	return config.ExtractionFingerprintWithProviders(cfg, descriptors), nil
 }
 
 func acquireIndexLock(ctx context.Context, lock *os.File, wait bool) error {
@@ -386,37 +549,56 @@ func embedRecords(
 	value *store.Store,
 	paths project.Paths,
 	cfg config.Embedding,
+	provider embeddingcontract.Provider,
+	maxBatches int,
+	priority store.EmbeddingPriority,
 	runID string,
 	diagnostics *int,
+	report func(Progress),
 ) (int, string, error) {
 	fingerprint := embedding.Fingerprint(cfg)
 	if _, err := value.PrepareEmbeddingLane(ctx, fingerprint, cfg.Model, cfg.Dimensions); err != nil {
 		return 0, "", fmt.Errorf("prepare embedding lane: %w", err)
 	}
-	inputs, err := value.MissingEmbeddingInputs(ctx, fingerprint, cfg.BatchSize)
+	state, err := value.EmbeddingState(ctx, fingerprint)
+	if err != nil {
+		return 0, "", err
+	}
+	report(Progress{
+		Phase: "embedding", Completed: state.Embedded, Total: state.Records,
+		EmbeddingModel: cfg.Model,
+	})
+	inputs, err := value.MissingEmbeddingInputsByPriority(ctx, fingerprint, cfg.BatchSize, priority)
 	if err != nil {
 		return 0, "", err
 	}
 	if len(inputs) == 0 {
 		return 0, "ready", nil
 	}
-	provider, err := embedding.New(ctx, paths.Root, cfg)
-	if err != nil {
-		return 0, embeddingDiagnostic(ctx, value, runID, diagnostics, "provider", err), nil
+	owned := provider == nil
+	if owned {
+		provider, err = embedding.New(ctx, paths.Root, cfg)
+		if err != nil {
+			return 0, embeddingDiagnostic(ctx, value, runID, diagnostics, "provider", err), nil
+		}
 	}
 	closed := false
 	defer func() {
-		if !closed {
+		if owned && !closed {
 			_ = provider.Close()
 		}
 	}()
 	embedded := 0
+	batches := 0
+	status := "ready"
 	for {
 		request := make([]embedding.Input, len(inputs))
 		byID := make(map[string]store.EmbeddingInput, len(inputs))
 		for i, input := range inputs {
 			id := strconv.FormatInt(input.ID, 10)
-			request[i] = embedding.Input{ID: id, Text: input.Text}
+			request[i] = embedding.Input{
+				ID: id, Text: embedding.DocumentText(cfg, input.Text),
+			}
 			byID[id] = input
 		}
 		response, err := provider.Embed(ctx, request)
@@ -439,24 +621,37 @@ func embedRecords(
 			err := fmt.Errorf("provider omitted %d records", len(byID))
 			return embedded, embeddingDiagnostic(ctx, value, runID, diagnostics, "response", err), nil
 		}
-		if err := value.UpsertEmbeddings(ctx, fingerprint, cfg.Dimensions, values); err != nil {
+		upserted, err := value.UpsertEmbeddings(ctx, fingerprint, cfg.Dimensions, values)
+		if err != nil {
 			return embedded, "", err
 		}
-		embedded += len(values)
-		inputs, err = value.MissingEmbeddingInputs(ctx, fingerprint, cfg.BatchSize)
+		embedded += upserted
+		batches++
+		state.Embedded += upserted
+		report(Progress{
+			Phase: "embedding", Completed: state.Embedded, Total: state.Records,
+			Embedded: embedded, EmbeddingModel: cfg.Model,
+		})
+		inputs, err = value.MissingEmbeddingInputsByPriority(ctx, fingerprint, cfg.BatchSize, priority)
 		if err != nil {
 			return embedded, "", err
 		}
 		if len(inputs) == 0 {
 			break
 		}
+		if maxBatches > 0 && batches >= maxBatches {
+			status = "partial"
+			break
+		}
 	}
-	if err := provider.Close(); err != nil {
+	if owned {
+		if err := provider.Close(); err != nil {
+			closed = true
+			return embedded, embeddingDiagnostic(ctx, value, runID, diagnostics, "close", err), nil
+		}
 		closed = true
-		return embedded, embeddingDiagnostic(ctx, value, runID, diagnostics, "close", err), nil
 	}
-	closed = true
-	return embedded, "ready", nil
+	return embedded, status, nil
 }
 
 func embeddingDiagnostic(
