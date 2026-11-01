@@ -20,6 +20,7 @@ const laneRRFK = 60.0
 const familyRRFK = 10.0
 const maxPathTerms = 6
 const maxStructuredAnchors = 4
+const maxEvidencePrefilterTerms = 8
 const maxMorePaths = 20
 const extractorLaneWeight = 0.5
 const graphFamilyWeight = 0.20
@@ -781,23 +782,68 @@ func locateEvidence(text, query string) citationEvidence {
 	}
 	lines := strings.Split(text, "\n")
 	groups := evidenceTermGroups(query)
-	lineTerms := make([]map[string]bool, len(lines))
-	for index, line := range lines {
-		lineTerms[index] = make(map[string]bool)
-		for _, term := range evidenceTerms(line) {
-			lineTerms[index][term] = true
+	if len(groups) == 0 {
+		return citationEvidence{line: -1}
+	}
+	wanted := make(map[string]bool)
+	for _, group := range groups {
+		for _, term := range group {
+			wanted[term] = true
 		}
 	}
+	// Only the current five-line window can affect this citation. Fill its
+	// ring lazily and reuse maps rather than retaining every source word.
+	var lineTerms [5]map[string]bool
+	seenTokens := make(map[string]bool)
+	filled := 0
 	best := citationEvidence{line: -1}
 	for line := range lines {
 		start := max(0, line-2)
 		end := min(len(lines), line+3)
+		for filled < end {
+			slot := filled % len(lineTerms)
+			clear(lineTerms[slot])
+			clear(seenTokens)
+			add := func(term string) {
+				if !wanted[term] {
+					return
+				}
+				if lineTerms[slot] == nil {
+					lineTerms[slot] = make(map[string]bool)
+				}
+				lineTerms[slot][term] = true
+			}
+			for token := range strings.FieldsFuncSeq(lines[filled], func(r rune) bool {
+				return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+			}) {
+				lower := strings.ToLower(token)
+				if seenTokens[lower] {
+					continue
+				}
+				seenTokens[lower] = true
+				add(lower)
+				// A case-delimited component must occur inside the folded full
+				// token. Bound this prefilter to short queries; longer queries
+				// use the regular tokenizer without a term-by-token product.
+				if len(wanted) > maxEvidencePrefilterTerms {
+					visitEvidenceTokenParts(token, add)
+				} else {
+					for term := range wanted {
+						if len(term) < len(lower) && strings.Contains(lower, term) {
+							visitEvidenceTokenParts(token, add)
+							break
+						}
+					}
+				}
+			}
+			filled++
+		}
 		matched := 0
 		for _, group := range groups {
 			found := false
 			for _, term := range group {
-				for _, candidate := range lineTerms[start:end] {
-					if candidate[term] {
+				for candidate := start; candidate < end; candidate++ {
+					if lineTerms[candidate%len(lineTerms)][term] {
 						found = true
 						break
 					}
@@ -812,6 +858,9 @@ func locateEvidence(text, query string) citationEvidence {
 		}
 		if matched > best.terms {
 			best = citationEvidence{terms: matched, line: line}
+			if matched == len(groups) {
+				return best
+			}
 		}
 	}
 	return best
@@ -832,21 +881,6 @@ func literalEvidenceLine(text, query string) int {
 	return -1
 }
 
-func evidenceTerms(value string) []string {
-	seen := make(map[string]bool)
-	var result []string
-	for _, group := range evidenceTermGroups(value) {
-		for _, term := range group {
-			if seen[term] {
-				continue
-			}
-			seen[term] = true
-			result = append(result, term)
-		}
-	}
-	return result
-}
-
 func evidenceTermGroups(value string) [][]string {
 	seen := make(map[string]bool)
 	var result [][]string
@@ -862,17 +896,28 @@ func evidenceTermGroups(value string) [][]string {
 }
 
 func tokenEvidenceTerms(token string) []string {
-	seen := make(map[string]bool)
-	var result []string
-	add := func(term string) {
-		term = strings.ToLower(term)
-		if term == "" || seen[term] {
-			return
-		}
-		seen[term] = true
-		result = append(result, term)
+	if token == "" {
+		return nil
 	}
-	add(token)
+	lower := strings.ToLower(token)
+	seen := map[string]bool{lower: true}
+	result := []string{lower}
+	visitEvidenceTokenParts(token, func(term string) {
+		if !seen[term] {
+			seen[term] = true
+			result = append(result, term)
+		}
+	})
+	return result
+}
+
+// visitEvidenceTokenParts emits case-delimited components in addition to the
+// full token handled by the caller. Source lines need not allocate a set of
+// unrelated words, while query groups can still deduplicate their aliases.
+func visitEvidenceTokenParts(token string, visit func(string)) {
+	if !strings.ContainsFunc(token, unicode.IsUpper) {
+		return
+	}
 	runes := []rune(token)
 	start := 0
 	for index := 1; index < len(runes); index++ {
@@ -882,11 +927,12 @@ func tokenEvidenceTerms(token string) []string {
 		if !boundary {
 			continue
 		}
-		add(string(runes[start:index]))
+		visit(strings.ToLower(string(runes[start:index])))
 		start = index
 	}
-	add(string(runes[start:]))
-	return result
+	if start > 0 {
+		visit(strings.ToLower(string(runes[start:])))
+	}
 }
 
 func localizedCitation(
