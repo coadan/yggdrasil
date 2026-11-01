@@ -83,3 +83,36 @@ retained beside the Workbench task under
 maintenance are diagnostic only. The working-tree probes are small and
 hand-selected, lack held-out agent tasks, and do not establish fairness against
 ripgrep, agent completion rate, token savings, or a broad ranking improvement.
+
+## Matched follow-up and fallback bounds
+
+A frozen clone at `e15dd88f` was evaluated with the same four local Yggdrasil
+questions, two installed models, and separate complete indexes. Reducing
+chunks from 160 lines / 8 KiB to 80 lines / 3,000 bytes did not improve Qwen's
+1/4 top-ten hit count. It improved MiniLM from 1/4 to 3/4, but reduced public
+lexical replay recall from 0.830 to 0.810. A 40-line / 2,000-byte candidate
+retained only 1/4 top-ten hits with either model. SQLite Porter stemming alone
+also reduced public replay recall to 0.810 and MRR from 0.790 to 0.769. These
+candidates were discarded; chunk sizing, tokenization, and vector fingerprints
+are unchanged.
+
+The live fallback previously retained every matching file's complete text
+before sorting. It now retains at most the requested result limit plus twenty
+additional candidates, each with an independent bounded citation. It also
+compiles a regexp once per search and rejects out-of-range result limits.
+On a generated 1,000-file corpus, peak process RSS fell from 568,492,032 to
+13,516,800 bytes. Returned records and overflow paths had an identical SHA-256
+hash. Runtime was 5.923 versus 6.337 seconds in that single run; this establishes
+a memory gain, not a latency gain. Nine further text, fixed, regexp, multiline,
+scoped, Unicode, and limit-boundary probes on frozen source retained identical
+result hashes. Regression tests cover late better matches and cited line
+ranges, overflow order, invalid limits, and cancellation on an empty repository.
+
+Repository discovery now propagates the caller's context through Git file
+listing, filesystem walking, and metadata inspection. Canceled Git discovery
+returns the context error rather than starting a second filesystem scan. A
+stalled-Git regression verifies cancellation before the process's normal exit.
+
+Raw matched model, replay, memory, and parity evidence is retained under
+`.workbench/tasks/retrieval-granularity/evidence/`. These robustness changes do
+not establish an improvement in intent ranking or agent task completion.
