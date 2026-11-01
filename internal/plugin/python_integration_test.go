@@ -23,9 +23,11 @@ func TestPythonReferenceAdapterProtocol(t *testing.T) {
 		Kind:      "py",
 		Content:   "from .models import Panel\n\nclass PanelService:\n    def load_panel(self):\n        return Panel()\n",
 	}
+	// Use the normal provider budget: this checks the protocol rather than
+	// startup latency while other packages initialize concurrently.
 	result, err := Check(context.Background(), t.TempDir(), config.Plugin{
 		ID: "python", Version: "1", Command: []string{command},
-		IncludeGlobs: []string{"**/*.py"}, TimeoutMS: 2_000,
+		IncludeGlobs: []string{"**/*.py"}, TimeoutMS: config.DefaultTimeoutMS,
 	}, &file)
 	if err != nil {
 		t.Fatal(err)
