@@ -197,3 +197,39 @@ close, and rejecting mutations promptly instead of waiting for the connection
 held by the read transaction. Hosts should close snapshots promptly so SQLite
 can reclaim retained WAL history. This is a consistency fix, with no intended
 ranking or persisted-schema change.
+
+## Qwen coverage and provider-rejected inputs
+
+Qwen 0.6b through Ollama 0.32.5 deterministically failed three dense SVG inputs
+in Mimir with HTTP 400 at 3,000 characters and above, while the same text
+succeeded at 2,000. A character limit cannot bound provider tokens, and one such
+input stopped embedding for the whole repository. On HTTP 400 or 413, the HTTP
+provider now splits a batch, then halves a single input down to a 256-character
+floor. Other failures do not shorten input.
+
+Run alone from fresh state, the prior binary stopped Mimir at 95 of 709 records
+and the fixed binary completed all 709. Fleet moved from 1,772 of 2,232 records
+to complete. A shortened record's vector represents only its accepted prefix.
+Concurrent clients of one Ollama runner can still fail: a crash on one request
+returned HTTP 400 to another run, which can also shorten a healthy input. Do not
+run parallel embedding jobs against one local runner.
+
+Complete coverage allowed the first matched Qwen comparison, with one search
+iteration on nine `claim-quick` cases (the 24,094-record OpenTelemetry case
+excluded), the four Breyta `dogfood-replay` cases, and the six Breyta
+`retrieval-ablation` cases:
+
+| Evaluation | Lexical | MiniLM | Qwen 0.6b |
+| --- | ---: | ---: | ---: |
+| `claim-quick`: recall@10 / MRR | 0.833 / 0.766 | 0.963 / 0.833 | 0.889 / 0.815 |
+| `dogfood-replay`: recall@10 / MRR | 0.500 / 0.625 | 0.500 / 0.766 | 0.583 / 0.667 |
+| `retrieval-ablation`: recall@10 / MRR | 0.556 / 0.472 | 0.722 / 0.639 | 0.722 / 0.528 |
+| Local probes: hits@10 / MRR@10 | 6/10 / 0.387 | 7/10 / 0.316 | 7/10 / 0.312 |
+
+Both models improved these replays over lexical search. On the local probes they
+found one more file but lowered MRR by moving some first-rank results down.
+MiniLM matched or beat Qwen 0.6b except on `dogfood-replay` recall, while
+embedding far faster. Halving the semantic weight lowered Qwen probe MRR to 0.290;
+its Qwen replays did not complete, so they are not compared. These reused,
+small suites are diagnostic, and neither the void cases nor Qwen 4b were
+measured. Raw reports are under `.workbench/tasks/embedding-input-recovery/evidence/`.
