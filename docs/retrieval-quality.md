@@ -42,6 +42,31 @@ A smaller-chunk experiment was discarded because incomplete embeddings and
 provider crashes prevented a valid comparison. No ranking constants, semantic
 word lists, or model defaults were changed based on this small sample.
 
+## Identifier component experiment
+
+SQLite's `unicode61` tokenizer keeps `pushCommand` as one token, so a plain
+`push` query cannot match it. An experiment indexed case-delimited identifier
+components in a separate FTS column, then compared lexical search against the
+baseline on the same sources with one search iteration. It was rejected:
+
+| Suite | Metric | Baseline | Candidate |
+| --- | --- | --- | --- |
+| Local probes | Hits in first 10 | 6/10 | 6/10 |
+| Local probes | MRR@10 | 0.387 | 0.387 |
+| `claim-quick` | File recall@10 | 0.830 | 0.810 |
+| `claim-quick` | MRR | 0.790 | 0.789 |
+| `dogfood-replay` | File recall@10 | 0.292 | 0.333 |
+| `dogfood-replay` | MRR | 0.438 | 0.438 |
+| `retrieval-ablation` | File recall@10 | 0.396 | 0.396 |
+| `retrieval-ablation` | MRR | 0.240 | 0.249 |
+
+Two probes moved down: busy-index from rank 14 to 17, and version-reporting
+from rank 30 to outside the returned paths. The local index grew from 22 MB to
+26 MB. Gains and losses were each confined to a few cases, so this is no
+evidence of a broad improvement, and other weightings were not tried.
+`breyta-session-replay` was not run because its checkouts were unavailable. The
+patch and reports are under `.workbench/tasks/identifier-terms/evidence/`.
+
 ## Reproduction and limits
 
 `tools/retrieval-quality.py` accepts an external JSON suite of objects with
