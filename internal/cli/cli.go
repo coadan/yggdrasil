@@ -34,7 +34,7 @@ const usage = `Usage:
   ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH]
 `
 
-var Version = "0.3.0-dev"
+var Version = "devel"
 
 const searchIndexWait = 30 * time.Second
 

@@ -18,3 +18,15 @@ queue, or hidden background loop.
 
 After each bounded slice, run `go test ./...`, `go vet ./...`, and
 `gofmt -l .`, then commit the slice.
+
+## Repository search
+
+When `ygg` is installed, use `ygg search --root <checkout> "<query>"` for
+bounded repository search. Search initializes and refreshes its own index;
+normal use does not require `ygg index`. Read `data.records` for cited results
+and `data.morePaths` for additional candidate files. Verify relevant source
+lines before editing. Use `rg` for exact text and file-name searches or when
+Yggdrasil is unavailable. Use `bin/ygg` after `make build` to test this checkout.
+
+This guidance applies to agents reading this repository. Global agent
+configuration and installed plugins are managed separately.

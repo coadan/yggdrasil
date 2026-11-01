@@ -1,11 +1,11 @@
 .PHONY: build check test test-jvm-dotnet test-clojure benchmark-check benchmark-quick benchmark-release benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-breyta-session-check benchmark-breyta-session benchmark-breyta-clojure benchmark-python benchmark-jvm-dotnet benchmark-terraform benchmark-semantic-lexical benchmark-semantic-openrouter benchmark-semantic-local-command benchmark-semantic-ollama benchmark-semantic-qwen release clean
 
-VERSION ?= 0.3.0-dev
+VERSION ?= devel
 RELEASE_LDFLAGS = -s -w -X github.com/coadan/yggdrasil/internal/cli.Version=$(VERSION)
 
 build:
 	mkdir -p bin
-	go build -buildvcs=false -trimpath -o bin/ygg ./cmd/ygg
+	go build -buildvcs=false -trimpath -ldflags="$(RELEASE_LDFLAGS)" -o bin/ygg ./cmd/ygg
 	go build -buildvcs=false -trimpath -o bin/yggbench ./cmd/yggbench
 	cd plugins/markdown && go build -buildvcs=false -trimpath -o ../../bin/ygg-extract-markdown .
 	cd plugins/go && go build -buildvcs=false -trimpath -o ../../bin/ygg-extract-go .

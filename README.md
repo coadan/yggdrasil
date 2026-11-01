@@ -20,7 +20,7 @@ setup or refresh step.
 ## Project status
 
 Yggdrasil is in active early development. The latest search-only release is
-[`v0.2.0`](https://github.com/coadan/yggdrasil/releases/tag/v0.2.0), with
+[`v0.3.0`](https://github.com/coadan/yggdrasil/releases/tag/v0.3.0), with
 CGO-free binaries for macOS and Linux on arm64 and amd64. Data shapes and
 commands may still change without compatibility layers while the focused
 search workflow settles.
@@ -54,8 +54,13 @@ it is not migrated or loaded by the Go CLI.
 Install from source with Go 1.25 or newer:
 
 ```sh
-go install github.com/coadan/yggdrasil/cmd/ygg@v0.2.0
+go install github.com/coadan/yggdrasil/cmd/ygg@v0.3.0
 ```
+
+The published release can lag development on `main`. For current checkout
+behavior, run `make build` and use `bin/ygg`; unversioned builds report `devel`.
+See [repository maintenance](docs/repository-maintenance.md) for branch and
+release reconciliation status.
 
 Or download a matching binary and `SHA256SUMS` from the
 [latest release](https://github.com/coadan/yggdrasil/releases/latest).
