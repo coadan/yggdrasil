@@ -152,3 +152,48 @@ package initialization. Production timeouts and dedicated timeout tests are
 unchanged. Raw profiles, timing repetitions, benchmark output, baseline-overlay
 checks and replay comparisons are under
 `.workbench/tasks/evidence-cpu/evidence/`.
+
+## Independent semantic windows and fusion weight
+
+A separately run experiment at `56c84668` preserved the lexical representation
+while adding smaller semantic-only windows (80 lines / 3,000 bytes). Its retained
+reports were inspected and copied with SHA-256 provenance into
+`.workbench/tasks/snapshot-consistency/evidence/semantic-experiments/`, alongside
+the rejected patches. The following MiniLM auto-mode comparisons all report
+complete vector coverage:
+
+| Evaluation | Baseline | Smaller semantic windows | Semantic weight 0.5 |
+| --- | ---: | ---: | ---: |
+| Local probes: hits@10 | 7/10 | 7/10 | 7/10 |
+| Local probes: MRR@10 | 0.316 | 0.339 | 0.282 |
+| Public replay: recall@10 / MRR | 0.947 / 0.850 | 0.927 / 0.833 | 0.980 / 0.848 |
+| Private replay: recall@10 / MRR | 0.292 / 0.404 | 0.333 / 0.353 | 0.292 / 0.444 |
+| Balanced ablation: recall@10 / MRR | 0.583 / 0.378 | 0.438 / 0.256 | 0.521 / 0.343 |
+
+Neither candidate was retained. Smaller windows nearly doubled the number of
+vectors in the public replay, regressed the broader ablation, and left the
+original secrets and busy-index probes outside the top ten. The lower semantic
+weight also produced mixed results. These repeatedly inspected, small suites
+are diagnostic rather than held-out validation. Local self-search can retrieve
+existing evaluation prose; it does not establish performance on unseen intent
+questions. Qwen reports with different case coverage or incomplete local vector
+coverage are retained as diagnostics and are not a matched model comparison.
+The configured model and ranking weights remain unchanged.
+
+## Stable snapshots during refresh
+
+A public-library regression showed that an already-open read-only snapshot
+returned newly committed text after a concurrent refresh. Read-only connections
+previously ran separate SQLite statements without a shared read transaction.
+Readiness checks and candidate lanes could therefore observe different index
+generations during one search.
+
+Request-local snapshots now keep their reads in one transaction, released by
+Close or caller-context cancellation. Tests verify that an old snapshot keeps
+its original text and embedding model, dimensions, and vectors while a new
+snapshot sees the replacement. Writers continue committing in WAL mode while
+the old snapshot remains open. Additional checks cover cancellation, repeated
+close, and rejecting mutations promptly instead of waiting for the connection
+held by the read transaction. Hosts should close snapshots promptly so SQLite
+can reclaim retained WAL history. This is a consistency fix, with no intended
+ranking or persisted-schema change.

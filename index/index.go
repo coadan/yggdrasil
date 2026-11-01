@@ -163,6 +163,8 @@ func (s *Snapshot) Close() error { return s.close() }
 
 // OpenSnapshot returns one current read-only index view. It never starts or
 // waits for refresh; missing or stale indexes are explicit fallback signals.
+// The view remains stable until Close or ctx cancellation. Keep ctx alive while
+// using the snapshot and close it promptly to release its retained WAL history.
 func (r *Repository) OpenSnapshot(ctx context.Context) (*Snapshot, error) {
 	if _, err := os.Stat(r.paths.Database); errors.Is(err, os.ErrNotExist) {
 		return nil, ErrUnavailable
