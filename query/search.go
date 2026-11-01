@@ -784,58 +784,61 @@ func locateEvidence(text, query string) citationEvidence {
 	if len(groups) == 0 {
 		return citationEvidence{line: -1}
 	}
-	wanted := make(map[string]bool)
-	for _, group := range groups {
+	type termState struct {
+		groups   []int
+		lines    int
+		lastLine int
+	}
+	wanted := make(map[string]*termState)
+	for groupID, group := range groups {
 		for _, term := range group {
-			wanted[term] = true
+			state := wanted[term]
+			if state == nil {
+				state = &termState{}
+				wanted[term] = state
+			}
+			state.groups = append(state.groups, groupID)
 		}
 	}
-	// Only the current five-line window can affect this citation. Reuse its
-	// maps and stream lines so neither source words nor line headers accumulate.
-	var lineTerms [5]map[string]bool
+	// Count groups through active terms in the five-line window. Repeated
+	// evidence does not rescan every query group at every source position.
+	var lineTerms [5][]*termState
+	groupTerms := make([]int, len(groups))
+	activeGroups := 0
 	seenTokens := make(map[string]bool)
 	best := citationEvidence{line: -1}
-	scoreWindow := func(center, end int) bool {
-		start := max(0, center-2)
-		matched := 0
-		for _, group := range groups {
-			found := false
-			for _, term := range group {
-				for candidate := start; candidate < end; candidate++ {
-					if lineTerms[candidate%len(lineTerms)][term] {
-						found = true
-						break
-					}
-				}
-				if found {
-					break
-				}
-			}
-			if found {
-				matched++
-			}
-		}
-		if matched > best.terms {
-			best = citationEvidence{terms: matched, line: center}
-			if matched == len(groups) {
-				return true
-			}
-		}
-		return false
-	}
 	count := 0
 	for sourceLine := range strings.SplitSeq(text, "\n") {
 		slot := count % len(lineTerms)
-		clear(lineTerms[slot])
+		for _, state := range lineTerms[slot] {
+			state.lines--
+			if state.lines == 0 {
+				for _, groupID := range state.groups {
+					groupTerms[groupID]--
+					if groupTerms[groupID] == 0 {
+						activeGroups--
+					}
+				}
+			}
+		}
+		lineTerms[slot] = lineTerms[slot][:0]
 		clear(seenTokens)
 		add := func(term string) {
-			if !wanted[term] {
+			state := wanted[term]
+			if state == nil || state.lastLine == count+1 {
 				return
 			}
-			if lineTerms[slot] == nil {
-				lineTerms[slot] = make(map[string]bool)
+			state.lastLine = count + 1
+			lineTerms[slot] = append(lineTerms[slot], state)
+			if state.lines == 0 {
+				for _, groupID := range state.groups {
+					if groupTerms[groupID] == 0 {
+						activeGroups++
+					}
+					groupTerms[groupID]++
+				}
 			}
-			lineTerms[slot][term] = true
+			state.lines++
 		}
 		for token := range strings.FieldsFuncSeq(sourceLine, func(r rune) bool {
 			return !unicode.IsLetter(r) && !unicode.IsDigit(r)
@@ -859,17 +862,20 @@ func locateEvidence(text, query string) citationEvidence {
 					}
 				}
 			}
+			if activeGroups == len(groups) {
+				return citationEvidence{terms: activeGroups, line: max(0, count-2)}
+			}
 		}
 		count++
-		if count >= 3 && scoreWindow(count-3, count) {
-			return best
+		if count >= 3 && activeGroups > best.terms {
+			best = citationEvidence{terms: activeGroups, line: count - 3}
 		}
 	}
-	for center := max(0, count-2); center < count; center++ {
-		if scoreWindow(center, count) {
-			return best
-		}
+	if count < 3 && activeGroups > 0 {
+		best = citationEvidence{terms: activeGroups, line: 0}
 	}
+	// The final two windows only remove lines; neither can improve the
+	// maximum score or its earliest occurrence.
 	return best
 }
 

@@ -1,6 +1,7 @@
 package query
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -40,8 +41,14 @@ func TestLocateEvidenceWindowAndTokenSemantics(t *testing.T) {
 var evidenceBenchmarkResult citationEvidence
 
 func BenchmarkLocateEvidence(b *testing.B) {
+	terms := make([]string, 256)
+	for i := range terms {
+		terms[i] = "missing" + strconv.Itoa(i)
+	}
 	cases := []struct{ name, text, query string }{
+		{"long_query", strings.Repeat("padding value\n", 512), strings.Join(terms, " ")},
 		{"blank", strings.Repeat("\n", 512), "missing token"},
+		{"one_line", "fallback marker " + strings.Repeat("padding value ", 512), "fallback marker"},
 		{"plain", "fallback marker\n" + strings.Repeat("padding value for bounded retrieval memory\n", 512), "fallback marker"},
 		{"code", strings.Repeat("const fieldValue = unrelatedState;\n", 512) + "return responseEnvelope;\n", "response envelope"},
 		{"unicode", strings.Repeat("ΚαταγραφήHTTP μνήμη πεδίο\n", 512), "διαδρομή μνήμη"},
