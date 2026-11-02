@@ -1,6 +1,7 @@
-.PHONY: build check test test-jvm-dotnet test-clojure benchmark-check benchmark-quick benchmark-release benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-retrieval-check benchmark-retrieval-minilm benchmark-breyta-session-check benchmark-breyta-session benchmark-breyta-clojure benchmark-python benchmark-jvm-dotnet benchmark-terraform benchmark-semantic-lexical benchmark-semantic-openrouter benchmark-semantic-local-command benchmark-semantic-ollama benchmark-semantic-qwen release clean
+.PHONY: build check test test-jvm-dotnet test-clojure benchmark-check benchmark-quick benchmark-release benchmark-dogfood-check benchmark-dogfood benchmark-dogfood-plugins benchmark-dogfood-manifest benchmark-retrieval-check benchmark-retrieval-minilm benchmark-breyta-session-check benchmark-breyta-session benchmark-breyta-clojure benchmark-python benchmark-jvm-dotnet benchmark-terraform benchmark-semantic-lexical benchmark-semantic-openrouter benchmark-semantic-local-command benchmark-semantic-ollama benchmark-semantic-qwen eval-history eval-history-baseline release clean
 
 VERSION ?= devel
+EVAL_DIR ?= $(HOME)/.local/share/ygg-eval
 RELEASE_LDFLAGS = -s -w -X github.com/coadan/yggdrasil/internal/cli.Version=$(VERSION)
 
 build:
@@ -171,6 +172,12 @@ benchmark-semantic-qwen: build
 		-work .dev/bench/semantic-qwen3-4b \
 		-ygg bin/ygg -mode auto \
 		-out .dev/bench/semantic-qwen3-4b.json
+
+eval-history: build
+	python3 -I tools/retrieval-gate.py --binary bin/ygg --eval-dir "$(EVAL_DIR)"
+
+eval-history-baseline: build
+	python3 -I tools/retrieval-gate.py --binary bin/ygg --eval-dir "$(EVAL_DIR)" --save-baseline
 
 release:
 	mkdir -p dist

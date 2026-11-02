@@ -276,3 +276,25 @@ credit for any touched file, tests included. The suites are diagnostic and do
 not measure agent task completion. Suites, reports, repository revisions and the
 rejected patch are under `.workbench/tasks/history-eval/evidence/`.
 
+### Retrieval gate
+
+`make eval-history` builds the checkout and runs `tools/retrieval-gate.py` over
+every suite directory under `EVAL_DIR` (default `~/.local/share/ygg-eval`). A
+suite directory holds `dev.json` and `holdout.json` from
+`tools/history-suite.py` and a `repos` link to the directory containing its
+repositories. Point the link at clones pinned to the revisions the suite was
+derived from, not at live checkouts: an edited checkout leaves new records
+without vectors, and search does not wait for them. Each suite searches with its
+own storage root, `<suite>/store`, so runs never refresh the user's index;
+semantic search uses the embedding provider from the user configuration. The
+gate writes `run-dev.json` and prints, per suite and mode, hits and MRR@10
+against `baseline-dev.json` with every case whose rank changed. A run with
+errors or less than complete semantic coverage fails instead of being compared,
+and so does a run whose repository revisions or expected-file hashes differ from
+the baseline's. `make eval-history-baseline` records the current build as the
+baseline.
+
+Tune ranking changes against dev only. Compare a candidate that already
+improved dev on the held-out split once, with
+`python3 -I tools/retrieval-gate.py --binary bin/ygg --split holdout` after
+saving a held-out baseline from the base build.
