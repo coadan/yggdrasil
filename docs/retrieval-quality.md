@@ -233,3 +233,46 @@ embedding far faster. Halving the semantic weight lowered Qwen probe MRR to 0.29
 its Qwen replays did not complete, so they are not compared. These reused,
 small suites are diagnostic, and neither the void cases nor Qwen 4b were
 measured. Raw reports are under `.workbench/tasks/embedding-input-recovery/evidence/`.
+
+## History-derived suites
+
+`tools/history-suite.py` derives cases from commit history. Each case pairs a
+commit subject with the files that commit added or modified and that still
+exist as text at HEAD. A case is dropped if its subject appears verbatim in a
+tracked file. The tool takes non-merge commits whose subject has 4 to 30 words
+and that touch at most five files, picks up to a fixed number per repository by
+hash, and splits cases by hash into dev and held-out suites. It inspects no
+names, paths, or prose for meaning.
+
+Two corpora were built on 2026-11-02, with suites and reports outside every
+searched root. The first used 24 of the local repositories. The second used
+nine public repositories at pinned revisions: axios, Flask, Dapper,
+terraform-aws-vpc, supabase/postgres, graphify, gin, ripgrep, and Hono. All
+were measured at complete MiniLM coverage with `tools/retrieval-quality.py`
+(first expected file in the first ten paths):
+
+| Suite | Cases | Lexical hits / MRR@10 | Hybrid hits / MRR@10 |
+| --- | ---: | ---: | ---: |
+| Local dev | 149 | 115 / 0.514 | 116 / 0.554 |
+| Local held-out | 184 | 138 / 0.430 | 142 / 0.484 |
+| Public dev | 172 | 138 / 0.521 | 136 / 0.516 |
+| Public held-out | 188 | 137 / 0.464 | 145 / 0.481 |
+
+Hybrid search improved the local held-out suite, ranking an expected file
+higher in 65 cases and lower in 37. On the public repositories it was roughly
+neutral: slightly worse on dev, and better on held-out. ripgrep regressed in
+both public splits, with MRR falling from 0.69 to 0.48 on dev and from 0.53 to
+0.47 on held-out.
+
+The ten hand-written probes had suggested that hybrid fusion moved correct
+first-rank lexical results down. A candidate chose the head result from
+non-semantic lanes only, leaving lexical mode unchanged. On local dev it ranked
+expected files higher in 3 cases and lower in 21, lowering MRR from 0.554 to
+0.523. On public dev the split was 9 higher and 17 lower. It was rejected
+without using either held-out suite.
+
+Commit subjects are short, describe changes rather than questions, and give
+credit for any touched file, tests included. The suites are diagnostic and do
+not measure agent task completion. Suites, reports, repository revisions and the
+rejected patch are under `.workbench/tasks/history-eval/evidence/`.
+
