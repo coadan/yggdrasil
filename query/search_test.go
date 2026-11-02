@@ -253,7 +253,7 @@ func TestLexicalSearchBoostsExactAndAllTermMatches(t *testing.T) {
 	if result.Records[0].Path != "src/exact.go" {
 		t.Fatalf("first record=%#v", result.Records[0])
 	}
-	if got := strings.Join(result.Records[0].Retrieval, ","); got != "all-terms,exact,lexical" {
+	if got := strings.Join(result.Records[0].Retrieval, ","); got != "all-terms,exact,lexical,stemmed" {
 		t.Fatalf("retrieval=%q", got)
 	}
 	for _, record := range result.Records {

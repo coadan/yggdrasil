@@ -32,6 +32,11 @@ import (
 const schemaVersion = "5"
 const indexFreshnessKey = "index_freshness_token"
 
+// SearchLayout names the derived search tables a writer builds when it opens
+// an index. Freshness tokens include it, so a snapshot written before a layout
+// change reads as stale until a refresh has built the current tables.
+const SearchLayout = "search-layout:stemmed-fts-1"
+
 type Store struct {
 	db     *sql.DB
 	readTx *sql.Tx
@@ -379,6 +384,12 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 			content_rowid='id',
 			tokenize='unicode61'
 		)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS stemmed_fts USING fts5(
+			path, title, text,
+			content='records',
+			content_rowid='id',
+			tokenize='porter unicode61'
+		)`,
 		`CREATE VIRTUAL TABLE IF NOT EXISTS extractor_fts USING fts5(
 			path, title, text,
 			content='records',
@@ -406,6 +417,26 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		`CREATE TRIGGER IF NOT EXISTS records_au_insert AFTER UPDATE ON records
 		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO record_fts(rowid, path, title, text)
+			VALUES (new.id, new.path, new.title, new.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_stemmed_ai AFTER INSERT ON records
+		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO stemmed_fts(rowid, path, title, text)
+			VALUES (new.id, new.path, new.title, new.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_stemmed_ad AFTER DELETE ON records
+		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO stemmed_fts(stemmed_fts, rowid, path, title, text)
+			VALUES ('delete', old.id, old.path, old.title, old.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_stemmed_au_delete AFTER UPDATE ON records
+		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO stemmed_fts(stemmed_fts, rowid, path, title, text)
+			VALUES ('delete', old.id, old.path, old.title, old.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_stemmed_au_insert AFTER UPDATE ON records
+		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO stemmed_fts(rowid, path, title, text)
 			VALUES (new.id, new.path, new.title, new.text);
 		END`,
 		`CREATE TRIGGER IF NOT EXISTS records_extractor_ai AFTER INSERT ON records
@@ -512,6 +543,28 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		return err
 	case extractorFTSVersion != "2":
 		return fmt.Errorf("unsupported extractor index version %s", extractorFTSVersion)
+	}
+	var stemmedFTSVersion string
+	err = s.queryRowContext(
+		ctx, `SELECT value FROM meta WHERE key='stemmed_fts_version'`,
+	).Scan(&stemmedFTSVersion)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		if _, err := s.execContext(ctx, `
+			INSERT INTO stemmed_fts(rowid,path,title,text)
+			SELECT id,path,title,text FROM records
+			WHERE coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`); err != nil {
+			return fmt.Errorf("build stemmed index: %w", err)
+		}
+		if _, err := s.execContext(
+			ctx, `INSERT INTO meta(key,value) VALUES('stemmed_fts_version','1')`,
+		); err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	case stemmedFTSVersion != "1":
+		return fmt.Errorf("unsupported stemmed index version %s", stemmedFTSVersion)
 	}
 	var storedID, storedRoot string
 	err = s.queryRowContext(ctx, `SELECT root_id, root FROM repository WHERE id=1`).Scan(&storedID, &storedRoot)
@@ -1404,6 +1457,28 @@ func (s *Store) LexicalRecords(
 		return nil, err
 	}
 	return scanRecords(rows)
+}
+
+// StemmedCandidates matches porter-stemmed tokens, so inflected forms of a
+// query term reach the same records.
+func (s *Store) StemmedCandidates(
+	ctx context.Context,
+	query, scope string,
+	limit int,
+) ([]Record, error) {
+	return uniquePathCandidates(limit, func(recordLimit int) ([]Record, error) {
+		rows, err := s.queryContext(ctx, `
+			SELECT r.id,r.input_hash,r.path,r.start_line,r.end_line,r.kind,r.title,r.text,r.metadata_json,r.source
+			FROM stemmed_fts
+			JOIN records r ON r.id=stemmed_fts.rowid
+			WHERE stemmed_fts MATCH ? AND `+lexicalRecordPredicate+` AND `+recordScopePredicate+`
+			ORDER BY bm25(stemmed_fts,8.0,4.0,1.0),r.path,r.start_line,r.id
+			LIMIT ?`, query, scope, scope, scope, scope, recordLimit)
+		if err != nil {
+			return nil, err
+		}
+		return scanRecords(rows)
+	})
 }
 
 func (s *Store) ExtractorCandidates(

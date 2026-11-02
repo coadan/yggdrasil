@@ -151,6 +151,12 @@ func Run(ctx context.Context, value Reader, query string, opts Options) (Result,
 			if err != nil {
 				return Result{}, fmt.Errorf("lexical search: %w", err)
 			}
+			stemmed, err := value.StemmedCandidates(
+				ctx, ftsAnyQuery(terms), opts.Scope, candidateLimit,
+			)
+			if err != nil {
+				return Result{}, fmt.Errorf("stemmed lexical search: %w", err)
+			}
 			paths, err := value.PathCandidates(
 				ctx, pathTerms(query), opts.Scope, candidateLimit,
 			)
@@ -159,6 +165,7 @@ func Run(ctx context.Context, value Reader, query string, opts Options) (Result,
 			}
 			lanes = append(lanes,
 				lane{name: "lexical", records: fts},
+				lane{name: "stemmed", records: stemmed},
 				lane{name: "path", records: paths},
 			)
 			if opts.HasExtractors {

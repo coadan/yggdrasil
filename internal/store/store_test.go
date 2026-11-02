@@ -606,6 +606,7 @@ func TestLexicalCandidatesRespectExplicitRecordOptOut(t *testing.T) {
 	}
 	queries := []func() ([]Record, error){
 		func() ([]Record, error) { return value.LexicalCandidates(ctx, "needle", "", 10) },
+		func() ([]Record, error) { return value.StemmedCandidates(ctx, "needle", "", 10) },
 		func() ([]Record, error) { return value.LiteralCandidates(ctx, "needle", "needle", "", 10) },
 		func() ([]Record, error) { return value.ExtractorCandidates(ctx, "needle", "", 10) },
 	}
@@ -614,6 +615,63 @@ func TestLexicalCandidatesRespectExplicitRecordOptOut(t *testing.T) {
 		if err != nil || len(records) != 1 || records[0].Path != "visible.go" {
 			t.Fatalf("records=%#v err=%v", records, err)
 		}
+	}
+}
+
+func TestStemmedCandidatesMatchInflectionsAndBuildOnOpen(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "search.sqlite3")
+	value, err := Open(ctx, path, "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := discovery.File{Candidate: discovery.Candidate{Path: "client.go", Size: 5, MTimeNS: 1}, Kind: "go"}
+	replace := func(value *Store, text string) {
+		t.Helper()
+		if err := value.ReplaceFile(ctx, "run", file, text, "fingerprint", []contracts.SearchRecord{{
+			Path: file.Path, StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: text, Source: "core",
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	count := func(value *Store, lookup func(context.Context, string, string, int) ([]Record, error)) int {
+		t.Helper()
+		records, err := lookup(ctx, "retried", "", 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(records)
+	}
+	replace(value, "the client retries failed requests")
+	if got := count(value, value.LexicalCandidates); got != 0 {
+		t.Fatalf("unstemmed matches=%d", got)
+	}
+	if got := count(value, value.StemmedCandidates); got != 1 {
+		t.Fatalf("stemmed matches=%d", got)
+	}
+	for _, statement := range []string{
+		`DROP TRIGGER records_stemmed_ai`, `DROP TRIGGER records_stemmed_ad`,
+		`DROP TRIGGER records_stemmed_au_delete`, `DROP TRIGGER records_stemmed_au_insert`,
+		`DROP TABLE stemmed_fts`, `DELETE FROM meta WHERE key='stemmed_fts_version'`,
+	} {
+		if _, err := value.db.ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := value.Close(); err != nil {
+		t.Fatal(err)
+	}
+	value, err = Open(ctx, path, "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	if got := count(value, value.StemmedCandidates); got != 1 {
+		t.Fatalf("rebuilt stemmed matches=%d", got)
+	}
+	replace(value, "unrelated text")
+	if got := count(value, value.StemmedCandidates); got != 0 {
+		t.Fatalf("stale stemmed matches=%d", got)
 	}
 }
 

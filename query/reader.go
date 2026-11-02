@@ -16,6 +16,7 @@ type EmbeddingState = model.EmbeddingState
 type Reader interface {
 	LiteralCandidates(context.Context, string, string, string, int) ([]Candidate, error)
 	LexicalCandidates(context.Context, string, string, int) ([]Candidate, error)
+	StemmedCandidates(context.Context, string, string, int) ([]Candidate, error)
 	LexicalRecords(context.Context, string, string) ([]Candidate, error)
 	PathCandidates(context.Context, []string, string, int) ([]Candidate, error)
 	ExtractorCandidates(context.Context, string, string, int) ([]Candidate, error)

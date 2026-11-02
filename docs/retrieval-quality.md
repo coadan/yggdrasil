@@ -298,3 +298,40 @@ Tune ranking changes against dev only. Compare a candidate that already
 improved dev on the held-out split once, with
 `python3 -I tools/retrieval-gate.py --binary bin/ygg --split holdout` after
 saving a held-out baseline from the base build.
+
+## Stemmed lexical lane
+
+The unicode61 tokenizer matches only identical tokens, so `retried` misses
+`retries`. Three variants were measured with the retrieval gate on the dev
+suites, all against the same stores:
+
+| Variant | Local lexical | Local hybrid | Public lexical | Public hybrid |
+| --- | ---: | ---: | ---: | ---: |
+| Baseline MRR@10 | 0.514 | 0.554 | 0.521 | 0.516 |
+| Porter tokenizer for every lexical lane | 0.559 | 0.582 | 0.515 | 0.517 |
+| Stemmed lane replaces the any-term lane | 0.511 | 0.566 | 0.529 | 0.517 |
+| Stemmed lane added to the lexical family | 0.555 | 0.557 | 0.541 | 0.522 |
+
+Only the added lane improved both corpora in lexical mode, ranking expected
+files higher in 39 local and 41 public cases and lower in 11 and 13. It was then
+compared once on the held-out suites:
+
+| Held-out suite | Mode | Hits@10 | MRR@10 | Higher / lower |
+| --- | --- | ---: | ---: | ---: |
+| Local | Lexical | 138 → 146 of 184 | 0.430 → 0.479 | 62 / 20 |
+| Local | Hybrid | 142 → 152 of 184 | 0.484 → 0.509 | 39 / 23 |
+| Public | Lexical | 137 → 149 of 188 | 0.464 → 0.510 | 54 / 14 |
+| Public | Hybrid | 145 → 148 of 188 | 0.481 → 0.511 | 42 / 13 |
+
+The stemmed table is a second external-content FTS5 index over the same lexical
+records, maintained by triggers and built when a writer opens an index that
+lacks it. The freshness token includes the search layout, so search treats an
+older index as stale instead of querying a missing table. The added table grew
+the evaluation indexes, vectors included, by 18.5% locally (638 to 756 MiB) and
+18.2% for the public repositories (101 to 119 MiB).
+
+On `claim-quick` in lexical mode, MRR stayed at 0.79 and file recall@10 fell
+from 0.83 to 0.79: in one five-file case two secondary files moved from ranks 7
+and 8 to 22 and 25 while its first result was unchanged. Full-index p50 rose
+from 237 to 309 ms and search p50 from 83 to 101 ms, measured while another
+experiment was using the machine.

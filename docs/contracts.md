@@ -233,6 +233,10 @@ Broad queries containing a mixed-case identifier or two or more other structured
 anchors also retain bounded per-anchor lexical lanes. This keeps an exact symbol
 represented among surrounding conceptual terms without treating one natural
 hyphenated phrase as code.
+Plain text queries also search a Porter-stemmed copy of the lexical index as a
+separate lane in the lexical family, so `retried` reaches `retries` while the
+exact-token lanes keep their own ranks. An index written before the stemmed
+table existed reads as stale until a refresh builds that table.
 Retrieval lane candidate limits count distinct file paths, not records, so a
 file with many chunks cannot consume another file's candidate slot. Each lane
 retains its highest-ranked record for the path as citation evidence.

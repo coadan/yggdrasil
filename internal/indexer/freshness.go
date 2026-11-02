@@ -15,6 +15,7 @@ import (
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/discovery"
 	"github.com/coadan/yggdrasil/internal/embedding"
+	"github.com/coadan/yggdrasil/internal/store"
 )
 
 // FreshnessToken identifies the mechanically observable repository and
@@ -46,6 +47,7 @@ func freshnessToken(
 	extractionFingerprint string,
 ) (string, error) {
 	digest := sha256.New()
+	fmt.Fprintln(digest, store.SearchLayout)
 	fmt.Fprintln(digest, extractionFingerprint)
 	if cfg.Embedding == nil {
 		fmt.Fprintln(digest, "embedding:none")
