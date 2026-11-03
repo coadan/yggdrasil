@@ -8,6 +8,7 @@ const (
 	ConfigSchema        = "ygg.config/v1"
 	ExtractorSchema     = "ygg.extractor/v1"
 	EmbeddingSchema     = "ygg.embedding/v1"
+	RerankSchema        = "ygg.rerank/v1"
 	IndexProgressSchema = "ygg.index.progress/v1"
 	SearchSchema        = "ygg.search.result/v5"
 	CLIEnvelopeSchema   = "ygg.cli/v1"

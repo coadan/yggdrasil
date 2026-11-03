@@ -300,10 +300,15 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		return r.fail(true, 1, err)
 	}
 	defer snapshot.Close()
+	rerank, lazyRerank := lazyRerankCapability(paths.Root, cfg.Rerank)
+	if lazyRerank != nil {
+		defer lazyRerank.Close()
+	}
 	result, err := search.Run(ctx, snapshot, query, search.Options{
 		Mode: *mode, Limit: *limit, Scope: paths.Scope,
 		MatchKind: matchKind, About: *about,
 		HasExtractors: len(cfg.Plugins) > 0, Embedding: repository.index.Embedding(),
+		Rerank: rerank,
 	})
 	if errors.Is(err, search.ErrSemanticUnavailable) {
 		return r.fail(true, 3, err)

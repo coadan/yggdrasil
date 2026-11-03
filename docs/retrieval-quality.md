@@ -335,3 +335,45 @@ from 0.83 to 0.79: in one five-file case two secondary files moved from ranks 7
 and 8 to 22 and 25 while its first result was unchanged. Full-index p50 rose
 from 237 to 309 ms and search p50 from 83 to 101 ms, measured while another
 experiment was using the machine.
+
+## Reranking
+
+Of the 69 dev cases where hybrid search missed the first ten paths, 60 had an
+expected file within the first 100 results and only 8 were missed by every
+lane; in 19, one lane alone ranked it in the first ten. The losses were mostly
+ordering, so a cross-encoder reranker was measured over the fused results.
+
+An offline experiment scored the first 20 fused paths with
+`Qwen/Qwen3-Reranker-0.6B` (revision `e61197ed`) on Apple MPS. Ordering by the
+reranker alone lost hits; reciprocal-rank fusion of the fused rank and the
+reranker rank kept them. With k = 20 chosen on dev, the held-out suites
+improved MRR@10 in all four suite and mode pairs.
+
+The integrated reranker sends each result's path and record text from its
+localized citation onward, up to 1500 characters. Measured with the retrieval
+gate against the stemmed-lane baseline:
+
+| Suite | Mode | Hits@10 | MRR@10 | Higher / lower |
+| --- | --- | ---: | ---: | ---: |
+| Local dev | Lexical | 122 → 126 of 149 | 0.555 → 0.621 | 47 / 14 |
+| Local dev | Hybrid | 119 → 127 of 149 | 0.557 → 0.645 | 53 / 13 |
+| Public dev | Lexical | 142 → 152 of 172 | 0.541 → 0.599 | 50 / 19 |
+| Public dev | Hybrid | 139 → 146 of 172 | 0.522 → 0.556 | 48 / 27 |
+| Local held-out | Lexical | 146 → 156 of 184 | 0.479 → 0.556 | 71 / 21 |
+| Local held-out | Hybrid | 152 → 152 of 184 | 0.509 → 0.587 | 64 / 26 |
+| Public held-out | Lexical | 149 → 159 of 188 | 0.510 → 0.562 | 59 / 19 |
+| Public held-out | Hybrid | 148 → 152 of 188 | 0.511 → 0.538 | 48 / 31 |
+
+Every row reported `rerank.state` `applied`. Sending text from the citation
+onward did better than the offline experiment's narrower citation spans.
+
+Each reranked CLI search took about 4 s (p50 3.95 s, p90 4.27 s) instead of
+about 0.1 s: starting Python and loading the model take 2.5 to 3.5 s and
+scoring 20 candidates about 0.4 s. A host that retains the provider pays the
+start once. Reranking is opt-in.
+
+Several cheaper fusion changes were measured on dev against the stemmed-lane
+baseline and rejected: semantic family weight 0.5 (local MRR flat), family RRF
+k = 30 (neutral), removing third-root promotion (slightly worse), removing the
+record-level head (public hybrid 0.522 → 0.508), and a stemmed all-terms lane
+(public worse).

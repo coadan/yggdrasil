@@ -26,6 +26,18 @@ type Result struct {
 	Records        []RankedRecord     `json:"records"`
 	MorePaths      []string           `json:"morePaths,omitempty"`
 	Semantic       *SemanticReadiness `json:"semantic,omitempty"`
+	Rerank         *RerankStatus      `json:"rerank,omitempty"`
+
+	ranked     []RankedRecord
+	rerankable bool
+}
+
+// RerankStatus reports whether a configured reranker reordered the leading
+// results. A failed reranker leaves fused order in place.
+type RerankStatus struct {
+	State      string `json:"state"`
+	Candidates int    `json:"candidates,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 type RankedRecord struct {
@@ -41,6 +53,8 @@ type RankedRecord struct {
 	// diagnostics but are deliberately omitted from the stable JSON contract.
 	Retrieval []string `json:"-"`
 	Score     float64  `json:"-"`
+
+	evidence string
 }
 
 func (r RankedRecord) MarshalJSON() ([]byte, error) {

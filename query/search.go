@@ -14,6 +14,7 @@ import (
 
 	embeddingcontract "github.com/coadan/yggdrasil/embedding"
 	"github.com/coadan/yggdrasil/internal/contracts"
+	rerankcontract "github.com/coadan/yggdrasil/rerank"
 )
 
 const laneRRFK = 60.0
@@ -46,6 +47,9 @@ type Options struct {
 	About         string
 	HasExtractors bool
 	Embedding     *embeddingcontract.Capability
+	// Rerank rescores the leading fused results of natural-language text
+	// queries. Nil leaves fused order unchanged.
+	Rerank *rerankcontract.Capability
 	// MinSemanticCoverage activates semantic work after this fraction of the
 	// requested scope has compatible vectors. Zero preserves the complete-only
 	// policy. Values must otherwise be in (0,1].
@@ -53,6 +57,25 @@ type Options struct {
 }
 
 func Run(ctx context.Context, value Reader, query string, opts Options) (Result, error) {
+	started := time.Now()
+	if opts.Rerank != nil && (opts.Rerank.Provider == nil ||
+		opts.Rerank.Depth < 0 || opts.Rerank.MaxInputChars < 0) {
+		return Result{}, errors.New("rerank capability requires a provider and non-negative bounds")
+	}
+	result, err := run(ctx, value, query, opts)
+	if err != nil || opts.Rerank == nil || !result.rerankable {
+		return result, err
+	}
+	limit := opts.Limit
+	if limit == 0 {
+		limit = 10
+	}
+	rerankResult(ctx, &result, limit, *opts.Rerank)
+	result.ElapsedMS = time.Since(started).Milliseconds()
+	return result, nil
+}
+
+func run(ctx context.Context, value Reader, query string, opts Options) (Result, error) {
 	started := time.Now()
 	query = strings.TrimSpace(query)
 	if query == "" {
@@ -194,6 +217,7 @@ func Run(ctx context.Context, value Reader, query string, opts Options) (Result,
 		QueryPlan:     plan,
 		RequestedMode: opts.Mode,
 		ActiveMode:    "lexical",
+		rerankable:    plan.Lexical.Kind == MatchText && !structured && opts.Mode != "graph",
 	}
 	if opts.Mode == "lexical" {
 		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
@@ -441,6 +465,13 @@ func setResultRecords(result *Result, query string, limit int, lanes []lane) {
 	if result.RequestedMode == "auto" && result.ActiveMode == "hybrid" && limit > 1 {
 		ranked = promoteGraphHead(ranked, query, excerptLimit, lanes, min(limit, 10)-1)
 	}
+	result.ranked = ranked
+	splitRanked(result, limit)
+}
+
+func splitRanked(result *Result, limit int) {
+	ranked := result.ranked
+	result.MorePaths = nil
 	if len(ranked) <= limit {
 		result.Records = ranked
 		return
@@ -658,6 +689,7 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 			Source:    citation.record.Source,
 			Retrieval: retrieval,
 			Score:     value.score,
+			evidence:  citationText(citation.record, citation.evidence),
 		})
 	}
 	return result
@@ -966,14 +998,7 @@ func localizedCitation(
 		record.EndLine-record.StartLine+1 < strings.Count(record.Text, "\n")+1 {
 		return record.StartLine, record.EndLine, record.Title, strings.Clone(excerpt(record.Text, excerptLimit))
 	}
-	start := max(0, evidence.line-2)
-	offset := 0
-	for index, skipped := 0, 0; index < len(record.Text) && skipped < start; index++ {
-		if record.Text[index] == '\n' {
-			skipped++
-			offset = index + 1
-		}
-	}
+	start, offset := citationOffset(record, evidence)
 	text := strings.Clone(excerpt(record.Text[offset:], excerptLimit))
 	startLine := record.StartLine + start
 	endLine := min(record.EndLine, startLine+strings.Count(text, "\n"))
@@ -982,6 +1007,30 @@ func localizedCitation(
 		title = fmt.Sprintf("%s:%d", record.Path, startLine)
 	}
 	return startLine, endLine, title, text
+}
+
+// citationOffset returns the line and byte offset where a localized citation
+// begins: two lines before the first evidence line.
+func citationOffset(record Candidate, evidence citationEvidence) (int, int) {
+	start := max(0, evidence.line-2)
+	offset := 0
+	for index, skipped := 0, 0; index < len(record.Text) && skipped < start; index++ {
+		if record.Text[index] == '\n' {
+			skipped++
+			offset = index + 1
+		}
+	}
+	return start, offset
+}
+
+// citationText is the record text from the localized citation onward, the
+// span a reranker scores for this result.
+func citationText(record Candidate, evidence citationEvidence) string {
+	if evidence.terms == 0 || evidence.line < 0 {
+		return record.Text
+	}
+	_, offset := citationOffset(record, evidence)
+	return record.Text[offset:]
 }
 
 func promoteThirdRoot(values []*fused) {

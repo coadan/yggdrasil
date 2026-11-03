@@ -11,9 +11,9 @@ line ranges, parser output, content hashes, explicit plugin records, and search
 scores. Do not infer project meaning from names, hosts, path vocabulary, prose,
 or substring lists.
 
-SQLite is the sole durable store. Extractor and embedding integrations are
-explicit, bounded JSONL subprocess protocols. Optional plugin dependencies must
-not enter the core CLI module.
+SQLite is the sole durable store. Extractor, embedding, and rerank
+integrations are explicit, bounded JSONL subprocess protocols. Optional plugin
+dependencies must not enter the core CLI module.
 
 Prefer the Go standard library. Do not add a CLI framework, ORM, provider SDK,
 daemon, compatibility layer, HTML renderer, graph model, correction store, work

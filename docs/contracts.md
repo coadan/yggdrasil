@@ -168,6 +168,36 @@ Command embedding providers use the same lifecycle with schema
 an array of `{id,text}` inputs. Results contain `{id,vector}` values. Vector
 length must equal the configured dimensions.
 
+## Rerank JSONL
+
+Command rerank providers use the same lifecycle with schema `ygg.rerank/v1`.
+A `rerank` request contains a correlated request id, model, the query, and an
+array of `{id,text}` inputs; each text is the result path, a newline, and the
+record text from its localized citation onward, bounded by `maxInputChars`.
+The result contains one `{id,score}` per input, higher meaning more relevant.
+
+```json
+{"type":"hello","schema":"ygg.rerank/v1","model":"Qwen/Qwen3-Reranker-0.6B"}
+{"type":"rerank","requestId":"1","model":"Qwen/Qwen3-Reranker-0.6B","query":"retry budget","inputs":[{"id":"0","text":"src/retry.go\n..."}]}
+{"type":"end"}
+```
+
+```json
+{"type":"ready","schema":"ygg.rerank/v1"}
+{"type":"result","requestId":"1","scores":[{"id":"0","score":0.91}]}
+{"type":"summary","requests":1,"inputs":1}
+```
+
+The `rerank` configuration block takes `kind` (`command`), `command`, `model`,
+`depth` (default 20, at most 100), `maxInputChars` (default 1500), and
+`timeoutMs` (default 60000). It is read from the user configuration and, like
+`embedding`, a repository configuration may replace it or disable it with
+`"rerank": null`. Only `text` queries that are not treated as structured
+identifiers are reranked; `fixed`, `regexp`, literal identifier, and `graph`
+searches keep fused order. The new order fuses each result's fused rank and
+reranker rank with reciprocal-rank fusion (k = 20). Scores must cover every
+input once and be finite.
+
 ## JSON CLI envelopes
 
 Operational commands always return JSON with `schema`, `ok`, and either `data`
@@ -175,7 +205,9 @@ or `error`. Search data uses schema `ygg.search.result/v5` and includes the
 requested mode, active mode, fallback reason, timing, resolved `queryPlan`, and
 ranked records with path/line citations. When semantic retrieval is configured,
 the result also reports its state, scope-specific vector counts, coverage, and
-activation threshold. The query plan separates a `text`,
+activation threshold. When a reranker is configured and a query is eligible,
+`rerank` reports `applied` with the number of rescored results, or `failed`
+with the provider error while fused order is kept. The query plan separates a `text`,
 `fixed`, or `regexp` lexical clause from optional semantic text and its
 `pattern`, `regexp-literals`, or `about` source. Records expose navigation evidence, not internal fusion
 scores or retrieval-lane diagnostics. The default core `text-chunk` kind,

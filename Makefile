@@ -25,6 +25,7 @@ test:
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s plugins/jvm-dotnet -p 'test_*.py'
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s plugins/clojure -p 'test_*.py'
 	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s plugins/embedding-local -p 'test_*.py'
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s plugins/rerank-local -p 'test_*.py'
 
 test-jvm-dotnet:
 	PYTHONDONTWRITEBYTECODE=1 .dev/jvm-dotnet-venv/bin/python \

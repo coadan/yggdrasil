@@ -46,12 +46,24 @@ type Embedding struct {
 	Fingerprint    string   `json:"-"`
 }
 
+// Rerank configures an optional command that rescores leading results of
+// natural-language searches.
+type Rerank struct {
+	Kind          string   `json:"kind"`
+	Command       []string `json:"command"`
+	Model         string   `json:"model,omitempty"`
+	Depth         int      `json:"depth,omitempty"`
+	MaxInputChars int      `json:"maxInputChars,omitempty"`
+	TimeoutMS     int      `json:"timeoutMs,omitempty"`
+}
+
 type Config struct {
 	Schema       string     `json:"schema"`
 	IgnoreGlobs  []string   `json:"ignoreGlobs,omitempty"`
 	MaxFileBytes int64      `json:"maxFileBytes,omitempty"`
 	Plugins      []Plugin   `json:"plugins,omitempty"`
 	Embedding    *Embedding `json:"embedding,omitempty"`
+	Rerank       *Rerank    `json:"rerank,omitempty"`
 
 	UserConfigPath       string `json:"-"`
 	UserConfigLoaded     bool   `json:"-"`
@@ -63,6 +75,7 @@ type Config struct {
 type userConfig struct {
 	Schema    string     `json:"schema"`
 	Embedding *Embedding `json:"embedding,omitempty"`
+	Rerank    *Rerank    `json:"rerank,omitempty"`
 }
 
 func Default() Config {
@@ -79,12 +92,13 @@ func Load(root string) (Config, error) {
 		return Config{}, err
 	}
 	cfg.UserConfigPath = userPath
-	if userEmbedding, found, err := loadUserEmbedding(userPath); err != nil {
+	if user, found, err := loadUser(userPath); err != nil {
 		return Config{}, err
 	} else if found {
 		cfg.UserConfigLoaded = true
-		cfg.Embedding = userEmbedding
-		if userEmbedding != nil {
+		cfg.Embedding = user.Embedding
+		cfg.Rerank = user.Rerank
+		if user.Embedding != nil {
 			cfg.EmbeddingSource = userPath
 		}
 	}
@@ -136,25 +150,26 @@ func userConfigPath() (string, error) {
 	return filepath.Join(base, "ygg", "config.json"), nil
 }
 
-func loadUserEmbedding(path string) (*Embedding, bool, error) {
+func loadUser(path string) (userConfig, bool, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, false, nil
+		return userConfig{}, false, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("read user config %s: %w", path, err)
+		return userConfig{}, false, fmt.Errorf("read user config %s: %w", path, err)
 	}
 	var user userConfig
 	if err := decodeOne(data, &user); err != nil {
-		return nil, false, fmt.Errorf("decode user config %s: %w", path, err)
+		return userConfig{}, false, fmt.Errorf("decode user config %s: %w", path, err)
 	}
 	cfg := Default()
 	cfg.Schema = user.Schema
 	cfg.Embedding = user.Embedding
+	cfg.Rerank = user.Rerank
 	if err := cfg.Validate(); err != nil {
-		return nil, false, fmt.Errorf("%s: %w", path, err)
+		return userConfig{}, false, fmt.Errorf("%s: %w", path, err)
 	}
-	return cfg.Embedding, true, nil
+	return userConfig{Schema: cfg.Schema, Embedding: cfg.Embedding, Rerank: cfg.Rerank}, true, nil
 }
 
 func decodeOne(data []byte, target any) error {
@@ -228,6 +243,30 @@ func (c *Config) Validate() error {
 		}
 		if e.MaxInputChars > 100_000 {
 			return errors.New("embedding maxInputChars cannot exceed 100000")
+		}
+	}
+	if c.Rerank != nil {
+		r := c.Rerank
+		if r.Kind != "command" {
+			return fmt.Errorf("unsupported rerank kind %q", r.Kind)
+		}
+		if len(r.Command) == 0 || r.Command[0] == "" {
+			return errors.New("rerank command is required")
+		}
+		if r.Depth < 0 || r.Depth > 100 {
+			return errors.New("rerank depth must be between 1 and 100")
+		}
+		if r.Depth == 0 {
+			r.Depth = 20
+		}
+		if r.MaxInputChars < 0 || r.MaxInputChars > 100_000 {
+			return errors.New("rerank maxInputChars must be between 1 and 100000")
+		}
+		if r.MaxInputChars == 0 {
+			r.MaxInputChars = 1_500
+		}
+		if r.TimeoutMS <= 0 {
+			r.TimeoutMS = 60_000
 		}
 	}
 	return nil
