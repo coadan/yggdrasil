@@ -299,6 +299,39 @@ improved dev on the held-out split once, with
 `python3 -I tools/retrieval-gate.py --binary bin/ygg --split holdout` after
 saving a held-out baseline from the base build.
 
+### Held-out refresh
+
+The first held-out suites decided the stemmed lane, reranking and the extractor
+scope, so later choices could fit them. On 2026-11-03 they were retired as
+`retired-2026-11-02-*` files in each suite directory and replaced. The new
+suites come from the same pinned clones, so the existing stores serve them.
+`--exclude` skips every commit and subject in the dev and retired suites, and
+`--name holdout` writes all selected cases to one file:
+
+```
+python3 -I tools/history-suite.py --repos <clones> --output <suite> --name holdout \
+  --per-repo <n> --exclude <suite>/dev.json \
+  --exclude <suite>/retired-2026-11-02-holdout.json
+```
+
+With `--per-repo 13`, the local suite has 171 cases from 14 repositories; ten
+smaller repositories had no unused commits left in the scanned window. With
+`--per-repo 20`, the public suite has 180 cases, 20 from each repository.
+Neither shares a commit or subject with dev or the retired suites. Baselines
+were saved with MiniLM hybrid search and the HTTP reranker:
+
+| Held-out suite | Cases | Lexical hits / MRR@10 | Hybrid hits / MRR@10 |
+| --- | ---: | ---: | ---: |
+| Local, retired | 184 | 156 / 0.556 | 152 / 0.587 |
+| Local, new | 171 | 136 / 0.537 | 144 / 0.579 |
+| Public, retired | 188 | 159 / 0.562 | 152 / 0.538 |
+| Public, new | 180 | 157 / 0.614 | 160 / 0.603 |
+
+The retired rows are the reranked results from the reranking section. The new
+local suite is close to them; the new public suite scores higher, with hybrid
+slightly below lexical as before. Its baselines are in `baseline-holdout.json`,
+and the retired files are kept for reference only.
+
 ## Stemmed lexical lane
 
 The unicode61 tokenizer matches only identical tokens, so `retried` misses
