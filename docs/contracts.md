@@ -52,7 +52,10 @@ The optional repository configuration is `.ygg/config.json`:
       "id": "typescript",
       "version": "0.3.0",
       "command": ["ygg-extract-typescript"],
-      "includeGlobs": ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx"],
+      "includeGlobs": [
+        "**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs",
+        "**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"
+      ],
       "timeoutMs": 10000
     },
     {
