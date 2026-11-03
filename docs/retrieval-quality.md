@@ -377,3 +377,11 @@ baseline and rejected: semantic family weight 0.5 (local MRR flat), family RRF
 k = 30 (neutral), removing third-root promotion (slightly worse), removing the
 record-level head (public hybrid 0.522 → 0.508), and a stemmed all-terms lane
 (public worse).
+
+After the reranker landed, four more changes were measured on dev and
+rejected. Without reranking, BM25 path-column weights of 4 and 16 instead of 8
+moved MRR@10 by at most 0.006 in either direction, and capping the semantic
+lane at 30 candidates lowered public hybrid MRR@10 from 0.522 to 0.510. With
+reranking, depth 30 instead of 20 changed MRR@10 by +0.001 and +0.003 locally
+and by -0.003 and +0.005 on the public suite, and hits@10 by at most 3, while
+adding about 0.7 s per search. The default depth stays at 20.
