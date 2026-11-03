@@ -50,7 +50,8 @@ type Embedding struct {
 // natural-language searches.
 type Rerank struct {
 	Kind          string   `json:"kind"`
-	Command       []string `json:"command"`
+	Command       []string `json:"command,omitempty"`
+	Endpoint      string   `json:"endpoint,omitempty"`
 	Model         string   `json:"model,omitempty"`
 	Depth         int      `json:"depth,omitempty"`
 	MaxInputChars int      `json:"maxInputChars,omitempty"`
@@ -247,11 +248,14 @@ func (c *Config) Validate() error {
 	}
 	if c.Rerank != nil {
 		r := c.Rerank
-		if r.Kind != "command" {
+		if r.Kind != "command" && r.Kind != "http" {
 			return fmt.Errorf("unsupported rerank kind %q", r.Kind)
 		}
-		if len(r.Command) == 0 || r.Command[0] == "" {
+		if r.Kind == "command" && (len(r.Command) == 0 || r.Command[0] == "") {
 			return errors.New("rerank command is required")
+		}
+		if r.Kind == "http" && r.Endpoint == "" {
+			return errors.New("rerank endpoint is required")
 		}
 		if r.Depth < 0 || r.Depth > 100 {
 			return errors.New("rerank depth must be between 1 and 100")

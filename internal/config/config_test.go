@@ -201,6 +201,7 @@ func TestLoadUsesUserRerankWithDefaultsAndRepositoryOverride(t *testing.T) {
 
 func TestValidateRejectsInvalidRerank(t *testing.T) {
 	for _, rerank := range []Rerank{
+		{Kind: "grpc", Command: []string{"w"}},
 		{Kind: "http", Command: []string{"w"}},
 		{Kind: "command"},
 		{Kind: "command", Command: []string{"w"}, Depth: 101},

@@ -22,8 +22,9 @@ embedding provider shared by repositories and linked worktrees:
 }
 ```
 
-Only `schema` and `embedding` are valid at user scope. `XDG_CONFIG_HOME`
-relocates the configuration root and `YGG_CONFIG` selects an exact file.
+Only `schema`, `embedding`, and `rerank` are valid at user scope.
+`XDG_CONFIG_HOME` relocates the configuration root and `YGG_CONFIG` selects an
+exact file.
 
 The optional repository configuration is `.ygg/config.json`:
 
@@ -188,9 +189,13 @@ The result contains one `{id,score}` per input, higher meaning more relevant.
 {"type":"summary","requests":1,"inputs":1}
 ```
 
-The `rerank` configuration block takes `kind` (`command`), `command`, `model`,
-`depth` (default 20, at most 100), `maxInputChars` (default 1500), and
-`timeoutMs` (default 60000). It is read from the user configuration and, like
+The `rerank` configuration block takes `kind` (`command` or `http`), `command`
+or `endpoint`, `model`, `depth` (default 20, at most 100), `maxInputChars`
+(default 1500), and `timeoutMs` (default 60000). An `http` provider posts
+`{"model","query","documents","top_n"}` to `endpoint` and reads
+`{"results":[{"index","relevance_score"}]}`, the rerank shape served by
+llama.cpp's `llama-server --reranking` at `/v1/rerank`. It keeps no process of
+its own; the server and its model lifetime belong to the user. It is read from the user configuration and, like
 `embedding`, a repository configuration may replace it or disable it with
 `"rerank": null`. Only `text` queries that are not treated as structured
 identifiers are reranked; `fixed`, `regexp`, literal identifier, and `graph`

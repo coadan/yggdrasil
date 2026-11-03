@@ -204,9 +204,10 @@ An optional reranker rescores the first 20 fused results of natural-language
 text queries and combines its order with the fused order. The bundled
 `plugins/rerank-local/ygg-rerank-local` worker runs a local yes/no reranking
 model such as Qwen3-Reranker-0.6B; it starts only when a search has results to
-rescore and adds a few seconds per CLI search. A worker failure leaves the
-fused order and is reported in the result. See the
-[reranker setup](plugins/rerank-local/README.md).
+rescore and adds a few seconds per CLI search. An `http` reranker instead calls
+an already-running server such as `llama-server --reranking`, adding under a
+second. A provider failure leaves the fused order and is reported in the
+result. See the [reranker setup](plugins/rerank-local/README.md).
 
 See [contracts](docs/contracts.md) for extractor, configuration, and result
 schemas.

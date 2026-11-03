@@ -1,4 +1,4 @@
-// Package rerank owns the bounded command reranking provider.
+// Package rerank owns bounded command and HTTP reranking providers.
 package rerank
 
 import (
@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os/exec"
 	"strings"
 	"sync"
@@ -21,19 +22,86 @@ import (
 
 const maxProviderResponse = 4 * 1024 * 1024
 const maxProviderStderr = 1024 * 1024
+const maxProviderError = 8 * 1024
 
 type Input = rerankcontract.Input
 type Score = rerankcontract.Score
 
 func New(ctx context.Context, root string, cfg config.Rerank) (rerankcontract.Provider, error) {
-	if cfg.Kind != "command" {
+	switch cfg.Kind {
+	case "command":
+		if len(cfg.Command) == 0 || cfg.Command[0] == "" {
+			return nil, errors.New("rerank command is required")
+		}
+		return startCommand(ctx, root, cfg)
+	case "http":
+		if cfg.Endpoint == "" {
+			return nil, errors.New("rerank endpoint is required")
+		}
+		return &httpProvider{
+			cfg:    cfg,
+			client: &http.Client{Timeout: time.Duration(cfg.TimeoutMS) * time.Millisecond},
+		}, nil
+	default:
 		return nil, fmt.Errorf("unsupported rerank kind %q", cfg.Kind)
 	}
-	if len(cfg.Command) == 0 || cfg.Command[0] == "" {
-		return nil, errors.New("rerank command is required")
-	}
-	return startCommand(ctx, root, cfg)
 }
+
+// httpProvider speaks the Jina/Cohere-style rerank request that llama.cpp's
+// server exposes at /v1/rerank.
+type httpProvider struct {
+	cfg    config.Rerank
+	client *http.Client
+}
+
+func (p *httpProvider) Rerank(ctx context.Context, query string, inputs []Input) ([]Score, error) {
+	documents := make([]string, len(inputs))
+	for index, input := range inputs {
+		documents[index] = input.Text
+	}
+	payload, err := json.Marshal(map[string]any{
+		"model": p.cfg.Model, "query": query, "documents": documents, "top_n": len(documents),
+	})
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, p.cfg.Endpoint, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	response, err := p.client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, maxProviderError))
+		return nil, fmt.Errorf("rerank endpoint returned %s: %s", response.Status, strings.TrimSpace(string(body)))
+	}
+	var decoded struct {
+		Results []struct {
+			Index          *int     `json:"index"`
+			RelevanceScore *float64 `json:"relevance_score"`
+		} `json:"results"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, maxProviderResponse)).Decode(&decoded); err != nil {
+		return nil, fmt.Errorf("decode rerank response: %w", err)
+	}
+	scores := make([]Score, 0, len(decoded.Results))
+	for _, result := range decoded.Results {
+		if result.Index == nil || result.RelevanceScore == nil {
+			return nil, errors.New("rerank response result lacks index or relevance_score")
+		}
+		if *result.Index < 0 || *result.Index >= len(inputs) {
+			return nil, fmt.Errorf("rerank response index %d is out of range", *result.Index)
+		}
+		scores = append(scores, Score{ID: inputs[*result.Index].ID, Score: *result.RelevanceScore})
+	}
+	return scores, nil
+}
+
+func (p *httpProvider) Close() error { return nil }
 
 type commandProvider struct {
 	cfg       config.Rerank

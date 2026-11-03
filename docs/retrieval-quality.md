@@ -385,3 +385,9 @@ lane at 30 candidates lowered public hybrid MRR@10 from 0.522 to 0.510. With
 reranking, depth 30 instead of 20 changed MRR@10 by +0.001 and +0.003 locally
 and by -0.003 and +0.005 on the public suite, and hits@10 by at most 3, while
 adding about 0.7 s per search. The default depth stays at 20.
+
+An `http` reranker using `qwen3-reranker-0.6b-q8_0.gguf` (revision `a02f48bb`)
+on `llama-server --reranking` matched the command worker on dev: MRR@10 0.623
+and 0.650 locally (lexical and hybrid) against 0.621 and 0.645, and 0.593 and
+0.558 on the public suite against 0.599 and 0.556. Every row was reranked. A
+reranked CLI search took 0.9 s at p50 and 1.1 s at p90 instead of about 4 s.

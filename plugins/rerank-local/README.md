@@ -1,4 +1,42 @@
-# Local reranking worker
+# Local reranking
+
+Reranking runs either through this repository's command worker or through an
+already-running rerank server. The server avoids starting Python and loading
+the model in every CLI search.
+
+## Rerank server
+
+llama.cpp's `llama-server` serves `/v1/rerank` with a GGUF reranking model.
+Homebrew's `llama.cpp` package and the server bundled with recent Ollama
+releases both support it:
+
+```sh
+llama-server -m /path/to/qwen3-reranker-0.6b-q8_0.gguf --reranking \
+  --host 127.0.0.1 --port 8089 -ngl 99 -c 16384 -b 2048 -ub 2048
+```
+
+The model is `qwen3-reranker-0.6b-q8_0.gguf` from
+`ggml-org/Qwen3-Reranker-0.6B-Q8_0-GGUF` (639 MB). Then configure:
+
+```json
+{
+  "schema": "ygg.config/v1",
+  "rerank": {
+    "kind": "http",
+    "endpoint": "http://127.0.0.1:8089/v1/rerank",
+    "model": "qwen3-reranker-0.6b-q8_0",
+    "timeoutMs": 30000
+  }
+}
+```
+
+On an Apple M-series laptop a reranked search then takes about 0.9 s instead
+of about 4 s, with the same retrieval quality as the command worker. When the
+server is not running, searches report `rerank.state` `failed` and keep fused
+order. Keeping the server running, for example as a launchd agent, is up to
+the host.
+
+## Command worker
 
 `ygg-rerank-local` serves a local yes/no reranking model over the persistent
 `ygg.rerank/v1` command protocol. It scores each candidate as the model's

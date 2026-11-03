@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,7 +66,8 @@ func TestCommandProviderReportsWorkerFailure(t *testing.T) {
 
 func TestNewRejectsUnsupportedConfiguration(t *testing.T) {
 	for _, cfg := range []config.Rerank{
-		{Kind: "http", Command: []string{"worker"}},
+		{Kind: "grpc", Command: []string{"worker"}},
+		{Kind: "http"},
 		{Kind: "command"},
 	} {
 		if _, err := New(context.Background(), t.TempDir(), cfg); err == nil {
@@ -141,6 +144,73 @@ func runHelper(crash bool) {
 		case "end":
 			_ = encoder.Encode(map[string]any{"type": "summary"})
 			return
+		}
+	}
+}
+
+func TestHTTPProviderMapsResultIndexesToInputIDs(t *testing.T) {
+	var request struct {
+		Model     string   `json:"model"`
+		Query     string   `json:"query"`
+		Documents []string `json:"documents"`
+		TopN      int      `json:"top_n"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		_, _ = w.Write([]byte(`{"results":[{"index":1,"relevance_score":0.9},{"index":0,"relevance_score":-2.5}]}`))
+	}))
+	defer server.Close()
+	provider, err := New(context.Background(), t.TempDir(), config.Rerank{
+		Kind: "http", Endpoint: server.URL, Model: "fixture", TimeoutMS: 1_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scores, err := provider.Rerank(context.Background(), "needle", []Input{
+		{ID: "a", Text: "hay"}, {ID: "b", Text: "needle"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scores) != 2 || scores[0] != (Score{ID: "b", Score: 0.9}) || scores[1] != (Score{ID: "a", Score: -2.5}) {
+		t.Fatalf("scores=%#v", scores)
+	}
+	if request.Model != "fixture" || request.Query != "needle" || request.TopN != 2 ||
+		strings.Join(request.Documents, ",") != "hay,needle" {
+		t.Fatalf("request=%#v", request)
+	}
+	if err := provider.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestHTTPProviderRejectsFailuresAndMalformedResults(t *testing.T) {
+	for _, item := range []struct {
+		status int
+		body   string
+		want   string
+	}{
+		{http.StatusServiceUnavailable, strings.Repeat("x", 3*maxProviderError), "503"},
+		{http.StatusOK, `{"results":[{"index":2,"relevance_score":1}]}`, "out of range"},
+		{http.StatusOK, `{"results":[{"index":0}]}`, "lacks index"},
+		{http.StatusOK, `not json`, "decode"},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(item.status)
+			_, _ = w.Write([]byte(item.body))
+		}))
+		provider, err := New(context.Background(), t.TempDir(), config.Rerank{
+			Kind: "http", Endpoint: server.URL, TimeoutMS: 1_000,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = provider.Rerank(context.Background(), "q", []Input{{ID: "a", Text: "x"}, {ID: "b", Text: "y"}})
+		server.Close()
+		if err == nil || !strings.Contains(err.Error(), item.want) || len(err.Error()) > 2*maxProviderError {
+			t.Fatalf("status %d: err=%v", item.status, err)
 		}
 	}
 }
