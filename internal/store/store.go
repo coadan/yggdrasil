@@ -35,7 +35,7 @@ const indexFreshnessKey = "index_freshness_token"
 // SearchLayout names the derived search tables a writer builds when it opens
 // an index. Freshness tokens include it, so a snapshot written before a layout
 // change reads as stale until a refresh has built the current tables.
-const SearchLayout = "search-layout:stemmed-fts-1"
+const SearchLayout = "search-layout:core-fts-2"
 
 type Store struct {
 	db     *sql.DB
@@ -396,48 +396,8 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 			content_rowid='id',
 			tokenize='unicode61'
 		)`,
-		`CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records
-		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
-			INSERT INTO record_fts(rowid, path, title, text)
-			VALUES (new.id, new.path, new.title, new.text);
-		END`,
-		`CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records
-		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
-			INSERT INTO record_fts(record_fts, rowid, path, title, text)
-			VALUES ('delete', old.id, old.path, old.title, old.text);
-		END`,
 		`CREATE TRIGGER IF NOT EXISTS records_embedding_ad AFTER DELETE ON records BEGIN
 			DELETE FROM embedding_records WHERE record_id=old.id;
-		END`,
-		`CREATE TRIGGER IF NOT EXISTS records_au_delete AFTER UPDATE ON records
-		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
-			INSERT INTO record_fts(record_fts, rowid, path, title, text)
-			VALUES ('delete', old.id, old.path, old.title, old.text);
-		END`,
-		`CREATE TRIGGER IF NOT EXISTS records_au_insert AFTER UPDATE ON records
-		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
-			INSERT INTO record_fts(rowid, path, title, text)
-			VALUES (new.id, new.path, new.title, new.text);
-		END`,
-		`CREATE TRIGGER IF NOT EXISTS records_stemmed_ai AFTER INSERT ON records
-		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
-			INSERT INTO stemmed_fts(rowid, path, title, text)
-			VALUES (new.id, new.path, new.title, new.text);
-		END`,
-		`CREATE TRIGGER IF NOT EXISTS records_stemmed_ad AFTER DELETE ON records
-		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
-			INSERT INTO stemmed_fts(stemmed_fts, rowid, path, title, text)
-			VALUES ('delete', old.id, old.path, old.title, old.text);
-		END`,
-		`CREATE TRIGGER IF NOT EXISTS records_stemmed_au_delete AFTER UPDATE ON records
-		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
-			INSERT INTO stemmed_fts(stemmed_fts, rowid, path, title, text)
-			VALUES ('delete', old.id, old.path, old.title, old.text);
-		END`,
-		`CREATE TRIGGER IF NOT EXISTS records_stemmed_au_insert AFTER UPDATE ON records
-		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
-			INSERT INTO stemmed_fts(rowid, path, title, text)
-			VALUES (new.id, new.path, new.title, new.text);
 		END`,
 		`CREATE TRIGGER IF NOT EXISTS records_extractor_ai AFTER INSERT ON records
 		WHEN new.source LIKE 'plugin:%'
@@ -483,7 +443,7 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 			created_at_ms INTEGER NOT NULL
 		)`,
 	}
-	for _, statement := range statements {
+	for _, statement := range append(statements, coreFTSTriggerStatements()...) {
 		if _, err := s.execContext(ctx, statement); err != nil {
 			return fmt.Errorf("initialize sqlite: %w", err)
 		}
@@ -553,7 +513,8 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		if _, err := s.execContext(ctx, `
 			INSERT INTO stemmed_fts(rowid,path,title,text)
 			SELECT id,path,title,text FROM records
-			WHERE coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`); err != nil {
+			WHERE source NOT LIKE 'plugin:%'
+				AND coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`); err != nil {
 			return fmt.Errorf("build stemmed index: %w", err)
 		}
 		if _, err := s.execContext(
@@ -565,6 +526,18 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 		return err
 	case stemmedFTSVersion != "1":
 		return fmt.Errorf("unsupported stemmed index version %s", stemmedFTSVersion)
+	}
+	var coreFTSScope string
+	err = s.queryRowContext(ctx, `SELECT value FROM meta WHERE key='core_fts_scope'`).Scan(&coreFTSScope)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		if err := s.scopeCoreFTS(ctx); err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	case coreFTSScope != "1":
+		return fmt.Errorf("unsupported core lexical index scope %s", coreFTSScope)
 	}
 	var storedID, storedRoot string
 	err = s.queryRowContext(ctx, `SELECT root_id, root FROM repository WHERE id=1`).Scan(&storedID, &storedRoot)
@@ -579,6 +552,100 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 	default:
 		return nil
 	}
+}
+
+// coreFTSTriggerStatements maintain the core and stemmed lexical indexes.
+// Extractor plugin records stay in extractor_fts only: their many short
+// declaration and import records otherwise shift BM25 term statistics and
+// length normalization against core text.
+func coreFTSTriggerStatements() []string {
+	return []string{
+		`CREATE TRIGGER IF NOT EXISTS records_ai AFTER INSERT ON records
+		WHEN new.source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO record_fts(rowid, path, title, text)
+			VALUES (new.id, new.path, new.title, new.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_ad AFTER DELETE ON records
+		WHEN old.source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO record_fts(record_fts, rowid, path, title, text)
+			VALUES ('delete', old.id, old.path, old.title, old.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_au_delete AFTER UPDATE ON records
+		WHEN old.source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO record_fts(record_fts, rowid, path, title, text)
+			VALUES ('delete', old.id, old.path, old.title, old.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_au_insert AFTER UPDATE ON records
+		WHEN new.source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO record_fts(rowid, path, title, text)
+			VALUES (new.id, new.path, new.title, new.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_stemmed_ai AFTER INSERT ON records
+		WHEN new.source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO stemmed_fts(rowid, path, title, text)
+			VALUES (new.id, new.path, new.title, new.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_stemmed_ad AFTER DELETE ON records
+		WHEN old.source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO stemmed_fts(stemmed_fts, rowid, path, title, text)
+			VALUES ('delete', old.id, old.path, old.title, old.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_stemmed_au_delete AFTER UPDATE ON records
+		WHEN old.source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO stemmed_fts(stemmed_fts, rowid, path, title, text)
+			VALUES ('delete', old.id, old.path, old.title, old.text);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS records_stemmed_au_insert AFTER UPDATE ON records
+		WHEN new.source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+			INSERT INTO stemmed_fts(rowid, path, title, text)
+			VALUES (new.id, new.path, new.title, new.text);
+		END`,
+	}
+}
+
+// scopeCoreFTS recreates the core lexical triggers and rebuilds both core
+// indexes from core records once for indexes written before the scope split.
+func (s *Store) scopeCoreFTS(ctx context.Context) error {
+	tx, err := s.beginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, name := range []string{
+		"records_ai", "records_ad", "records_au_delete", "records_au_insert",
+		"records_stemmed_ai", "records_stemmed_ad", "records_stemmed_au_delete", "records_stemmed_au_insert",
+	} {
+		if _, err := tx.ExecContext(ctx, `DROP TRIGGER IF EXISTS `+name); err != nil {
+			return fmt.Errorf("drop lexical trigger %s: %w", name, err)
+		}
+	}
+	statements := append(coreFTSTriggerStatements(),
+		`INSERT INTO record_fts(record_fts) VALUES('delete-all')`,
+		`INSERT INTO record_fts(rowid,path,title,text)
+		 SELECT id,path,title,text FROM records
+		 WHERE source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`,
+		`INSERT INTO stemmed_fts(stemmed_fts) VALUES('delete-all')`,
+		`INSERT INTO stemmed_fts(rowid,path,title,text)
+		 SELECT id,path,title,text FROM records
+		 WHERE source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`,
+		`INSERT INTO meta(key,value) VALUES('core_fts_scope','1')`,
+	)
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("scope core lexical index: %w", err)
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) migrateV3ToV4(ctx context.Context) error {
@@ -621,7 +688,8 @@ func (s *Store) migrateV2ToV3(ctx context.Context) error {
 		`INSERT INTO record_fts(record_fts) VALUES('delete-all')`,
 		`INSERT INTO record_fts(rowid,path,title,text)
 		 SELECT id,path,title,text FROM records
-		 WHERE coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`,
+		 WHERE source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(metadata_json,'$.lexical'),1)<>0`,
 		`INSERT INTO extractor_fts(extractor_fts) VALUES('delete-all')`,
 		`INSERT INTO extractor_fts(rowid,path,title,text)
 		 SELECT id,path,title,text FROM records
@@ -640,11 +708,13 @@ func (s *Store) migrateV2ToV3(ctx context.Context) error {
 func searchTriggerStatements() []string {
 	return []string{
 		`CREATE TRIGGER records_ai AFTER INSERT ON records
-		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+		WHEN new.source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO record_fts(rowid,path,title,text) VALUES(new.id,new.path,new.title,new.text);
 		END`,
 		`CREATE TRIGGER records_ad AFTER DELETE ON records
-		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+		WHEN old.source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO record_fts(record_fts,rowid,path,title,text)
 			VALUES('delete',old.id,old.path,old.title,old.text);
 		END`,
@@ -652,12 +722,14 @@ func searchTriggerStatements() []string {
 			DELETE FROM embedding_records WHERE record_id=old.id;
 		END`,
 		`CREATE TRIGGER records_au_delete AFTER UPDATE ON records
-		WHEN coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
+		WHEN old.source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(old.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO record_fts(record_fts,rowid,path,title,text)
 			VALUES('delete',old.id,old.path,old.title,old.text);
 		END`,
 		`CREATE TRIGGER records_au_insert AFTER UPDATE ON records
-		WHEN coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
+		WHEN new.source NOT LIKE 'plugin:%'
+			AND coalesce(json_extract(new.metadata_json,'$.lexical'),1)<>0 BEGIN
 			INSERT INTO record_fts(rowid,path,title,text) VALUES(new.id,new.path,new.title,new.text);
 		END`,
 		`CREATE TRIGGER records_extractor_ai AFTER INSERT ON records

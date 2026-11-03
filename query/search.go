@@ -148,6 +148,21 @@ func run(ctx context.Context, value Reader, query string, opts Options) (Result,
 					records = identifierLiteralRecords(records, query)
 				}
 				lanes = append(lanes, lane{name: "literal", records: records})
+				if opts.HasExtractors {
+					// Extractor records stay out of the core lexical index, so
+					// parser-owned declarations need their own literal lane.
+					extracted, err := value.ExtractorCandidates(
+						ctx, ftsAnyQuery(terms), opts.Scope, candidateLimit,
+					)
+					if err != nil {
+						return Result{}, fmt.Errorf("extractor literal search: %w", err)
+					}
+					extracted = containingRecords(extracted, query)
+					if codeIdentifierTermQuery(query, terms) {
+						extracted = identifierLiteralRecords(extracted, query)
+					}
+					lanes = append(lanes, lane{name: "extractor-literal", records: extracted})
+				}
 			} else if len(terms) > 1 {
 				phrase, err := value.LexicalCandidates(
 					ctx, ftsPhraseQuery(terms), opts.Scope, candidateLimit,
@@ -1083,6 +1098,16 @@ func codeIdentifierTermQuery(query string, terms []string) bool {
 		}
 	}
 	return false
+}
+
+func containingRecords(records []Candidate, literal string) []Candidate {
+	result := records[:0]
+	for _, record := range records {
+		if strings.Contains(record.Text, literal) {
+			result = append(result, record)
+		}
+	}
+	return result
 }
 
 func identifierLiteralRecords(records []Candidate, literal string) []Candidate {

@@ -274,7 +274,9 @@ func TestOpenMigratesSemanticOnlyRecordsOutOfLexicalIndexes(t *testing.T) {
 		if err := value.db.QueryRowContext(ctx, `SELECT count(*) FROM `+table+` WHERE `+table+` MATCH 'hidden'`).Scan(&hidden); err != nil {
 			t.Fatal(err)
 		}
-		if visible != 1 || hidden != 0 {
+		// Plugin records are indexed only for the extractor lane.
+		want := map[string]int{"record_fts": 0, "extractor_fts": 1}[table]
+		if visible != want || hidden != 0 {
 			t.Fatalf("%s visible=%d hidden=%d", table, visible, hidden)
 		}
 	}
@@ -597,10 +599,10 @@ func TestLexicalCandidatesRespectExplicitRecordOptOut(t *testing.T) {
 		file := discovery.File{
 			Candidate: discovery.Candidate{Path: item.path, Size: 6, MTimeNS: 1}, Kind: "go",
 		}
-		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", []contracts.SearchRecord{{
-			Path: item.path, StartLine: 1, EndLine: 1, Kind: "go-navigation",
-			Text: "needle", Source: "plugin:go", Metadata: item.metadata,
-		}}); err != nil {
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", []contracts.SearchRecord{
+			{Path: item.path, StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: "needle", Source: "core", Metadata: item.metadata},
+			{Path: item.path, StartLine: 1, EndLine: 1, Kind: "go-navigation", Text: "needle", Source: "plugin:go", Metadata: item.metadata},
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -610,10 +612,86 @@ func TestLexicalCandidatesRespectExplicitRecordOptOut(t *testing.T) {
 		func() ([]Record, error) { return value.LiteralCandidates(ctx, "needle", "needle", "", 10) },
 		func() ([]Record, error) { return value.ExtractorCandidates(ctx, "needle", "", 10) },
 	}
-	for _, query := range queries {
+	for index, query := range queries {
 		records, err := query()
 		if err != nil || len(records) != 1 || records[0].Path != "visible.go" {
 			t.Fatalf("records=%#v err=%v", records, err)
+		}
+		// Core lanes see only core records; the extractor lane only plugin records.
+		if want := map[bool]string{true: "plugin:go", false: "core"}[index == 3]; records[0].Source != want {
+			t.Fatalf("query %d source=%q want %q", index, records[0].Source, want)
+		}
+	}
+}
+
+func TestCoreLexicalIndexesExcludePluginRecordsAfterUpgrade(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "search.sqlite3")
+	value, err := Open(ctx, path, "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := discovery.File{Candidate: discovery.Candidate{Path: "owner.go", Size: 6, MTimeNS: 1}, Kind: "go"}
+	if err := value.ReplaceFile(ctx, "run", file, "hash", "fingerprint", []contracts.SearchRecord{
+		{Path: file.Path, StartLine: 1, EndLine: 1, Kind: "text-chunk", Text: "corealpha", Source: "core"},
+		{Path: file.Path, StartLine: 1, EndLine: 1, Kind: "go-function", Text: "pluginbeta", Source: "plugin:go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var pluginID int64
+	if err := value.db.QueryRowContext(ctx, `SELECT id FROM records WHERE text='pluginbeta'`).Scan(&pluginID); err != nil {
+		t.Fatal(err)
+	}
+	// Recreate an index written before the scope split: plugin rows present in
+	// both core tables and no scope marker.
+	for _, statement := range []struct {
+		query string
+		args  []any
+	}{
+		{`INSERT INTO record_fts(rowid,path,title,text) VALUES(?,'owner.go','','pluginbeta')`, []any{pluginID}},
+		{`INSERT INTO stemmed_fts(rowid,path,title,text) VALUES(?,'owner.go','','pluginbeta')`, []any{pluginID}},
+		{`DELETE FROM meta WHERE key='core_fts_scope'`, nil},
+	} {
+		if _, err := value.db.ExecContext(ctx, statement.query, statement.args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := value.Close(); err != nil {
+		t.Fatal(err)
+	}
+	value, err = Open(ctx, path, "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	for _, table := range []string{"record_fts", "stemmed_fts", "extractor_fts"} {
+		var core, plugin int
+		for term, count := range map[string]*int{"corealpha": &core, "pluginbeta": &plugin} {
+			if err := value.db.QueryRowContext(ctx, `SELECT count(*) FROM `+table+` WHERE `+table+` MATCH ?`, term).Scan(count); err != nil {
+				t.Fatal(err)
+			}
+		}
+		wantCore, wantPlugin := 1, 0
+		if table == "extractor_fts" {
+			wantCore, wantPlugin = 0, 1
+		}
+		if core != wantCore || plugin != wantPlugin {
+			t.Fatalf("%s core=%d plugin=%d", table, core, plugin)
+		}
+	}
+	// Triggers keep the scope for later writes.
+	if err := value.ReplaceFile(ctx, "run", file, "hash2", "fingerprint", []contracts.SearchRecord{
+		{Path: file.Path, StartLine: 1, EndLine: 1, Kind: "go-function", Text: "plugingamma", Source: "plugin:go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range []string{"record_fts", "stemmed_fts"} {
+		var count int
+		if err := value.db.QueryRowContext(ctx, `SELECT count(*) FROM `+table+` WHERE `+table+` MATCH 'plugingamma OR corealpha'`).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 0 {
+			t.Fatalf("%s kept %d stale or plugin rows", table, count)
 		}
 	}
 }

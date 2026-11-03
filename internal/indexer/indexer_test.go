@@ -459,7 +459,7 @@ func TestRunAddsConfiguredPluginRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer value.Close()
-	result, err := search.Run(context.Background(), value, "pluginunique", search.Options{Mode: "lexical"})
+	result, err := search.Run(context.Background(), value, "pluginunique", search.Options{Mode: "lexical", HasExtractors: true})
 	if err != nil {
 		t.Fatal(err)
 	}

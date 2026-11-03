@@ -146,6 +146,12 @@ a sandbox boundary. Only configure commands you would run directly. Extractor
 authors must change `version` whenever output behavior changes; that version is
 part of the incremental extraction fingerprint.
 
+Extractor records are indexed for the extractor lane, identifier literal
+matches, graph edges, and embeddings, but not in the core or stemmed lexical
+indexes. Their many short declaration and import records would otherwise
+change BM25 term statistics and length normalization for core text. An index
+written before this split is rebuilt once when a writer opens it.
+
 Input:
 
 ```json

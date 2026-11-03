@@ -749,10 +749,18 @@ func TestLexicalSearchFusesConfiguredExtractorRecords(t *testing.T) {
 			Candidate: discovery.Candidate{Path: item.path, Size: 20, MTimeNS: 1},
 			Kind:      "go",
 		}
-		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", []contracts.SearchRecord{{
-			Path: item.path, StartLine: 3, EndLine: 3, Kind: "declaration",
-			Text: "route access", Source: item.source,
-		}}); err != nil {
+		// Core always chunks a file; a plugin adds parser records beside it.
+		records := []contracts.SearchRecord{{
+			Path: item.path, StartLine: 3, EndLine: 3, Kind: "text-chunk",
+			Text: "route access", Source: "core",
+		}}
+		if item.source != "core" {
+			records = append(records, contracts.SearchRecord{
+				Path: item.path, StartLine: 3, EndLine: 3, Kind: "declaration",
+				Text: "route access", Source: item.source,
+			})
+		}
+		if err := value.ReplaceFile(ctx, "run", file, item.path, "fingerprint", records); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -762,13 +770,17 @@ func TestLexicalSearchFusesConfiguredExtractorRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Records[0].Path != "src/extracted.go" ||
-		!strings.Contains(strings.Join(result.Records[0].Retrieval, ","), "extractor") {
+	if len(result.Records) != 2 {
 		t.Fatalf("records=%#v", result.Records)
 	}
 	for _, record := range result.Records {
 		if !strings.HasPrefix(record.Path, "src/") {
 			t.Fatalf("out-of-scope extractor record=%#v", record)
+		}
+		// Extractor evidence fuses at the path that owns the plugin record.
+		extractor := strings.Contains(strings.Join(record.Retrieval, ","), "extractor")
+		if extractor != (record.Path == "src/extracted.go") {
+			t.Fatalf("record %s retrieval=%v", record.Path, record.Retrieval)
 		}
 	}
 }

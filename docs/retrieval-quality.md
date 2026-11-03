@@ -391,3 +391,28 @@ on `llama-server --reranking` matched the command worker on dev: MRR@10 0.623
 and 0.650 locally (lexical and hybrid) against 0.621 and 0.645, and 0.593 and
 0.558 on the public suite against 0.599 and 0.556. Every row was reranked. A
 reranked CLI search took 0.9 s at p50 and 1.1 s at p90 instead of about 4 s.
+
+## Extractor plugins
+
+None of the 40 local repositories configures extractor plugins, and the history
+suites had been measured without them. Enabling every bundled extractor
+(Markdown, Go, TypeScript including `.mjs`, `.cjs`, `.mts` and `.cts`, manifests,
+Terraform, Python, JVM/.NET, and Clojure) on copies of the pinned repositories
+roughly doubled the indexed records and changed dev MRR@10 as follows:
+
+| Suite | Mode | No plugins | Plugins | Plugins, core index scoped |
+| --- | --- | ---: | ---: | ---: |
+| Local | Lexical | 0.555 | 0.504 | 0.547 |
+| Local | Hybrid | 0.557 | 0.578 | 0.587 |
+| Public | Lexical | 0.541 | 0.504 | 0.535 |
+| Public | Hybrid | 0.522 | 0.519 | 0.532 |
+
+Plugin records had shared the core lexical indexes, and their short records
+shifted BM25 statistics against core text. Removing them only at query time
+recovered part of the loss (0.529 and 0.526 lexical); removing them from the
+indexes recovered most of it. Dropping the extractor lane as well left lexical
+results at the no-plugin baseline but did not improve hybrid results further,
+so the lane stays. With the scoped indexes, the held-out suites moved from
+0.479 to 0.483 and 0.509 to 0.526 locally (lexical, hybrid) and from 0.510 to
+0.512 and 0.511 to 0.506 on the public repositories. The plugin benchmarks for
+Python, JVM/.NET, and Terraform were unchanged.
