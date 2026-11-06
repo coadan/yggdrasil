@@ -425,6 +425,21 @@ and 0.650 locally (lexical and hybrid) against 0.621 and 0.645, and 0.593 and
 0.558 on the public suite against 0.599 and 0.556. Every row was reranked. A
 reranked CLI search took 0.9 s at p50 and 1.1 s at p90 instead of about 4 s.
 
+`Qwen3-Reranker-4B.Q8_0.gguf` from `giladgd/Qwen3-Reranker-4B-GGUF` (revision
+`618ca919`, converted with the classifier head) was measured on dev against the
+0.6B HTTP reranker with the same depth, input and fusion:
+
+| Suite | Mode | Hits@10 | MRR@10 | Higher / lower |
+| --- | --- | ---: | ---: | ---: |
+| Local dev | Lexical | 124 → 127 of 149 | 0.623 → 0.629 | 20 / 19 |
+| Local dev | Hybrid | 128 → 129 of 149 | 0.650 → 0.640 | 22 / 25 |
+| Public dev | Lexical | 149 → 152 of 172 | 0.593 → 0.588 | 33 / 29 |
+| Public dev | Hybrid | 144 → 145 of 172 | 0.558 → 0.570 | 32 / 24 |
+
+The changes split both ways within about 0.01, while a search took 3.7 s at
+p50 and 4.3 s at p90 instead of 1.0 s and 1.2 s. It was rejected without using
+the held-out suites; the 0.6B model stays the documented choice.
+
 ## Extractor plugins
 
 None of the 40 local repositories configures extractor plugins, and the history
