@@ -75,7 +75,7 @@ print(json.dumps({'ok': True, 'data': {'records': records, 'morePaths': overflow
 ''')
             binary.chmod(0o755)
             result = subprocess.run([
-                sys.executable, str(Path(__file__).with_name('replay.py')), '--run', str(run),
+                sys.executable, '-B', str(Path(__file__).with_name('replay.py')), '--run', str(run),
                 '--suite', str(root / 'suite'), '--ygg-binary', str(binary), '--storage', str(root / 'store'),
             ], check=True, capture_output=True, text=True)
             rows = json.loads((run / 'replay.json').read_text())
