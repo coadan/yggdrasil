@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
 """Replay the searches agents made with native tools through ygg search.
 
-Reads results.json from run.py. Successful, unfiltered native Grep file-list
-calls are replayed as `ygg search -E <pattern>` in lexical mode. The report
-pairs those calls, distinguishes excerpt hits from visible overflow, and
-counts failed and unmatched calls separately. Glob calls are only counted.
-Grep and ygg can still differ in regexp dialect and file discovery.
+Reads results.json from run.py. Replays successful native Grep calls in lexical
+mode with their file or directory scope and case option. The native side uses
+what the agent received, including matches in a known single-file scope. The
+report separates excerpt hits, visible overflow, errors and unmatched options.
+Glob calls are only counted. Regexp dialect and file discovery can still differ.
 """
 import argparse
 from collections import Counter
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
+
+from report import normalized_path, result_text, search_paths
+
+
+GREP_OPTIONS = {'pattern', 'path', '-i', 'output_mode', '-n', 'head_limit', 'offset', '-A', '-B', '-C', 'context'}
+CONTENT_MATCH = re.compile(r'^\d+:')
 
 
 def ygg_rank(binary, root, pattern, expected, env, limit):
@@ -42,21 +49,23 @@ def ygg_rank(binary, root, pattern, expected, env, limit):
             'overflowHit': rank is not None and excerpt_rank is None}
 
 
-def native_outcome(result, root, expected):
-    """Match whole paths in a successful Grep file list."""
+def native_outcome(result, root, scope, request, expected):
+    """Read displayed paths and explicit single-file matches from native results."""
     if result is None:
         return {'status': 'missing', 'hit': None, 'lines': None}
     if result.get('is_error'):
         return {'status': 'error', 'hit': None, 'lines': None}
-    content = result.get('content')
-    if isinstance(content, list) and all(isinstance(block, dict) and isinstance(block.get('text'), str)
-                                         for block in content):
-        content = '\n'.join(block['text'] for block in content)
-    if not isinstance(content, str):
+    content = result_text(result.get('content'))
+    paths = search_paths('Grep', request, content)
+    if paths is None:
         return {'status': 'unrecognized', 'hit': None, 'lines': None}
     lines = [line for line in content.splitlines() if line.strip()]
-    path_forms = {form for path in expected for form in (path, './' + path, str(root / path))}
-    return {'status': 'ok', 'hit': any(line in path_forms for line in lines), 'lines': len(lines)}
+    shown = any(normalized_path(path, root) in expected for path in paths)
+    matched_scope = (scope.is_file() and scope.relative_to(root).as_posix() in expected
+                     and request.get('output_mode') == 'content'
+                     and any(CONTENT_MATCH.match(line) for line in lines))
+    return {'status': 'ok', 'hit': shown or matched_scope, 'shown': shown,
+            'matchedScope': matched_scope, 'lines': len(lines)}
 
 
 def trajectory(log):
@@ -73,19 +82,27 @@ def trajectory(log):
     return calls, results
 
 
-def unmatched_reason(request, root):
+def replay_parameters(request, root):
     pattern = request.get('pattern')
     if not isinstance(pattern, str) or not pattern.strip() or pattern != pattern.strip():
-        return 'empty pattern or significant outer whitespace'
-    if request.get('output_mode', 'files_with_matches') != 'files_with_matches':
-        return 'native output is not a file list'
-    scope = request.get('path')
-    if scope and (root / scope).resolve() != root:
-        return 'native search scope differs from repository root'
-    unsupported = sorted(set(request) - {'pattern', 'path', 'output_mode'})
+        raise ValueError('empty pattern or significant outer whitespace')
+    unsupported = sorted(set(request) - GREP_OPTIONS)
     if unsupported:
-        return 'unsupported native options: ' + ', '.join(unsupported)
-    return None
+        raise ValueError('unsupported native options: ' + ', '.join(unsupported))
+    if request.get('output_mode', 'files_with_matches') not in ('files_with_matches', 'content', 'count'):
+        raise ValueError('unrecognized native output mode')
+    scope = (root / (request.get('path') or '.')).resolve()
+    if not scope.is_relative_to(root) or not (scope.is_dir() or scope.is_file()):
+        raise ValueError('native scope is missing or outside the repository')
+    directory = scope.parent if scope.is_file() else scope
+    for parent in (directory, *directory.parents):
+        if parent == root:
+            break
+        if (parent / '.git').exists():
+            raise ValueError('native scope is inside a nested repository')
+    if request.get('-i'):
+        pattern = '(?i)' + pattern
+    return scope, pattern
 
 
 def summarize(replayed, limit):
@@ -150,15 +167,19 @@ def main():
             entry = {'case': row['case'], 'round': search_round, 'tool': call['name'], 'input': request}
             if call['name'] == 'Glob':
                 entry['status'] = 'glob'
-            elif reason := unmatched_reason(request, root):
-                entry.update(status='unmatched', reason=reason)
             else:
-                native = entry['native'] = native_outcome(results.get(call['id']), root, expected)
-                if native['status'] != 'ok':
-                    entry['status'] = 'native_' + native['status']
+                try:
+                    scope, pattern = replay_parameters(request, root)
+                except ValueError as error:
+                    entry.update(status='unmatched', reason=str(error))
                 else:
-                    ygg = entry['ygg'] = ygg_rank(args.ygg_binary, root, request['pattern'], expected, env, args.limit)
-                    entry['status'] = 'ygg_error' if 'error' in ygg else 'paired'
+                    entry['scope'] = scope.relative_to(root).as_posix()
+                    native = entry['native'] = native_outcome(results.get(call['id']), root, scope, request, expected)
+                    if native['status'] != 'ok':
+                        entry['status'] = 'native_' + native['status']
+                    else:
+                        ygg = entry['ygg'] = ygg_rank(args.ygg_binary, scope, pattern, expected, env, args.limit)
+                        entry['status'] = 'ygg_error' if 'error' in ygg else 'paired'
             replayed.append(entry)
     (args.run / 'replay.json').write_text(json.dumps(replayed, indent=1))
     summarize(replayed, args.limit)
