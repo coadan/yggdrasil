@@ -440,6 +440,40 @@ The changes split both ways within about 0.01, while a search took 3.7 s at
 p50 and 4.3 s at p90 instead of 1.0 s and 1.2 s. It was rejected without using
 the held-out suites; the 0.6B model stays the documented choice.
 
+## Embedding windows
+
+Core chunks average about 5,000 characters and 123 lines, while MiniLM in
+Ollama reads only its first 256 tokens, about 800 characters. A chunk's vector
+therefore described roughly its first 20 lines. Chunks now stay lexical-only
+(`semantic: false`), and separate semantic-only windows (`lexical: false`) of
+at most 30 lines and 1,000 bytes, overlapping by 5 lines, carry the vectors. A
+file keeps at most three windows per lexical chunk, spread evenly over its
+window grid with the first and last kept. Files that fit in one window keep a
+single record for both lanes. Lexical chunks are byte-identical to before, and
+`CoreExtractionVersion` moved to `v4` so existing indexes rebuild.
+
+Both variants were measured on dev against the 0.6B HTTP reranker baseline.
+`migard2` was left out of the local suite: its one dev case did not justify
+embedding its committed `vendor/` tree, which is 96% of its chunks.
+
+| Suite | Variant | Hybrid hits@10 | Hybrid MRR@10 | Vectors | Store |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Local dev (148) | Baseline | 127 | 0.647 | 36,457 | 409 MiB |
+| Local dev (148) | Every window | 131 | 0.671 | 237,772 | 1,093 MiB |
+| Local dev (148) | Three per chunk | 133 | 0.650 | 102,521 | 661 MiB |
+| Public dev (172) | Baseline | 144 | 0.558 | 10,737 | 120 MiB |
+| Public dev (172) | Every window | 148 | 0.566 | 60,722 | 286 MiB |
+| Public dev (172) | Three per chunk | 146 | 0.575 | 29,539 | 190 MiB |
+
+Lexical mode was unchanged in every run apart from one reranker tie on the
+public suite. Against the baseline, three windows per chunk ranked expected
+files higher in 30 local and 38 public cases and lower in 21 and 36. Every
+window cost about six times the baseline vectors, and the local suite's first
+index took over an hour without `migard2` (about three hours more with it);
+three per chunk cost about 2.8 times the vectors and embedded the local suite
+in 28 minutes. Search time was unchanged when both binaries ran back to back
+under the same load. Three windows per chunk is retained.
+
 ## Pseudo-relevance feedback
 
 Query expansion had not been tried, so a `feedback` lane was measured in the
@@ -457,7 +491,8 @@ expressions. The lane worked as follows:
 
 Weighting by raw term frequency picked `the`, `and` and `a` in a spot check, so
 both measured settings used the sublinear form. Measured with the retrieval gate
-on dev against the 0.6B HTTP reranker baseline:
+on dev against the 0.6B HTTP reranker baseline, on the indexes from before
+embedding windows:
 
 | Setting | Suite | Mode | Hits@10 | MRR@10 | Higher / lower |
 | --- | --- | --- | ---: | ---: | ---: |
