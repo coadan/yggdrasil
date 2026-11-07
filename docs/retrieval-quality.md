@@ -464,3 +464,59 @@ so the lane stays. With the scoped indexes, the held-out suites moved from
 0.479 to 0.483 and 0.509 to 0.526 locally (lexical, hybrid) and from 0.510 to
 0.512 and 0.511 to 0.506 on the public repositories. The plugin benchmarks for
 Python, JVM/.NET, and Terraform were unchanged.
+
+## Fitted fusion weights
+
+The rejected fusion changes above were single hand-picked settings. A fitted
+weighting was tried next. A temporary search option multiplied each lane's
+reciprocal-rank contribution and the semantic family's contribution; at 1.0 it
+left results unchanged. The suites configure no extractors, so the weighted
+inputs were the `exact`, `all-terms`, `stemmed`, `path` and `anchor` lanes
+against the `lexical` lane, the `semantic` lane (which also moves the
+record-level head), and the semantic family.
+
+Fitting replayed search in process against the existing dev stores, with lane
+candidates, query embeddings and rerank scores (the 0.6B HTTP reranker, depth
+20) memoized. At unit weights a first replay matched the saved dev baseline
+except for two public hybrid ranks, which moved by one through reranker
+nondeterminism. The fits reused the rerank scores of a second replay, whose
+public baseline reads 0.590 lexical and 0.558 hybrid. Coordinate ascent over
+0, 0.25, 0.5, 1, 2 and 4 maximized the mean over both suites of lexical plus
+hybrid MRR@10. For cross-validation,
+repositories were split into two folds balanced by case count within each
+suite: A has 75 local and 81 public cases, B has 74 and 91.
+
+Fitted on all of dev, the weights were 0.25 for the semantic family and lane,
+0 for `exact` and `all-terms`, and 0.5 for `path` and `anchor`. In-sample:
+
+| Suite | Mode | Hits@10 | MRR@10 | Higher / lower |
+| --- | --- | ---: | ---: | ---: |
+| Local dev | Lexical | 124 → 126 of 149 | 0.623 → 0.642 | 20 / 7 |
+| Local dev | Hybrid | 128 → 128 of 149 | 0.650 → 0.656 | 29 / 21 |
+| Public dev | Lexical | 149 → 147 of 172 | 0.590 → 0.613 | 28 / 13 |
+| Public dev | Hybrid | 144 → 150 of 172 | 0.558 → 0.590 | 39 / 27 |
+
+Out of fold it did not hold. MRR@10 on the test fold, from unit weights to the
+weights fitted on the other fold:
+
+| Weighted inputs | Test fold | Local lexical | Local hybrid | Public lexical | Public hybrid |
+| --- | --- | ---: | ---: | ---: | ---: |
+| All seven | B | 0.578 → 0.555 | 0.578 → 0.547 | 0.566 → 0.563 | 0.559 → 0.543 |
+| All seven | A | 0.668 → 0.694 | 0.720 → 0.699 | 0.617 → 0.586 | 0.557 → 0.569 |
+| Semantic lane and family | B | 0.578 → 0.578 | 0.578 → 0.578 | 0.566 → 0.566 | 0.559 → 0.549 |
+| Semantic lane and family | A | 0.668 → 0.668 | 0.720 → 0.695 | 0.617 → 0.617 | 0.557 → 0.580 |
+| `exact`, `all-terms`, `path` | B | 0.578 → 0.578 | 0.578 → 0.587 | 0.566 → 0.574 | 0.559 → 0.562 |
+| `exact`, `all-terms`, `path` | A | 0.668 → 0.695 | 0.720 → 0.712 | 0.617 → 0.603 | 0.557 → 0.553 |
+
+The folds disagreed on most weights: with all seven inputs, fitting on A set
+the semantic lane to 4 and `stemmed` to 0.5, and fitting on B set them to 0.25
+and 4. Fitted on all of dev, the two smaller spaces did not raise local hybrid
+MRR@10 even in-sample: a semantic family weight of 0.25 gave 0.647, and `exact`
+and `all-terms` at 0 with `path` at 0.5 gave 0.646, against 0.650. Every fit
+that weighted `exact` and `all-terms` set them to 0, which raised lexical
+MRR@10 in-sample but not consistently out of fold.
+
+No weighting improved hybrid MRR@10 on both test folds of both suites, so the
+change was rejected. The retrieval gate and the held-out suites were not used.
+Fusion keeps equal lane weights. The patch, replay harness and logs are under
+`.workbench/tasks/fusion-weights/evidence/`.
