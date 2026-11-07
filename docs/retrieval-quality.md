@@ -611,3 +611,29 @@ No weighting improved hybrid MRR@10 on both test folds of both suites, so the
 change was rejected. The retrieval gate and the held-out suites were not used.
 Fusion keeps equal lane weights. The patch, replay harness and logs are under
 `.workbench/tasks/fusion-weights/evidence/`.
+
+## File-level term coverage
+
+Core lexical lanes score 160-line chunks, and a file inherits its best chunk's
+rank, so a file whose chunks share a query's terms between them earns no credit
+for covering them all. Sourcegraph's Zoekt scores whole files with BM25F. A
+cheaper query-side candidate added a `coverage` lane: for each distinct query
+term (at most eight), one any-term FTS query bounded to the usual candidate
+limit of paths; files reached by at least two terms were ranked by the number of
+terms, then by summed per-term reciprocal rank. It was skipped for queries with
+structured anchors, which a unit test showed it would otherwise bury.
+
+It was measured on dev against the embedding-windows build, on the same stores,
+with `migard2` left out of the local suite:
+
+| Suite | Mode | Hits@10 | MRR@10 | Higher / lower |
+| --- | --- | ---: | ---: | ---: |
+| Local dev | Lexical | 123 → 128 of 148 | 0.621 → 0.638 | 25 / 14 |
+| Local dev | Hybrid | 133 → 133 of 148 | 0.650 → 0.644 | 23 / 14 |
+| Public dev | Lexical | 149 → 148 of 172 | 0.593 → 0.564 | 17 / 21 |
+| Public dev | Hybrid | 146 → 145 of 172 | 0.575 → 0.566 | 18 / 19 |
+
+Counting terms gives common words the same weight as distinctive ones, which
+hurt the larger public repositories. It was rejected without the held-out
+suites. A variant that ignores terms whose candidates fill the path limit, a
+rough document-frequency cut, was not measured.
