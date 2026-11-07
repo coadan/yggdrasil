@@ -637,3 +637,46 @@ Counting terms gives common words the same weight as distinctive ones, which
 hurt the larger public repositories. It was rejected without the held-out
 suites. A variant that ignores terms whose candidates fill the path limit, a
 rough document-frequency cut, was not measured.
+
+## LLM file summaries
+
+MiniLM reads only about the first 800 characters of each embedded input, so a
+file's embedding covers little of its meaning. An experimental extractor tested
+whether a short LLM summary per file, embedded as one extra record, bridges
+commit-style queries to code the way doc2query expansion does.
+
+The extractor served `file-summary` records from a local cache keyed by
+`sha256(path, NUL, content)` and never called a model while indexing. Each
+record spanned the whole file, was titled with its path, and carried
+`"lexical": false`, so it was embedded but kept out of every lexical index. A
+separate generator filled the cache with `claude-haiku-5-5`. It summarized
+only the files the indexer discovered and routed to the plugin, meaning source
+and documentation extensions, not configuration or lock files. Each summary was
+one paragraph of at most 120 words in commit-message vocabulary, from at most
+48,000 characters of input, averaging 115 words. The generator ran through
+headless Claude Code (`claude -p`) on a subscription rather than the Message
+Batches API.
+
+The run was stopped after a preliminary measurement. The four public
+repositories that were fully summarized (Dapper, axios, flask and gin; 920
+files, 83 of the 172 dev cases) were indexed on private clones at the pinned
+revisions. They were compared with a no-plugin control indexed the same way:
+
+| Mode | Hits@10 | MRR@10 | Higher / lower |
+| --- | ---: | ---: | ---: |
+| Lexical | 70 → 70 of 83 | 0.525 → 0.531 | 1 / 0 |
+| Hybrid | 70 → 70 of 83 | 0.524 → 0.524 | 15 / 16 |
+| Semantic only | 57 → 57 of 83 | 0.385 → 0.412 | — |
+
+The lexical change is one flask case that also differed between the control
+and the saved baseline. The summaries helped the semantic lane alone: a summary
+was the top semantic record for 41 of the 83 queries, and MRR@10 rose by 0.027.
+After fusion with the lexical lanes and reranking, hybrid results did not
+change. The approach was rejected without summarizing the other five
+repositories or using the held-out suites.
+
+The four repositories took 3.07M input and 0.24M output tokens, including about
+1,000 tokens of Claude Code overhead per call. That is about $0.43 at Haiku 5.5
+list prices, or $0.21 through the Batches API. By the time the run stopped, 1,909
+of the 3,182 public files had been summarized with 8.8M input and 0.54M output
+tokens. No private source was sent.
