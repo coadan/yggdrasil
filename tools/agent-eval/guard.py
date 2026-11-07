@@ -4,7 +4,9 @@
 Claude Code allows read-only shell commands such as grep and sed without a
 permission rule, so an allowlist alone does not hold an arm to its tools. Modes:
 
-  ygg        one plain `ygg search` command (the default)
+  ygg        `ygg search` commands, chained with && ; or || and separated by
+             echo if wanted, whose output may be piped through head, tail,
+             grep, wc, sort, uniq or cut (the default)
   shell      read-only search and file commands, piped together if wanted,
              inside the working directory
   shell-ygg  the shell commands plus `ygg search`
@@ -14,6 +16,7 @@ between standard streams are refused in every mode.
 """
 import json
 import os
+import re
 import shlex
 import sys
 
@@ -21,11 +24,16 @@ PUNCTUATION = ';|&<>()'
 SEPARATORS = {'|', '||', '&&', ';'}
 SHELL_PROGRAMS = {'grep', 'egrep', 'fgrep', 'find', 'ls', 'cat', 'head', 'tail', 'sed',
                   'wc', 'sort', 'uniq', 'cut', 'tr', 'nl', 'echo'}
+# Filters that only read the piped output in ygg mode: no file arguments, and
+# grep takes only its pattern.
+OUTPUT_FILTERS = {'head', 'tail', 'grep', 'egrep', 'fgrep', 'wc', 'sort', 'uniq', 'cut'}
 FIND_ACTIONS = {'-exec', '-execdir', '-ok', '-okdir', '-delete', '-fprint', '-fprintf', '-fls'}
 
 
 def tokens(command):
-    if '`' in command or '$(' in command:
+    # Single quotes make backticks and $( literal; anywhere else they substitute.
+    unquoted = re.sub(r"'[^']*'", '', command)
+    if '`' in unquoted or '$(' in unquoted:
         return None
     lexer = shlex.shlex(command, posix=True, punctuation_chars=PUNCTUATION)
     lexer.whitespace_split = True
@@ -36,13 +44,13 @@ def tokens(command):
 
 
 def segments(parts):
-    """Split tokens into commands at separators; None if an operator is refused."""
-    commands, current, index = [], [], 0
+    """Split tokens into (separator before, command) pairs; None if an operator is refused."""
+    commands, current, index, before = [], [], 0, None
     while index < len(parts):
         token = parts[index]
         if token in SEPARATORS:
-            commands.append(current)
-            current = []
+            commands.append((before, current))
+            current, before = [], token
         elif token and set(token) <= set(PUNCTUATION):
             target = parts[index + 1] if index + 1 < len(parts) else ''
             if token in ('>', '>>') and target == '/dev/null':
@@ -54,7 +62,7 @@ def segments(parts):
         else:
             current.append(token)
         index += 1
-    commands.append(current)
+    commands.append((before, current))
     return commands
 
 
@@ -83,16 +91,30 @@ def ygg_command(command):
     return command[:2] == ['ygg', 'search'] and len(command) > 2
 
 
+def output_filter(command):
+    program, args = command[0], command[1:]
+    if program not in OUTPUT_FILTERS:
+        return False
+    operands = [arg for arg in args if not arg.startswith('-') and not arg.isdigit()]
+    return len(operands) <= (1 if program in ('grep', 'egrep', 'fgrep') else 0)
+
+
 def allowed(command, mode='ygg', cwd='.'):
     parts = tokens(command)
     if not parts:
         return False
     commands = segments(parts)
-    if not commands or any(not part for part in commands):
+    if not commands or any(not part for _, part in commands):
         return False
     if mode == 'ygg':
-        return len(commands) == 1 and parts == commands[0] and ygg_command(commands[0])
-    for part in commands:
+        for before, part in commands:
+            if before == '|':
+                if not output_filter(part):
+                    return False
+            elif not (ygg_command(part) or part[0] == 'echo'):
+                return False
+        return True
+    for _, part in commands:
         if mode == 'shell-ygg' and part[0] == 'ygg':
             if not ygg_command(part):
                 return False

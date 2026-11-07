@@ -906,6 +906,77 @@ func TestSearchExplainsLeadingDashQuerySeparator(t *testing.T) {
 	}
 }
 
+func TestSearchTreatsMultiwordDashArgumentAsQuery(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(
+		filepath.Join(root, "graph.md"), []byte("Use --force graph overwrite to replace nodes.\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "--mode", "lexical", "--force graph overwrite", "--about=replace graph nodes",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var response struct {
+		Data struct {
+			Query   string `json:"query"`
+			Records []struct {
+				Path string `json:"path"`
+			} `json:"records"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Data.Query != "--force graph overwrite" || len(response.Data.Records) == 0 ||
+		response.Data.Records[0].Path != "graph.md" {
+		t.Fatalf("response=%s", stdout.String())
+	}
+}
+
+func TestSearchUsesAboutAsQueryWithoutPattern(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(
+		filepath.Join(root, "release.md"), []byte("The release checklist covers changelog entries.\n"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "--mode", "lexical", "--about", "release checklist",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var response struct {
+		Data struct {
+			Query   string `json:"query"`
+			Records []struct {
+				Path string `json:"path"`
+			} `json:"records"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Data.Query != "release checklist" || len(response.Data.Records) == 0 ||
+		response.Data.Records[0].Path != "release.md" {
+		t.Fatalf("response=%s", stdout.String())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "-E", "--about", "release checklist",
+	}, &stdout, &stderr); code != 2 || !strings.Contains(stdout.String(), "search query is required") {
+		t.Fatalf("regexp without pattern code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestPublicSurfaceRejectsLegacyCommands(t *testing.T) {
 	for _, command := range []string{
 		"start", "init", "sync", "query", "view", "report", "packages",

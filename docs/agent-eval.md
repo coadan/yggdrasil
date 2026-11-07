@@ -117,7 +117,10 @@ tool calls. The ygg arm was set up as in the pilot.
 ## Full public dev, symptom tasks
 
 All 146 non-leaking public dev cases, Haiku 5.5, an 8-call budget, and the ygg
-arm set up as in the pilot (lexical with reranking).
+arm set up as in the pilot (lexical with reranking). This table is the first
+pass in `symptom-dev`, where one run per arm ended in an error and counted as
+a miss. The table under "Harnesses, models and budgets" reran those two runs
+in the same directory, so each arm there has one more hit.
 
 | Arm | Hit | Recall | Precision | Expected file ranked first | Tool calls | Input tokens per run | Cost |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -210,3 +213,81 @@ answers. Against plain shell search it found five more.
 - These runs used the keyword-only ygg configuration except where marked
   hybrid. The hybrid result suggests rerunning the full comparison with
   embeddings.
+
+## Agent-facing tuning
+
+These variants change only what an agent sees or can run. The setup is the
+ygg arm, Haiku 5.5, all 146 symptom tasks and an 8-call prompt budget, with
+hybrid search (the user's MiniLM and HTTP reranker configuration on a
+full-coverage copy of the eval store). Every condition has its own output
+directory, and all are compared on the same cases.
+
+Changes to the harness, all kept:
+
+- **Chaining.** The ygg-arm guard now allows what real harnesses allow:
+  - several `ygg search` commands chained with `&&`, `;` or `||`, separated
+    by `echo` if wanted;
+  - `2>/dev/null`;
+  - pipes into output-only filters: head, tail, wc, sort, uniq, cut, and grep
+    with a pattern and no file;
+  - backticks inside single quotes.
+
+  File reads through Bash stay refused. In the full keyword-only run, 34 of
+  the ygg arm's 51 refused calls were chained searches.
+- **Raw results.** Runs from round 2 on keep each executed search's raw JSON
+  in `<case>.<arm>.ygg-raw.jsonl` before any formatting. That file also
+  counts searches inside chained commands.
+- **Output and guidance options.** `run.py --ygg-format` reshapes results in
+  the eval wrapper only, through `format.py`, before any change to the CLI
+  contract:
+  - `json` is unchanged;
+  - `compact` prints `path:start-end` with the excerpt indented;
+  - `files` prints paths and line ranges only.
+
+  `--guide-extra` appends text to the agent's guidance.
+
+Changes to the CLI, both kept and covered by tests:
+
+- **Multiword dash queries.** A dash-led argument whose would-be flag name
+  contains whitespace, such as `"--force graph overwrite"`, is the query.
+  Agents wrote these for tasks about command-line flags.
+- **`--about` without a pattern.** `ygg search --about "<description>"` with no
+  pattern searches the description's words and meaning. Agents wrote it 14
+  times in the round-1 compact run and 36 times in the files run, and each
+  failed with `search query is required`. A regular expression still needs a
+  pattern.
+
+Round 1 used main's binary and round 2 the binary with both CLI changes. The
+two compact runs in round 2 are identical conditions, so their gap of 3 hits
+shows the run-to-run noise.
+
+| Run | Hit | Recall | Expected file first | Input tokens per run | Tool calls | Searches per run | Failed searches | Cost |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1: json | 118 | 0.739 | 89 | 51.2k | 3.55 | | | $0.464 |
+| 1: compact | 123 | 0.769 | 92 | 50.5k | 3.75 | | | $0.453 |
+| 1: files | 119 | 0.736 | 88 | 54.0k | 5.37 | | | $0.462 |
+| 2: json | 121 | 0.758 | 86 | 49.7k | 3.41 | 3.09 | 6 | $0.439 |
+| 2: compact | 123 | 0.774 | 93 | 47.6k | 3.64 | 3.31 | 5 | $0.394 |
+| 2: compact, repeat | 120 | 0.768 | 89 | 46.4k | 3.52 | 3.27 | 5 | $0.387 |
+| 2: compact with tips | 121 | 0.773 | 92 | 50.7k | 3.00 | 3.88 | 7 | $0.452 |
+
+- **Compact output.** Hits are within noise, with paired differences of
+  7 / 5 and 3 / 4 against round-2 json. Recall was higher in all three
+  compact runs, and cost was lower in both rounds: 2% in round 1 and about
+  11% in round 2 on the same binary. The gain is modest but consistent. It is
+  a candidate for a text output option in the CLI. It was not adopted here,
+  because the JSON envelope is the CLI's contract.
+- **Files-only output.** Rejected. Agents read about two files per run to see
+  what the excerpts would have shown, used more calls and tokens, and found
+  no more files.
+- **Search tips.** Rejected. Tips appended to the guidance (start with a
+  description, use `-F` for seen identifiers, chain with `&&`, read the top
+  files) cut tool calls to 3.0 but raised searches per run to 3.9 and cost to
+  match json, with no gain in hits.
+- **Remaining failures** are about 1% of searches. They are grep and rg flags
+  ygg does not have (`-i`, `--no-ignore`, `-uuu`, `--pretty`, `--stats`), one
+  command that passed both an `-F` and an `-E` pattern, and one invalid
+  regular expression.
+- The round-2 json arm (121) is not comparable with the earlier keyword-only
+  ygg arm (117), because the guard, the binary and the search mode all
+  changed between them.

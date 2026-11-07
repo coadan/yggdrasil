@@ -195,7 +195,8 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	flags.BoolVar(&fixed, "fixed-strings", false, "match the lexical pattern as a fixed string")
 	flags.BoolVar(&regexpPattern, "E", false, "match the lexical pattern as a regular expression")
 	flags.BoolVar(&regexpPattern, "regexp", false, "match the lexical pattern as a regular expression")
-	about := flags.String("about", "", "semantic intent used independently of the lexical pattern")
+	about := flags.String("about", "", "semantic intent used independently of the lexical pattern; "+
+		"without a pattern, also the query")
 	flags.Usage = func() {
 		fmt.Fprintf(flagOutput, "Usage of %s:\n", flags.Name())
 		flags.PrintDefaults()
@@ -237,6 +238,10 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		if len(positionals) == 2 {
 			resolvedRoot = positionals[1]
 		}
+	}
+	if query == "" && !regexpPattern {
+		// A description alone is a complete query: search its words and meaning.
+		query = strings.TrimSpace(*about)
 	}
 	if query == "" {
 		return r.fail(true, 2, errors.New("search query is required"))
@@ -334,7 +339,7 @@ func parseInterspersed(flags *flag.FlagSet, args []string) error {
 			afterTerminator = true
 			continue
 		}
-		if arg == "-" || !strings.HasPrefix(arg, "-") {
+		if arg == "-" || !strings.HasPrefix(arg, "-") || multiwordDash(arg) {
 			positional = append(positional, arg)
 			continue
 		}
@@ -358,6 +363,17 @@ func parseInterspersed(flags *flag.FlagSet, args []string) error {
 		}
 	}
 	return flags.Parse(append(append(options, "--"), positional...))
+}
+
+// multiwordDash reports a dash-led argument whose would-be flag name contains
+// whitespace, such as a quoted "--force graph overwrite" query. No flag name
+// contains whitespace, so it can only be a query.
+func multiwordDash(arg string) bool {
+	name := strings.TrimLeft(arg, "-")
+	if separator := strings.IndexByte(name, '='); separator >= 0 {
+		name = name[:separator]
+	}
+	return strings.ContainsAny(name, " \t\r\n")
 }
 
 // discardJSONAssertion keeps already-running agents working while leaving the
