@@ -444,13 +444,13 @@ the held-out suites; the 0.6B model stays the documented choice.
 
 Core chunks average about 5,000 characters and 123 lines, while MiniLM in
 Ollama reads only its first 256 tokens, about 800 characters. A chunk's vector
-therefore described roughly its first 20 lines. Chunks now stay lexical-only
-(`semantic: false`), and separate semantic-only windows (`lexical: false`) of
-at most 30 lines and 1,000 bytes, overlapping by 5 lines, carry the vectors. A
-file keeps at most three windows per lexical chunk, spread evenly over its
-window grid with the first and last kept. Files that fit in one window keep a
-single record for both lanes. Lexical chunks are byte-identical to before, and
-`CoreExtractionVersion` moved to `v4` so existing indexes rebuild.
+therefore described roughly its first 20 lines. A candidate kept chunks
+lexical-only (`semantic: false`) and added semantic-only windows
+(`lexical: false`) of at most 30 lines and 1,000 bytes, overlapping by 5 lines,
+to carry the vectors. One variant embedded every window. The other kept at most
+three windows per lexical chunk, spread evenly over the file's window grid with
+the first and last kept. Files that fit in one window kept a single record for
+both lanes. Lexical chunks were byte-identical to before.
 
 Both variants were measured on dev against the 0.6B HTTP reranker baseline.
 `migard2` was left out of the local suite: its one dev case did not justify
@@ -472,7 +472,21 @@ window cost about six times the baseline vectors, and the local suite's first
 index took over an hour without `migard2` (about three hours more with it);
 three per chunk cost about 2.8 times the vectors and embedded the local suite
 in 28 minutes. Search time was unchanged when both binaries ran back to back
-under the same load. Three windows per chunk is retained.
+under the same load.
+
+Three windows per chunk landed on dev and then had its one held-out check
+against the saved held-out baseline, using the same stores:
+
+| Suite | Mode | Hits@10 | MRR@10 | Higher / lower |
+| --- | --- | ---: | ---: | ---: |
+| Local held-out | Lexical | 136 → 136 of 171 | 0.537 → 0.541 | 2 / 0 |
+| Local held-out | Hybrid | 144 → 143 of 171 | 0.579 → 0.580 | 34 / 39 |
+| Public held-out | Lexical | 157 → 157 of 180 | 0.614 → 0.614 | 0 / 0 |
+| Public held-out | Hybrid | 160 → 156 of 180 | 0.603 → 0.599 | 27 / 29 |
+
+The two lexical moves are reranker ties. The dev gain did not carry over to
+unseen cases, while the cost in vectors, index time and store size did, so the
+change was reverted. The patch is kept on branch `feat/embedding-windows`.
 
 ## Pseudo-relevance feedback
 
