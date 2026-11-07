@@ -552,9 +552,9 @@ inputs were the `exact`, `all-terms`, `stemmed`, `path` and `anchor` lanes
 against the `lexical` lane, the `semantic` lane (which also moves the
 record-level head), and the semantic family.
 
-Fitting replayed search in process against the existing dev stores, with lane
-candidates, query embeddings and rerank scores (the 0.6B HTTP reranker, depth
-20) memoized. At unit weights a first replay matched the saved dev baseline
+Fitting replayed search in process against the dev stores from before
+embedding windows, with lane candidates, query embeddings and rerank scores
+(the 0.6B HTTP reranker, depth 20) memoized. At unit weights a first replay matched the saved dev baseline
 except for two public hybrid ranks, which moved by one through reranker
 nondeterminism. The fits reused the rerank scores of a second replay, whose
 public baseline reads 0.590 lexical and 0.558 hybrid. Coordinate ascent over
