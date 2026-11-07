@@ -32,6 +32,7 @@ class RunIdentityTest(unittest.TestCase):
         claude.write_text('''#!/bin/sh
 cat >/dev/null
 if [ "$EVAL_STUB_FAIL" = 1 ]; then exit 1; fi
+if [ "$EVAL_STUB_SEARCH" = 1 ]; then ygg search fact >/dev/null || exit 1; fi
 printf '%s\\n' '{"type":"result","structured_output":{"files":["owner.txt"]}}'
 ''')
         claude.chmod(0o755)
@@ -51,9 +52,9 @@ printf '%s\\n' '{"type":"result","structured_output":{"files":["owner.txt"]}}'
     def task(self, text):
         self.tasks.write_text(json.dumps({'demo-case': {'task': text, 'leaks': []}}))
 
-    def run_eval(self, *args, fail_stub=False):
+    def run_eval(self, *args, fail_stub=False, search=False):
         return subprocess.run(self.command + list(args), capture_output=True, text=True,
-                              env=dict(self.env, EVAL_STUB_FAIL='1' if fail_stub else '0'))
+                              env=dict(self.env, EVAL_STUB_FAIL=str(int(fail_stub)), EVAL_STUB_SEARCH=str(int(search))))
 
     def test_manifest_refuses_mixed_inputs_before_touching_results(self):
         first = self.run_eval()
@@ -149,6 +150,30 @@ printf '%s\\n' '{"type":"result","structured_output":{"files":["owner.txt"]}}'
                  'coverage': 0.3, 'rerankState': None, 'count': 1},
             ],
         })
+
+    def test_wrapper_format_and_guidance_are_part_of_resume_identity(self):
+        guide = self.suite.parent / 'guide.txt'
+        guide.write_text('search bounded facts')
+        envelope = {'schema': 'ygg.cli/v1', 'ok': True, 'data': {
+            'requestedMode': 'auto', 'activeMode': 'hybrid', 'semantic': {'coverage': 1}, 'records': [],
+        }}
+        self.binary.write_text(f"#!/bin/sh\nprintf '%s\\n' '{json.dumps(envelope)}'\n")
+        self.binary.chmod(0o755)
+        flags = ('--ygg-format', 'compact', '--guide-extra', str(guide))
+        first = self.run_eval(*flags, search=True)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        row = json.loads((self.output / 'results.json').read_text())[0]
+        self.assertTrue(row['hit'])
+        self.assertEqual(row['yggObserved']['conditions'][0]['coverage'], 1)
+        same = self.run_eval(*flags, search=True)
+        self.assertIn('0 runs to do, 1 done', same.stderr)
+        changed_format = self.run_eval('--ygg-format', 'files', '--guide-extra', str(guide), search=True)
+        self.assertNotEqual(changed_format.returncode, 0)
+        self.assertIn('run inputs changed (ygg)', changed_format.stderr)
+        guide.write_text('different guide')
+        changed_guide = self.run_eval(*flags, search=True)
+        self.assertNotEqual(changed_guide.returncode, 0)
+        self.assertIn('run inputs changed (ygg)', changed_guide.stderr)
 
 
 if __name__ == '__main__':
