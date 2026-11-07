@@ -680,3 +680,25 @@ The four repositories took 3.07M input and 0.24M output tokens, including about
 list prices, or $0.21 through the Batches API. By the time the run stopped, 1,909
 of the 3,182 public files had been summarized with 8.8M input and 0.54M output
 tokens. No private source was sent.
+
+## Qwen embedding model
+
+MiniLM reads about 800 characters of each record. `qwen3-embedding:0.6b`
+through Ollama (1,024 dimensions, up to 9,000 input characters, with the
+code-search instruction prefix) was tested as a replacement on the public
+history suites, with the same binary, chunking and HTTP reranker.
+
+Indexing the nine public repositories took 4,951 seconds, all on embedding.
+graphify (3,328 records) failed with a client timeout and had no vectors, so
+its cases are left out of both comparisons. Lexical results were identical to
+the MiniLM baselines, so only the semantic lane differed.
+
+| Suite | Mode | Hits@10 | MRR@10 |
+| --- | --- | ---: | ---: |
+| Public dev | Lexical | 131 → 131 of 154 | 0.560 → 0.560 |
+| Public dev | Hybrid | 126 → 129 of 154 | 0.522 → 0.535 |
+| Public held-out | Lexical | 137 → 137 of 160 | 0.597 → 0.597 |
+| Public held-out | Hybrid | 141 → 138 of 160 | 0.590 → 0.587 |
+
+The dev gain did not hold on held-out, so Qwen 0.6b was rejected. Its
+4b model and the local suites were not run.
