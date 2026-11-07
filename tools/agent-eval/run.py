@@ -36,6 +36,7 @@ import subprocess
 import sys
 import time
 
+from run_identity import checked_output, observed_searches, run_manifest, write_json
 from tasks import task_file
 
 ANSWER_SCHEMA = json.dumps({
@@ -426,19 +427,35 @@ def main():
     arms = args.arms.split(',')
     if unknown := set(arms) - set(ARMS):
         raise SystemExit(f'unknown arms: {sorted(unknown)}')
+    if len(arms) != len(set(arms)):
+        parser.error('--arms must not contain duplicates')
     if any(ARMS[arm]['ygg'] for arm in arms) and not (args.ygg_binary and args.storage):
         raise SystemExit('ygg arms need --ygg-binary and --storage')
+    for name in ('ygg_binary', 'ygg_config', 'storage', 'guide_extra'):
+        if path := getattr(args, name, None):
+            setattr(args, name, path.expanduser().resolve())
     cases = json.loads((suite / f'{args.split}.json').read_text())
     tasks = json.loads(task_file(suite, args.split, args.style).read_text())
     if args.cases:
         wanted = set(json.loads(args.cases.read_text()))
         cases = [case for case in cases if case['id'] in wanted]
     picked = sample(cases, tasks, args.sample)
+    if not picked or len({case['id'] for case in picked}) != len(picked):
+        parser.error('select at least one case and use unique case IDs')
     output = args.output.expanduser().resolve()
     for repo in {case['repo'] for case in picked}:
         root = (suite / 'repos' / repo).resolve()
         if output.is_relative_to(root) or suite.resolve().is_relative_to(root):
             raise SystemExit('Keep suite and output outside every repository under test')
+    try:
+        manifest = run_manifest(args, {arm: ARMS[arm] for arm in arms}, picked, tasks)
+        with checked_output(output, manifest):
+            return run_cases(args, suite, arms, picked, tasks, output)
+    except (ValueError, OSError) as error:
+        raise SystemExit(str(error)) from None
+
+
+def run_cases(args, suite, arms, picked, tasks, output):
     (output / 'logs').mkdir(parents=True, exist_ok=True)
     if args.ygg_binary:
         args.wrapper_dir = output / 'bin'
@@ -458,12 +475,24 @@ def main():
         if not auth.is_symlink():
             auth.symlink_to(Path(os.environ.get('CODEX_HOME', Path.home() / '.codex')) / 'auth.json')
     results_path = output / 'results.json'
-    rows = json.loads(results_path.read_text()) if results_path.exists() else []
-    done = {(row['case'], row['arm']) for row in rows if not row['isError']}
-    by_id = {case['id']: case for case in cases}
-    rows = [rescore(row, by_id[row['case']], suite, output) for row in rows
-            if (row['case'], row['arm']) in done]
+    previous = json.loads(results_path.read_text()) if results_path.exists() else []
+    by_id = {case['id']: case for case in picked}
+    rows = {}
+    for row in previous:
+        key = row['case'], row['arm']
+        if key[0] not in by_id or key[1] not in arms or key in rows:
+            raise ValueError(f'unexpected or duplicate run result: {key}')
+        if not row['isError'] and not row['timedOut']:
+            log = output / 'logs' / f'{key[0]}.{key[1]}.jsonl'
+            if log.is_file():
+                rescore(row, by_id[key[0]], suite, output)
+            else:
+                row.update(isError=True, runnerError='saved trajectory is missing')
+        rows[key] = row
+    done = {key for key, row in rows.items() if not row['isError'] and not row['timedOut']}
     todo = [(case, arm) for case in picked for arm in arms if (case['id'], arm) not in done]
+    interrupted = {(case['id'], arm) for case, arm in todo
+                   if (output / 'logs' / f"{case['id']}.{arm}.jsonl").is_file()}
     print(f'{len(todo)} runs to do, {len(done)} done', file=sys.stderr)
 
     def work(item):
@@ -480,13 +509,26 @@ def main():
                 row = future.result()
             except Exception as error:  # keep the rest of the run
                 print(f"{case['id']} {arm}: {error}", file=sys.stderr)
-                continue
-            rows.append(row)
-            results_path.write_text(json.dumps(rows, indent=1))
+                repo = (suite / 'repos' / case['repo']).resolve()
+                row = {'case': case['id'], 'repo': case['repo'], 'arm': arm,
+                       'expectedPaths': case['expectedPaths'], 'timedOut': False, 'runnerError': str(error)}
+                row.update(score([], case, repo))
+            key = case['id'], arm
+            if earlier := rows.get(key):
+                failure = {field: earlier[field] for field in
+                           ('isError', 'timedOut', 'subtype', 'runnerError', 'costUsd', 'wallMs') if field in earlier}
+                row['priorFailures'] = [*earlier.get('priorFailures', []), failure]
+            elif key in interrupted:
+                row['priorFailures'] = [{'runnerError': 'saved trajectory had no result row'}]
+            if ARMS[arm]['ygg']:
+                log = output / 'logs' / f"{case['id']}.{arm}.jsonl"
+                row['yggObserved'] = observed_searches(log)
+            rows[key] = row
+            write_json(results_path, list(rows.values()))
             print(f"{count}/{len(todo)} {case['id']} {arm}: hit={row['hit']} recall={row['recall']} "
                   f"calls={row['toolCalls']} ${row['costUsd'] or 0:.3f}", file=sys.stderr)
-    results_path.write_text(json.dumps(rows, indent=1))
-    print(summarize(rows))
+    write_json(results_path, list(rows.values()))
+    print(summarize(rows.values()))
     return 0
 
 
