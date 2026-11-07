@@ -15,7 +15,7 @@ import re
 import subprocess
 import sys
 
-from report import search_calls
+from report import inspect_trajectory
 
 STOPWORDS = set("""
 the and for that this with from are was were but not you your our they them their when
@@ -76,17 +76,19 @@ def main():
         cells = '  '.join(f"{sum(paired[c][arm]['hit'] for c in cases):>9}/{len(cases):<3} {sum(paired[c][arm]['hit'] for c in cases) / len(cases):3.0%}"
                           for arm in arms)
         print(f'{label:7}  {len(cases):3} {cells}')
-    print('\nfirst search call names an expected file')
+    print('\nfirst successful search shows an expected file (hits/classified, unknown separately)')
     print(header)
     for label, cases in buckets.items():
         cells = []
         for arm in arms:
-            hits = 0
+            hits = classified = 0
             for case in cases:
                 log = args.run / 'logs' / f'{case}.{arm}.jsonl'
-                first = next(search_calls(log, arm), None)
-                hits += bool(first and any(path in first[1] for path in paired[case][arm]['expectedPaths']))
-            cells.append(f'{hits:>9}/{len(cases):<3} {hits / len(cases):3.0%}')
+                trace = inspect_trajectory(log, set(paired[case][arm]['expectedPaths']))
+                first = next(iter(trace['searches']), None)
+                hits += first is True
+                classified += first is not None
+            cells.append(f'{hits}/{classified}, {len(cases) - classified} unknown'.rjust(16))
         print(f'{label:7}  {len(cases):3} ' + '  '.join(cells))
     (args.run / 'overlap.json').write_text(json.dumps(scores, indent=1, sort_keys=True))
     return 0
