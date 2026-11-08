@@ -1027,6 +1027,72 @@ func TestAutoFusesRegexpAndExplicitSemanticIntent(t *testing.T) {
 	}
 }
 
+func TestAutoKeepsExplicitSemanticIntentForPunctuationQuery(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body struct {
+			Input []string `json:"input"`
+		}
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Error(err)
+			return
+		}
+		if len(body.Input) != 1 || body.Input[0] != "query: API command error envelope" {
+			t.Errorf("query embedding input=%q", body.Input)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{
+			"data": []map[string]any{{"index": 0, "embedding": []float32{1, 0}}},
+		})
+	}))
+	defer server.Close()
+	cfg := config.Embedding{
+		Kind: "openai-compatible", Endpoint: server.URL, Model: "test",
+		Dimensions: 2, TimeoutMS: 1_000, QueryPrefix: "query: ",
+	}
+	ctx := context.Background()
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	file := discovery.File{
+		Candidate: discovery.Candidate{Path: "src/target.go", Size: 20, MTimeNS: 1},
+		Kind:      "go",
+	}
+	if err := value.ReplaceFile(ctx, "run", file, "hash", "fingerprint", []contracts.SearchRecord{{
+		Path: file.Path, StartLine: 4, EndLine: 6, Kind: "text-chunk",
+		Text: "mechanically unrelated words", Source: "core",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := embedding.Fingerprint(cfg)
+	if _, err := value.PrepareEmbeddingLane(ctx, fingerprint, cfg.Model, cfg.Dimensions); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, fingerprint, 10)
+	if err != nil || len(inputs) != 1 {
+		t.Fatalf("inputs=%#v err=%v", inputs, err)
+	}
+	if _, err := value.UpsertEmbeddings(ctx, fingerprint, 2, []store.EmbeddingValue{{
+		ID: inputs[0].ID, InputHash: inputs[0].InputHash, Vector: []float32{1, 0},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Run(ctx, value, "->", Options{
+		Mode: "auto", Limit: 5, Embedding: testCapability(t, ctx, cfg, nil),
+		MatchKind: MatchText, About: "API command error envelope",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 1 ||
+		result.QueryPlan.Semantic == nil || result.QueryPlan.Semantic.Source != "about" {
+		t.Fatalf("result=%#v", result)
+	}
+	if result.Records[0].Path != file.Path || result.Records[0].Retrieval[0] != "semantic" {
+		t.Fatalf("records=%#v", result.Records)
+	}
+}
+
 func TestHybridSearchCitesDenseLexicalEvidenceInsteadOfSemanticFileTail(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		_ = json.NewEncoder(writer).Encode(map[string]any{

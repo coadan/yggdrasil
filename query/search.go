@@ -117,16 +117,19 @@ func run(ctx context.Context, value Reader, query string, opts Options) (Result,
 	candidateLimit := max(100, min(MaxResults+maxMorePaths, opts.Limit*10))
 	var lanes []lane
 	structured := false
+	// kind is the lexical lane actually used; a punctuation-only text query
+	// runs as a fixed string and must never reach FTS.
+	kind := plan.Lexical.Kind
 	if opts.Mode != "semantic" {
 		terms := queryTerms(query)
 		literal := plan.Lexical.Kind == MatchText && literalTermQuery(query, terms)
 		structured = literal
-		kind := plan.Lexical.Kind
 		if kind == MatchText && len(terms) == 0 {
 			// Without letter or digit terms, FTS has nothing to tokenize. The
-			// query text can still occur verbatim, as in ???, -> or ::.
+			// query text can still occur verbatim, as in ???, -> or ::. As with
+			// an explicit -F, explicit --about intent keeps its semantic lane.
 			kind = MatchFixed
-			structured = true
+			structured = plan.Semantic == nil || plan.Semantic.Source != "about"
 		}
 		switch kind {
 		case MatchFixed:
@@ -189,7 +192,7 @@ func run(ctx context.Context, value Reader, query string, opts Options) (Result,
 				}
 			}
 		}
-		if plan.Lexical.Kind == MatchText && !structured {
+		if kind == MatchText && !structured {
 			fts, err := value.LexicalCandidates(
 				ctx, ftsAnyQuery(terms), opts.Scope, candidateLimit,
 			)
@@ -239,7 +242,7 @@ func run(ctx context.Context, value Reader, query string, opts Options) (Result,
 		QueryPlan:     plan,
 		RequestedMode: opts.Mode,
 		ActiveMode:    "lexical",
-		rerankable:    plan.Lexical.Kind == MatchText && !structured && opts.Mode != "graph",
+		rerankable:    kind == MatchText && !structured && opts.Mode != "graph",
 	}
 	if opts.Mode == "lexical" {
 		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
