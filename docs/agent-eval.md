@@ -443,16 +443,29 @@ and counted apart. Citations certain to overlap (new files, or windows
 covering the file) are also counted apart. The baseline is the chance that a
 window of the same length, placed uniformly in the file, overlaps.
 
+Two windows are measured:
+- **Declared range:** the record's `startLine` to `endLine`.
+- **Displayed range:** the lines the excerpt actually shows, aligned to the
+  HEAD blob. An excerpt is a trimmed character window inside the declared
+  range. It can start on a later line, even mid-line, and its last line can be
+  cut short. Excerpts with no alignment, or more than one, are counted as
+  ambiguous.
+
+A pure deletion has no new-side line, so the line before it stands in as a
+proxy for nearby context.
+
 On the final dev runs, counting distinct citations per arm:
 
-| Arm | Citations | Unmappable | Certain | Measured | Overlap | Chance |
+| Arm | Citations | Unmappable | Certain | Declared overlap (chance) | Displayed overlap (chance) | Ambiguous |
 |---|---|---|---|---|---|---|
-| codex-ygg | 187 | 101 | 7 | 79 | 39 (49%) | 5.1 (6%) |
-| shell-ygg | 54 | 21 | 7 | 26 | 6 (23%) | 1.6 (6%) |
+| codex-ygg | 187 | 101 | 7 | 39 of 79 (5.1) | 38 of 77 (5.1) | 2 |
+| shell-ygg | 54 | 21 | 7 | 6 of 26 (1.6) | 6 of 25 (1.6) | 1 |
 
-- Citations land on the fixed lines far above chance.
-- Of 60 misses, 13 were within 10 lines; the median miss was 56 to 99 lines
-  away.
+- Citations land on the fixed lines far above chance in both measures.
+- A declared range wider than its excerpt, as in an exact-match repro, does
+  occur, but it changed no overlap count here.
+- Of the 60 declared misses, 13 were within 10 lines; the median miss was 56
+  to 99 lines away.
 - In the traces, agents read the whole file once it ranks first, so a
   far-off window costs little.
 - Citation placement is not a target until a task shows an agent stopping

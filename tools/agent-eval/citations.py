@@ -8,10 +8,17 @@ change between the fix and HEAD touched it, and a region maps only when every
 line does; unmappable regions are counted apart, never as overlap or miss.
 File rank is deliberately not part of this report.
 
+Two windows are measured. The declared range is the record's startLine to
+endLine. The displayed range is what the agent saw: the excerpt aligned line by
+line to the HEAD blob within the declared range. An excerpt is a trimmed
+character window: its first line is the tail of a blob line and a truncated
+last line is a prefix. An excerpt with no alignment, or more than one, is
+counted as ambiguous. A pure deletion has no
+new-side line; the line before it stands in as a proxy for nearby context.
+
 The baseline is the chance that a window of the same length, placed uniformly
 in the HEAD file, intersects the mapped region. Citations certain to overlap
-(a new file, or a window covering the file) are counted apart as `certain`;
-`overlap`, `chance` and the miss distances cover the rest.
+(a new file, or a window covering the file) are counted apart as `certain`.
 """
 import argparse
 from collections import defaultdict
@@ -83,6 +90,42 @@ def chance(length, total, lines):
     return hits / positions
 
 
+def displayed_lines(excerpt, blob, start, end):
+    """(first, last) blob lines the excerpt shows, or None unless it aligns uniquely.
+
+    An excerpt is a trimmed character window inside the declared range: its
+    first line is the tail of a blob line, later lines match whole, and a
+    truncated last line (ending in an ellipsis) is a prefix of its blob line.
+    """
+    if not excerpt:
+        return None
+    truncated = excerpt.endswith('\u2026')
+    lines = [line.rstrip('\r') for line in (excerpt[:-1] if truncated else excerpt).split('\n')]
+    if not lines[0].strip():
+        return None
+    matches = []
+    for first in range(max(start - 1, 0), min(end, len(blob))):
+        if first + len(lines) > len(blob):
+            break
+        aligned = True
+        for index, got in enumerate(lines):
+            want = blob[first + index].rstrip('\r')
+            if index == 0:
+                ok = want.endswith(got) or (truncated and len(lines) == 1 and got in want)
+            elif index == len(lines) - 1 and truncated:
+                ok = want.startswith(got)
+            else:
+                ok = want == got
+            if not ok:
+                aligned = False
+                break
+        if aligned:
+            matches.append(first)
+    if len(matches) != 1:
+        return None
+    return matches[0] + 1, matches[0] + len(lines)
+
+
 def git(repo, *args):
     result = subprocess.run(['git', '-C', str(repo), *args], capture_output=True, text=True)
     return result.stdout if result.returncode == 0 else None
@@ -117,11 +160,14 @@ class Regions:
         blob = git(repo, 'show', f'{head}:{path}')
         if blob is None:
             return {'status': 'git-error'}
-        return {'status': 'mapped', 'lines': sorted(mapped), 'total': max(1, len(blob.splitlines()))}
+        blob_lines = blob.split('\n')
+        if blob_lines and blob_lines[-1] == '':
+            blob_lines.pop()
+        return {'status': 'mapped', 'lines': sorted(mapped), 'blob': blob_lines, 'total': max(1, len(blob_lines))}
 
 
 def citations(run_dir, cases):
-    """Yield (arm, case, path, start, end) once per distinct citation per arm."""
+    """Yield (arm, case, path, start, end, excerpt) once per distinct citation per arm."""
     seen = set()
     for raw in sorted((run_dir / 'logs').glob('*.ygg-raw.jsonl')):
         case_id, arm = raw.name.split('.')[:2]
@@ -142,14 +188,14 @@ def citations(run_dir, cases):
                 key = (arm, case_id, record['path'], record['startLine'], record['endLine'])
                 if key not in seen:
                     seen.add(key)
-                    yield arm, case, record['path'], record['startLine'], record['endLine']
+                    yield arm, case, record['path'], record['startLine'], record['endLine'], record.get('excerpt')
 
 
 def measure(run_dirs, cases, repos):
     regions = Regions(repos)
     rows = []
     for run_dir in run_dirs:
-        for arm, case, path, start, end in citations(run_dir, cases):
+        for arm, case, path, start, end, excerpt in citations(run_dir, cases):
             region = regions.get(case, path)
             row = {'run': run_dir.name, 'arm': arm, 'case': case['id'], 'path': path,
                    'start': start, 'end': end, 'status': region['status']}
@@ -158,6 +204,12 @@ def measure(run_dirs, cases, repos):
                 row['distance'] = window_distance(start, end, lines)
                 row['overlap'] = row['distance'] == 0
                 row['chance'] = chance(end - start + 1, region['total'], lines)
+                shown = displayed_lines(excerpt, region['blob'], start, end)
+                row['shownLines'] = shown
+                if shown is not None:
+                    row['shownDistance'] = window_distance(shown[0], shown[1], lines)
+                    row['shownOverlap'] = row['shownDistance'] == 0
+                    row['shownChance'] = chance(shown[1] - shown[0] + 1, region['total'], lines)
             rows.append(row)
     return rows
 
@@ -178,14 +230,22 @@ def summarize(rows):
         cases = defaultdict(bool)
         for row in mapped:
             cases[row['case']] |= row['overlap']
+        mapped_all = [row for row in group if row['status'] == 'mapped']
+        shown = [row for row in mapped_all if row['shownLines'] is not None and row['shownChance'] < 1]
         summary[f'{run}/{arm}'] = {
             'citations': len(group), 'unmappable': dict(unmapped), 'certain': len(certain),
             'mapped': len(mapped),
-            'overlap': sum(row['overlap'] for row in mapped),
-            'chance': round(sum(row['chance'] for row in mapped), 1),
-            'missDistanceMedian': misses[len(misses) // 2] if misses else None,
-            'missWithin10': sum(distance <= 10 for distance in misses),
-            'cases': len(cases), 'casesWithOverlap': sum(cases.values()),
+            'declaredOverlap': sum(row['overlap'] for row in mapped),
+            'declaredChance': round(sum(row['chance'] for row in mapped), 1),
+            'shownAmbiguous': sum(row['shownLines'] is None for row in mapped_all),
+            'shownCertain': sum(row['shownLines'] is not None and row['shownChance'] >= 1 for row in mapped_all),
+            'shown': len(shown),
+            'shownOverlap': sum(row['shownOverlap'] for row in shown),
+            'shownChance': round(sum(row['shownChance'] for row in shown), 1),
+            'declaredMissMedian': misses[len(misses) // 2] if misses else None,
+            'declaredMissWithin10': sum(distance <= 10 for distance in misses),
+            'shownMissWithin10': sum(not row['shownOverlap'] and row['shownDistance'] <= 10 for row in shown),
+            'cases': len(cases), 'casesWithDeclaredOverlap': sum(cases.values()),
         }
     return summary
 

@@ -1,6 +1,6 @@
 import unittest
 
-from citations import chance, fixed_lines, map_line, map_region, parse_hunks, window_distance
+from citations import chance, displayed_lines, fixed_lines, map_line, map_region, parse_hunks, window_distance
 
 DIFF = '''diff --git a/a.py b/a.py
 --- a/a.py
@@ -49,6 +49,30 @@ class CitationTest(unittest.TestCase):
         self.assertAlmostEqual(chance(1, 10, [4, 7]), 0.2)
         self.assertEqual(chance(50, 10, [4]), 1.0)
 
+    def test_displayed_lines_aligns_excerpt_to_blob(self):
+        blob = [f'L{number:02d} text' for number in range(1, 44)]
+        self.assertEqual(displayed_lines('L03 text\nL04 text', blob, 3, 6), (3, 4))
+        self.assertEqual(displayed_lines('L03 text\r\nL04 te\u2026', blob, 3, 6), (3, 4))
+        # The excerpt may start later in the range, mid-line, and trimmed.
+        self.assertEqual(displayed_lines('5 text\nL06 text', blob, 3, 8), (5, 6))
+        indented = ['', '    }', '', 'next']
+        self.assertEqual(displayed_lines('}\n\nnext', indented, 1, 4), (2, 4))
+        self.assertIsNone(displayed_lines('L03 text\nother', blob, 3, 6))
+        self.assertIsNone(displayed_lines('L43 text\nL44 text', blob, 43, 44))
+        self.assertIsNone(displayed_lines('', blob, 1, 4))
+
+    def test_displayed_lines_refuses_ambiguous_alignment(self):
+        self.assertIsNone(displayed_lines('}', ['  }', '', '  }'], 1, 3))
+        self.assertEqual(displayed_lines('}', ['  }', '', '  }'], 1, 2), (1, 1))
+
+    def test_declared_range_can_overlap_where_the_excerpt_does_not(self):
+        # A record declares lines 1-43 but its excerpt shows 1-8; the fix is on 42.
+        blob = [f'L{number:02d} text' for number in range(1, 44)]
+        excerpt = '\n'.join(blob[:7]) + '\nL08 te\u2026'
+        shown = displayed_lines(excerpt, blob, 1, 43)
+        self.assertEqual(shown, (1, 8))
+        self.assertEqual(window_distance(1, 43, [42]), 0)
+        self.assertEqual(window_distance(*shown, [42]), 34)
 
 if __name__ == '__main__':
     unittest.main()
