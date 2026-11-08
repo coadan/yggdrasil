@@ -227,3 +227,17 @@ func TestRerankKeepsSupplementaryPaths(t *testing.T) {
 		t.Fatalf("paths=%s", got)
 	}
 }
+
+func TestRerankSkipsQueriesOverTheInputLimit(t *testing.T) {
+	value := rerankFixture(t)
+	reranker := &fakeReranker{score: func(rerankcontract.Input) float64 { return 0 }}
+	capability := &rerankcontract.Capability{Provider: reranker, MaxInputChars: 40}
+	query := "retry budget " + strings.Repeat("context ", 50)
+	result, err := Run(context.Background(), value, query, Options{Mode: "lexical", Limit: 2, Rerank: capability})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reranker.calls != 0 || result.Rerank == nil || result.Rerank.State != "skipped" {
+		t.Fatalf("calls=%d status=%#v", reranker.calls, result.Rerank)
+	}
+}

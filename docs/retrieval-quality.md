@@ -791,3 +791,21 @@ the MiniLM baselines, so only the semantic lane differed.
 
 The dev gain did not hold on held-out, so Qwen 0.6b was rejected. Its
 4b model and the local suites were not run.
+
+#### Reranking long queries
+
+The reranker scores the query and each document in one context, and the
+local Qwen3 reranker rejects pairs over its 2048-token batch. With the
+1500-character input limit, 54 of the 345 ARB queries failed the whole
+rerank request (42 of 58 edit2ripple diffs, 12 trace2code traces) and kept
+the lexical order. Truncating the query to the input limit made all of them
+rerank, but edit2ripple MRR fell from 0.192 (lexical order) to 0.183 while
+trace2code rose from 0.107 to 0.113; across both subsets the truncated
+variant summed less reciprocal rank than the fallback. Search now skips
+reranking for queries over the input limit and reports `skipped`, which keeps
+the measured ranking without a failing request.
+
+Where it applies, reranking lifted every suite measured on 2026-11-08:
+cross-artifact dev MRR 0.581 to 0.643 and P@2 0.356 to 0.432 (top-20
+coverage unchanged by construction), and ARB MRR 0.099 to 0.130 (71 better,
+15 worse).

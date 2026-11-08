@@ -27,6 +27,14 @@ func rerankResult(ctx context.Context, result *Result, limit int, capability rer
 	if maxChars == 0 {
 		maxChars = rerankcontract.DefaultMaxInputChars
 	}
+	// The query shares the reranker's per-pair context with each document. A
+	// query over the input limit overflows that context, and truncating it
+	// reranked diff-shaped queries worse than the lexical order, so it is
+	// skipped instead.
+	if len([]rune(result.Query)) > maxChars {
+		result.Rerank = &RerankStatus{State: "skipped", Error: "query exceeds rerank input limit"}
+		return
+	}
 	inputs := make([]rerankcontract.Input, depth)
 	for index, record := range result.ranked[:depth] {
 		inputs[index] = rerankcontract.Input{
