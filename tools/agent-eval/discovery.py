@@ -30,8 +30,10 @@ or a failed command is therefore not a read.
 With `--openings`, the opener cards shown before the first command are ranked:
 `openingOwnerRank` is the owner's position among the cards and
 `openingSiblingRank` the first card whose file name starts with the owner's
-stem and a dot (`combineURLs.test.js` for `combineURLs.js`). Neither counts as
-a command.
+stem and a dot (`combineURLs.test.js` for `combineURLs.js`).
+`openingExcerptRank` is the first card whose excerpt names the owner's path
+with path boundaries, as a prose card can point at the file it describes.
+None of these counts as a command.
 
 An event log may end in a truncated line when the run timed out; that one
 line is dropped only for runs marked `timedOut`.
@@ -46,8 +48,8 @@ import statistics
 import subprocess
 import sys
 
-BEFORE = r'''(?:^|(?<=[\s'"=(/:,]))'''
-AFTER = r'''(?=$|[\s'"):;,|&>\\])'''
+BEFORE = r'''(?:^|(?<=[\s'"`=(/:,]))'''
+AFTER = r'''(?=$|[\s'"`):;,|&>\\])'''
 IN_PLACE = re.compile(r'''(?:^|[\s;&|(])(?:sed|perl)\s+(?:-\S+\s+)*-[a-zA-Z]*i''')
 
 
@@ -148,8 +150,10 @@ def opening(cards, owner):
     stem = Path(owner).name.split('.')[0] + '.'
     sibling = next((index for index, path in enumerate(paths, 1)
                     if path != owner and Path(path).name.startswith(stem)), None)
+    excerpt = next((index for index, card in enumerate(cards, 1)
+                    if mentions(card.get('excerpt', ''), owner)), None)
     return {'openingOwnerRank': paths.index(owner) + 1 if owner in paths else None,
-            'openingSiblingRank': sibling,
+            'openingSiblingRank': sibling, 'openingExcerptRank': excerpt,
             'openingSibling': paths[sibling - 1] if sibling else None}
 
 
@@ -239,7 +243,7 @@ def summarize(rows):
     for arm, group in sorted(arms.items()):
         entry = {'runs': len(group)}
         for field in ('exposure', 'read', 'ownerRead', 'editAttempt', 'edit', 'openingOwnerRank',
-                      'openingSiblingRank'):
+                      'openingSiblingRank', 'openingExcerptRank'):
             values = [row[field] for row in group if row.get(field) is not None]
             entry[field] = len(values)
             entry[field + 'Median'] = statistics.median(values) if values else None

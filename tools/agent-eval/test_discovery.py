@@ -62,8 +62,11 @@ class OpeningTest(unittest.TestCase):
     def test_owner_and_same_stem_sibling_ranks(self):
         cards = [{'path': 'README.md'}, {'path': 'tests/unit/combineURLs.test.js'}, {'path': 'lib/combineURLs.js'}]
         self.assertEqual(opening(cards, 'lib/combineURLs.js'),
-                         {'openingOwnerRank': 3, 'openingSiblingRank': 2,
+                         {'openingOwnerRank': 3, 'openingSiblingRank': 2, 'openingExcerptRank': None,
                           'openingSibling': 'tests/unit/combineURLs.test.js'})
+        prose = [{'path': 'README.md', 'excerpt': 'x'}, {'path': 'THREATMODEL.md', 'excerpt': '(`lib/core/E.js`) does'}]
+        self.assertEqual(opening(prose, 'lib/core/E.js')['openingExcerptRank'], 2)
+        self.assertIsNone(opening(prose, 'lib/core/E.jsx')['openingExcerptRank'])
         self.assertEqual(opening(cards[:1], 'lib/combineURLs.js')['openingOwnerRank'], None)
 
 
