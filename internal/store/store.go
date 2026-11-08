@@ -1255,19 +1255,20 @@ func (s *Store) RebuildGraph(ctx context.Context) error {
 		return err
 	}
 	type unresolvedEdge struct {
-		id     int64
-		source string
-		target string
+		id       int64
+		source   string
+		relation string
+		target   string
 	}
 	rows, err = tx.QueryContext(ctx, `
-		SELECT id,source_path,target FROM graph_edges WHERE target_path IS NULL`)
+		SELECT id,source_path,relation,target FROM graph_edges WHERE target_path IS NULL`)
 	if err != nil {
 		return err
 	}
 	var unresolved []unresolvedEdge
 	for rows.Next() {
 		var edge unresolvedEdge
-		if err := rows.Scan(&edge.id, &edge.source, &edge.target); err != nil {
+		if err := rows.Scan(&edge.id, &edge.source, &edge.relation, &edge.target); err != nil {
 			rows.Close()
 			return err
 		}
@@ -1281,14 +1282,83 @@ func (s *Store) RebuildGraph(ctx context.Context) error {
 		return err
 	}
 	defer statement.Close()
+	modules := pythonModules(files)
 	for _, edge := range unresolved {
-		if target := resolveGraphTarget(edge.source, edge.target, files); target != "" {
+		target := ""
+		if edge.relation == "python-import" {
+			target = resolvePythonImport(edge.source, edge.target, files, modules)
+		} else {
+			target = resolveGraphTarget(edge.source, edge.target, files)
+		}
+		if target != "" {
 			if _, err := statement.ExecContext(ctx, target, edge.id); err != nil {
 				return err
 			}
 		}
 	}
 	return tx.Commit()
+}
+
+// pythonModules names each Python file as Python's import system would: the
+// module path runs from the nearest ancestor directory without __init__.py.
+func pythonModules(files map[string]bool) map[string][]string {
+	modules := make(map[string][]string)
+	for path := range files {
+		if !strings.HasSuffix(path, ".py") {
+			continue
+		}
+		var parts []string
+		if stem := strings.TrimSuffix(pathpkg.Base(path), ".py"); stem != "__init__" {
+			parts = []string{stem}
+		}
+		for dir := pathpkg.Dir(path); dir != "." && files[pathpkg.Join(dir, "__init__.py")]; dir = pathpkg.Dir(dir) {
+			parts = append([]string{pathpkg.Base(dir)}, parts...)
+		}
+		if len(parts) > 0 {
+			name := strings.Join(parts, ".")
+			modules[name] = append(modules[name], path)
+		}
+	}
+	return modules
+}
+
+// resolvePythonImport resolves relative imports by package level and absolute
+// imports only when exactly one repository file has that module name.
+func resolvePythonImport(source, target string, files map[string]bool, modules map[string][]string) string {
+	name := strings.TrimLeft(target, ".")
+	level := len(target) - len(name)
+	if level == 0 {
+		if paths := modules[name]; len(paths) == 1 {
+			return paths[0]
+		}
+		return ""
+	}
+	// A relative import stays inside the package chain: the importing file's
+	// directory and every directory it climbs to must be a package.
+	dir := pathpkg.Dir(source)
+	for step := 0; ; step++ {
+		if dir == "." || !files[pathpkg.Join(dir, "__init__.py")] {
+			return ""
+		}
+		if step == level-1 {
+			break
+		}
+		dir = pathpkg.Dir(dir)
+	}
+	if name == "" {
+		return pathpkg.Join(dir, "__init__.py")
+	}
+	base := pathpkg.Join(dir, strings.ReplaceAll(name, ".", "/"))
+	module, pkg := base+".py", pathpkg.Join(base, "__init__.py")
+	switch {
+	case files[module] && files[pkg]:
+		return ""
+	case files[module]:
+		return module
+	case files[pkg]:
+		return pkg
+	}
+	return ""
 }
 
 func resolveGraphTarget(source, target string, files map[string]bool) string {

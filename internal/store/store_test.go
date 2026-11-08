@@ -344,6 +344,79 @@ func TestGraphCandidatesFollowResolvedPluginImports(t *testing.T) {
 	}
 }
 
+func TestRebuildGraphResolvesPythonImports(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	imports := map[string][]string{
+		"src/pkg/__init__.py":     nil,
+		"src/pkg/core.py":         nil,
+		"src/pkg/sub/__init__.py": nil,
+		"src/pkg/sub/util.py":     {"..core", ".", "...outside"},
+		"tests/a/conftest.py":     nil,
+		"tests/b/conftest.py":     nil,
+		"tests/test_core.py":      {"pkg.core", "pkg", "json", "conftest"},
+		"setup.py":                {".missing"},
+		"target.py":               nil,
+		"top/__init__.py":         nil,
+		"top/caller.py":           {"..target", ".twin"},
+		"top/twin.py":             nil,
+		"top/twin/__init__.py":    nil,
+	}
+	for path, targets := range imports {
+		records := []contracts.SearchRecord{{Path: path, StartLine: 1, EndLine: 1, Kind: "file", Text: path, Source: "core"}}
+		for index, target := range targets {
+			records = append(records, contracts.SearchRecord{
+				Path: path, StartLine: index + 2, EndLine: index + 2, Kind: "python-import",
+				Title: target, Text: "import " + target, Source: "plugin:python",
+			})
+		}
+		file := discovery.File{Candidate: discovery.Candidate{Path: path, Size: 20, MTimeNS: 1}, Kind: "python"}
+		if err := value.ReplaceFile(ctx, "run", file, path, "fingerprint", records); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := value.RebuildGraph(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := value.queryContext(ctx, `SELECT source_path,target,coalesce(target_path,'') FROM graph_edges`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	got := map[string]string{}
+	for rows.Next() {
+		var source, target, resolved string
+		if err := rows.Scan(&source, &target, &resolved); err != nil {
+			t.Fatal(err)
+		}
+		got[source+" "+target] = resolved
+	}
+	want := map[string]string{
+		"src/pkg/sub/util.py ..core":     "src/pkg/core.py",
+		"src/pkg/sub/util.py .":          "src/pkg/sub/__init__.py",
+		"src/pkg/sub/util.py ...outside": "",
+		"tests/test_core.py pkg.core":    "src/pkg/core.py",
+		"tests/test_core.py pkg":         "src/pkg/__init__.py",
+		"tests/test_core.py json":        "",
+		"tests/test_core.py conftest":    "",
+		"setup.py .missing":              "",
+		"top/caller.py ..target":         "",
+		"top/caller.py .twin":            "",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("edges=%v", got)
+	}
+	for key, resolved := range want {
+		if got[key] != resolved {
+			t.Fatalf("%s resolved to %q, want %q (all %v)", key, got[key], resolved, got)
+		}
+	}
+}
+
 func TestEmbeddingLaneReturnsNearestRecord(t *testing.T) {
 	ctx := context.Background()
 	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")

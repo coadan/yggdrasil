@@ -409,6 +409,27 @@ None of the eval indexes had plugin records, because no suite configures
 extractors. ygg's import graph lane was therefore never measured in an agent
 eval.
 
+A replay measured the extractors afterwards, on shared clones at the eval
+HEADs. It reran all 886 saved ygg queries in auto mode without embeddings or
+rerank, first with no plugins and then with the six bundled extractors.
+
+- **Overall:** of 802 labelled queries, 495 surfaced an expected file in the
+  top 10 without extractors and 502 with them.
+- **Resolved edges:** most import edges did not resolve to files. Only
+  relative paths resolved, so the graph lane worked in hono (1,169 of 1,428
+  edges) and axios (372 of 750), where it added about two top-10 hits each.
+- **Python resolution:** Python imports now resolve by Python's own rule. A
+  module path runs from the nearest directory without `__init__.py`. Relative
+  imports climb only within the package chain, and absolute imports resolve
+  only to a unique file. A module that exists both as `name.py` and as
+  `name/__init__.py` is left unresolved. This raised graphify from 4 to 895 resolved edges and flask
+  from 0 to 242. On the same queries:
+  - 19 top-10 lists changed;
+  - four expected files were gained and one lost (a net gain of one query);
+  - flask `tests/test_json_tag.py`, one of the never-shown files, now
+    appears.
+- **Go:** Go imports use module paths and still do not resolve.
+
 ## Conclusions
 
 - In the final setup, strong agents find the files about as well with ygg as
