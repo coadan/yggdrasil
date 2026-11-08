@@ -28,13 +28,17 @@ and time. Completed runs are skipped on rerun.
 """
 import argparse
 import concurrent.futures
+from contextlib import nullcontext
 import json
 import os
 import re
 from pathlib import Path
 import shlex
+import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 from run_identity import PromptInput, checked_output, observed_searches, run_manifest, write_json
@@ -309,20 +313,35 @@ def run_codex(case, task, arm, args, repo, log, env):
                '-c', 'shell_environment_policy.inherit="all"',
                '-s', 'workspace-write', '-c', 'sandbox_workspace_write.network_access=true',
                '--json', '--output-schema', str(schema), '-o', str(last), '-C', str(repo), '-']
-    if spec['ygg']:
-        # The store and the raw-result log must be writable inside the sandbox.
-        command[-1:-1] = ['--add-dir', str(args.storage), '--add-dir', str(Path(log).parent)]
-        Path(log).with_suffix('.ygg-raw.jsonl').unlink(missing_ok=True)
     guide = CODEX_YGG_GUIDE.replace(CODEX_JSON_OUTPUT, CODEX_OUTPUT_GUIDES[args.ygg_format])
     prompt = (guide if spec['ygg'] else '') + task_prompt(args, case, task)
     started = time.monotonic()
-    with open(raw_log, 'w') as out:
-        try:
-            subprocess.run(command, input=prompt, stdout=out, stderr=subprocess.DEVNULL,
-                           text=True, cwd=repo, env=env, timeout=args.timeout)
-            timed_out = False
-        except subprocess.TimeoutExpired:
-            timed_out = True
+    capture_dir = tempfile.TemporaryDirectory(prefix='ygg-case-raw-') if spec['ygg'] else nullcontext()
+    with capture_dir as capture:
+        if capture is not None:
+            captured = Path(capture) / 'searches.jsonl'
+            collected = Path(log).with_suffix('.ygg-raw.jsonl')
+            collected.unlink(missing_ok=True)
+            env = dict(env, YGG_AGENT_RAW=str(captured))
+            command[-1:-1] = ['--add-dir', str(args.storage), '--add-dir', capture]
+        with open(raw_log, 'w') as out:
+            try:
+                subprocess.run(command, input=prompt, stdout=out, stderr=subprocess.DEVNULL,
+                               text=True, cwd=repo, env=env, timeout=args.timeout)
+                timed_out = False
+            except subprocess.TimeoutExpired:
+                timed_out = True
+        if capture is not None:
+            try:
+                fd = os.open(captured, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            except FileNotFoundError:
+                pass
+            else:
+                with os.fdopen(fd, 'rb') as source:
+                    if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                        raise ValueError('Ygg capture is not a regular file')
+                    with collected.open('xb') as destination:
+                        shutil.copyfileobj(source, destination)
     try:
         answer = json.loads(last.read_text())
     except (OSError, json.JSONDecodeError):
@@ -344,7 +363,6 @@ def run_one(case, task, arm, args, repo, log):
             env.update(PATH=f'{args.wrapper_dir}:{env["PATH"]}', YGG_AGENT_BIN=str(args.wrapper_dir),
                        YGG_AGENT_REPO=str(repo), YGG_STORAGE_ROOT=str(args.storage),
                        YGG_AGENT_FORMAT=args.ygg_format,
-                       YGG_AGENT_RAW=str(Path(log).with_suffix('.ygg-raw.jsonl')),
                        YGG_AGENT_LOG=str(args.storage / 'agent-wrapper.log'))
             if args.ygg_config:
                 env['YGG_CONFIG'] = str(args.ygg_config)
@@ -481,6 +499,9 @@ def main():
     if not picked or len({case['id'] for case in picked}) != len(picked):
         parser.error('select at least one case and use unique case IDs')
     output = args.output.expanduser().resolve()
+    if (any(ARMS[arm].get('harness') == 'codex' and ARMS[arm]['ygg'] for arm in arms) and
+            (output / 'logs').resolve().is_relative_to(args.storage)):
+        parser.error('keep Codex eval logs outside the Ygg storage directory')
     for repo in {case['repo'] for case in picked}:
         root = (suite / 'repos' / repo).resolve()
         if output.is_relative_to(root) or suite.resolve().is_relative_to(root):

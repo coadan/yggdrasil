@@ -1,7 +1,9 @@
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import run
 
@@ -38,6 +40,51 @@ class PromptTest(unittest.TestCase):
             self.assertEqual(run.task_prompt(args, case, 'Fix it.'), expected)
             self.assertEqual(run.run_manifest(args, {}, [], {})['promptExtra'], identity)
             self.assertNotEqual(run.PromptInput.read(extra).identity(), identity)
+
+
+class RawCaptureTest(unittest.TestCase):
+    def test_codex_capture_is_case_local_and_collected_after_timeout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            logs = root / 'logs'
+            logs.mkdir()
+            sibling = logs / 'other.codex-ygg.ygg-raw.jsonl'
+            sibling.write_text('other case')
+            log = logs / 'case.codex-ygg.jsonl'
+            collected = log.with_suffix('.ygg-raw.jsonl')
+            args = SimpleNamespace(
+                storage=root / 'storage', ygg_format='compact', codex_model='test',
+                codex_effort='low', timeout=30, tool_budget=5,
+            )
+            case = {'repo': 'gin'}
+            paths = []
+            captured = '{"schema":"ygg.cli/v1","ok":false}\n'
+
+            def command(argv, **kwargs):
+                if argv[0] == 'git':
+                    return SimpleNamespace(stdout='')
+                writable = {Path(argv[index + 1]) for index, value in enumerate(argv) if value == '--add-dir'}
+                raw = Path(kwargs['env']['YGG_AGENT_RAW'])
+                self.assertEqual(writable, {args.storage, raw.parent})
+                self.assertNotIn(logs, writable)
+                self.assertFalse(collected.exists())
+                paths.append(raw)
+                if len(paths) == 1:
+                    raw.write_text(captured)
+                    raise subprocess.TimeoutExpired(argv, args.timeout)
+                return SimpleNamespace(returncode=0)
+
+            with patch.object(run.subprocess, 'run', side_effect=command):
+                _, timed_out, _ = run.run_codex(case, 'Fix it.', 'codex-ygg', args, root, log,
+                                                {'YGG_AGENT_RAW': str(collected)})
+                self.assertTrue(timed_out)
+                self.assertEqual(collected.read_text(), captured)
+                self.assertEqual(run.observed_searches(log)['errors'], 1)
+                self.assertFalse(paths[0].exists())
+                run.run_codex(case, 'Fix it.', 'codex-ygg', args, root, log, {})
+            self.assertNotEqual(paths[0].parent, paths[1].parent)
+            self.assertFalse(collected.exists())
+            self.assertEqual(sibling.read_text(), 'other case')
 
 
 if __name__ == '__main__':
