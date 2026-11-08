@@ -175,6 +175,18 @@ func TestGraphSearchReturnsAResolvedImportNeighbor(t *testing.T) {
 	if got := strings.Join(auto.Records[1].Retrieval, ","); got != "graph" {
 		t.Fatalf("neighbor retrieval=%q", got)
 	}
+	// Explicit --about without a semantic provider falls back, but the
+	// structured token keeps its graph neighbor.
+	about, err := Run(ctx, value, "ownRoute", Options{
+		Mode: "auto", Limit: 5, HasExtractors: true, About: "route ownership",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if about.FallbackReason != "semantic-unconfigured" || len(about.Records) < 2 ||
+		about.Records[0].Path != "src/owner.ts" || about.Records[1].Path != "src/consumer.ts" {
+		t.Fatalf("about result=%#v", about)
+	}
 }
 
 func TestSearchReturnsBoundedOverflowPathsWithoutExtraCitations(t *testing.T) {
@@ -1027,7 +1039,7 @@ func TestAutoFusesRegexpAndExplicitSemanticIntent(t *testing.T) {
 	}
 }
 
-func TestAutoKeepsExplicitSemanticIntentForPunctuationQuery(t *testing.T) {
+func TestAutoKeepsExplicitSemanticIntentForStructuredQueries(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		var body struct {
 			Input []string `json:"input"`
@@ -1077,19 +1089,35 @@ func TestAutoKeepsExplicitSemanticIntentForPunctuationQuery(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := Run(ctx, value, "->", Options{
+	// A punctuation-only query and a single structured token both keep their
+	// exact lanes; explicit --about adds semantic retrieval in auto mode.
+	for _, query := range []string{"->", "pkg.Target"} {
+		result, err := Run(ctx, value, query, Options{
+			Mode: "auto", Limit: 5, Embedding: testCapability(t, ctx, cfg, nil),
+			MatchKind: MatchText, About: "API command error envelope",
+		})
+		if err != nil {
+			t.Fatalf("%q: %v", query, err)
+		}
+		if len(result.Records) != 1 ||
+			result.QueryPlan.Semantic == nil || result.QueryPlan.Semantic.Source != "about" {
+			t.Fatalf("%q result=%#v", query, result)
+		}
+		if result.Records[0].Path != file.Path || result.Records[0].Retrieval[0] != "semantic" {
+			t.Fatalf("%q records=%#v", query, result.Records)
+		}
+	}
+	// Without --about, the structured token stays exact: no embedding request
+	// (the server rejects other inputs) and no semantic record.
+	result, err := Run(ctx, value, "pkg.Target", Options{
 		Mode: "auto", Limit: 5, Embedding: testCapability(t, ctx, cfg, nil),
-		MatchKind: MatchText, About: "API command error envelope",
+		MatchKind: MatchText,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(result.Records) != 1 ||
-		result.QueryPlan.Semantic == nil || result.QueryPlan.Semantic.Source != "about" {
-		t.Fatalf("result=%#v", result)
-	}
-	if result.Records[0].Path != file.Path || result.Records[0].Retrieval[0] != "semantic" {
-		t.Fatalf("records=%#v", result.Records)
+	if len(result.Records) != 0 || result.ActiveMode != "lexical" {
+		t.Fatalf("structured default result=%#v", result)
 	}
 }
 

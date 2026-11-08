@@ -126,10 +126,9 @@ func run(ctx context.Context, value Reader, query string, opts Options) (Result,
 		structured = literal
 		if kind == MatchText && len(terms) == 0 {
 			// Without letter or digit terms, FTS has nothing to tokenize. The
-			// query text can still occur verbatim, as in ???, -> or ::. As with
-			// an explicit -F, explicit --about intent keeps its semantic lane.
+			// query text can still occur verbatim, as in ???, -> or ::.
 			kind = MatchFixed
-			structured = plan.Semantic == nil || plan.Semantic.Source != "about"
+			structured = true
 		}
 		switch kind {
 		case MatchFixed:
@@ -259,20 +258,27 @@ func run(ctx context.Context, value Reader, query string, opts Options) (Result,
 		result.ElapsedMS = time.Since(started).Milliseconds()
 		return result, nil
 	}
+	// Structured queries keep their exact lanes and expand them through the
+	// graph. In auto mode they return without semantic retrieval unless
+	// --about states semantic intent; any semantic fallback keeps the graph.
+	graphAdded := false
 	if structured && opts.Mode == "auto" {
 		if opts.HasExtractors {
 			graph, graphErr := graphLane(ctx, value, evidenceQuery, lanes, opts.Scope, candidateLimit)
 			if graphErr != nil {
 				return Result{}, graphErr
 			}
+			graphAdded = true
 			if len(graph.records) > 0 {
 				lanes = append(lanes, graph)
 				result.ActiveMode = "hybrid"
 			}
 		}
-		setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
-		result.ElapsedMS = time.Since(started).Milliseconds()
-		return result, nil
+		if plan.Semantic == nil || plan.Semantic.Source != "about" {
+			setResultRecords(&result, evidenceQuery, opts.Limit, lanes)
+			result.ElapsedMS = time.Since(started).Milliseconds()
+			return result, nil
+		}
 	}
 	if plan.Semantic == nil {
 		if opts.Mode == "semantic" {
@@ -347,7 +353,7 @@ func run(ctx context.Context, value Reader, query string, opts Options) (Result,
 	if opts.Mode == "semantic" {
 		result.ActiveMode = "semantic"
 	} else {
-		if opts.HasExtractors {
+		if opts.HasExtractors && !graphAdded {
 			graph, graphErr := graphLane(ctx, value, evidenceQuery, lanes, opts.Scope, candidateLimit)
 			if graphErr != nil {
 				return Result{}, graphErr
