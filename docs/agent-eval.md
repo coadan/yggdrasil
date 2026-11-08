@@ -430,6 +430,34 @@ rerank, first with no plugins and then with the six bundled extractors.
     appears.
 - **Go:** Go imports use module paths and still do not resolve.
 
+### Citation overlap
+
+File rank says whether ygg named the right file, not whether its cited lines
+reached the fix. `tools/agent-eval/citations.py` measures that separately
+from the saved raw ygg results, so it needs no model runs.
+
+For each citation of an expected path, it maps the fix commit's new-side
+hunks onto the HEAD blob the agent searched, through `git diff -U0 <fix>
+<head>`. If any fixed line changed after the fix, the region is unmappable
+and counted apart. Citations certain to overlap (new files, or windows
+covering the file) are also counted apart. The baseline is the chance that a
+window of the same length, placed uniformly in the file, overlaps.
+
+On the final dev runs, counting distinct citations per arm:
+
+| Arm | Citations | Unmappable | Certain | Measured | Overlap | Chance |
+|---|---|---|---|---|---|---|
+| codex-ygg | 187 | 101 | 7 | 79 | 39 (49%) | 5.1 (6%) |
+| shell-ygg | 54 | 21 | 7 | 26 | 6 (23%) | 1.6 (6%) |
+
+- Citations land on the fixed lines far above chance.
+- Of 60 misses, 13 were within 10 lines; the median miss was 56 to 99 lines
+  away.
+- In the traces, agents read the whole file once it ranks first, so a
+  far-off window costs little.
+- Citation placement is not a target until a task shows an agent stopping
+  at the cited window.
+
 ## Conclusions
 
 - In the final setup, strong agents find the files about as well with ygg as
