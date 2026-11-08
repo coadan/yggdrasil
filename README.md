@@ -70,8 +70,11 @@ ygg search "where is request routing configured" /path/to/repository
 ygg status --root /path/to/repository
 ```
 
-Search always writes a JSON envelope. Result records are under `data.records`;
-additional ranked paths, when present, are under `data.morePaths`.
+Search writes a JSON envelope by default. Result records are under
+`data.records`, with additional ranked paths under `data.morePaths`.
+Use `ygg search --format compact "request routing"` for a shorter display
+of ranked `path:start-end` citations and indented excerpts. The `more:` line
+lists additional candidate paths. Errors use the JSON envelope in both formats.
 
 Search uses the grep-shaped form `ygg search PATTERN [PATH]`. The default
 `auto` mode sends plain pattern text through lexical and configured semantic
@@ -116,8 +119,8 @@ Every operational command returns a stable versioned JSON envelope by default.
 Search results include `data.queryPlan`, which records the resolved lexical
 kind and pattern, semantic text and source, and repository-relative scope.
 Indexing progress is emitted as `ygg.index.progress/v1` JSON lines on stderr,
-including when `search` initializes, refreshes, or embeds an index. The final
-`ygg.cli/v1` result remains the only value written to stdout.
+including when `search` initializes, refreshes, or embeds an index. Stdout
+contains the final `ygg.cli/v1` envelope or the requested compact search result.
 Indexes live outside repositories under `$YGG_STORAGE_ROOT/indexes/`, or
 `~/.local/share/ygg/indexes/` by default. `index --full` replaces an incompatible
 or intentionally stale database; normal indexing is incremental.

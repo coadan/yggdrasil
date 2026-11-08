@@ -27,7 +27,7 @@ import (
 const usage = `Usage:
   ygg version
   ygg index [--root PATH] [--full] [--no-embed]
-  ygg search [--limit N] [--mode auto|lexical|semantic|graph] [-F|-E] [--about TEXT] PATTERN [PATH]
+  ygg search [--limit N] [--mode auto|lexical|semantic|graph] [--format json|compact] [-F|-E] [--about TEXT] PATTERN [PATH]
   ygg status [--root PATH] [--check]
   ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH]
 `
@@ -189,6 +189,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	root := flags.String("root", "", "repository root, directory, or file scope")
 	limit := flags.Int("limit", 10, "result limit")
 	mode := flags.String("mode", "auto", "auto, lexical, semantic, or graph")
+	format := flags.String("format", "json", "successful search output: json or compact")
 	fixed := false
 	regexpPattern := false
 	flags.BoolVar(&fixed, "F", false, "match the lexical pattern as a fixed string")
@@ -213,6 +214,9 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 			err = fmt.Errorf("%w; place -- before a query that begins with '-'", err)
 		}
 		return r.flagParseResult(flagOutput, err)
+	}
+	if *format != "json" && *format != "compact" {
+		return r.fail(true, 2, fmt.Errorf("unsupported search format %q; use json or compact", *format))
 	}
 	positionals := flags.Args()
 	if *root == "" && len(positionals) > 2 {
@@ -299,7 +303,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 			return r.fail(true, 1, fmt.Errorf("search live working tree: %w", fallbackErr))
 		}
 		result.ElapsedMS = time.Since(started).Milliseconds()
-		return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
+		return r.writeSearchResult(result, *format)
 	}
 	if err != nil {
 		return r.fail(true, 1, err)
@@ -322,7 +326,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		return r.fail(true, 1, err)
 	}
 	result.ElapsedMS = time.Since(started).Milliseconds()
-	return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
+	return r.writeSearchResult(result, *format)
 }
 
 func parseInterspersed(flags *flag.FlagSet, args []string) error {

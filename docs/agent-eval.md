@@ -291,3 +291,7 @@ shows the run-to-run noise.
 - The round-2 json arm (121) is not comparable with the earlier keyword-only
   ygg arm (117), because the guard, the binary and the search mode all
   changed between them.
+
+After these wrapper trials, `ygg search --format compact` made the citation
+layout available in the CLI. The default JSON envelope still serves structured
+consumers. Compact output formats the same ranked result after retrieval.

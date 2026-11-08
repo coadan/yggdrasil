@@ -720,6 +720,14 @@ func TestDefaultSearchFallsBackToLiveFilesWhenIndexBusy(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	if code := Main(context.Background(), []string{
+		"search", "--root", root, "currentbusymarker", "--format", "compact",
+	}, &stdout, &stderr); code != 0 || stdout.String() != "1 results (lexical)\nowner.txt:1-1\n    currentbusymarker\n" {
+		t.Fatalf("compact fallback code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Main(context.Background(), []string{
 		"search", "--root", root, "retiredbusymarker",
 	}, &stdout, &stderr); code != 0 {
 		t.Fatalf("absence search code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
@@ -1017,7 +1025,7 @@ func TestOperationalHelpOmitsRedundantJSONFlagAndSucceeds(t *testing.T) {
 	} {
 		var stdout, stderr bytes.Buffer
 		code := Main(context.Background(), args, &stdout, &stderr)
-		if code != 0 || stdout.Len() != 0 || strings.Contains(stderr.String(), "json") {
+		if code != 0 || stdout.Len() != 0 || strings.Contains(stderr.String(), "-json") {
 			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", args, code, stdout.String(), stderr.String())
 		}
 	}
@@ -1037,6 +1045,7 @@ func TestSearchHelpNamesCanonicalJSONPaths(t *testing.T) {
 		&stderr,
 	)
 	if code != 0 || stdout.Len() != 0 ||
+		!strings.Contains(stderr.String(), "-format string") ||
 		!strings.Contains(stderr.String(), "result records: data.records") ||
 		!strings.Contains(stderr.String(), "additional candidate paths, when present: data.morePaths") {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
