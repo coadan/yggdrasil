@@ -1,9 +1,11 @@
 package benchmark
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -305,6 +307,37 @@ func TestAggregateVectorCoverageUsesEmbeddableRecords(t *testing.T) {
 	if got.VectorRecords != 12 || got.EmbeddableRecords != 15 ||
 		got.IndexedRecords != 32 || got.VectorCoverage != 0.8 {
 		t.Fatalf("aggregate=%#v", got)
+	}
+}
+
+func TestRipgrepBaselineTreatsTextAsLiteral(t *testing.T) {
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Skip("ripgrep is required for the baseline")
+	}
+	root := t.TempDir()
+	for name, text := range map[string]string{
+		"owner.txt": "Node.js cache[slot ???\n",
+		"decoy.txt": "NodeXjs NodeXjs\n",
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, test := range []struct {
+		name, query, kind string
+		want              []string
+	}{
+		{"text dot", "NODE.JS", "", []string{"owner.txt"}},
+		{"text bracket", "cache[slot", "", []string{"owner.txt"}},
+		{"text punctuation", "???", "", []string{"owner.txt"}},
+		{"explicit regexp", "Node.js", "regexp", []string{"decoy.txt", "owner.txt"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := ripgrepPaths(context.Background(), root, Case{Query: test.query, MatchKind: test.kind})
+			if err != nil || !slices.Equal(got, test.want) {
+				t.Fatalf("ripgrep paths=%v err=%v, want %v", got, err, test.want)
+			}
+		})
 	}
 }
 

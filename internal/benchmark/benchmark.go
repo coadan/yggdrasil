@@ -1139,13 +1139,18 @@ func ripgrepPaths(ctx context.Context, root string, item Case) ([]string, error)
 	case "regexp":
 		args = append(args, "-e", item.Query)
 	default:
-		args = append(args, "-i")
-		for _, token := range queryTokens(item.Query) {
+		tokens := queryTokens(item.Query)
+		if len(tokens) == 0 {
+			literal := strings.TrimSpace(item.Query)
+			if literal == "" {
+				return nil, nil
+			}
+			tokens = []string{literal}
+		}
+		args = append(args, "-i", "-F")
+		for _, token := range tokens {
 			args = append(args, "-e", token)
 		}
-	}
-	if item.MatchKind == "" && len(args) == 8 {
-		return nil, nil
 	}
 	args = append(args, ".")
 	output, err := command(ctx, root, nil, "rg", args...)
