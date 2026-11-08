@@ -314,10 +314,12 @@ The final comparison ran ygg in its current setup:
 - `--format compact`;
 - the fixed CLI (`--about` alone as the query, and multiword dash arguments).
 
-It used the 146 public dev symptom tasks with a 20-call budget. Each pair
-shares the same cases, binary (`df1315b9059f`), store and guard. Both pass
-`report.py --require-complete`, with no errors, timeouts or dirty checkouts.
-"Labelled" leaves out the bookkeeping-only cases described below.
+Each pair used the same 146 public dev symptom tasks with a 20-call prompt
+budget. The augmented arms shared a pinned Ygg binary (`df1315b9059f`) and
+store. The ordinary Codex arm inherited the host PATH. The augmented Codex
+arm received Ygg guidance and the pinned wrapper. Both pairs pass
+`report.py --require-complete`. "Labelled" leaves out the bookkeeping-only
+cases described below.
 
 | Arm | Hits | Labelled hits | Files found | Recall | Precision | Calls |
 |---|---|---|---|---|---|---|
@@ -326,10 +328,10 @@ shares the same cases, binary (`df1315b9059f`), store and guard. Both pass
 | Codex | 117 | 113/130 | 181 | 0.818 | 0.621 | 3.6 |
 | Codex with ygg | 116 | 111/130 | 178 | 0.796 | 0.626 | 4.7 |
 
-- **Both pairs tie.** The differences are within the noise band of about
-  3 hits.
-- **Codex with ygg** gained 3 cases and lost 2. It ran 197 ygg searches: 153
-  hybrid, most of them reranked, and 44 lexical-only.
+- Both augmented arms finished one hit behind their paired controls.
+- Codex with Ygg gained 2 cases and lost 3. Of its 197 successful Ygg
+  searches, 153 were hybrid, 147 applied reranking, and 44 were lexical.
+  One additional search returned an error.
 - **Haiku with shell and ygg** used ygg in 40 of 146 runs.
 - **The earlier gap did not replicate.** Shell with ygg led shell 117 to 112
   in the earlier symptom run. In this run shell reached 117. The guard version
@@ -411,9 +413,8 @@ eval.
 
 - In the final setup, strong agents find the files about as well with ygg as
   without it.
-- No remaining miss on the file-discovery suite points to a ranking or recall
-  defect in ygg. The misses are stale or undescribed labels, or files the
-  agent saw and did not name.
-- Further tuning against this suite is unlikely to help. A task-completion
-  grader on pinned pre-fix source, now in progress, removes the label
-  problems. It also scores failed patches rather than unnamed side files.
+- The miss review found stale or undescribed labels and files that appeared
+  in tool output but were omitted from the answer.
+- The [patch grader](patch-eval.md) measures whether submitted patches pass
+  behavioral checks on pinned pre-fix source. Use file discovery to diagnose
+  where agents searched and which files they found.
