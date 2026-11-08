@@ -166,14 +166,14 @@ also fuses semantic recall. Missing, incomplete, or failed semantic recall is
 reported explicitly and lexical results remain available. Use `--mode lexical`,
 `--mode semantic`, or `--mode graph` only for ablation and diagnosis.
 
-The repository includes four optional, dependency-free extractor executables:
+The repository includes five optional, dependency-free extractor executables:
 
 ```sh
 ygg plugin check markdown --root /path/to/configured/repository
 ```
 
-`ygg-extract-markdown` emits sections and fences. The Go, TypeScript, and
-Python extractors emit a compact per-file navigation record together with
+`ygg-extract-markdown` emits sections and fences. The Go, TypeScript, Rust,
+and Python extractors emit a compact per-file navigation record together with
 imports and parser-bounded declaration signatures. Core chunks retain the
 implementation text used for semantic retrieval; the compact navigation record
 adds one mechanically bounded symbol and dependency summary per file. The

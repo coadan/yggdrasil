@@ -1336,6 +1336,8 @@ func (s *Store) RebuildGraph(ctx context.Context) error {
 		target := ""
 		if edge.relation == "python-import" {
 			target = resolvePythonImport(edge.source, edge.target, files, modules)
+		} else if edge.relation == "rust-import" && !strings.HasPrefix(edge.target, ".") {
+			target = resolveRustModule(edge.source, edge.target, files)
 		} else {
 			target = resolveGraphTarget(edge.source, edge.target, files)
 		}
@@ -1406,6 +1408,34 @@ func resolvePythonImport(source, target string, files map[string]bool, modules m
 		return module
 	case files[pkg]:
 		return pkg
+	}
+	return ""
+}
+
+// resolveRustModule resolves a `mod name;` declaration (target is the module
+// path, inline parents joined by "/") by Rust's file rules: a declaration in
+// mod.rs, lib.rs or main.rs looks beside the file, any other file looks in the
+// directory named after its stem. A crate root with another name (a binary,
+// example or build script) looks beside the file, so that is tried second. A
+// module present as both name.rs and name/mod.rs is ambiguous and unresolved.
+func resolveRustModule(source, target string, files map[string]bool) string {
+	dir := pathpkg.Dir(source)
+	stem := strings.TrimSuffix(pathpkg.Base(source), ".rs")
+	dirs := []string{pathpkg.Join(dir, stem), dir}
+	if stem == "mod" || stem == "lib" || stem == "main" {
+		dirs = dirs[1:]
+	}
+	for _, base := range dirs {
+		file := pathpkg.Join(base, target+".rs")
+		module := pathpkg.Join(base, target, "mod.rs")
+		switch {
+		case files[file] && files[module]:
+			return ""
+		case files[file]:
+			return file
+		case files[module]:
+			return module
+		}
 	}
 	return ""
 }

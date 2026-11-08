@@ -417,6 +417,79 @@ func TestRebuildGraphResolvesPythonImports(t *testing.T) {
 	}
 }
 
+func TestRebuildGraphResolvesRustModules(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	imports := map[string][]string{
+		"src/lib.rs":           {"printer", "walk", "outer/nested", "twin", "./platform/unix.rs", "missing"},
+		"src/printer.rs":       {"json"},
+		"src/printer/json.rs":  nil,
+		"src/walk/mod.rs":      {"dir"},
+		"src/walk/dir.rs":      nil,
+		"src/outer/nested.rs":  nil,
+		"src/twin.rs":          nil,
+		"src/twin/mod.rs":      nil,
+		"src/platform/unix.rs": nil,
+		"src/bin/tool.rs":      {"cli"},
+		"src/bin/cli.rs":       nil,
+		"crates/a/src/main.rs": {"app"},
+		"crates/a/src/app.rs":  nil,
+	}
+	for path, targets := range imports {
+		records := []contracts.SearchRecord{{Path: path, StartLine: 1, EndLine: 1, Kind: "file", Text: path, Source: "core"}}
+		for index, target := range targets {
+			records = append(records, contracts.SearchRecord{
+				Path: path, StartLine: index + 2, EndLine: index + 2, Kind: "rust-import",
+				Title: target, Text: "mod " + target, Source: "plugin:rust",
+			})
+		}
+		file := discovery.File{Candidate: discovery.Candidate{Path: path, Size: 20, MTimeNS: 1}, Kind: "rust"}
+		if err := value.ReplaceFile(ctx, "run", file, path, "fingerprint", records); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := value.RebuildGraph(ctx); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := value.queryContext(ctx, `SELECT source_path,target,coalesce(target_path,'') FROM graph_edges`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	got := map[string]string{}
+	for rows.Next() {
+		var source, target, resolved string
+		if err := rows.Scan(&source, &target, &resolved); err != nil {
+			t.Fatal(err)
+		}
+		got[source+" "+target] = resolved
+	}
+	want := map[string]string{
+		"src/lib.rs printer":            "src/printer.rs",
+		"src/lib.rs walk":               "src/walk/mod.rs",
+		"src/lib.rs outer/nested":       "src/outer/nested.rs",
+		"src/lib.rs twin":               "",
+		"src/lib.rs ./platform/unix.rs": "src/platform/unix.rs",
+		"src/lib.rs missing":            "",
+		"src/printer.rs json":           "src/printer/json.rs",
+		"src/walk/mod.rs dir":           "src/walk/dir.rs",
+		"src/bin/tool.rs cli":           "src/bin/cli.rs",
+		"crates/a/src/main.rs app":      "crates/a/src/app.rs",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("edges=%v", got)
+	}
+	for key, resolved := range want {
+		if got[key] != resolved {
+			t.Fatalf("%s resolved to %q, want %q (all %v)", key, got[key], resolved, got)
+		}
+	}
+}
+
 func TestEmbeddingLaneReturnsNearestRecord(t *testing.T) {
 	ctx := context.Background()
 	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")

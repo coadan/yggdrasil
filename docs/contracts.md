@@ -59,6 +59,13 @@ The optional repository configuration is `.ygg/config.json`:
       "timeoutMs": 10000
     },
     {
+      "id": "rust",
+      "version": "0.1.0",
+      "command": ["ygg-extract-rust"],
+      "includeGlobs": ["**/*.rs"],
+      "timeoutMs": 10000
+    },
+    {
       "id": "manifest",
       "version": "0.1.0",
       "command": ["ygg-extract-manifest"],
