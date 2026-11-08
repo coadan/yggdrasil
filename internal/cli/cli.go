@@ -225,7 +225,11 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		))
 	}
 	if fixed && regexpPattern {
-		return r.fail(true, 2, errors.New("--fixed-strings and --regexp are mutually exclusive"))
+		return r.fail(true, 2, errors.New(
+			"-F (--fixed-strings) and -E (--regexp) are mutually exclusive: "+
+				"pass one pattern, -F for a literal string or -E for a regular expression; "+
+				"combine alternatives in one pattern such as -E 'first|second'",
+		))
 	}
 	matchKind := search.MatchText
 	if fixed {

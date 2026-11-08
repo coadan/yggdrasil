@@ -838,6 +838,7 @@ func TestSearchRejectsAmbiguousOrInvalidQueryPlans(t *testing.T) {
 	}{
 		{[]string{"search", "multi", "word", "query"}, "quote a multiword pattern"},
 		{[]string{"search", "-F", "-E", "pattern"}, "mutually exclusive"},
+		{[]string{"search", "-F", "first", "-E", "second|third"}, "-E 'first|second'"},
 		{[]string{"search", "-E", "["}, "error parsing regexp"},
 		{[]string{"search", "-E", `\d+`, "--mode", "semantic"}, "use --about"},
 	} {
