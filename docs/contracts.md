@@ -244,7 +244,9 @@ stdout for the final `ygg.cli/v1` envelope. Progress phases are `lock`, `seed`,
 `discovery`, `index`, `embedding`, `complete`, and `failed`. Events include
 mechanical completed/total counters, elapsed time, current path when useful,
 and phase-specific index or embedding counts. Intermediate events are throttled;
-phase transitions and terminal counters are always emitted.
+phase transitions and terminal counters are always emitted. `search --format
+compact` emits no progress events; its inline index work is silent, while errors
+keep the same envelope and exit code.
 Fusion ranks files independently from their returned citation. When multiple
 records from one file contribute, the citation uses the bounded source window
 with the densest query-term evidence; `startLine`, `endLine`, and a line-based

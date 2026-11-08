@@ -119,8 +119,10 @@ Every operational command returns a stable versioned JSON envelope by default.
 Search results include `data.queryPlan`, which records the resolved lexical
 kind and pattern, semantic text and source, and repository-relative scope.
 Indexing progress is emitted as `ygg.index.progress/v1` JSON lines on stderr,
-including when `search` initializes, refreshes, or embeds an index. Stdout
-contains the final `ygg.cli/v1` envelope or the requested compact search result.
+including when a JSON `search` initializes, refreshes, or embeds an index.
+`search --format compact` keeps that work quiet, because agent shells merge
+stderr into the text they read. Stdout contains the final `ygg.cli/v1` envelope
+or the requested compact search result.
 Indexes live outside repositories under `$YGG_STORAGE_ROOT/indexes/`, or
 `~/.local/share/ygg/indexes/` by default. `index --full` replaces an incompatible
 or intentionally stale database; normal indexing is incremental.

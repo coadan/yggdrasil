@@ -273,7 +273,13 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		return r.fail(true, 1, err)
 	}
 	defer repository.Close()
-	progress := newProgressReporter(r.stderr)
+	// Agent shells merge stderr into the output they read, so the compact
+	// format keeps an inline refresh quiet. JSON search still streams progress.
+	progressOutput := r.stderr
+	if *format == "compact" {
+		progressOutput = io.Discard
+	}
+	progress := newProgressReporter(progressOutput)
 	snapshot, err := repository.index.OpenSnapshot(ctx)
 	if !publicindex.IsBusy(err) &&
 		(errors.Is(err, publicindex.ErrUnavailable) || errors.Is(err, publicindex.ErrStale)) {

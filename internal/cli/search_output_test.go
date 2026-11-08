@@ -30,7 +30,10 @@ func TestSearchCompactOutputWithCitationsAndOverflow(t *testing.T) {
 	if stdout.String() != want {
 		t.Fatalf("compact stdout=%q, want %q", stdout.String(), want)
 	}
-	assertProgressPhases(t, stderr.String(), "lock", "discovery", "index", "complete")
+	if stderr.Len() != 0 {
+		// This first search initializes the index; compact keeps that quiet.
+		t.Fatalf("compact search wrote progress: %s", stderr.String())
+	}
 	for _, invocation := range [][]string{args, append(args, "--format=json")} {
 		stdout.Reset()
 		stderr.Reset()
