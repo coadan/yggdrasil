@@ -138,13 +138,13 @@ func run(ctx context.Context, value Reader, query string, opts Options) (Result,
 			if err != nil {
 				return Result{}, fmt.Errorf("fixed search: %w", err)
 			}
-			lanes = append(lanes, lane{name: "fixed", records: records})
+			lanes = append(lanes, literalCandidateLane("fixed", records, query, false))
 		case MatchRegexp:
-			records, err := regexpCandidates(ctx, value, plan, opts.Scope, candidateLimit)
+			matches, err := regexpCandidates(ctx, value, plan, opts.Scope, candidateLimit)
 			if err != nil {
 				return Result{}, fmt.Errorf("regexp search: %w", err)
 			}
-			lanes = append(lanes, lane{name: "regexp", records: records})
+			lanes = append(lanes, matches)
 		case MatchText:
 			if literal {
 				records, err := value.LiteralCandidates(
@@ -153,10 +153,8 @@ func run(ctx context.Context, value Reader, query string, opts Options) (Result,
 				if err != nil {
 					return Result{}, fmt.Errorf("literal search: %w", err)
 				}
-				if codeIdentifierTermQuery(query, terms) {
-					records = identifierLiteralRecords(records, query)
-				}
-				lanes = append(lanes, lane{name: "literal", records: records})
+				identifier := codeIdentifierTermQuery(query, terms)
+				lanes = append(lanes, literalCandidateLane("literal", records, query, identifier))
 				if opts.HasExtractors {
 					// Extractor records stay out of the core lexical index, so
 					// parser-owned declarations need their own literal lane.
@@ -166,11 +164,7 @@ func run(ctx context.Context, value Reader, query string, opts Options) (Result,
 					if err != nil {
 						return Result{}, fmt.Errorf("extractor literal search: %w", err)
 					}
-					extracted = containingRecords(extracted, query)
-					if codeIdentifierTermQuery(query, terms) {
-						extracted = identifierLiteralRecords(extracted, query)
-					}
-					lanes = append(lanes, lane{name: "extractor-literal", records: extracted})
+					lanes = append(lanes, literalCandidateLane("extractor-literal", extracted, query, identifier))
 				}
 			} else if len(terms) > 1 {
 				phrase, err := value.LexicalCandidates(
@@ -441,10 +435,10 @@ func regexpCandidates(
 	plan Plan,
 	scope string,
 	limit int,
-) ([]Candidate, error) {
+) (lane, error) {
 	expression, err := regexp.Compile(plan.Lexical.Pattern)
 	if err != nil {
-		return nil, err
+		return lane{}, err
 	}
 	// FTS token boundaries are not a safe prefilter for a regular expression:
 	// a literal such as "push" can match inside pushCommand while unicode61
@@ -452,15 +446,23 @@ func regexpCandidates(
 	// matching retains grep's no-false-negative guarantee.
 	records, err := value.LexicalRecords(ctx, "", scope)
 	if err != nil {
-		return nil, err
+		return lane{}, err
 	}
-	result := make([]Candidate, 0, min(limit, len(records)))
+	result := lane{
+		name: "regexp", records: make([]Candidate, 0, min(limit, len(records))),
+		matches: make(map[int64]matchSpan),
+	}
 	seenPaths := make(map[string]bool)
 	for _, record := range records {
-		if record.Kind == "file" || !expression.MatchString(record.Text) {
+		if record.Kind == "file" {
 			continue
 		}
-		result = append(result, record)
+		match := expression.FindStringIndex(record.Text)
+		if match == nil {
+			continue
+		}
+		result.records = append(result.records, record)
+		result.matches[record.ID] = matchSpan{start: match[0], end: match[1]}
 		seenPaths[record.Path] = true
 		if len(seenPaths) == limit {
 			break
@@ -567,7 +569,10 @@ func promoteGraphHead(
 type lane struct {
 	name    string
 	records []Candidate
+	matches map[int64]matchSpan
 }
+
+type matchSpan struct{ start, end int }
 
 type fused struct {
 	record    Candidate
@@ -617,6 +622,9 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 			}
 			value.score += score
 			value.retrieval[candidateLane.name] = true
+			if match, ok := candidateLane.matches[record.ID]; ok {
+				value.evidence = (citationEvidence{literal: true}).atMatch(record.Text, match)
+			}
 		}
 	}
 	pathScores := fuseRetrievalFamilies(familyScores)
@@ -646,7 +654,9 @@ func fuse(query string, limit, excerptLimit int, lanes []lane) []RankedRecord {
 	ordered := make([]*fused, 0, len(values))
 	hasCitedRecord := make(map[string]bool)
 	for _, value := range values {
-		value.evidence = locateEvidence(value.record.Text, query)
+		if !value.evidence.literal {
+			value.evidence = locateEvidence(value.record.Text, query)
+		}
 		ordered = append(ordered, value)
 		if value.record.Kind != "file" {
 			hasCitedRecord[value.record.Path] = true
@@ -804,6 +814,14 @@ type citationEvidence struct {
 	terms   int
 	line    int
 	literal bool
+	match   matchSpan
+}
+
+func (e citationEvidence) atMatch(text string, match matchSpan) citationEvidence {
+	e.terms = max(1, e.terms)
+	e.line = strings.Count(text[:match.start], "\n")
+	e.match = match
+	return e
 }
 
 func betterCitation(candidate, current *fused) bool {
@@ -1030,6 +1048,12 @@ func localizedCitation(
 		return record.StartLine, record.EndLine, record.Title, strings.Clone(excerpt(record.Text, excerptLimit))
 	}
 	start, offset := citationOffset(record, evidence)
+	// Prefer context around an exact match when it fits. A long prefix can
+	// consume the excerpt budget before the matched text is reached.
+	if evidence.match.end > 0 &&
+		utf8.RuneCountInString(record.Text[offset:evidence.match.end]) > excerptLimit {
+		start, offset = evidence.line, evidence.match.start
+	}
 	text := strings.Clone(excerpt(record.Text[offset:], excerptLimit))
 	startLine := record.StartLine + start
 	endLine := min(record.EndLine, startLine+strings.Count(text, "\n"))
@@ -1116,42 +1140,45 @@ func codeIdentifierTermQuery(query string, terms []string) bool {
 	return false
 }
 
-func containingRecords(records []Candidate, literal string) []Candidate {
-	result := records[:0]
-	for _, record := range records {
-		if strings.Contains(record.Text, literal) {
-			result = append(result, record)
-		}
+func literalCandidateLane(name string, records []Candidate, literal string, identifier bool) lane {
+	result := lane{
+		name: name, records: make([]Candidate, 0, len(records)),
+		matches: make(map[int64]matchSpan, len(records)),
 	}
-	return result
-}
-
-func identifierLiteralRecords(records []Candidate, literal string) []Candidate {
-	result := records[:0]
 	for _, record := range records {
-		if containsIdentifierLiteral(record.Text, literal) {
-			result = append(result, record)
+		start := literalOffset(record.Text, literal, identifier)
+		if start < 0 {
+			continue
 		}
+		result.records = append(result.records, record)
+		result.matches[record.ID] = matchSpan{start: start, end: start + len(literal)}
 	}
 	return result
 }
 
 func containsIdentifierLiteral(text, literal string) bool {
+	return literalOffset(text, literal, true) >= 0
+}
+
+func literalOffset(text, literal string, identifier bool) int {
+	if !identifier {
+		return strings.Index(text, literal)
+	}
 	for offset := 0; offset <= len(text)-len(literal); {
 		index := strings.Index(text[offset:], literal)
 		if index < 0 {
-			return false
+			return -1
 		}
 		start := offset + index
 		end := start + len(literal)
 		before := start > 0 && identifierRune(lastRune(text[:start]))
 		after := end < len(text) && identifierRune(firstRune(text[end:]))
 		if !before && !after {
-			return true
+			return start
 		}
 		offset = start + len(literal)
 	}
-	return false
+	return -1
 }
 
 func firstRune(value string) rune {

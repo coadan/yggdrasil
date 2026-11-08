@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -1036,6 +1037,71 @@ func TestAutoFusesRegexpAndExplicitSemanticIntent(t *testing.T) {
 	}
 	if result.Records[0].Path != file.Path || result.Records[0].Retrieval[0] != "semantic" {
 		t.Fatalf("records=%#v", result.Records)
+	}
+}
+
+func TestExactSearchCitesTheMatch(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	filename := "owner.txt"
+	const matchLine = 42
+	text := "refresh recovery readiness context is documented here.\n" +
+		strings.Repeat("unrelated padding stays here.\n", matchLine-2) +
+		strings.Repeat("long π prefix ", 100) + "wire token 76421 and pkg.Target ???\n"
+	if err := os.WriteFile(filepath.Join(root, filename), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	value, err := store.Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), root, "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	file := discovery.File{Candidate: discovery.Candidate{Path: filename, Size: int64(len(text))}, Kind: "text"}
+	if err := value.ReplaceFile(ctx, "run", file, "hash", "fingerprint", []contracts.SearchRecord{{
+		Path: filename, StartLine: 1, EndLine: strings.Count(text, "\n") + 1,
+		Kind: "text-chunk", Title: filename + ":1", Text: text, Source: "core",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ name, pattern, kind, match string }{
+		{"regexp", "[0-9]{5}", MatchRegexp, "76421"},
+		{"fixed with intent", "76421", MatchFixed, "76421"},
+		{"identifier with intent", "pkg.Target", MatchText, "pkg.Target"},
+		{"punctuation with intent", "???", MatchText, "???"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			about := ""
+			if test.kind != MatchRegexp {
+				about = "refresh recovery readiness context"
+			}
+			for _, runner := range []struct {
+				name string
+				run  func() (Result, error)
+			}{
+				{"indexed", func() (Result, error) {
+					return Run(ctx, value, test.pattern, Options{
+						Mode: "lexical", Limit: 10, MatchKind: test.kind, About: about,
+					})
+				}},
+				{"filesystem", func() (Result, error) {
+					return RunFilesystem(ctx, root, test.pattern, FilesystemOptions{
+						Limit: 10, MatchKind: test.kind, About: about,
+					})
+				}},
+			} {
+				t.Run(runner.name, func(t *testing.T) {
+					result, err := runner.run()
+					if err != nil || len(result.Records) != 1 {
+						t.Fatalf("result=%#v err=%v", result, err)
+					}
+					record := result.Records[0]
+					if record.Path != filename || record.StartLine != matchLine ||
+						record.EndLine != matchLine || !strings.Contains(record.Excerpt, test.match) {
+						t.Fatalf("want match on line %d, got %s:%d-%d %q", matchLine, record.Path, record.StartLine, record.EndLine, record.Excerpt)
+					}
+				})
+			}
+		})
 	}
 }
 

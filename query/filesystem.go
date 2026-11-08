@@ -190,24 +190,26 @@ func filesystemEvidence(plan Plan, text string, expression *regexp.Regexp) (cita
 		}
 		evidence := locateEvidence(text, plan.EvidenceText())
 		evidence.literal = true
-		evidence.line = strings.Count(text[:index], "\n")
-		evidence.terms = max(1, evidence.terms)
-		return evidence, true
+		return evidence.atMatch(text, matchSpan{start: index, end: index + len(plan.Lexical.Pattern)}), true
 	case MatchRegexp:
 		match := expression.FindStringIndex(text)
 		if match == nil {
 			return citationEvidence{line: -1}, false
 		}
 		evidence := locateEvidence(text, plan.EvidenceText())
-		evidence.line = strings.Count(text[:match[0]], "\n")
-		evidence.terms = max(1, evidence.terms)
-		return evidence, true
+		return evidence.atMatch(text, matchSpan{start: match[0], end: match[1]}), true
 	default:
-		evidence := locateEvidence(text, plan.Lexical.Pattern)
-		literal := literalTermQuery(plan.Lexical.Pattern, queryTerms(plan.Lexical.Pattern))
-		if literal {
-			return evidence, evidence.literal
+		pattern := plan.Lexical.Pattern
+		terms := queryTerms(pattern)
+		if len(terms) == 0 || literalTermQuery(pattern, terms) {
+			start := literalOffset(text, pattern, codeIdentifierTermQuery(pattern, terms))
+			if start < 0 {
+				return citationEvidence{line: -1}, false
+			}
+			evidence := citationEvidence{literal: true}
+			return evidence.atMatch(text, matchSpan{start: start, end: start + len(pattern)}), true
 		}
+		evidence := locateEvidence(text, pattern)
 		return evidence, evidence.terms > 0
 	}
 }
