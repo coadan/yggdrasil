@@ -93,5 +93,12 @@ class CitationTest(unittest.TestCase):
         self.assertEqual(window_distance(1, 43, [42]), 0)
         self.assertEqual(window_distance(*shown, [42]), 34)
 
+class DedentedExcerptTest(unittest.TestCase):
+    def test_dedented_excerpt_aligns_to_indented_blob(self):
+        blob = ['impl A {', '    fn a() {', '        b()', '', '    }', '}']
+        self.assertEqual(displayed_lines('fn a() {\n    b()\n\n}', blob, 1, 6), (2, 5))
+        self.assertEqual(displayed_lines('fn a() {\n    b(\u2026', blob, 1, 6), (2, 3))
+        self.assertIsNone(displayed_lines('fn a() {\n    c()', blob, 1, 6))
+
 if __name__ == '__main__':
     unittest.main()

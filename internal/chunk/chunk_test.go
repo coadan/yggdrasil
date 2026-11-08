@@ -78,8 +78,8 @@ func TestRecordLinesMatchTrimmedText(t *testing.T) {
 			t.Fatalf("record %d-%d spans %d lines, text has %d", record.StartLine, record.EndLine, got, len(textLines))
 		}
 		for index, text := range textLines {
-			want := strings.TrimSpace(fileLines[record.StartLine-1+index])
-			if strings.TrimSpace(text) != want {
+			want := strings.TrimRight(fileLines[record.StartLine-1+index], " \t\r")
+			if strings.TrimRight(text, " \t\r") != want {
 				t.Fatalf("record %d-%d line %d = %q, file has %q",
 					record.StartLine, record.EndLine, index, text, want)
 			}

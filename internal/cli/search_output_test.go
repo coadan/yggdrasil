@@ -120,3 +120,23 @@ func TestSearchCitesTheLinesItShowsAfterBlankLines(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchExcerptKeepsCodeIndentation(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	text := "    func (b *Buffer) indentmarker() int {\n        return 1\n    }\n"
+	if err := os.WriteFile(filepath.Join(root, "buffer.go"), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"search", "--root", root, "--mode", "lexical", "--format", "compact", "indentmarker",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	want := "    func (b *Buffer) indentmarker() int {\n        return 1\n    }\n"
+	if !strings.Contains(stdout.String(), want) {
+		t.Fatalf("output=%q, want aligned lines %q", stdout.String(), want)
+	}
+}

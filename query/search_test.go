@@ -1326,6 +1326,22 @@ func TestMixedQueryRequiresTwoNonIdentifierAnchors(t *testing.T) {
 	}
 }
 
+func TestExcerptKeepsRelativeIndentation(t *testing.T) {
+	got := excerpt("\n  \n    func f() {\n\t\n        return\n    }\n\n", maxExcerptRunes)
+	if want := "func f() {\n\n    return\n}"; got != want {
+		t.Fatalf("excerpt = %q, want %q", got, want)
+	}
+	if got := dedent("\tif x {\n\t\ty()\n  z"); got != "\tif x {\n\t\ty()\n  z" {
+		t.Fatalf("mixed indentation must not be cut: %q", got)
+	}
+	if got := excerpt("    "+strings.Repeat("a", 500), 10); got != "aaaaaa…" {
+		t.Fatalf("bounded excerpt = %q", got)
+	}
+	if got := excerpt("    fn a() {\n        b()\n    }\n"+strings.Repeat("x", 500), 30); got != "fn a() {\n    b()\n}…" {
+		t.Fatalf("lines beyond the shown window must not block dedent: %q", got)
+	}
+}
+
 func TestExcerptPreservesUTF8Boundary(t *testing.T) {
 	got := excerpt(strings.Repeat("é", 401), maxExcerptRunes)
 	if !utf8.ValidString(got) || utf8.RuneCountInString(got) != 281 || !strings.HasSuffix(got, "…") {

@@ -1295,15 +1295,56 @@ func resultExcerptLimit(resultLimit int) int {
 	return max(minExcerptRunes, min(maxExcerptRunes, targetExcerptRunes/resultLimit))
 }
 
+// excerpt drops blank edge lines and removes the indentation every line
+// shares, keeping code aligned, then bounds the result to limit runes.
 func excerpt(text string, limit int) string {
-	text = strings.TrimSpace(text)
+	for {
+		line, rest, ok := strings.Cut(text, "\n")
+		if !ok || strings.TrimSpace(line) != "" {
+			break
+		}
+		text = rest
+	}
+	text = strings.TrimRightFunc(text, unicode.IsSpace)
 	if utf8.RuneCountInString(text) <= limit {
-		return text
+		return dedent(text)
 	}
 	end := 0
 	for range limit {
 		_, size := utf8.DecodeRuneInString(text[end:])
 		end += size
 	}
-	return strings.TrimSpace(text[:end]) + "…"
+	// Dedent only the lines shown: later lines may sit at another level.
+	return dedent(strings.TrimRightFunc(text[:end], unicode.IsSpace)) + "…"
+}
+
+// dedent removes the longest leading space-and-tab prefix shared by every
+// non-blank line; blank lines become empty.
+func dedent(text string) string {
+	lines := strings.Split(text, "\n")
+	prefix, found := "", false
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		if !found {
+			prefix, found = indent, true
+			continue
+		}
+		for !strings.HasPrefix(indent, prefix) {
+			prefix = prefix[:len(prefix)-1]
+		}
+	}
+	if prefix == "" {
+		return text
+	}
+	for index, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			lines[index] = ""
+		} else {
+			lines[index] = line[len(prefix):]
+		}
+	}
+	return strings.Join(lines, "\n")
 }

@@ -4,6 +4,7 @@ package chunk
 import (
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/coadan/yggdrasil/internal/contracts"
@@ -53,10 +54,10 @@ func Records(file discovery.File) []contracts.SearchRecord {
 		for end > start+1 && len(strings.Join(lines[start:end], "\n")) > MaxBytes {
 			end--
 		}
-		text := strings.TrimSpace(strings.Join(lines[start:end], "\n"))
-		if text != "" {
-			// Trimming drops blank edge lines, so the cited lines must skip
-			// them too: line i of Text is file line StartLine+i.
+		if strings.TrimSpace(strings.Join(lines[start:end], "\n")) != "" {
+			// Blank edge lines are dropped and the cited lines skip them too:
+			// line i of Text is file line StartLine+i, indentation included,
+			// so excerpts keep code aligned.
 			first, last := start, end
 			for strings.TrimSpace(lines[first]) == "" {
 				first++
@@ -64,6 +65,7 @@ func Records(file discovery.File) []contracts.SearchRecord {
 			for strings.TrimSpace(lines[last-1]) == "" {
 				last--
 			}
+			text := strings.TrimRightFunc(strings.Join(lines[first:last], "\n"), unicode.IsSpace)
 			records = append(records, contracts.SearchRecord{
 				Path:      file.Path,
 				StartLine: first + 1,

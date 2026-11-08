@@ -90,13 +90,25 @@ def chance(length, total, lines):
     return hits / positions
 
 
+def indented(want, got, prefix=False):
+    """Whether blob line want shows as got after removing leading indentation."""
+    if not got.strip():
+        return not want.strip() or (prefix and not got)
+    body = want.lstrip(' \t')
+    for cut in range(len(want) - len(body) + 1):
+        if want[cut:] == got or (prefix and want[cut:].startswith(got)):
+            return True
+    return False
+
+
 def displayed_lines(excerpt, blob, start, end):
     """(first, last) blob lines the excerpt shows, or None unless it aligns uniquely.
 
     An excerpt is a trimmed character window inside the declared range, which
     bounds both its first and last line: its
-    first line is the tail of a blob line, later lines match whole, and a
-    truncated last line (ending in an ellipsis) is a prefix of its blob line.
+    first line is the tail of a blob line, later lines match whole after the
+    indentation ygg removes, and a truncated last line (ending in an ellipsis)
+    is a prefix of its blob line after that indentation.
     """
     if not excerpt:
         return None
@@ -114,9 +126,9 @@ def displayed_lines(excerpt, blob, start, end):
             if index == 0:
                 ok = want.endswith(got) or (truncated and len(lines) == 1 and got in want)
             elif index == len(lines) - 1 and truncated:
-                ok = want.startswith(got)
+                ok = indented(want, got, prefix=True)
             else:
-                ok = want == got
+                ok = indented(want, got)
             if not ok:
                 aligned = False
                 break
