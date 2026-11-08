@@ -65,6 +65,25 @@ class CitationTest(unittest.TestCase):
         self.assertIsNone(displayed_lines('}', ['  }', '', '  }'], 1, 3))
         self.assertEqual(displayed_lines('}', ['  }', '', '  }'], 1, 2), (1, 1))
 
+    def test_displayed_lines_stay_inside_the_declared_range(self):
+        self.assertIsNone(displayed_lines('needle\nnext', ['before', 'needle', 'next'], 2, 2))
+        self.assertEqual(displayed_lines('needle\nnext', ['before', 'needle', 'next'], 2, 3), (2, 3))
+
+    def test_citations_keep_distinct_excerpts_of_one_range(self):
+        import json, tempfile
+        from pathlib import Path
+        from citations import citations
+        with tempfile.TemporaryDirectory() as directory:
+            logs = Path(directory) / 'logs'
+            logs.mkdir()
+            records = [{'path': 'a.py', 'startLine': 1, 'endLine': 9, 'excerpt': excerpt}
+                       for excerpt in ('first', 'second', 'first')]
+            envelopes = [{'ok': True, 'data': {'records': [record]}} for record in records]
+            (logs / 'case.arm.ygg-raw.jsonl').write_text(''.join(json.dumps(e) + '\n' for e in envelopes))
+            case = {'id': 'case', 'expectedPaths': ['a.py']}
+            found = [row[5] for row in citations(Path(directory), {'case': case})]
+        self.assertEqual(found, ['first', 'second'])
+
     def test_declared_range_can_overlap_where_the_excerpt_does_not(self):
         # A record declares lines 1-43 but its excerpt shows 1-8; the fix is on 42.
         blob = [f'L{number:02d} text' for number in range(1, 44)]

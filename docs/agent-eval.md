@@ -447,9 +447,10 @@ Two windows are measured:
 - **Declared range:** the record's `startLine` to `endLine`.
 - **Displayed range:** the lines the excerpt actually shows, aligned to the
   HEAD blob. An excerpt is a trimmed character window inside the declared
-  range. It can start on a later line, even mid-line, and its last line can be
-  cut short. Excerpts with no alignment, or more than one, are counted as
-  ambiguous.
+  range. Its first line can be the tail of a blob line, and its last line can
+  be cut short. It must end within the declared range. Excerpts with no
+  alignment, or more than one, are counted as ambiguous. Declared counts are
+  per declared range; displayed counts are per distinct excerpt.
 
 A pure deletion has no new-side line, so the line before it stands in as a
 proxy for nearby context.
@@ -458,12 +459,15 @@ On the final dev runs, counting distinct citations per arm:
 
 | Arm | Citations | Unmappable | Certain | Declared overlap (chance) | Displayed overlap (chance) | Ambiguous |
 |---|---|---|---|---|---|---|
-| codex-ygg | 187 | 101 | 7 | 39 of 79 (5.1) | 38 of 77 (5.1) | 2 |
-| shell-ygg | 54 | 21 | 7 | 6 of 26 (1.6) | 6 of 25 (1.6) | 1 |
+| codex-ygg | 187 | 101 | 7 | 39 of 79 (5.1) | 23 of 56 (2.7) | 23 |
+| shell-ygg | 54 | 21 | 7 | 6 of 26 (1.6) | 5 of 19 (1.3) | 8 |
 
 - Citations land on the fixed lines far above chance in both measures.
-- A declared range wider than its excerpt, as in an exact-match repro, does
-  occur, but it changed no overlap count here.
+- 30 of the 31 ambiguous excerpts reveal a ygg defect, not an alignment
+  limit. Chunk text and excerpts were whitespace-trimmed, but `startLine` was
+  not moved past the trimmed blank lines. Each of these excerpts aligns
+  exactly once shifted 1 to 3 lines forward. So in these runs, a citation
+  after blank lines named lines earlier than the text it showed.
 - Of the 60 declared misses, 13 were within 10 lines; the median miss was 56
   to 99 lines away.
 - In the traces, agents read the whole file once it ranks first, so a

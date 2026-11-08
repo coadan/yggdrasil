@@ -93,7 +93,8 @@ def chance(length, total, lines):
 def displayed_lines(excerpt, blob, start, end):
     """(first, last) blob lines the excerpt shows, or None unless it aligns uniquely.
 
-    An excerpt is a trimmed character window inside the declared range: its
+    An excerpt is a trimmed character window inside the declared range, which
+    bounds both its first and last line: its
     first line is the tail of a blob line, later lines match whole, and a
     truncated last line (ending in an ellipsis) is a prefix of its blob line.
     """
@@ -105,7 +106,7 @@ def displayed_lines(excerpt, blob, start, end):
         return None
     matches = []
     for first in range(max(start - 1, 0), min(end, len(blob))):
-        if first + len(lines) > len(blob):
+        if first + len(lines) > min(end, len(blob)):
             break
         aligned = True
         for index, got in enumerate(lines):
@@ -167,7 +168,11 @@ class Regions:
 
 
 def citations(run_dir, cases):
-    """Yield (arm, case, path, start, end, excerpt) once per distinct citation per arm."""
+    """Yield (arm, case, path, start, end, excerpt) once per distinct record per arm.
+
+    Records with the same declared range but different excerpts stay distinct,
+    because they display different lines.
+    """
     seen = set()
     for raw in sorted((run_dir / 'logs').glob('*.ygg-raw.jsonl')):
         case_id, arm = raw.name.split('.')[:2]
@@ -185,7 +190,8 @@ def citations(run_dir, cases):
             for record in (envelope.get('data') or {}).get('records') or []:
                 if record.get('path') not in expected:
                     continue
-                key = (arm, case_id, record['path'], record['startLine'], record['endLine'])
+                key = (arm, case_id, record['path'], record['startLine'], record['endLine'],
+                       record.get('excerpt'))
                 if key not in seen:
                     seen.add(key)
                     yield arm, case, record['path'], record['startLine'], record['endLine'], record.get('excerpt')
@@ -220,10 +226,12 @@ def summarize(rows):
         groups[(row['run'], row['arm'])].append(row)
     summary = {}
     for (run, arm), group in sorted(groups.items()):
-        certain = [row for row in group if row['status'] == 'mapped' and row['chance'] >= 1]
-        mapped = [row for row in group if row['status'] == 'mapped' and row['chance'] < 1]
+        # Declared counts are per declared range; displayed counts per excerpt.
+        ranges = list({(row['case'], row['path'], row['start'], row['end']): row for row in group}.values())
+        certain = [row for row in ranges if row['status'] == 'mapped' and row['chance'] >= 1]
+        mapped = [row for row in ranges if row['status'] == 'mapped' and row['chance'] < 1]
         unmapped = defaultdict(int)
-        for row in group:
+        for row in ranges:
             if row['status'] != 'mapped':
                 unmapped[row['status']] += 1
         misses = sorted(row['distance'] for row in mapped if not row['overlap'])
@@ -233,7 +241,8 @@ def summarize(rows):
         mapped_all = [row for row in group if row['status'] == 'mapped']
         shown = [row for row in mapped_all if row['shownLines'] is not None and row['shownChance'] < 1]
         summary[f'{run}/{arm}'] = {
-            'citations': len(group), 'unmappable': dict(unmapped), 'certain': len(certain),
+            'citations': len(ranges), 'excerpts': len(group), 'unmappable': dict(unmapped),
+            'certain': len(certain),
             'mapped': len(mapped),
             'declaredOverlap': sum(row['overlap'] for row in mapped),
             'declaredChance': round(sum(row['chance'] for row in mapped), 1),
