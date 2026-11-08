@@ -63,6 +63,30 @@ func TestSessionExtractsAndStampsRecords(t *testing.T) {
 	}
 }
 
+func TestManagerAllowsSlowReadyWithinConfiguredTimeout(t *testing.T) {
+	if os.Getenv("YGG_PLUGIN_SLOW_READY") == "1" {
+		runHelper()
+		return
+	}
+	t.Setenv("YGG_PLUGIN_SLOW_READY", "1")
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	manager := NewManager(ctx, t.TempDir(), []config.Plugin{{
+		ID: "helper", Version: "1",
+		Command:      []string{os.Args[0], "-test.run=^TestManagerAllowsSlowReadyWithinConfiguredTimeout$"},
+		IncludeGlobs: []string{"**/*.md"}, TimeoutMS: 5_000,
+	}})
+	defer manager.Close()
+	records, diagnostics := manager.Extract(discovery.File{
+		Candidate: discovery.Candidate{Path: "README.md"},
+		Kind:      "md",
+		Content:   "# Hello\n",
+	})
+	if len(diagnostics) != 0 || len(records) != 1 || records[0].Source != "plugin:helper" {
+		t.Fatalf("slow extractor yielded records=%#v diagnostics=%#v", records, diagnostics)
+	}
+}
+
 func runHelper() {
 	scanner := bufio.NewScanner(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
@@ -73,6 +97,9 @@ func runHelper() {
 		}
 		switch message["type"] {
 		case "hello":
+			if os.Getenv("YGG_PLUGIN_SLOW_READY") == "1" {
+				time.Sleep(2200 * time.Millisecond)
+			}
 			_ = encoder.Encode(map[string]any{"type": "ready", "schema": "ygg.extractor/v1"})
 		case "file":
 			records := []map[string]any{{

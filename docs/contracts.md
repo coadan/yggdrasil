@@ -81,9 +81,8 @@ The optional repository configuration is `.ygg/config.json`:
 }
 ```
 
-An extractor's `timeoutMs` bounds each file response and the ready response
-in `ygg plugin check`. Automatic extractor startup uses a separate two-second
-limit for the ready response.
+An extractor's `timeoutMs` bounds the ready response and each file response
+during indexing and in `ygg plugin check`.
 
 Repository configuration inherits the user embedding when the `embedding`
 field is absent. An explicit provider overrides it, and `null` disables it for
