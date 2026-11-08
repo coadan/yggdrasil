@@ -21,11 +21,16 @@ import (
 var ErrUnavailable = errors.New("repository index is unavailable")
 var ErrStale = errors.New("repository index is stale")
 
+// IsBusy reports contention on the index database or the refresh lock.
+func IsBusy(err error) bool {
+	return errors.Is(err, indexer.ErrIndexBusy) ||
+		errors.Is(err, sqlite3.BUSY) || errors.Is(err, sqlite3.LOCKED)
+}
+
 // IsSnapshotUnavailable reports transient snapshot conditions for which an
 // immediate filesystem fallback is safe. Other storage errors remain visible.
 func IsSnapshotUnavailable(err error) bool {
-	return errors.Is(err, ErrUnavailable) || errors.Is(err, ErrStale) ||
-		errors.Is(err, sqlite3.BUSY) || errors.Is(err, sqlite3.LOCKED)
+	return errors.Is(err, ErrUnavailable) || errors.Is(err, ErrStale) || IsBusy(err)
 }
 
 type Options struct {
@@ -173,8 +178,8 @@ func (r *Repository) OpenSnapshot(ctx context.Context) (*Snapshot, error) {
 	}
 	value, err := store.OpenReadOnly(ctx, r.paths.Database)
 	if err != nil {
-		if IsSnapshotUnavailable(err) {
-			return nil, ErrUnavailable
+		if IsBusy(err) {
+			return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 		}
 		return nil, fmt.Errorf("open repository snapshot: %w", err)
 	}
@@ -188,8 +193,8 @@ func (r *Repository) OpenSnapshot(ctx context.Context) (*Snapshot, error) {
 	indexed, err := value.IndexFreshnessToken(ctx)
 	if err != nil {
 		value.Close()
-		if IsSnapshotUnavailable(err) {
-			return nil, ErrUnavailable
+		if IsBusy(err) {
+			return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 		}
 		return nil, err
 	}

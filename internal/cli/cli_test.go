@@ -17,6 +17,7 @@ import (
 	"github.com/coadan/yggdrasil/internal/project"
 	"github.com/coadan/yggdrasil/internal/store"
 	querycontract "github.com/coadan/yggdrasil/query"
+	"github.com/ncruces/go-sqlite3"
 )
 
 func TestIndexSearchAndStatus(t *testing.T) {
@@ -737,6 +738,68 @@ func TestDefaultSearchFallsBackToLiveFilesWhenIndexBusy(t *testing.T) {
 	}
 	if len(response.Data.Records) != 0 {
 		t.Fatalf("stale response=%s", stdout.String())
+	}
+}
+
+func TestSearchWithExclusiveSQLiteLock(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	owner := filepath.Join(root, "owner.txt")
+	if err := os.WriteFile(owner, []byte("original marker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{
+		"index", "--root", root, "--no-embed",
+	}, &stdout, &stderr); code != 0 {
+		t.Fatalf("index code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writer, err := sqlite3.Open(paths.Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	if err := writer.Exec("PRAGMA locking_mode=EXCLUSIVE; BEGIN EXCLUSIVE"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(owner, []byte("current marker\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, mode := range []string{"auto", "lexical", "semantic", "graph"} {
+		t.Run(mode, func(t *testing.T) {
+			stdout.Reset()
+			stderr.Reset()
+			code := Main(context.Background(), []string{
+				"search", "--root", root, "--mode", mode, "current",
+			}, &stdout, &stderr)
+			if strings.Contains(stderr.String(), "ygg.index.progress") {
+				t.Errorf("search attempted refresh while SQLite was locked: %s", stderr.String())
+			}
+			if mode == "semantic" || mode == "graph" {
+				if code == 0 || !strings.Contains(stdout.String(), "database is locked") {
+					t.Fatalf("expected busy index error, code=%d response=%s", code, stdout.String())
+				}
+				return
+			}
+			var response struct {
+				OK   bool                 `json:"ok"`
+				Data querycontract.Result `json:"data"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+				t.Fatal(err)
+			}
+			if code != 0 || !response.OK || response.Data.ActiveMode != "lexical" ||
+				response.Data.FallbackReason != "index-busy" || len(response.Data.Records) != 1 ||
+				response.Data.Records[0].Path != "owner.txt" {
+				t.Fatalf("expected current live result, code=%d response=%s", code, stdout.String())
+			}
+		})
 	}
 }
 

@@ -17,7 +17,6 @@ import (
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
-	"github.com/coadan/yggdrasil/internal/indexer"
 	"github.com/coadan/yggdrasil/internal/plugin"
 	"github.com/coadan/yggdrasil/internal/project"
 	"github.com/coadan/yggdrasil/internal/status"
@@ -275,18 +274,9 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	}
 	defer repository.Close()
 	progress := newProgressReporter(r.stderr)
-	snapshot, snapshotErr := repository.index.OpenSnapshot(ctx)
-	if snapshotErr != nil &&
-		!errors.Is(snapshotErr, publicindex.ErrUnavailable) &&
-		!errors.Is(snapshotErr, publicindex.ErrStale) {
-		return r.fail(true, 1, snapshotErr)
-	}
-	refresh := snapshotErr != nil
-	if refresh && snapshot != nil {
-		_ = snapshot.Close()
-		snapshot = nil
-	}
-	if refresh {
+	snapshot, err := repository.index.OpenSnapshot(ctx)
+	if !publicindex.IsBusy(err) &&
+		(errors.Is(err, publicindex.ErrUnavailable) || errors.Is(err, publicindex.ErrStale)) {
 		_, err = repository.index.Refresh(ctx, publicindex.RefreshOptions{
 			NoEmbed: true,
 			Progress: func(value publicindex.Progress) {
@@ -297,7 +287,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 			snapshot, err = repository.index.OpenSnapshot(ctx)
 		}
 	}
-	if errors.Is(err, indexer.ErrIndexBusy) && (*mode == "auto" || *mode == "lexical") {
+	if publicindex.IsBusy(err) && (*mode == "auto" || *mode == "lexical") {
 		result, fallbackErr := search.RunFilesystem(ctx, paths.Root, query, search.FilesystemOptions{
 			Limit: *limit, Scope: paths.Scope, IgnoreGlobs: cfg.IgnoreGlobs,
 			MaxFileBytes: cfg.MaxFileBytes, RequestedMode: *mode,
