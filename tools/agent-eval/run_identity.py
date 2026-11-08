@@ -93,6 +93,8 @@ def run_manifest(args, arms, cases, tasks):
         'harnesses': harnesses,
         'python': {'version': sys.version, 'platform': sys.platform},
     }
+    if extra := getattr(args, 'prompt_extra', None):
+        manifest['promptExtra'] = file_identity(extra)
     if use_ygg:
         guide = getattr(args, 'guide_extra', None)
         manifest['ygg'] = {'binary': file_identity(args.ygg_binary), 'storage': str(args.storage),

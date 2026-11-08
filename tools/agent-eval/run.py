@@ -30,6 +30,7 @@ import argparse
 import concurrent.futures
 import json
 import os
+import re
 from pathlib import Path
 import shlex
 import subprocess
@@ -53,6 +54,25 @@ PROMPT = """You are in a checkout of the {repo} repository. Here is the task:
 Do not change anything. Find the files you would need to change to resolve this
 task. Answer with their repository-relative paths, most important first. Use at
 most {budget} tool calls."""
+
+# Release-bookkeeping files. A case whose expected paths are all of this kind
+# comes from a commit that only recorded a change made elsewhere, so its task
+# describes code the label does not name. Summaries report hits without them.
+BOOKKEEPING = re.compile(r'(^|/)([^/]*changelog[^/]*|(changes|news|history)(\.(md|rst|txt))?|'
+                         r'cargo\.lock|go\.sum|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock)$',
+                         re.IGNORECASE)
+
+
+def bookkeeping_only(paths):
+    return bool(paths) and all(BOOKKEEPING.search(path) for path in paths)
+
+
+def task_prompt(args, case, task):
+    prompt = PROMPT.format(repo=case['repo'], task=task, budget=args.tool_budget)
+    if extra := getattr(args, 'prompt_extra', None):
+        prompt += '\n\n' + extra.read_text().strip()
+    return prompt
+
 
 YGG_GUIDE = """Search this repository with `ygg search "<query>"` in Bash. It
 prints JSON: data.records are cited excerpts with path and line ranges, ranked
@@ -99,9 +119,17 @@ prints the matching files, ranked best first, as path:start-end line ranges,
 then a `more:` line of further candidate files. Read a file to see its lines.""",
 }
 
+CODEX_JSON_OUTPUT = """It prints JSON: read data.records for cited results (path, line range,
+excerpt, best first) and data.morePaths for more candidate files."""
+CODEX_OUTPUT_GUIDES = {
+    'json': CODEX_JSON_OUTPUT,
+    'compact': """It prints each result as path:start-end followed by its excerpt, best
+first, then a `more:` line of further candidate files.""",
+    'files': """It prints the matching files, best first, as path:start-end line ranges,
+then a `more:` line of further candidate files.""",
+}
 CODEX_YGG_GUIDE = """Repository search: use `ygg search "<query>"` for bounded repository
-search. It prints JSON: read data.records for cited results (path, line range,
-excerpt, best first) and data.morePaths for more candidate files. Options:
+search. """ + CODEX_JSON_OUTPUT + """ Options:
 --limit N, -F fixed string, -E regular expression, --about "<intent>" for the
 semantic intent apart from the lexical pattern. Verify relevant source lines
 before answering. Use rg for exact text and file-name searches.
@@ -212,6 +240,7 @@ def score(events, case, repo):
     return {
         'answer': answer,
         'hit': bool(found),
+        'bookkeepingOnly': bookkeeping_only(expected),
         'firstHitRank': next((rank for rank, path in enumerate(answer, 1) if path in expected), None),
         'recall': round(len(found) / len(expected), 4),
         'precision': round(len(found) / len(answer), 4) if answer else 0.0,
@@ -281,9 +310,11 @@ def run_codex(case, task, arm, args, repo, log, env):
                '-s', 'workspace-write', '-c', 'sandbox_workspace_write.network_access=true',
                '--json', '--output-schema', str(schema), '-o', str(last), '-C', str(repo), '-']
     if spec['ygg']:
-        command[-1:-1] = ['--add-dir', str(args.storage)]
-    prompt = (CODEX_YGG_GUIDE if spec['ygg'] else '') + PROMPT.format(
-        repo=case['repo'], task=task, budget=args.tool_budget)
+        # The store and the raw-result log must be writable inside the sandbox.
+        command[-1:-1] = ['--add-dir', str(args.storage), '--add-dir', str(Path(log).parent)]
+        Path(log).with_suffix('.ygg-raw.jsonl').unlink(missing_ok=True)
+    guide = CODEX_YGG_GUIDE.replace(CODEX_JSON_OUTPUT, CODEX_OUTPUT_GUIDES[args.ygg_format])
+    prompt = (guide if spec['ygg'] else '') + task_prompt(args, case, task)
     started = time.monotonic()
     with open(raw_log, 'w') as out:
         try:
@@ -312,6 +343,8 @@ def run_one(case, task, arm, args, repo, log):
         if spec['ygg']:
             env.update(PATH=f'{args.wrapper_dir}:{env["PATH"]}', YGG_AGENT_BIN=str(args.wrapper_dir),
                        YGG_AGENT_REPO=str(repo), YGG_STORAGE_ROOT=str(args.storage),
+                       YGG_AGENT_FORMAT=args.ygg_format,
+                       YGG_AGENT_RAW=str(Path(log).with_suffix('.ygg-raw.jsonl')),
                        YGG_AGENT_LOG=str(args.storage / 'agent-wrapper.log'))
             if args.ygg_config:
                 env['YGG_CONFIG'] = str(args.ygg_config)
@@ -347,7 +380,7 @@ def run_one(case, task, arm, args, repo, log):
         if args.ygg_config:
             env['YGG_CONFIG'] = str(args.ygg_config)
     Path(log).with_suffix('.ygg-raw.jsonl').unlink(missing_ok=True)
-    prompt = PROMPT.format(repo=case['repo'], task=task, budget=args.tool_budget)
+    prompt = task_prompt(args, case, task)
     started = time.monotonic()
     with open(log, 'w') as out:
         try:
@@ -390,8 +423,11 @@ def summarize(rows):
         n = len(group)
         mean = lambda key: sum(row[key] or 0 for row in group) / n
         seen = [row['firstSeenCall'] for row in group if row['firstSeenCall']]
+        labelled = [row for row in group if not row.get('bookkeepingOnly')]
         lines.append(
-            f"{arm}: n={n} hit {sum(row['hit'] for row in group)}/{n} recall {mean('recall'):.3f} "
+            f"{arm}: n={n} hit {sum(row['hit'] for row in group)}/{n} "
+            f"(without bookkeeping-only {sum(row['hit'] for row in labelled)}/{len(labelled)}) "
+            f"recall {mean('recall'):.3f} "
             f"precision {mean('precision'):.3f} seen {len(seen)}/{n} "
             f"(median call {sorted(seen)[len(seen) // 2] if seen else '-'}) "
             f"calls {mean('toolCalls'):.1f} turns {mean('turns'):.1f} "
@@ -409,6 +445,7 @@ def main():
     parser.add_argument('--ygg-format', choices=sorted(OUTPUT_GUIDES), default='json',
                         help='Output shape the ygg wrapper gives the agent (see format.py)')
     parser.add_argument('--guide-extra', type=Path, help='Text appended to the ygg arms\' guidance')
+    parser.add_argument('--prompt-extra', type=Path, help='Text appended to every arm\'s task prompt')
     parser.add_argument('--cases', type=Path, help='JSON file with a list of case ids to run instead')
     parser.add_argument('--model', default='claude-haiku-5-5')
     parser.add_argument('--style', default='issue', help='Task style generated by tasks.py')
@@ -431,7 +468,7 @@ def main():
         parser.error('--arms must not contain duplicates')
     if any(ARMS[arm]['ygg'] for arm in arms) and not (args.ygg_binary and args.storage):
         raise SystemExit('ygg arms need --ygg-binary and --storage')
-    for name in ('ygg_binary', 'ygg_config', 'storage', 'guide_extra'):
+    for name in ('ygg_binary', 'ygg_config', 'storage', 'guide_extra', 'prompt_extra'):
         if path := getattr(args, name, None):
             setattr(args, name, path.expanduser().resolve())
     cases = json.loads((suite / f'{args.split}.json').read_text())

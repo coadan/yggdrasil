@@ -306,3 +306,114 @@ An offline check on the saved public trajectories retained 2,905 of 2,907
 previously admitted Bash calls. The two refusals involved variable expansion
 and a recursive glob. Regression fixtures cover file-reading and writing
 options, shell expansion, and paths that resolve outside the checkout.
+
+## Final setup comparison
+
+The final comparison ran ygg in its current setup:
+- hybrid search, with MiniLM embeddings and the Qwen3 0.6B reranker;
+- `--format compact`;
+- the fixed CLI (`--about` alone as the query, and multiword dash arguments).
+
+It used the 146 public dev symptom tasks with a 20-call budget. Each pair
+shares the same cases, binary (`df1315b9059f`), store and guard. Both pass
+`report.py --require-complete`, with no errors, timeouts or dirty checkouts.
+"Labelled" leaves out the bookkeeping-only cases described below.
+
+| Arm | Hits | Labelled hits | Files found | Recall | Precision | Calls |
+|---|---|---|---|---|---|---|
+| Haiku 5.5, shell | 117 | 113/130 | 170 | 0.780 | 0.437 | 4.5 |
+| Haiku 5.5, shell with ygg | 116 | 111/130 | 166 | 0.763 | 0.405 | 4.5 |
+| Codex | 117 | 113/130 | 181 | 0.818 | 0.621 | 3.6 |
+| Codex with ygg | 116 | 111/130 | 178 | 0.796 | 0.626 | 4.7 |
+
+- **Both pairs tie.** The differences are within the noise band of about
+  3 hits.
+- **Codex with ygg** gained 3 cases and lost 2. It ran 197 ygg searches: 153
+  hybrid, most of them reranked, and 44 lexical-only.
+- **Haiku with shell and ygg** used ygg in 40 of 146 runs.
+- **The earlier gap did not replicate.** Shell with ygg led shell 117 to 112
+  in the earlier symptom run. In this run shell reached 117. The guard version
+  changed between the two runs, which also had ordinary run-to-run noise. The
+  held-out split was not run, because the dev result was a clear tie.
+
+## Misses
+
+Every expected file missed on dev was sorted into one of three buckets.
+
+1. **Bookkeeping-only cases.** In 16 of 146 cases, the commit changed only a
+   changelog or lock file, but the task describes the feature it records. No
+   reasonable answer names that file. `run.py` flags these rows as
+   `bookkeepingOnly` and reports hits with and without them. The pattern is a
+   file-name list in the eval tooling, not in core. Without these cases, the
+   earlier ygg-vs-native lead shrinks from 117 vs 112 to 110 vs 108.
+2. **Shown but not named.** The search showed the file, but the agent left it
+   out of its answer.
+3. **Never shown.** The file never appeared in the agent's tool output.
+
+Labelled misses on the final runs:
+
+| Arm | Shown, not named | Never shown |
+|---|---|---|
+| shell | 21 | 32 |
+| shell with ygg | 31 | 26 |
+| codex | 32 | 10 |
+| codex with ygg | 36 | 9 |
+
+### Never shown
+
+A replay reran each agent's own ygg queries at depth 60 against a store
+snapshot, and also ran the task text itself as a query.
+- None of the files the ygg arms never showed rank for the agent's own
+  queries.
+- The task text as a query brings two into the top 10: a flask test and a
+  graphify changelog. Three more rank between 23 and 37.
+- The rest cannot be found at the search revision.
+  - **Stale labels.** Cases are searched at the repository's current HEAD,
+    and the content the old commit changed is gone. Dapper's
+    `AssemblyInfo.cs` no longer holds `AssemblyVersion`, and the postgres
+    Ansible version bumps are similar.
+  - **Side files.** Files the commit touched that the task does not describe,
+    such as ripgrep `build.rs` and graphify `cli.py`.
+
+An earlier "start with a description" guide changed how agents searched but
+did not add hits. A sharper version could recover at most two files here.
+
+### Shown but not named
+
+This bucket is about how many files the agent names.
+- Codex names about three files per answer.
+- In 59 multi-file cases it names some expected file in 56 or 57, but all of
+  them in only 40 or 41.
+- Missed source files are mostly partners in multi-file changes, such as a
+  second Terraform file or Dapper's `SqlMapper` partial classes. The rest are
+  tests, docs and changelogs.
+
+`run.py --prompt-extra` appends text to every arm's prompt. A line asking for
+the tests, documentation, changelog and dependency files a change also
+touches was tried on 51 labelled cases with a miss, against a baseline on the
+same cases.
+
+| Arm | Files found (of 111) | Precision | Answer length | Hits |
+|---|---|---|---|---|
+| native | 61 → 66 | 0.338 → 0.226 | 4.1 → 6.1 | 32 → 32 |
+| ygg | 69 → 74 | 0.310 → 0.233 | 4.6 → 6.7 | 35 → 34 |
+
+The line was rejected. Agents named more of the side files by listing more
+files overall, not by choosing better.
+
+### Extractors
+
+None of the eval indexes had plugin records, because no suite configures
+extractors. ygg's import graph lane was therefore never measured in an agent
+eval.
+
+## Conclusions
+
+- In the final setup, strong agents find the files about as well with ygg as
+  without it.
+- No remaining miss on the file-discovery suite points to a ranking or recall
+  defect in ygg. The misses are stale or undescribed labels, or files the
+  agent saw and did not name.
+- Further tuning against this suite is unlikely to help. A task-completion
+  grader on pinned pre-fix source, now in progress, removes the label
+  problems. It also scores failed patches rather than unnamed side files.
