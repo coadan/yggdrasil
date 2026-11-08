@@ -19,6 +19,9 @@ const (
 	MatchRegexp = "regexp"
 
 	MaxBytes = 16 * 1024
+	// MaxTerms bounds the distinct terms a lexical FTS query uses. Longer
+	// queries, such as pasted traces or logs, are accepted and keep their
+	// first MaxTerms distinct terms.
 	MaxTerms = 256
 )
 
@@ -49,9 +52,6 @@ func Parse(pattern, matchKind, about, scope string) (Plan, error) {
 	if len(pattern) > MaxBytes {
 		return Plan{}, errors.New("search query exceeds the byte limit")
 	}
-	if len(strings.Fields(pattern)) > MaxTerms {
-		return Plan{}, errors.New("search query exceeds the term limit")
-	}
 	if matchKind == "" {
 		matchKind = MatchText
 	}
@@ -60,8 +60,7 @@ func Parse(pattern, matchKind, about, scope string) (Plan, error) {
 		Scope:   strings.TrimSuffix(scope, "/"),
 	}
 	semanticText := strings.TrimSpace(about)
-	if !utf8.ValidString(semanticText) || len(semanticText) > MaxBytes ||
-		len(strings.Fields(semanticText)) > MaxTerms {
+	if !utf8.ValidString(semanticText) || len(semanticText) > MaxBytes {
 		return Plan{}, errors.New("semantic intent exceeds search query limits")
 	}
 	semanticSource := "about"

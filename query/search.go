@@ -87,9 +87,6 @@ func run(ctx context.Context, value Reader, query string, opts Options) (Result,
 	if len(query) > MaxQueryBytes {
 		return Result{}, fmt.Errorf("search query exceeds %d bytes", MaxQueryBytes)
 	}
-	if len(strings.Fields(query)) > MaxQueryTerms {
-		return Result{}, fmt.Errorf("search query exceeds %d terms", MaxQueryTerms)
-	}
 	plan, err := Parse(query, opts.MatchKind, opts.About, opts.Scope)
 	if err != nil {
 		return Result{}, fmt.Errorf("plan search query: %w", err)
@@ -166,7 +163,7 @@ func run(ctx context.Context, value Reader, query string, opts Options) (Result,
 					}
 					lanes = append(lanes, literalCandidateLane("extractor-literal", extracted, query, identifier))
 				}
-			} else if len(terms) > 1 {
+			} else if len(terms) > 1 && len(terms) <= maxQueryTermOccurrences {
 				phrase, err := value.LexicalCandidates(
 					ctx, ftsPhraseQuery(terms), opts.Scope, candidateLimit,
 				)
@@ -1263,7 +1260,32 @@ func pathTerms(query string) []string {
 	return result
 }
 
+// maxQueryTermOccurrences is the longest term list quoted as written. It sits
+// above the term lists queries reached under the former 256-word limit, so
+// those keep their repeats, which weigh in BM25, and their order.
+const maxQueryTermOccurrences = 3 * MaxQueryTerms
+
+// quotedTerms quotes the terms of a query. A longer query, such as a pasted
+// trace, log, or diff, keeps only its first MaxQueryTerms distinct terms,
+// compared ignoring case as the FTS tokenizer does: its repeats mostly echo
+// boilerplate and would otherwise multiply the FTS work.
 func quotedTerms(terms []string) []string {
+	if len(terms) > maxQueryTermOccurrences {
+		distinct := make([]string, 0, MaxQueryTerms)
+		seen := make(map[string]bool, MaxQueryTerms)
+		for _, field := range terms {
+			key := strings.ToLower(field)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			distinct = append(distinct, field)
+			if len(distinct) == MaxQueryTerms {
+				break
+			}
+		}
+		terms = distinct
+	}
 	quoted := make([]string, 0, len(terms))
 	for _, field := range terms {
 		field = strings.ReplaceAll(field, `"`, `""`)

@@ -140,3 +140,31 @@ func TestSearchExcerptKeepsCodeIndentation(t *testing.T) {
 		t.Fatalf("output=%q, want aligned lines %q", stdout.String(), want)
 	}
 }
+
+func TestSearchAcceptsQueriesLongerThanTheTermCap(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(filepath.Join(root, "listener.go"), []byte("func newSharedQUICState() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "other.go"), []byte("func unrelated() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	trace := strings.Repeat("FAIL downloading module noise line ", 80) + "undefined: newSharedQUICState"
+	var stdout, stderr bytes.Buffer
+	if code := Main(context.Background(), []string{"search", "--root", root, "--mode", "lexical", trace}, &stdout, &stderr); code != 0 {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	var envelope struct {
+		Data struct {
+			Records []struct{ Path string } `json:"records"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if len(envelope.Data.Records) == 0 || envelope.Data.Records[0].Path != "listener.go" {
+		t.Fatalf("records = %+v, want listener.go first", envelope.Data.Records)
+	}
+}

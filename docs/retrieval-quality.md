@@ -387,6 +387,40 @@ refitting on its own. Four frozen opening-search cases showed the same
 pattern: semantic ranked one owner first where hybrid placed it fourth, and
 hybrid moved a second-rank lexical owner to fifth.
 
+### Long queries
+
+Search refused queries of more than 256 whitespace-separated words. Pasted
+traces, logs, and diff hunks often exceed that: 69 of the 345 positive
+queries in Agent Retrieval Bench V2 (`eyuansu71/agent_retrieval_bench`, queries
+rendered as the benchmark's sorted JSON) did, including 53 of 58 in
+`edit2ripple`. Queries are now accepted up to the 16 KiB byte limit. A term
+list of at most 768 terms (three times the former word limit, above the 716
+terms the longest previously accepted query produced) is used as written,
+repeats included, since repeats weigh in BM25. A longer one keeps its first 256
+distinct terms, and the exact-phrase lane is skipped. Lexical mode, no
+extractors or reranker, files rebuilt from the benchmark's file chunks:
+
+| Subset | Refused before | MRR | Recall@20 |
+| --- | ---: | ---: | ---: |
+| `code2test` (106) | 4 | 0.043 → 0.045 | 0.225 → 0.239 |
+| `comment2context` (80) | 2 | 0.144 → 0.144 | 0.352 → 0.352 |
+| `trace2code` (101) | 10 | 0.059 → 0.066 | 0.277 → 0.322 |
+| `edit2ripple` (58) | 53 | 0.015 → 0.192 | 0.034 → 0.454 |
+| All (345) | 69 | 0.066 → 0.099 | 0.238 → 0.326 |
+
+No previously accepted query changed rank. Recovered queries took 0.84 s at
+p50 and 7.8 s at most. Keeping repeats beyond 768 terms took up to 99 s on
+`edit2ripple` and ranked worse (MRR 0.141); deduplicating every query changed
+164 previously accepted ranks, mostly for the worse.
+
+The benchmark's own lexical baseline, re-run per sample, scores MRR 0.157 and
+Recall@20 0.494 (matching its published table). An ablation of that baseline on
+`code2test` and `comment2context` traced its edge to symbol-level chunks:
+without them Recall@20 fell from 0.355 to 0.212, while dropping camelCase
+splitting changed it little (0.383). Enabling the bundled extractors, whose
+symbol records feed the extractor lane, raised ygg's Recall@20 on those subsets
+from 0.239 to 0.329 and from 0.352 to 0.394.
+
 ## Stemmed lexical lane
 
 The unicode61 tokenizer matches only identical tokens, so `retried` misses

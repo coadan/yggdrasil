@@ -1271,8 +1271,20 @@ func TestSearchRejectsUnboundedInputs(t *testing.T) {
 	if _, err := Run(ctx, nil, strings.Repeat("x", MaxQueryBytes+1), Options{}); err == nil {
 		t.Fatal("expected query byte limit error")
 	}
-	if _, err := Run(ctx, nil, strings.Repeat("word ", MaxQueryTerms+1), Options{}); err == nil {
-		t.Fatal("expected query term limit error")
+}
+
+func TestQuotedTermsKeepsShortQueriesAndBoundsLongOnes(t *testing.T) {
+	if got := ftsAnyQuery([]string{"Retry", "budget", "retry"}); got != `"Retry" OR "budget" OR "retry"` {
+		t.Fatalf("ftsAnyQuery = %s", got)
+	}
+	long := make([]string, 0, maxQueryTermOccurrences+1)
+	for index := range maxQueryTermOccurrences + 1 {
+		long = append(long, fmt.Sprintf("t%d", index%(MaxQueryTerms+10)))
+	}
+	long[1] = "T0"
+	quoted := quotedTerms(long)
+	if len(quoted) != MaxQueryTerms || quoted[0] != `"t0"` || quoted[1] != `"t2"` {
+		t.Fatalf("quoted %d terms starting %v", len(quoted), quoted[:2])
 	}
 }
 
