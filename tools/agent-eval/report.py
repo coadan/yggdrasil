@@ -7,10 +7,13 @@ a successful search visibly named an expected path. Also shows whether an
 expected path was subsequently read and named in the answer.
 """
 import argparse
+from collections import Counter
 import json
 from pathlib import Path
 import re
 import sys
+
+from run_identity import observed_searches
 
 # Bash programs that count as a search call; cat, sed and head read files.
 SEARCH_PROGRAMS = {'ygg', 'rg', 'grep', 'egrep', 'fgrep', 'find', 'ls', 'fd'}
@@ -111,13 +114,14 @@ def search_paths(kind, request, text):
 
 def inspect_trajectory(log, expected):
     """Measure evidence in event order so parallel reads cannot follow unseen results."""
-    root = None
+    root, completed = None, False
     uses, search_hits = {}, {}
     shown, read, read_after_shown = set(), set(), set()
     try:
         stream = Path(log).open()
     except FileNotFoundError:
-        return {'searches': [], 'shown': shown, 'read': read, 'readAfterShown': read_after_shown, 'missingLog': True}
+        return {'searches': [], 'shown': shown, 'read': read, 'readAfterShown': read_after_shown,
+                'missingLog': True, 'completed': False}
     with stream:
         for line in stream:
             try:
@@ -126,6 +130,12 @@ def inspect_trajectory(log, expected):
                 continue
             if event.get('type') == 'system' and event.get('subtype') == 'init' and event.get('cwd'):
                 root = Path(event['cwd'])
+            if event.get('type') == 'result':
+                output = event.get('structured_output')
+                files = output.get('files') if isinstance(output, dict) else None
+                completed = not event.get('is_error') and isinstance(files, list) and all(
+                    isinstance(path, str) for path in files
+                )
             content = (event.get('message') or {}).get('content')
             if not isinstance(content, list):
                 continue
@@ -150,31 +160,136 @@ def inspect_trajectory(log, expected):
                     shown.update(hits)
                     search_hits[call_id] = bool(hits) if paths is not None else None
     return {'searches': [search_hits[key] for key in uses if key in search_hits],
-            'shown': shown, 'read': read, 'readAfterShown': read_after_shown, 'missingLog': False}
+            'shown': shown, 'read': read, 'readAfterShown': read_after_shown,
+            'missingLog': False, 'completed': completed}
+
+
+def read_results(run):
+    manifest_path = run / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text()) if manifest_path.is_file() else None
+    results_path = run / 'results.json'
+    rows = json.loads(results_path.read_text()) if manifest is None or results_path.is_file() else []
+    if not isinstance(rows, list):
+        raise ValueError('results.json must contain a list of results')
+    if manifest is not None:
+        if not isinstance(manifest, dict) or manifest.get('schema') != 1:
+            raise ValueError('unsupported run manifest schema')
+        arms = manifest['arms']
+        expected = {case['id']: case for case in manifest['cases']}
+        if (not isinstance(arms, list) or not arms or len(set(arms)) != len(arms) or
+                not expected or len(expected) != len(manifest['cases'])):
+            raise ValueError('run manifest needs unique arms and cases')
+        by_case = {case: {} for case in expected}
+    else:
+        arms = sorted({row['arm'] for row in rows})
+        by_case = {}
+    for row in rows:
+        case, arm = row['case'], row['arm']
+        if manifest is not None:
+            if case not in expected or arm not in arms:
+                raise ValueError(f'{case} {arm} is outside the manifest')
+            if any(row[key] != expected[case][key] for key in ('repo', 'expectedPaths')):
+                raise ValueError(f'{case} {arm} has different repository or expected paths than the manifest')
+            model = manifest['models']['codex_model' if arm.startswith('codex') else 'model']
+            if row.get('model') not in (None, model):
+                raise ValueError(f'{case} {arm} has a different model than the manifest')
+        runs = by_case.setdefault(case, {})
+        if arm in runs:
+            raise ValueError(f'duplicate result for {case} {arm}')
+        if row.get('isError') or row.get('timedOut') or row.get('dirty'):
+            row = dict(row, hit=False, recall=0, precision=0, firstHitRank=None, answer=[])
+        runs[arm] = row
+    return manifest, arms, by_case
+
+
+def report_coverage(manifest, arms, by_case, evidence):
+    complete = manifest is not None
+    if manifest is None:
+        print('Legacy run. Expected coverage is inferred from saved rows.')
+    else:
+        print(f"Manifest: {manifest['split']} {manifest['style']}, {len(by_case)} cases, "
+              f"{manifest['limits']['tool_budget']} requested tool calls per run")
+        if ygg := manifest.get('ygg'):
+            print(f"  requested Ygg format {ygg['format']}, binary SHA-256 {ygg['binary']['sha256'][:12]}")
+        if guard := manifest['sources'].get('guard.py'):
+            print(f'  Bash guard SHA-256 {guard[:12]}')
+    print('Run coverage. Recorded failures count as misses in the paired table.')
+    for arm in arms:
+        group = [runs[arm] for runs in by_case.values() if arm in runs]
+        missing = len(by_case) - len(group)
+        timeouts = sum(bool(row.get('timedOut')) for row in group)
+        errors = sum(bool(row.get('isError')) and not row.get('timedOut', False) for row in group)
+        dirty = sum(bool(row.get('dirty')) for row in group)
+        retries = sum(len(row.get('priorFailures', [])) for row in group)
+        invalid_logs = sum(1 for row in group if not row.get('isError') and not row.get('timedOut') and
+                           not evidence[row['case'], arm]['completed'])
+        print(f'  {arm:9} {len(group)}/{len(by_case)} rows, {missing} missing, {errors} errors, '
+              f'{timeouts} timeouts, {dirty} dirty checkouts, {retries} prior attempts, {invalid_logs} unverified success logs')
+        complete &= not (missing or dirty or invalid_logs)
+    return complete
+
+
+def recorded_cost(group):
+    attempts = [attempt.get('costUsd') for row in group for attempt in [row, *row.get('priorFailures', [])]]
+    known = [cost for cost in attempts if cost is not None]
+    if not known:
+        return 'n/a'
+    suffix = '+' if len(known) < len(attempts) else ''
+    return f'${sum(known):.2f}{suffix}'
+
+
+def report_ygg_conditions(run, arms, paired):
+    for arm in arms:
+        if arm not in ('ygg', 'both', 'shell-ygg', 'codex-ygg'):
+            continue
+        conditions = Counter()
+        successes = errors = unreadable = uncaptured = 0
+        for case in paired:
+            observed = observed_searches(run / 'logs' / f'{case}.{arm}.jsonl')
+            if observed is None:
+                uncaptured += 1
+                continue
+            successes += observed['successful']
+            errors += observed['errors']
+            unreadable += observed['unreadable']
+            for row in observed['conditions']:
+                key = tuple(row[field] for field in ('requestedMode', 'activeMode', 'coverage', 'fallbackReason', 'rerankState'))
+                conditions[key] += row['count']
+        print(f'\n{arm} raw search results across paired runs. '
+              f'{successes} successful, {errors} errors, {unreadable} unreadable, {uncaptured} runs without raw capture.')
+        for (requested, active, coverage, fallback, rerank), count in sorted(conditions.items(), key=repr):
+            print(f'  {count:4} requested={requested} active={active} coverage={coverage} '
+                  f'fallback={fallback or "-"} rerank={rerank or "-"}')
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument('--run', type=Path, required=True)
     parser.add_argument('--rounds', type=int, default=4, help='Last search round reported on its own')
+    parser.add_argument('--require-complete', action='store_true',
+                        help='Require a manifest, every planned result, and logs for successful runs')
     args = parser.parse_args()
     if args.rounds < 1:
         parser.error('--rounds must be positive')
-    rows = json.loads((args.run / 'results.json').read_text())
-    arms = sorted({row['arm'] for row in rows})
-    by_case = {}
-    for row in rows:
-        by_case.setdefault(row['case'], {})[row['arm']] = row
-    paired = {case: runs for case, runs in by_case.items() if all(arm in runs for arm in arms)}
-    print(f'{len(paired)} cases with every arm ({", ".join(arms)})\n')
-    if not paired:
-        return 0
-
+    try:
+        manifest, arms, by_case = read_results(args.run)
+    except (KeyError, TypeError, ValueError, OSError) as error:
+        parser.exit(2, f'cannot read comparison: {error}\n')
     evidence = {(case, arm): inspect_trajectory(args.run / 'logs' / f'{case}.{arm}.jsonl',
-                                               set(runs[arm]['expectedPaths']))
-                for case, runs in paired.items() for arm in arms}
+                                               set(row['expectedPaths']))
+                for case, runs in by_case.items() for arm, row in runs.items()}
+    complete = report_coverage(manifest, arms, by_case, evidence)
+    status = 0
+    if args.require_complete and not complete:
+        print('Comparison does not meet strict coverage requirements.', file=sys.stderr)
+        status = 1
+    paired = {case: runs for case, runs in by_case.items() if all(arm in runs for arm in arms)}
+    print(f'\n{len(paired)} cases with every arm ({", ".join(arms)})\n')
+    if not paired:
+        return status
 
     print('arm      hit      recall  precision  first@1  shown   calls  input-tokens  cost    seconds')
+    print('Cost includes recorded retries. A plus sign marks attempts with missing cost.')
     for arm in arms:
         group = [runs[arm] for runs in paired.values()]
         n = len(group)
@@ -183,7 +298,7 @@ def main():
               f"{sum(r['firstHitRank'] == 1 for r in group):3}      "
               f"{sum(bool(evidence[case, arm]['shown']) for case in paired):3}      "
               f"{mean('toolCalls'):4.1f}   {mean('inputTokens') / 1000:6.1f}k      "
-              f"${sum(r['costUsd'] or 0 for r in group):.2f}  {mean('durationMs') / 1000:5.1f}")
+              f"{recorded_cost(group):>6}  {mean('durationMs') / 1000:5.1f}")
 
     for index, left in enumerate(arms):
         for right in arms[index + 1:]:
@@ -235,7 +350,8 @@ def main():
         cells = '  '.join(f"{k if k < args.rounds else f'{k}+'}: {hit}/{count}, {unknown} unknown"
                           for k, (hit, count, unknown) in sorted(buckets.items()))
         print(f'  {arm:8} {cells}')
-    return 0
+    report_ygg_conditions(args.run, arms, paired)
+    return status
 
 
 if __name__ == '__main__':

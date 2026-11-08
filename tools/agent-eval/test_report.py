@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -55,6 +57,64 @@ class ReportTest(unittest.TestCase):
         self.assertEqual(ygg_paths('2 results (hybrid)\na.go:1-4,7-9\n    fake.go:3-9\nmore: b.go, c.go'), ['a.go'])
         self.assertIsNone(ygg_paths(envelope([{}])))
         self.assertEqual(search_paths('Grep', {'output_mode': 'content'}, 'a.go:9:b.go\n10:only text'), ['a.go'])
+
+    def test_cli_requires_each_planned_arm_and_a_successful_result_event(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            logs = run / 'logs'
+            logs.mkdir()
+            (run / 'manifest.json').write_text(json.dumps({
+                'schema': 1, 'split': 'holdout', 'style': 'symptom', 'arms': ['shell', 'shell-ygg'],
+                'cases': [{'id': 'demo', 'repo': 'repo', 'expectedPaths': ['owner.go']}],
+                'models': {'model': 'fixture'}, 'limits': {'tool_budget': 8},
+                'sources': {'guard.py': 'a' * 64},
+                'ygg': {'format': 'compact', 'binary': {'sha256': 'b' * 64}},
+            }))
+            row = {'case': 'demo', 'repo': 'repo', 'arm': 'shell', 'expectedPaths': ['owner.go'],
+                   'model': 'fixture', 'hit': True, 'firstHitRank': 1, 'recall': 1, 'precision': 1,
+                   'toolCalls': 1, 'inputTokens': 2000, 'costUsd': None, 'durationMs': 1000,
+                   'answer': ['owner.go']}
+            completed = json.dumps({'type': 'result', 'structured_output': {'files': ['owner.go']}}) + '\n'
+            (logs / 'demo.shell.jsonl').write_text(completed)
+            results = run / 'results.json'
+            command = [sys.executable, '-B', str(Path(__file__).with_name('report.py')),
+                       '--run', str(run), '--require-complete']
+
+            def report(*rows):
+                results.write_text(json.dumps(rows))
+                return subprocess.run(command, capture_output=True, text=True)
+
+            missing_arm = report(row)
+            self.assertEqual(missing_arm.returncode, 1, missing_arm.stderr)
+            self.assertIn('shell-ygg 0/1 rows, 1 missing', missing_arm.stdout)
+            self.assertIn('0 cases with every arm', missing_arm.stdout)
+
+            ygg = dict(row, arm='shell-ygg', costUsd=0.1, priorFailures=[{'costUsd': 0.05}])
+            (logs / 'demo.shell-ygg.jsonl').touch()
+            incomplete_log = report(row, ygg)
+            self.assertEqual(incomplete_log.returncode, 1, incomplete_log.stderr)
+            self.assertIn('1 unverified success logs', incomplete_log.stdout)
+
+            (logs / 'demo.shell-ygg.jsonl').write_text(completed)
+            (logs / 'demo.shell-ygg.ygg-raw.jsonl').write_text(json.dumps({
+                'schema': 'ygg.cli/v1', 'ok': True, 'data': {'requestedMode': 'auto', 'activeMode': 'lexical',
+                    'semantic': {'coverage': 0.25}, 'fallbackReason': 'semantic-below-threshold'},
+            }) + '\n')
+            paired = report(row, dict(ygg, timedOut=True))
+            self.assertEqual(paired.returncode, 0, paired.stderr)
+            self.assertIn('shell-ygg   0/1', paired.stdout)
+            self.assertIn('1 timeouts', paired.stdout)
+            self.assertIn('n/a', paired.stdout)
+            self.assertIn('$0.15', paired.stdout)
+            self.assertIn('1 successful, 0 errors, 0 unreadable, 0 runs without raw capture', paired.stdout)
+            self.assertIn('active=lexical coverage=0.25 fallback=semantic-below-threshold', paired.stdout)
+
+            mismatch = report(row, dict(ygg, expectedPaths=['other.go']))
+            self.assertEqual(mismatch.returncode, 2)
+            self.assertIn('different repository or expected paths', mismatch.stderr)
+            duplicate = report(row, row)
+            self.assertEqual(duplicate.returncode, 2)
+            self.assertIn('duplicate result', duplicate.stderr)
 
 
 if __name__ == '__main__':
