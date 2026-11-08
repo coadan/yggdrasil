@@ -147,6 +147,14 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 				return Summary{}, tokenErr
 			}
 			current := indexedFreshness == startFreshness
+			if current && (len(cfg.Plugins) > 0 || len(opts.ExtractorProviders) > 0) {
+				incomplete, incompleteErr := value.HasIncompleteExtraction(ctx)
+				if incompleteErr != nil {
+					value.Close()
+					return Summary{}, incompleteErr
+				}
+				current = !incomplete
+			}
 			summary.EmbeddingStatus = "unconfigured"
 			if opts.NoEmbed {
 				summary.EmbeddingStatus = "skipped"
@@ -257,6 +265,11 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 		return summary, err
 	}
 	plugins := plugin.NewManager(ctx, paths.Root, cfg.Plugins)
+	for _, provider := range opts.ExtractorProviders {
+		if refreshAware, ok := provider.(extractorcontract.RefreshAware); ok {
+			refreshAware.BeginRefresh()
+		}
+	}
 	pluginsClosed := false
 	defer func() {
 		if !pluginsClosed {
@@ -344,7 +357,11 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 			continue
 		}
 		records := chunk.Records(file)
-		pluginRecords, pluginDiagnostics := plugins.Extract(file)
+		pluginRecords, pluginDiagnostics, complete := plugins.Extract(file)
+		fileFingerprint := fingerprint
+		if !complete {
+			fileFingerprint = ""
+		}
 		records = append(records, pluginRecords...)
 		for _, diagnostic := range pluginDiagnostics {
 			summary.Diagnostics++
@@ -364,11 +381,14 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 				provided, extractErr = extractorcontract.NormalizeRecords(descriptor, extractorFile, provided)
 			}
 			if extractErr != nil {
-				summary.Diagnostics++
-				diagnostics = append(diagnostics, store.Diagnostic{
-					Path: file.Path, Stage: "extractor-provider:" + descriptor.ID,
-					Message: extractErr.Error(),
-				})
+				fileFingerprint = ""
+				if !errors.Is(extractErr, extractorcontract.ErrIncomplete) {
+					summary.Diagnostics++
+					diagnostics = append(diagnostics, store.Diagnostic{
+						Path: file.Path, Stage: "extractor-provider:" + descriptor.ID,
+						Message: extractErr.Error(),
+					})
+				}
 			} else {
 				records = append(records, provided...)
 			}
@@ -381,7 +401,7 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 			}
 		}
 		updates = append(updates, store.FileUpdate{
-			File: file, ContentHash: contentHash, ExtractionFingerprint: fingerprint, Records: records,
+			File: file, ContentHash: contentHash, ExtractionFingerprint: fileFingerprint, Records: records,
 		})
 		if len(changedPaths) < maxChangedPriorityPaths {
 			changedPaths = append(changedPaths, candidate.Path)

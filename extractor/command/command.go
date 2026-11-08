@@ -40,11 +40,13 @@ func New(ctx context.Context, root string, spec Spec) (*Provider, error) {
 
 func (p *Provider) Descriptor() extractor.Descriptor { return p.descriptor }
 
+func (p *Provider) BeginRefresh() { p.manager.ResetFailures() }
+
 func (p *Provider) Extract(
 	_ context.Context,
 	file extractor.File,
 ) ([]extractor.Record, []extractor.Diagnostic, error) {
-	records, diagnostics := p.manager.Extract(discovery.File{
+	records, diagnostics, complete := p.manager.Extract(discovery.File{
 		Candidate: discovery.Candidate{Path: file.Path, Size: int64(len(file.Content))},
 		Kind:      file.Kind, Content: file.Content, ContentHash: file.ContentHash,
 	})
@@ -60,6 +62,9 @@ func (p *Provider) Extract(
 			Path: diagnostic.Path, Plugin: diagnostic.Plugin,
 			Stage: diagnostic.Stage, Message: diagnostic.Message,
 		}
+	}
+	if !complete {
+		return records, resultDiagnostics, extractor.ErrIncomplete
 	}
 	return records, resultDiagnostics, nil
 }

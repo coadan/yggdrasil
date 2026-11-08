@@ -77,13 +77,13 @@ func TestManagerAllowsSlowReadyWithinConfiguredTimeout(t *testing.T) {
 		IncludeGlobs: []string{"**/*.md"}, TimeoutMS: 5_000,
 	}})
 	defer manager.Close()
-	records, diagnostics := manager.Extract(discovery.File{
+	records, diagnostics, complete := manager.Extract(discovery.File{
 		Candidate: discovery.Candidate{Path: "README.md"},
 		Kind:      "md",
 		Content:   "# Hello\n",
 	})
-	if len(diagnostics) != 0 || len(records) != 1 || records[0].Source != "plugin:helper" {
-		t.Fatalf("slow extractor yielded records=%#v diagnostics=%#v", records, diagnostics)
+	if !complete || len(diagnostics) != 0 || len(records) != 1 || records[0].Source != "plugin:helper" {
+		t.Fatalf("slow extractor yielded complete=%t records=%#v diagnostics=%#v", complete, records, diagnostics)
 	}
 }
 
@@ -160,13 +160,13 @@ func TestManagerIsolatesDuplicatePluginIDs(t *testing.T) {
 		IncludeGlobs: []string{"**/*.md"}, TimeoutMS: 1_000,
 	}
 	manager := NewManager(context.Background(), t.TempDir(), []config.Plugin{cfg})
-	records, diagnostics := manager.Extract(discovery.File{
+	records, diagnostics, complete := manager.Extract(discovery.File{
 		Candidate: discovery.Candidate{Path: "README.md"},
 		Kind:      "md",
 		Content:   "# Hello\n",
 	})
-	if len(records) != 0 || len(diagnostics) != 1 {
-		t.Fatalf("records=%#v diagnostics=%#v", records, diagnostics)
+	if complete || len(records) != 0 || len(diagnostics) != 1 {
+		t.Fatalf("complete=%t records=%#v diagnostics=%#v", complete, records, diagnostics)
 	}
 	if diagnostics[0].Stage != "extract" {
 		t.Fatalf("diagnostic=%#v", diagnostics[0])

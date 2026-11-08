@@ -65,11 +65,22 @@ type Diagnostic struct {
 	Message string `json:"message"`
 }
 
+// ErrIncomplete reports that a provider could not extract a file. The index
+// retries the file on a later refresh. Any diagnostics describe the failure.
+var ErrIncomplete = errors.New("extraction incomplete")
+
 // Provider is retained and closed by its caller. Extract must be bounded by
 // the supplied context; providers need not support concurrent calls.
 type Provider interface {
 	Descriptor() Descriptor
 	Extract(context.Context, File) ([]Record, []Diagnostic, error)
+}
+
+// RefreshAware is an optional provider capability. BeginRefresh is called
+// before extraction in each index run so a provider can clear run-local
+// failures while retaining its healthy resources.
+type RefreshAware interface {
+	BeginRefresh()
 }
 
 // NormalizeRecords validates untrusted provider output and assigns its

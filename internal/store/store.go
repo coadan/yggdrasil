@@ -481,6 +481,9 @@ func (s *Store) initialize(ctx context.Context, root, rootID string) error {
 	case version != schemaVersion:
 		return fmt.Errorf("index schema %s is incompatible with %s; run ygg index --full", version, schemaVersion)
 	}
+	if err := s.markLegacyExtractionFailures(ctx); err != nil {
+		return fmt.Errorf("prepare extraction retries: %w", err)
+	}
 	var extractorFTSVersion string
 	err = s.queryRowContext(
 		ctx, `SELECT value FROM meta WHERE key='extractor_fts_version'`,
@@ -773,6 +776,52 @@ func (s *Store) FinishRun(ctx context.Context, runID, status string, summary any
 		`UPDATE index_runs SET finished_at_ms=?, status=?, summary_json=? WHERE id=?`,
 		time.Now().UnixMilli(), status, string(data), runID)
 	return err
+}
+
+// markLegacyExtractionFailures marks files from older runs that logged a
+// worker failure without recording which subsequent files were skipped.
+func (s *Store) markLegacyExtractionFailures(ctx context.Context) error {
+	var marked bool
+	if err := s.queryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM meta WHERE key='extraction_retry_v1')`,
+	).Scan(&marked); err != nil || marked {
+		return err
+	}
+	tx, err := s.beginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
+		INSERT OR IGNORE INTO meta(key,value) VALUES('extraction_retry_v1','1')`)
+	if err != nil {
+		return err
+	}
+	added, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if added > 0 {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE files SET extraction_fingerprint=''
+			WHERE run_id IN (
+				SELECT run_id FROM diagnostics
+				WHERE stage GLOB 'extractor-provider:*:start' OR stage GLOB 'extractor-provider:*:extract'
+				   OR stage GLOB 'extractor-plugin:*:start' OR stage GLOB 'extractor-plugin:*:extract'
+			)`); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// HasIncompleteExtraction reports files with current source records whose
+// extractors did not all finish. An empty fingerprint keeps them retryable.
+func (s *Store) HasIncompleteExtraction(ctx context.Context) (bool, error) {
+	var incomplete bool
+	err := s.queryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM files WHERE extraction_fingerprint='')`).Scan(&incomplete)
+	return incomplete, err
 }
 
 func (s *Store) FileStates(ctx context.Context) (map[string]FileState, error) {

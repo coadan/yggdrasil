@@ -58,11 +58,18 @@ func NewManager(ctx context.Context, root string, plugins []config.Plugin) *Mana
 	}
 }
 
-func (m *Manager) Extract(file discovery.File) ([]contracts.SearchRecord, []Diagnostic) {
+func (m *Manager) ResetFailures() { clear(m.disabled) }
+
+func (m *Manager) Extract(file discovery.File) ([]contracts.SearchRecord, []Diagnostic, bool) {
 	var records []contracts.SearchRecord
 	var diagnostics []Diagnostic
+	complete := true
 	for _, pluginConfig := range m.configs {
-		if m.disabled[pluginConfig.ID] || !applies(pluginConfig, file.Path) {
+		if !applies(pluginConfig, file.Path) {
+			continue
+		}
+		if m.disabled[pluginConfig.ID] {
+			complete = false
 			continue
 		}
 		session := m.sessions[pluginConfig.ID]
@@ -71,6 +78,7 @@ func (m *Manager) Extract(file discovery.File) ([]contracts.SearchRecord, []Diag
 			session, err = Start(m.ctx, m.root, pluginConfig)
 			if err != nil {
 				m.disabled[pluginConfig.ID] = true
+				complete = false
 				diagnostics = append(diagnostics, diagnostic(file.Path, pluginConfig.ID, "start", err))
 				continue
 			}
@@ -79,6 +87,7 @@ func (m *Manager) Extract(file discovery.File) ([]contracts.SearchRecord, []Diag
 		extracted, pluginDiagnostics, err := session.Extract(m.ctx, file)
 		if err != nil {
 			m.disabled[pluginConfig.ID] = true
+			complete = false
 			session.abort()
 			delete(m.sessions, pluginConfig.ID)
 			diagnostics = append(diagnostics, diagnostic(file.Path, pluginConfig.ID, "extract", err))
@@ -87,7 +96,7 @@ func (m *Manager) Extract(file discovery.File) ([]contracts.SearchRecord, []Diag
 		records = append(records, extracted...)
 		diagnostics = append(diagnostics, pluginDiagnostics...)
 	}
-	return records, diagnostics
+	return records, diagnostics, complete
 }
 
 func (m *Manager) Close() []Diagnostic {
