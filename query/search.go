@@ -1054,7 +1054,10 @@ func localizedCitation(
 		utf8.RuneCountInString(record.Text[offset:evidence.match.end]) > excerptLimit {
 		start, offset = evidence.line, evidence.match.start
 	}
-	text := strings.Clone(excerpt(record.Text[offset:], excerptLimit))
+	// excerpt trims leading blank lines; the cited start must skip them too.
+	rest := record.Text[offset:]
+	start += strings.Count(rest[:len(rest)-len(strings.TrimLeftFunc(rest, unicode.IsSpace))], "\n")
+	text := strings.Clone(excerpt(rest, excerptLimit))
 	startLine := record.StartLine + start
 	endLine := min(record.EndLine, startLine+strings.Count(text, "\n"))
 	title := record.Title

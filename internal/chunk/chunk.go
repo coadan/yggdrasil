@@ -55,12 +55,21 @@ func Records(file discovery.File) []contracts.SearchRecord {
 		}
 		text := strings.TrimSpace(strings.Join(lines[start:end], "\n"))
 		if text != "" {
+			// Trimming drops blank edge lines, so the cited lines must skip
+			// them too: line i of Text is file line StartLine+i.
+			first, last := start, end
+			for strings.TrimSpace(lines[first]) == "" {
+				first++
+			}
+			for strings.TrimSpace(lines[last-1]) == "" {
+				last--
+			}
 			records = append(records, contracts.SearchRecord{
 				Path:      file.Path,
-				StartLine: start + 1,
-				EndLine:   end,
+				StartLine: first + 1,
+				EndLine:   last,
 				Kind:      "text-chunk",
-				Title:     fmt.Sprintf("%s:%d", file.Path, start+1),
+				Title:     fmt.Sprintf("%s:%d", file.Path, first+1),
 				Text:      text,
 				Source:    "core",
 			})

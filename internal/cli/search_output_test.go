@@ -89,3 +89,34 @@ func TestSearchFormatErrorsKeepJSONEnvelope(t *testing.T) {
 		}
 	}
 }
+
+func TestSearchCitesTheLinesItShowsAfterBlankLines(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	files := map[string]string{
+		// Leading blank lines are trimmed from the chunk.
+		"lead.txt": "\n\n\nfirst\nsecond\nleadmarker here\nthird\n",
+		// The citation starts two lines before the match, on blank lines.
+		"gap.txt": "a\nb\nc\n\n\ngap.marker here\ne\n",
+	}
+	for name, text := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for query, want := range map[string]string{
+		"leadmarker": "lead.txt:4-7\n    first\n",
+		"gap.marker": "gap.txt:6-7\n    gap.marker here\n",
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Main(context.Background(), []string{
+			"search", "--root", root, "--mode", "lexical", "--format", "compact", query,
+		}, &stdout, &stderr); code != 0 {
+			t.Fatalf("%s code=%d stdout=%s stderr=%s", query, code, stdout.String(), stderr.String())
+		}
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("%s output=%q, want %q", query, stdout.String(), want)
+		}
+	}
+}
