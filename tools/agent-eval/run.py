@@ -37,7 +37,7 @@ import subprocess
 import sys
 import time
 
-from run_identity import checked_output, observed_searches, run_manifest, write_json
+from run_identity import PromptInput, checked_output, observed_searches, run_manifest, write_json
 from tasks import task_file
 
 ANSWER_SCHEMA = json.dumps({
@@ -70,7 +70,7 @@ def bookkeeping_only(paths):
 def task_prompt(args, case, task):
     prompt = PROMPT.format(repo=case['repo'], task=task, budget=args.tool_budget)
     if extra := getattr(args, 'prompt_extra', None):
-        prompt += '\n\n' + extra.read_text().strip()
+        prompt += '\n\n' + extra.text
     return prompt
 
 
@@ -365,7 +365,7 @@ def run_one(case, task, arm, args, repo, log):
     if spec['guide']:
         guide = spec['guide'].replace(JSON_OUTPUT, OUTPUT_GUIDES[args.ygg_format]) if spec['ygg'] else spec['guide']
         if spec['ygg'] and args.guide_extra:
-            guide += '\n\n' + args.guide_extra.read_text().strip()
+            guide += '\n\n' + args.guide_extra.text
         command += ['--append-system-prompt', guide]
     if spec['guard']:
         # The guard decides; the allow rule only spares a permission prompt.
@@ -466,7 +466,8 @@ def main():
         raise SystemExit(f'unknown arms: {sorted(unknown)}')
     if len(arms) != len(set(arms)):
         parser.error('--arms must not contain duplicates')
-    if any(ARMS[arm]['ygg'] for arm in arms) and not (args.ygg_binary and args.storage):
+    uses_ygg = any(ARMS[arm]['ygg'] for arm in arms)
+    if uses_ygg and not (args.ygg_binary and args.storage):
         raise SystemExit('ygg arms need --ygg-binary and --storage')
     for name in ('ygg_binary', 'ygg_config', 'storage', 'guide_extra', 'prompt_extra'):
         if path := getattr(args, name, None):
@@ -485,6 +486,10 @@ def main():
         if output.is_relative_to(root) or suite.resolve().is_relative_to(root):
             raise SystemExit('Keep suite and output outside every repository under test')
     try:
+        if args.prompt_extra:
+            args.prompt_extra = PromptInput.read(args.prompt_extra)
+        if uses_ygg and args.guide_extra:
+            args.guide_extra = PromptInput.read(args.guide_extra)
         manifest = run_manifest(args, {arm: ARMS[arm] for arm in arms}, picked, tasks)
         with checked_output(output, manifest):
             return run_cases(args, suite, arms, picked, tasks, output)

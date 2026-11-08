@@ -2,6 +2,7 @@
 
 from collections import Counter
 from contextlib import contextmanager
+from dataclasses import dataclass
 import fcntl
 import hashlib
 import json
@@ -11,6 +12,22 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+
+@dataclass(frozen=True)
+class PromptInput:
+    path: Path
+    text: str
+    sha256: str
+
+    @classmethod
+    def read(cls, path):
+        raw = path.read_bytes()
+        text = raw.decode('utf-8').replace('\r\n', '\n').replace('\r', '\n').strip()
+        return cls(path, text, hashlib.sha256(raw).hexdigest())
+
+    def identity(self):
+        return {'path': str(self.path), 'sha256': self.sha256}
 
 
 def file_identity(path, *, optional=False):
@@ -94,12 +111,12 @@ def run_manifest(args, arms, cases, tasks):
         'python': {'version': sys.version, 'platform': sys.platform},
     }
     if extra := getattr(args, 'prompt_extra', None):
-        manifest['promptExtra'] = file_identity(extra)
+        manifest['promptExtra'] = extra.identity()
     if use_ygg:
         guide = getattr(args, 'guide_extra', None)
         manifest['ygg'] = {'binary': file_identity(args.ygg_binary), 'storage': str(args.storage),
                            'format': getattr(args, 'ygg_format', 'json'),
-                           'guide': file_identity(guide) if guide else None}
+                           'guide': guide.identity() if guide else None}
     return manifest
 
 

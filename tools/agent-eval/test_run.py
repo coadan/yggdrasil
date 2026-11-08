@@ -20,16 +20,24 @@ class BookkeepingTest(unittest.TestCase):
 
 
 class PromptTest(unittest.TestCase):
-    def test_extra_text_follows_the_task_prompt(self):
+    def test_extra_text_and_identity_stay_fixed_during_run(self):
         case = {'repo': 'gin'}
-        args = SimpleNamespace(tool_budget=5, prompt_extra=None)
+        args = SimpleNamespace(
+            tool_budget=5, prompt_extra=None, split='dev', style='natural', timeout=30,
+            max_budget=1, jobs=1, model='test', codex_model='test', codex_effort='low',
+        )
         plain = run.task_prompt(args, case, 'Fix it.')
         self.assertIn('Fix it.', plain)
         with tempfile.TemporaryDirectory() as directory:
             extra = Path(directory) / 'extra.txt'
-            extra.write_text('List the tests too.\n')
-            args.prompt_extra = extra
-            self.assertEqual(run.task_prompt(args, case, 'Fix it.'), plain + '\n\nList the tests too.')
+            extra.write_bytes(b'List the tests too.\r\nInclude their paths.\r\n')
+            args.prompt_extra = run.PromptInput.read(extra)
+            identity = run.run_manifest(args, {}, [], {})['promptExtra']
+            extra.write_text('Only list production files.\n')
+            expected = plain + '\n\nList the tests too.\nInclude their paths.'
+            self.assertEqual(run.task_prompt(args, case, 'Fix it.'), expected)
+            self.assertEqual(run.run_manifest(args, {}, [], {})['promptExtra'], identity)
+            self.assertNotEqual(run.PromptInput.read(extra).identity(), identity)
 
 
 if __name__ == '__main__':
