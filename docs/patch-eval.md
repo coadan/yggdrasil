@@ -105,3 +105,71 @@ The local evidence is in
 `full.score.json` contains the controls and outcomes, `runs.jsonl`
 contains terminal run status, and `manifest.json` pins the suite, runner,
 model, and binary.
+
+## Matched opening search
+
+The 240-second pilot reached the cap in 11 of 12 sessions. A separate
+control-only calibration used the same six tasks with a 900-second cap and
+required four sessions to finish before starting the fresh comparison.
+Four sessions finished and three of the six patches passed. The grader
+evaluated both patches collected at the cap, including one empty patch.
+
+The fresh comparison used four different public fixes, two each from
+Axios and Flask. Every base failed its behavioral check and every reference
+fix passed. Each case ran once per arm in an isolated snapshot with Codex
+CLI 0.167.0, local Ollama `qwen3.6:27b`, and the same 900-second cap.
+The order alternated by case. Only the opening results shown in the task
+prompt differed. After that, both agents had the same shell tools.
+
+Both openers used the same query written from the task description and a
+budget of five cards with at most 320 characters per excerpt. The control
+used case-insensitive literal ripgrep matches, ranking files by coverage of
+distinct query terms weighted by inverse file frequency. Ygg used its
+lexical CLI search with an empty user configuration. Both arms showed the
+path, line range, and excerpt in the same format. The ranking comparison
+covers the cards the agent could see. The experiment scores primary
+implementation paths, overlap with the reference change's lines, and
+first successful source reads separately.
+
+Each opener showed the primary implementation path on one of four cases.
+The shared hit was Flask's route preflight override, at rank 4 for ripgrep
+and rank 2 for Ygg. Neither excerpt overlapped the lines changed by the
+reference fix. The closest shown source line was 60 lines from the change
+for ripgrep and 498 lines for Ygg. The first Ygg card for the Axios URL
+boundary case was a sibling test. The agent opened that test on its first
+command and the implementation on its second. The control read the
+implementation on its fourth command. Both submitted the same patch.
+Both telemetry openers named the implementation in an excerpt, through
+the ripgrep threat-model card and a Ygg test import. Neither returned the
+implementation as a card.
+
+| Case | Ripgrep first read | Ygg first read | Ripgrep agent time | Ygg agent time | Passing patches |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Axios URL boundary | 4 | 2 | 334 s | 254 s | Both |
+| Axios telemetry | 1 | 3 | 408 s | 342 s | Both |
+| Flask bracketed bind address | 7 | 6 | 900 s (cap) | 635 s | Both |
+| Flask preflight override | 4 | 3 | 444 s | 769 s | Both |
+
+First read is the ordinal of a successful shell command that printed
+source from the primary implementation file. Agent time excludes the
+precomputed search. Median agent times were 426 seconds for the ripgrep
+arm and 489 seconds for Ygg. The cap left one control run without terminal
+token usage. Its captured patch still passed.
+
+The agents read the implementation within seven commands in every
+session, including runs where the opener missed it. Ygg reached the first
+read in fewer commands in three of four pairs. The sibling test is the
+clearest observed route from an opener to the implementation. All four
+pairs tied on correctness. With one run per arm per case and every patch
+passing, the trial leaves the effects on patch success and cost unresolved.
+The next comparison needs fresh cases where source discovery can affect
+the outcome, plus repeated runs with the same matched budgets.
+
+The local evidence is in
+`.workbench/tasks/opening-search-eval/evidence/`.
+`calibration-900/score.json` records the budget check.
+`opening-results/openings.json` and `opening-results/line-overlap.json`
+record the displayed cards and their distance from changed lines.
+`paired-900/score.json`, `runs.jsonl`, `discovery.jsonl`, and
+`manifest.json` record the behavioral results, run status, discovery
+traces, and frozen inputs.
