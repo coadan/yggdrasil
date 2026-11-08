@@ -332,6 +332,38 @@ local suite is close to them; the new public suite scores higher, with hybrid
 slightly below lexical as before. Its baselines are in `baseline-holdout.json`,
 and the retired files are kept for reference only.
 
+### Issue-sourced suite
+
+`tools/issue-suite.py` derives cases from GitHub issues closed by merged pull
+requests. A case pairs the issue title with the files the merge commit
+modified, pinned to the commit before the fix. The filters, the leak check
+(verbatim title at the base) and the hash split are the same as in
+`tools/history-suite.py`. Issue titles describe a symptom in the reporter's
+words, so they probe the vocabulary gap that commit subjects rarely show.
+
+A first draw pinned to the clone's HEAD was retired before any held-out use.
+Some fixes remove the very words their issue quotes: `url.parse()` in axios, a
+renamed Flask test. So HEAD can hide the answer. `tools/snapshot-quality.py`
+instead exports each case's base with `git archive` and searches it in
+lexical mode with a temporary store. Snapshots have no embeddings, so this
+suite measures lexical retrieval only.
+
+The 2026-11-08 draw covers seven of the nine public clones; graphify and
+supabase/postgres link no issues to pull requests. It has 69 dev and 71
+held-out cases. On dev, 57 cases find an expected file in the first ten paths
+(MRR@10 0.534). Scoring takes 22 seconds for 69 snapshots.
+
+| Miss class (dev) | Cases | Examples |
+| --- | ---: | --- |
+| Answer not locatable from the title | 5 | a .NET 10 upgrade (`*.csproj`), a vulnerability report (`go.mod`), a glibc CI failure (`Cargo.lock`) |
+| The fix adds the word the issue uses | 2 | ripgrep "support cuda files": `default_types.rs` has no `cuda` before the fix |
+| Prose or tests outrank the code | 4 | axios header typing: docs pages and tests hold every query word in one chunk, while `index.d.ts` spreads its matches across many (rank 46) |
+| Paraphrase | 1 | ripgrep "slowdown with larger `-A` context windows": `searcher/core.rs` at rank 27 |
+
+Nine of the twelve misses rank between 11 and 27. Unlike the commit-subject
+suites, where changelog and Markdown files earn the most hits, hits here land
+on source files in 46 of 57 cases.
+
 ## Stemmed lexical lane
 
 The unicode61 tokenizer matches only identical tokens, so `retried` misses
