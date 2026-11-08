@@ -86,11 +86,15 @@ func (m *Manager) Extract(file discovery.File) ([]contracts.SearchRecord, []Diag
 		}
 		extracted, pluginDiagnostics, err := session.Extract(m.ctx, file)
 		if err != nil {
+			diagnostics = append(diagnostics, diagnostic(file.Path, pluginConfig.ID, "extract", err))
+			var rejected rejectedRecordsError
+			if errors.As(err, &rejected) {
+				continue
+			}
 			m.disabled[pluginConfig.ID] = true
 			complete = false
 			session.abort()
 			delete(m.sessions, pluginConfig.ID)
-			diagnostics = append(diagnostics, diagnostic(file.Path, pluginConfig.ID, "extract", err))
 			continue
 		}
 		records = append(records, extracted...)
@@ -223,6 +227,12 @@ func Start(ctx context.Context, root string, pluginConfig config.Plugin) (*Sessi
 	return session, nil
 }
 
+// rejectedRecordsError follows a complete, correlated response whose records
+// are invalid. The stream remains ready for the next file.
+type rejectedRecordsError struct{ error }
+
+func (err rejectedRecordsError) Unwrap() error { return err.error }
+
 func (s *Session) Extract(ctx context.Context, file discovery.File) ([]contracts.SearchRecord, []Diagnostic, error) {
 	s.requests++
 	requestID := fmt.Sprintf("%d", s.requests)
@@ -249,12 +259,12 @@ func (s *Session) Extract(ctx context.Context, file discovery.File) ([]contracts
 	var rawRecords []contracts.SearchRecord
 	if len(value.Records) > 0 {
 		if err := json.Unmarshal(value.Records, &rawRecords); err != nil {
-			return nil, nil, fmt.Errorf("plugin %q records: %w", s.config.ID, err)
+			return nil, nil, rejectedRecordsError{fmt.Errorf("plugin %q records: %w", s.config.ID, err)}
 		}
 	}
 	records, err := validateRecords(s.config, file, rawRecords)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, rejectedRecordsError{err}
 	}
 	diagnostics := make([]Diagnostic, 0, len(value.Diagnostics))
 	for _, item := range value.Diagnostics {

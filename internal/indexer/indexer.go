@@ -377,11 +377,12 @@ func Run(ctx context.Context, paths project.Paths, cfg config.Config, opts Optio
 				Path: file.Path, Kind: file.Kind, ContentHash: file.ContentHash, Content: file.Content,
 			}
 			provided, providedDiagnostics, extractErr := extractorProvider.Extract(ctx, extractorFile)
-			if extractErr == nil {
+			if extractErr != nil {
+				fileFingerprint = ""
+			} else {
 				provided, extractErr = extractorcontract.NormalizeRecords(descriptor, extractorFile, provided)
 			}
 			if extractErr != nil {
-				fileFingerprint = ""
 				if !errors.Is(extractErr, extractorcontract.ErrIncomplete) {
 					summary.Diagnostics++
 					diagnostics = append(diagnostics, store.Diagnostic{

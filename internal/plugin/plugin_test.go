@@ -106,7 +106,8 @@ func runHelper() {
 				"id": "heading", "startLine": 1, "endLine": 1,
 				"kind": "markdown-section", "title": "Hello", "text": "# Hello",
 			}}
-			if os.Getenv("YGG_PLUGIN_DUPLICATE") == "1" {
+			file, _ := message["file"].(map[string]any)
+			if os.Getenv("YGG_PLUGIN_DUPLICATE") == "1" && file["path"] == "README.md" {
 				records = append(records, records[0])
 			}
 			_ = encoder.Encode(map[string]any{
@@ -165,11 +166,19 @@ func TestManagerIsolatesDuplicatePluginIDs(t *testing.T) {
 		Kind:      "md",
 		Content:   "# Hello\n",
 	})
-	if complete || len(records) != 0 || len(diagnostics) != 1 {
+	if !complete || len(records) != 0 || len(diagnostics) != 1 {
 		t.Fatalf("complete=%t records=%#v diagnostics=%#v", complete, records, diagnostics)
 	}
 	if diagnostics[0].Stage != "extract" {
 		t.Fatalf("diagnostic=%#v", diagnostics[0])
+	}
+	records, diagnostics, complete = manager.Extract(discovery.File{
+		Candidate: discovery.Candidate{Path: "other.md"},
+		Kind:      "md",
+		Content:   "# Hello\n",
+	})
+	if !complete || len(records) != 1 || len(diagnostics) != 0 {
+		t.Fatalf("valid sibling: complete=%t records=%#v diagnostics=%#v", complete, records, diagnostics)
 	}
 	if closeDiagnostics := manager.Close(); len(closeDiagnostics) != 0 {
 		t.Fatalf("close diagnostics=%#v", closeDiagnostics)

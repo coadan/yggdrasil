@@ -634,6 +634,7 @@ func TestRunPrioritizesFilesChangedInCurrentGeneration(t *testing.T) {
 type retainedExtractorProvider struct {
 	calls       int
 	fingerprint string
+	invalid     bool
 }
 
 func (p *retainedExtractorProvider) Descriptor() extractorcontract.Descriptor {
@@ -649,10 +650,14 @@ func (p *retainedExtractorProvider) Extract(
 	file extractorcontract.File,
 ) ([]extractorcontract.Record, []extractorcontract.Diagnostic, error) {
 	p.calls++
-	return []extractorcontract.Record{{
+	record := extractorcontract.Record{
 		ID: "owner", StartLine: 1, EndLine: 1, Kind: "navigation",
 		Text: "supplied navigation owner " + file.Path,
-	}}, nil, nil
+	}
+	if p.invalid {
+		record.StartLine = 0
+	}
+	return []extractorcontract.Record{record}, nil, nil
 }
 
 func TestRunUsesCallerOwnedExtractorProvider(t *testing.T) {
@@ -700,6 +705,28 @@ func TestRunUsesCallerOwnedExtractorProvider(t *testing.T) {
 	}
 	if provider.calls != 2 {
 		t.Fatalf("changed provider fingerprint was not reindexed: calls=%d", provider.calls)
+	}
+}
+
+func TestRunDoesNotRetryInvalidExtractorRecordsOnUnchangedSource(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	if err := os.WriteFile(filepath.Join(root, "owner.go"), []byte("package owner\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := project.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &retainedExtractorProvider{invalid: true}
+	opts := Options{NoEmbed: true, EnsureCurrent: true, ExtractorProviders: []extractorcontract.Provider{provider}}
+	first, err := Run(context.Background(), paths, config.Default(), opts)
+	if err != nil || first.Indexed != 1 || first.Diagnostics != 1 {
+		t.Fatalf("first refresh=%#v err=%v", first, err)
+	}
+	next, err := Run(context.Background(), paths, config.Default(), opts)
+	if err != nil || !next.UpToDate || provider.calls != 1 {
+		t.Fatalf("unchanged refresh=%#v calls=%d err=%v", next, provider.calls, err)
 	}
 }
 
