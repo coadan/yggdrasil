@@ -295,3 +295,14 @@ shows the run-to-run noise.
 After these wrapper trials, `ygg search --format compact` made the citation
 layout available in the CLI. The default JSON envelope still serves structured
 consumers. Compact output formats the same ranked result after retrieval.
+
+The Bash guard checks supported options and resolves file operands and glob
+matches inside the checkout. The Ygg arm accepts stdin filters without file
+operands. The shell arms accept supported read-only commands and local paths.
+Use explicit command separators and quote literal shell characters. The hook
+works alongside the harness's process permissions.
+
+An offline check on the saved public trajectories retained 2,905 of 2,907
+previously admitted Bash calls. The two refusals involved variable expansion
+and a recursive glob. Regression fixtures cover file-reading and writing
+options, shell expansion, and paths that resolve outside the checkout.
