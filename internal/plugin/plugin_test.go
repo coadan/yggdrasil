@@ -4,13 +4,34 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"io"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
 	"github.com/coadan/yggdrasil/internal/discovery"
 )
+
+func TestCheckUsesConfiguredReadyTimeout(t *testing.T) {
+	if os.Getenv("YGG_PLUGIN_STALL_READY") == "1" {
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		return
+	}
+	t.Setenv("YGG_PLUGIN_STALL_READY", "1")
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	_, err := Check(ctx, t.TempDir(), config.Plugin{
+		ID: "stall", Version: "1",
+		Command:   []string{os.Args[0], "-test.run=^TestCheckUsesConfiguredReadyTimeout$"},
+		TimeoutMS: 40,
+	}, nil)
+	if err == nil || !strings.Contains(err.Error(), "handshake: plugin response timed out") || ctx.Err() != nil {
+		t.Fatalf("configured ready timeout did not win: err=%v context=%v", err, ctx.Err())
+	}
+}
 
 func TestSessionExtractsAndStampsRecords(t *testing.T) {
 	if os.Getenv("YGG_PLUGIN_HELPER") == "1" {

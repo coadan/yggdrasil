@@ -102,7 +102,11 @@ func (m *Manager) Close() []Diagnostic {
 }
 
 func Check(ctx context.Context, root string, pluginConfig config.Plugin, file *discovery.File) (CheckResult, error) {
-	session, err := Start(ctx, root, pluginConfig)
+	readyTimeout := time.Duration(pluginConfig.TimeoutMS) * time.Millisecond
+	if readyTimeout <= 0 {
+		readyTimeout = handshakeTimeout
+	}
+	session, err := start(ctx, root, pluginConfig, readyTimeout)
 	if err != nil {
 		return CheckResult{}, err
 	}
@@ -161,6 +165,10 @@ type response struct {
 }
 
 func Start(ctx context.Context, root string, pluginConfig config.Plugin) (*Session, error) {
+	return start(ctx, root, pluginConfig, handshakeTimeout)
+}
+
+func start(ctx context.Context, root string, pluginConfig config.Plugin, readyTimeout time.Duration) (*Session, error) {
 	cmd := exec.CommandContext(ctx, pluginConfig.Command[0], pluginConfig.Command[1:]...)
 	cmd.Dir = root
 	stdin, err := cmd.StdinPipe()
@@ -198,7 +206,7 @@ func Start(ctx context.Context, root string, pluginConfig config.Plugin) (*Sessi
 		session.abort()
 		return nil, err
 	}
-	ready, err := session.await(ctx, handshakeTimeout)
+	ready, err := session.await(ctx, readyTimeout)
 	if err != nil {
 		session.abort()
 		return nil, fmt.Errorf("plugin %q handshake: %w%s", pluginConfig.ID, err, session.stderrSuffix())
