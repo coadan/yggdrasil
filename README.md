@@ -99,7 +99,9 @@ also refreshes modified, deleted, renamed, and untracked files when repository
 state changed; unchanged searches use a lightweight freshness token and do not
 rescan. A first search with no related index initializes the repository directly,
 so `ygg index` is reserved for explicit rebuild, embedding, and maintenance
-control rather than normal setup. Search does not complete missing embeddings.
+control rather than normal setup. Search does not complete missing embeddings,
+but refreshed files keep the vectors of records whose embedding input did not
+change, so only edited chunks lose coverage.
 `auto` uses available coverage
 and reports lexical fallback while coverage is incomplete; run `ygg index`
 explicitly to complete embeddings. Explicit `semantic` requires ready coverage,

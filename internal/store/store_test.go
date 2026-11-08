@@ -1147,3 +1147,74 @@ func TestApplyBatchInvalidatesReplacedEmbeddings(t *testing.T) {
 		t.Fatalf("state=%#v", state)
 	}
 }
+
+func TestReplaceFileKeepsVectorsOfUnchangedRecords(t *testing.T) {
+	ctx := context.Background()
+	value, err := Open(ctx, filepath.Join(t.TempDir(), "search.sqlite3"), "/repo", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer value.Close()
+	file := discovery.File{
+		Candidate: discovery.Candidate{Path: "keep.txt", Size: 3, MTimeNS: 1},
+		Kind:      "txt",
+	}
+	records := func(second string) []contracts.SearchRecord {
+		return []contracts.SearchRecord{
+			{Path: file.Path, StartLine: 1, EndLine: 1, Kind: "text", Text: "stable alpha", Source: "core"},
+			{Path: file.Path, StartLine: 2, EndLine: 2, Kind: "text", Text: second, Source: "core"},
+		}
+	}
+	if err := value.ReplaceFile(ctx, "run-1", file, "old", "fingerprint", records("changing beta")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := value.PrepareEmbeddingLane(ctx, "embed-fp", "model", 2); err != nil {
+		t.Fatal(err)
+	}
+	inputs, err := value.MissingEmbeddingInputs(ctx, "embed-fp", 10)
+	if err != nil || len(inputs) != 2 {
+		t.Fatalf("inputs=%#v err=%v", inputs, err)
+	}
+	embeddings := make([]EmbeddingValue, 0, len(inputs))
+	for index, input := range inputs {
+		embeddings = append(embeddings, EmbeddingValue{
+			ID: input.ID, InputHash: input.InputHash, Vector: []float32{float32(index), 1},
+		})
+	}
+	if _, err := value.UpsertEmbeddings(ctx, "embed-fp", 2, embeddings); err != nil {
+		t.Fatal(err)
+	}
+	file.MTimeNS = 2
+	if err := value.ApplyBatch(ctx, "run-2", nil, []FileUpdate{{
+		File: file, ContentHash: "new", ExtractionFingerprint: "fingerprint",
+		Records: records("changed gamma"),
+	}}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	state, err := value.EmbeddingState(ctx, "embed-fp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Records != 2 || state.Embedded != 1 || state.Complete {
+		t.Fatalf("state=%#v", state)
+	}
+	missing, err := value.MissingEmbeddingInputs(ctx, "embed-fp", 10)
+	if err != nil || len(missing) != 1 || missing[0].Text != "changed gamma" {
+		t.Fatalf("missing=%#v err=%v", missing, err)
+	}
+	hits, err := value.VectorCandidates(ctx, []float32{0, 1}, "", 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].Text != "stable alpha" {
+		t.Fatalf("hits=%#v", hits)
+	}
+	file.MTimeNS = 3
+	if err := value.ReplaceFile(ctx, "run-3", file, "newer", "fingerprint", records("changed gamma")); err != nil {
+		t.Fatal(err)
+	}
+	state, err = value.EmbeddingState(ctx, "embed-fp")
+	if err != nil || state.Embedded != 1 {
+		t.Fatalf("single-file replace state=%#v err=%v", state, err)
+	}
+}

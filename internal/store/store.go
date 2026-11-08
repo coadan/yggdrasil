@@ -890,6 +890,10 @@ func replaceFile(ctx context.Context, tx *sql.Tx, runID string, update FileUpdat
 	if err := tx.QueryRowContext(ctx, `SELECT id FROM files WHERE path=?`, file.Path).Scan(&fileID); err != nil {
 		return err
 	}
+	carried, err := fileVectors(ctx, tx, []any{fileID})
+	if err != nil {
+		return err
+	}
 	if err := deleteFileRecords(ctx, tx, fileID); err != nil {
 		return err
 	}
@@ -909,6 +913,86 @@ func replaceFile(ctx context.Context, tx *sql.Tx, runID string, update FileUpdat
 			key, fileID, file.Path, record.StartLine, record.EndLine, record.Kind,
 			record.Title, record.Text, string(metadata), record.Source, recordInputHash(record.Title, record.Text)); err != nil {
 			return fmt.Errorf("insert record: %w", err)
+		}
+	}
+	return restoreFileVectors(ctx, tx, []any{fileID}, carried)
+}
+
+type carriedVector struct {
+	vector      []byte
+	fingerprint string
+}
+
+// fileVectors reads the stored vectors of the given files' embedded records by
+// input hash, so records whose embedding input is unchanged keep them after
+// their files are re-extracted.
+func fileVectors(ctx context.Context, tx *sql.Tx, fileIDs []any) (map[string]carriedVector, error) {
+	if len(fileIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := tx.QueryContext(ctx, `
+		SELECT e.input_hash,e.fingerprint,v.vector
+		FROM records r
+		JOIN embedding_records e ON e.record_id=r.id AND e.input_hash=r.input_hash
+		JOIN record_vectors v ON v.rowid=r.id
+		WHERE r.file_id IN (`+placeholders(len(fileIDs))+`)`, fileIDs...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	carried := make(map[string]carriedVector)
+	for rows.Next() {
+		var hash string
+		var value carriedVector
+		if err := rows.Scan(&hash, &value.fingerprint, &value.vector); err != nil {
+			return nil, err
+		}
+		if len(value.vector) > 0 {
+			carried[hash] = value
+		}
+	}
+	return carried, rows.Err()
+}
+
+func restoreFileVectors(ctx context.Context, tx *sql.Tx, fileIDs []any, carried map[string]carriedVector) error {
+	if len(carried) == 0 || len(fileIDs) == 0 {
+		return nil
+	}
+	rows, err := tx.QueryContext(ctx, `
+		SELECT id,input_hash FROM records
+		WHERE file_id IN (`+placeholders(len(fileIDs))+`) AND kind<>'file'
+			AND coalesce(json_extract(metadata_json,'$.semantic'),1)<>0`, fileIDs...)
+	if err != nil {
+		return err
+	}
+	type target struct {
+		id   int64
+		hash string
+	}
+	var targets []target
+	for rows.Next() {
+		var value target
+		if err := rows.Scan(&value.id, &value.hash); err != nil {
+			rows.Close()
+			return err
+		}
+		if _, ok := carried[value.hash]; ok {
+			targets = append(targets, value)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, value := range targets {
+		saved := carried[value.hash]
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO record_vectors(rowid,vector) VALUES(?,?)`, value.id, saved.vector); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO embedding_records(record_id,input_hash,fingerprint) VALUES(?,?,?)`,
+			value.id, value.hash, saved.fingerprint); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1005,6 +1089,16 @@ func (s *Store) ApplyBatch(
 	if err != nil {
 		return err
 	}
+	updatedIDs := make([]any, 0, len(updates))
+	for _, update := range updates {
+		if id, ok := fileIDs[update.File.Path]; ok {
+			updatedIDs = append(updatedIDs, id)
+		}
+	}
+	carried, err := fileVectors(ctx, tx, updatedIDs)
+	if err != nil {
+		return err
+	}
 	if err := bulkDeleteRecords(ctx, tx, fileIDs); err != nil {
 		return err
 	}
@@ -1012,6 +1106,9 @@ func (s *Store) ApplyBatch(
 		return err
 	}
 	if err := bulkInsertRecords(ctx, tx, updates, fileIDs); err != nil {
+		return err
+	}
+	if err := restoreFileVectors(ctx, tx, updatedIDs, carried); err != nil {
 		return err
 	}
 	if err := bulkInsertDiagnostics(ctx, tx, runID, diagnostics); err != nil {
