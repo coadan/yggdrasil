@@ -22,7 +22,10 @@ embedding provider shared by repositories and linked worktrees:
 }
 ```
 
-Only `schema`, `embedding`, and `rerank` are valid at user scope.
+Only `schema`, `plugins`, `embedding`, and `rerank` are valid at user scope.
+User-scope plugins apply to every repository, so their commands should be
+absolute paths or names on `PATH`. A repository's explicit `plugins` list
+replaces the user list, and `"plugins": []` disables it for that repository.
 `XDG_CONFIG_HOME` relocates the configuration root and `YGG_CONFIG` selects an
 exact file.
 

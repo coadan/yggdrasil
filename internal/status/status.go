@@ -40,6 +40,7 @@ type Configuration struct {
 	RepositoryPath    string `json:"repositoryPath,omitempty"`
 	EmbeddingSource   string `json:"embeddingSource,omitempty"`
 	EmbeddingDisabled bool   `json:"embeddingDisabled"`
+	PluginSource      string `json:"pluginSource,omitempty"`
 }
 
 type GitFamily struct {
@@ -76,6 +77,7 @@ func Inspect(ctx context.Context, paths project.Paths, cfg config.Config, opts O
 			RepositoryPath:    cfg.RepositoryConfigPath,
 			EmbeddingSource:   cfg.EmbeddingSource,
 			EmbeddingDisabled: cfg.EmbeddingDisabled,
+			PluginSource:      cfg.PluginSource,
 		},
 		GitFamily: GitFamily{ID: paths.FamilyID, Head: paths.Head},
 	}

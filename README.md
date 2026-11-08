@@ -151,12 +151,14 @@ indexed evidence and must not silently change retrieval meaning.
 
 ## Optional extraction and semantic recall
 
-User-level `~/.config/ygg/config.json` owns the default embedding provider for
-every repository and linked worktree. Set `XDG_CONFIG_HOME` to relocate the
-config root or `YGG_CONFIG` to select an exact file. Repository-local
-`.ygg/config.json` owns repository-specific extractor plugins and ignore
-settings; an explicit repository embedding overrides the user default, while
-`"embedding": null` disables it for that repository. Core always emits
+User-level `~/.config/ygg/config.json` owns the default embedding provider and
+may list default extractor plugins (with absolute commands) for every repository
+and linked worktree. Set `XDG_CONFIG_HOME` to relocate the config root or
+`YGG_CONFIG` to select an exact file. Repository-local `.ygg/config.json` owns
+ignore settings and may override either default: an explicit `plugins` list
+replaces the user list (`[]` disables it), an explicit repository embedding
+overrides the user default, and `"embedding": null` disables it for that
+repository. Changing the plugin list re-extracts every file on the next run. Core always emits
 mechanically chunked text records. Plugins add parser-owned records over a
 bounded JSONL protocol and are started once per index run.
 

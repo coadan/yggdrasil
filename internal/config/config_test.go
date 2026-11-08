@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -148,6 +149,77 @@ func TestRepositoryCanDisableUserEmbedding(t *testing.T) {
 	if cfg.Embedding != nil || !cfg.EmbeddingDisabled ||
 		cfg.RepositoryConfigPath != filepath.Join(root, ".ygg", "config.json") {
 		t.Fatalf("config=%#v", cfg)
+	}
+}
+
+func TestRepositoryPluginsReplaceOrDisableUserPlugins(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("YGG_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	directory := filepath.Join(configHome, "ygg")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	userPath := filepath.Join(directory, "config.json")
+	userData := []byte(`{
+		"schema":"ygg.config/v1",
+		"plugins":[{"id":"u","version":"1","command":["/opt/u"],"includeGlobs":["**/*.py"]}]
+	}`)
+	if err := os.WriteFile(userPath, userData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, repo string
+		want       []string
+		source     string
+	}{
+		{name: "no repository config", want: []string{"u"}, source: userPath},
+		{name: "repository without plugins", repo: `{"schema":"ygg.config/v1","ignoreGlobs":["x"]}`,
+			want: []string{"u"}, source: userPath},
+		{name: "repository replaces", repo: `{"schema":"ygg.config/v1",
+			"plugins":[{"id":"r","version":"1","command":["r"],"includeGlobs":["**/*.go"]}]}`,
+			want: []string{"r"}, source: "repo"},
+		{name: "repository disables", repo: `{"schema":"ygg.config/v1","plugins":[]}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			repoPath := filepath.Join(root, ".ygg", "config.json")
+			if test.repo != "" {
+				if err := os.Mkdir(filepath.Join(root, ".ygg"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(repoPath, []byte(test.repo), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg, err := Load(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ids []string
+			for _, plugin := range cfg.Plugins {
+				ids = append(ids, plugin.ID)
+			}
+			source := test.source
+			if source == "repo" {
+				source = repoPath
+			}
+			if strings.Join(ids, ",") != strings.Join(test.want, ",") || cfg.PluginSource != source {
+				t.Fatalf("plugins=%v source=%q", ids, cfg.PluginSource)
+			}
+		})
+	}
+}
+
+func TestUserPluginsAreValidated(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("YGG_CONFIG", path)
+	data := []byte(`{"schema":"ygg.config/v1","plugins":[{"id":"u","version":"1","command":[]}]}`)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(t.TempDir()); err == nil {
+		t.Fatal("expected invalid user plugin to fail")
 	}
 }
 

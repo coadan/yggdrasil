@@ -71,10 +71,12 @@ type Config struct {
 	RepositoryConfigPath string `json:"-"`
 	EmbeddingSource      string `json:"-"`
 	EmbeddingDisabled    bool   `json:"-"`
+	PluginSource         string `json:"-"`
 }
 
 type userConfig struct {
 	Schema    string     `json:"schema"`
+	Plugins   []Plugin   `json:"plugins,omitempty"`
 	Embedding *Embedding `json:"embedding,omitempty"`
 	Rerank    *Rerank    `json:"rerank,omitempty"`
 }
@@ -99,8 +101,12 @@ func Load(root string) (Config, error) {
 		cfg.UserConfigLoaded = true
 		cfg.Embedding = user.Embedding
 		cfg.Rerank = user.Rerank
+		cfg.Plugins = user.Plugins
 		if user.Embedding != nil {
 			cfg.EmbeddingSource = userPath
+		}
+		if len(user.Plugins) > 0 {
+			cfg.PluginSource = userPath
 		}
 	}
 	path := filepath.Join(root, ".ygg", "config.json")
@@ -118,6 +124,12 @@ func Load(root string) (Config, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return Config{}, fmt.Errorf("decode %s fields: %w", path, err)
+	}
+	if _, explicit := fields["plugins"]; explicit {
+		cfg.PluginSource = ""
+		if len(cfg.Plugins) > 0 {
+			cfg.PluginSource = path
+		}
 	}
 	if _, explicit := fields["embedding"]; explicit {
 		cfg.EmbeddingSource = ""
@@ -167,10 +179,13 @@ func loadUser(path string) (userConfig, bool, error) {
 	cfg.Schema = user.Schema
 	cfg.Embedding = user.Embedding
 	cfg.Rerank = user.Rerank
+	cfg.Plugins = user.Plugins
 	if err := cfg.Validate(); err != nil {
 		return userConfig{}, false, fmt.Errorf("%s: %w", path, err)
 	}
-	return userConfig{Schema: cfg.Schema, Embedding: cfg.Embedding, Rerank: cfg.Rerank}, true, nil
+	return userConfig{
+		Schema: cfg.Schema, Plugins: cfg.Plugins, Embedding: cfg.Embedding, Rerank: cfg.Rerank,
+	}, true, nil
 }
 
 func decodeOne(data []byte, target any) error {
