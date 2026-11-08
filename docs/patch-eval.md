@@ -173,3 +173,69 @@ record the displayed cards and their distance from changed lines.
 `paired-900/score.json`, `runs.jsonl`, `discovery.jsonl`, and
 `manifest.json` record the behavioral results, run status, discovery
 traces, and frozen inputs.
+
+## Repeated opening search on cross-layer bugs
+
+A follow-up selected four fresh public fixes whose symptoms cross framework
+layers. Two are from Hono and two from Flask. The task wording describes
+observable behavior without source paths. Each pre-fix snapshot failed an
+independent behavioral check and each reference fix passed. The cases,
+queries, checks, and measures were frozen before either opener was run.
+
+The comparison retained the previous five-card, 320-character, 900-second
+budgets and local `qwen3.6:27b` model. It used lexical Ygg at `dd1e4f4e`
+and the same weighted literal ripgrep baseline. Each case ran twice per arm
+in fresh snapshots. Which arm ran first alternated by case, then reversed
+in the second repetition along with the case order.
+
+Two separate no-opener probes measured difficulty under ordinary shell
+navigation. A first implementation read after command 7 exceeded the
+slowest first read in the preceding trial. The probes had the same time cap
+and their outcomes are separate from the paired comparison.
+
+The Hono probe read its implementation on command 43 of 48 and reached the
+cap with no patch. The Flask probe reached its implementation on command 3
+and submitted a passing patch. The probes establish that ordinary
+navigation can be a bottleneck, with difficulty varying by task.
+
+| Case | Ripgrep first reads | Ygg first reads | Ripgrep passed | Ygg passed |
+| --- | ---: | ---: | ---: | ---: |
+| Hono mounted prefix | 8, 5 | 3, 4 | 1/2 | 0/2 |
+| Hono event placeholder | 5, 6 | 3, 3 | 2/2 | 1/2 |
+| Flask routing host precedence | 4, 2 | 1, 2 | 2/2 | 2/2 |
+| Flask request extension order | 2, 3 | 4, 14 | 0/2 | 0/2 |
+| **Total** | | | **5/8** | **3/8** |
+
+First reads are successful commands that directly read the implementation
+file, in repetition order. Each agent found the implementation. Ygg's
+arm reached it in fewer commands in five pairs, ripgrep in two, with one
+tie. Ygg returned the implementation as a card for two cases and ripgrep
+for one. None of those cards showed a changed implementation line.
+Four sessions per arm reached the cap, leaving terminal token counts
+for four sessions per arm. Median agent times were 897 seconds for
+ripgrep and 895 for Ygg, excluding the opening search.
+
+Ripgrep passed both split pairs under the frozen checks. In the first
+event-placeholder run, the Ygg agent reached the correct source earlier
+and left a syntax error at the cap. In the second mounted-prefix run, the
+Ygg agent opened the correct file earlier and pursued an adjacent feature
+highlighted by its opener. The patch left the tested route behavior
+unchanged. The passing ripgrep patch replaced custom constraints with a
+single-segment matcher. An additional compatibility check found it broke
+an already working mount whose constraint spanned multiple segments.
+The base and reference both preserved that behavior. The table keeps
+the original checks and the post-run finding qualifies that one pass.
+
+The two repetitions cover four independent cases. These runs measure
+lexical opening cards and show an advantage on first direct read for
+the Ygg arm. They do not establish a patch-success or cost advantage.
+Future behavioral checks should cover the reported symptom and nearby
+supported behavior before a trial begins.
+
+The local evidence is in
+`.workbench/tasks/repeated-opener-eval/evidence/`.
+`protocol.md` and `frozen.json` pin the method and inputs.
+`opening-results/line-overlap.json` records the shown source ranges.
+`trial/dev/` and `trial/repeat-{1,2}/` contain scores and raw traces.
+`final-audit.json` reconciles the runs and `compatibility-audit.json`
+records the additional route check.
