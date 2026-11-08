@@ -65,6 +65,10 @@ class RawCaptureTest(unittest.TestCase):
                     return SimpleNamespace(stdout='')
                 writable = {Path(argv[index + 1]) for index, value in enumerate(argv) if value == '--add-dir'}
                 raw = Path(kwargs['env']['YGG_AGENT_RAW'])
+                self.assertEqual(Path(kwargs['env']['TMPDIR']), raw.parent)
+                self.assertEqual(raw.parent.parent, logs)
+                self.assertIn('sandbox_workspace_write.exclude_slash_tmp=true', argv)
+                self.assertIn('sandbox_workspace_write.exclude_tmpdir_env_var=true', argv)
                 self.assertEqual(writable, {args.storage, raw.parent})
                 self.assertNotIn(logs, writable)
                 self.assertFalse(collected.exists())

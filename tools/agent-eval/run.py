@@ -28,7 +28,6 @@ and time. Completed runs are skipped on rerun.
 """
 import argparse
 import concurrent.futures
-from contextlib import nullcontext
 import json
 import os
 import re
@@ -312,18 +311,23 @@ def run_codex(case, task, arm, args, repo, log, env):
                '-m', args.codex_model, '-c', f'model_reasoning_effort="{args.codex_effort}"',
                '-c', 'shell_environment_policy.inherit="all"',
                '-s', 'workspace-write', '-c', 'sandbox_workspace_write.network_access=true',
+               '-c', 'sandbox_workspace_write.exclude_slash_tmp=true',
+               '-c', 'sandbox_workspace_write.exclude_tmpdir_env_var=true',
                '--json', '--output-schema', str(schema), '-o', str(last), '-C', str(repo), '-']
     guide = CODEX_YGG_GUIDE.replace(CODEX_JSON_OUTPUT, CODEX_OUTPUT_GUIDES[args.ygg_format])
     prompt = (guide if spec['ygg'] else '') + task_prompt(args, case, task)
     started = time.monotonic()
-    capture_dir = tempfile.TemporaryDirectory(prefix='ygg-case-raw-') if spec['ygg'] else nullcontext()
-    with capture_dir as capture:
-        if capture is not None:
-            captured = Path(capture) / 'searches.jsonl'
+    # Results can live under a system temporary root. Grant each process its
+    # own scratch directory instead of letting it write to that whole root.
+    with tempfile.TemporaryDirectory(prefix='ygg-case-', dir=Path(log).parent) as scratch:
+        env = dict(env, TMPDIR=scratch)
+        command[-1:-1] = ['--add-dir', scratch]
+        if spec['ygg']:
+            captured = Path(scratch) / 'searches.jsonl'
             collected = Path(log).with_suffix('.ygg-raw.jsonl')
             collected.unlink(missing_ok=True)
-            env = dict(env, YGG_AGENT_RAW=str(captured))
-            command[-1:-1] = ['--add-dir', str(args.storage), '--add-dir', capture]
+            env['YGG_AGENT_RAW'] = str(captured)
+            command[-1:-1] = ['--add-dir', str(args.storage)]
         with open(raw_log, 'w') as out:
             try:
                 subprocess.run(command, input=prompt, stdout=out, stderr=subprocess.DEVNULL,
@@ -331,7 +335,7 @@ def run_codex(case, task, arm, args, repo, log, env):
                 timed_out = False
             except subprocess.TimeoutExpired:
                 timed_out = True
-        if capture is not None:
+        if spec['ygg']:
             try:
                 fd = os.open(captured, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
             except FileNotFoundError:
