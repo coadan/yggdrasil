@@ -121,7 +121,14 @@ func run(ctx context.Context, value Reader, query string, opts Options) (Result,
 		terms := queryTerms(query)
 		literal := plan.Lexical.Kind == MatchText && literalTermQuery(query, terms)
 		structured = literal
-		switch plan.Lexical.Kind {
+		kind := plan.Lexical.Kind
+		if kind == MatchText && len(terms) == 0 {
+			// Without letter or digit terms, FTS has nothing to tokenize. The
+			// query text can still occur verbatim, as in ???, -> or ::.
+			kind = MatchFixed
+			structured = true
+		}
+		switch kind {
 		case MatchFixed:
 			records, err := value.LiteralCandidates(
 				ctx, "", query, opts.Scope, candidateLimit,

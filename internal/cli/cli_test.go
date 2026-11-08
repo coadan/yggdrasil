@@ -946,6 +946,47 @@ func TestSearchTreatsMultiwordDashArgumentAsQuery(t *testing.T) {
 	}
 }
 
+func TestSearchMatchesPunctuationOnlyQueryVerbatim(t *testing.T) {
+	isolateCLIUserConfig(t)
+	root := t.TempDir()
+	t.Setenv("YGG_STORAGE_ROOT", t.TempDir())
+	files := map[string]string{
+		"recovery.go": "package gin\n\nvar unknown = []byte(\"???\")\n",
+		"pointer.c":   "int value(struct node *n) { return n->value; }\n",
+		"plain.md":    "Nothing to see here.\n",
+	}
+	for name, text := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct{ mode, query, path string }{
+		{"lexical", "???", "recovery.go"},
+		{"auto", "???", "recovery.go"},
+		{"lexical", "->", "pointer.c"},
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := Main(context.Background(), []string{
+			"search", "--root", root, "--mode", tc.mode, "--", tc.query,
+		}, &stdout, &stderr); code != 0 {
+			t.Fatalf("%s %q code=%d stdout=%s stderr=%s", tc.mode, tc.query, code, stdout.String(), stderr.String())
+		}
+		var response struct {
+			Data struct {
+				Records []struct {
+					Path string `json:"path"`
+				} `json:"records"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		if len(response.Data.Records) != 1 || response.Data.Records[0].Path != tc.path {
+			t.Fatalf("%s %q response=%s", tc.mode, tc.query, stdout.String())
+		}
+	}
+}
+
 func TestSearchUsesAboutAsQueryWithoutPattern(t *testing.T) {
 	isolateCLIUserConfig(t)
 	root := t.TempDir()
