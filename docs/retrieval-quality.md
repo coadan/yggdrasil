@@ -364,6 +364,29 @@ Nine of the twelve misses rank between 11 and 27. Unlike the commit-subject
 suites, where changelog and Markdown files earn the most hits, hits here land
 on source files in 46 of 57 cases.
 
+With `--config` naming an embedding provider and `--mode` repeated,
+`tools/snapshot-quality.py` embeds each snapshot before scoring. The dev split
+was scored that way with MiniLM (no reranker), with complete coverage in all
+69 cases:
+
+| Mode | Hits@10 | MRR@10 |
+| --- | ---: | ---: |
+| Lexical | 57 | 0.534 |
+| Auto (hybrid) | 59 | 0.517 |
+| Semantic | 55 | 0.445 |
+
+The better of lexical and semantic finds 62. Hybrid ranks an expected file
+higher than lexical in 12 cases. In 28 it ranks it below the better single
+lane, including three first-rank lexical results that it moves to fourth or
+fifth. On these issue titles, fusion adds recall but costs early precision.
+That fits the earlier commit-subject results, where hybrid was roughly
+neutral on public dev. The fitted-weight study below already showed that
+refitting lane weights does not hold out of fold. This suite is therefore a
+third, independent check for any future fusion change; it does not justify
+refitting on its own. Four frozen opening-search cases showed the same
+pattern: semantic ranked one owner first where hybrid placed it fourth, and
+hybrid moved a second-rank lexical owner to fifth.
+
 ## Stemmed lexical lane
 
 The unicode61 tokenizer matches only identical tokens, so `retried` misses
