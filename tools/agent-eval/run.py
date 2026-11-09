@@ -95,6 +95,20 @@ SHELL_YGG_GUIDE = SHELL_GUIDE + """ `ygg search` is also available.
 """ + YGG_GUIDE.replace('Read files to\nverify what search returns. ygg search is the only Bash command available.',
                        'Read files to verify what search returns.')
 
+CARDS_GUIDE = """
+
+The first results that lie inside a declaration carry a card: the
+declaration, `called by` (call sites with their enclosing declaration),
+`calls` (functions it calls) and `related` (types it uses), each as name and
+path:line. Only names declared once in the repository are listed."""
+
+YGG_JUMP_GUIDE = YGG_GUIDE.replace(
+    'ygg search is the only Bash command available.',
+    """Two more Bash commands navigate code:
+`ygg-def <name>` prints where a function, method, class or type is declared,
+with its first lines, and `ygg-refs <name>` lists call sites `name(` as
+path:line. These and ygg search are the only Bash commands available.""")
+
 # tools: Claude Code tools; guard: guard.py mode for Bash; ygg: needs the
 # ygg wrapper on PATH; guide: appended system prompt.
 ARMS = {
@@ -103,6 +117,12 @@ ARMS = {
     'both': {'tools': ['Read', 'Grep', 'Glob', 'Bash'], 'guard': 'ygg', 'ygg': True, 'guide': YGG_GUIDE},
     'shell': {'tools': ['Bash'], 'guard': 'shell', 'ygg': False, 'guide': SHELL_GUIDE},
     'shell-ygg': {'tools': ['Bash'], 'guard': 'shell-ygg', 'ygg': True, 'guide': SHELL_YGG_GUIDE},
+    # Navigation experiments (cards.py): ygg results with structural cards, or
+    # ygg plus definition and call-site lookups.
+    'ygg-cards': {'tools': ['Read', 'Bash'], 'guard': 'ygg', 'ygg': True, 'cards': True,
+                  'guide': YGG_GUIDE + CARDS_GUIDE},
+    'ygg-jump': {'tools': ['Read', 'Bash'], 'guard': 'ygg-jump', 'ygg': True, 'jump': True,
+                 'guide': YGG_JUMP_GUIDE},
     # Codex runs its own shell tools; the ygg arm adds AGENTS.md-style guidance.
     'codex': {'harness': 'codex', 'tools': [], 'guard': None, 'ygg': False, 'guide': None},
     'codex-ygg': {'harness': 'codex', 'tools': [], 'guard': None, 'ygg': True, 'guide': None},
@@ -158,12 +178,23 @@ if [ -n "$YGG_AGENT_RAW" ]; then
   printf '%s\n' "$out" | tr -d '\n' >> "$YGG_AGENT_RAW"
   printf '\n' >> "$YGG_AGENT_RAW"
 fi
+if [ -n "$YGG_AGENT_CARDS" ]; then
+  out=$(printf '%s\n' "$out" | {python} {cards} decorate)
+fi
 if [ -n "$YGG_AGENT_FORMAT" ] && [ "$YGG_AGENT_FORMAT" != json ]; then
   printf '%s\n' "$out" | {python} {formatter} "$YGG_AGENT_FORMAT"
   exit $?
 fi
 printf '%s\n' "$out"
 exit $code
+"""
+
+
+CARDS = Path(__file__).resolve().with_name('cards.py')
+JUMP_WRAPPER = """#!/bin/sh
+# Definition and call-site lookup over the agent's repository (cards.py).
+if [ $# -ne 1 ]; then echo 'usage: one symbol name'; exit 2; fi
+exec {python} {cards} {verb} "$1"
 """
 
 
@@ -399,6 +430,8 @@ def run_one(case, task, arm, args, repo, log):
                    YGG_STORAGE_ROOT=str(args.storage), YGG_AGENT_FORMAT=args.ygg_format,
                    YGG_AGENT_RAW=str(Path(log).with_suffix('.ygg-raw.jsonl')),
                    YGG_AGENT_LOG=str(args.wrapper_dir.parent / 'wrapper.log'))
+        if spec.get('cards'):
+            env['YGG_AGENT_CARDS'] = '1'
         if args.ygg_config:
             env['YGG_CONFIG'] = str(args.ygg_config)
     Path(log).with_suffix('.ygg-raw.jsonl').unlink(missing_ok=True)
@@ -529,8 +562,13 @@ def run_cases(args, suite, arms, picked, tasks, output):
         args.wrapper_dir.mkdir(exist_ok=True)
         wrapper = args.wrapper_dir / 'ygg'
         wrapper.write_text(WRAPPER.format(binary=args.ygg_binary.resolve(), python=sys.executable,
-                                          formatter=Path(__file__).resolve().with_name('format.py')))
+                                          formatter=Path(__file__).resolve().with_name('format.py'),
+                                          cards=CARDS))
         wrapper.chmod(0o755)
+        for name, verb in (('ygg-def', 'def'), ('ygg-refs', 'refs')):
+            jump = args.wrapper_dir / name
+            jump.write_text(JUMP_WRAPPER.format(python=sys.executable, cards=CARDS, verb=verb))
+            jump.chmod(0o755)
     if any(ARMS[arm].get('harness') == 'codex' for arm in arms):
         args.codex_home = output / 'codex-home'
         (args.codex_home / 'zsh').mkdir(parents=True, exist_ok=True)

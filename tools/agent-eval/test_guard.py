@@ -31,6 +31,16 @@ class GuardTest(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertTrue(allowed(command, 'ygg', self.repo))
 
+    def test_jump_mode_adds_one_symbol_lookups(self):
+        for command in ('ygg-def validateToken', "ygg-refs 'parse_args' | head -20",
+                        'ygg search token && ygg-def TokenError'):
+            with self.subTest(command=command):
+                self.assertTrue(allowed(command, 'ygg-jump', self.repo))
+        for command in ('ygg-def', 'ygg-def a b', 'ygg search x | ygg-def y', f'ygg-refs x > {self.outside}'):
+            with self.subTest(command=command):
+                self.assertFalse(allowed(command, 'ygg-jump', self.repo))
+        self.assertFalse(allowed('ygg-def validateToken', 'ygg', self.repo))
+
     def test_ygg_guard_refuses_file_arguments_and_hidden_commands(self):
         for command in (
             f'ygg search needle | sort -o{self.outside}',

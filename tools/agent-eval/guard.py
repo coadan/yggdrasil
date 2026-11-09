@@ -289,14 +289,19 @@ def read_command(program, words, cwd, *, stdin_only=False):
 
 
 def allowed(command, mode='ygg', cwd='.'):
-    if mode not in ('ygg', 'shell', 'shell-ygg'):
+    if mode not in ('ygg', 'ygg-jump', 'shell', 'shell-ygg'):
         return False
+    jump = mode == 'ygg-jump'
+    mode = 'ygg' if jump else mode
     try:
         root = Path(cwd).resolve()
         for separator, argv in commands(command):
             program = literals(argv[:1])[0]
             if mode == 'ygg' and separator == '|':
                 if not read_command(program, argv[1:], root, stdin_only=True):
+                    return False
+            elif jump and program in ('ygg-def', 'ygg-refs'):
+                if separator == '|' or len(literals(argv[1:])) != 1:
                     return False
             elif program == 'ygg' and mode in ('ygg', 'shell-ygg'):
                 args = literals(argv[1:])
@@ -315,6 +320,7 @@ def allowed(command, mode='ygg', cwd='.'):
 
 MESSAGES = {
     'ygg': 'Use ygg search chains and stdin-only filters. Quote literal shell characters.',
+    'ygg-jump': 'Use ygg search, ygg-def NAME or ygg-refs NAME, and stdin-only filters.',
     'shell': 'Use the supported read-only commands and paths inside the repository.',
     'shell-ygg': 'Use ygg search or the supported read-only commands and paths inside the repository.',
 }

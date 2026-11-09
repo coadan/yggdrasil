@@ -4,7 +4,8 @@
 Reads the CLI envelope on stdin and prints one of:
 
   compact  one header line, then each record as `path:start-end` followed by
-           its excerpt indented, then the additional candidate paths
+           its excerpt indented and any structural card (cards.py), then the
+           additional candidate paths
   files    distinct paths in rank order with their matched line ranges, then
            the additional candidate paths, with no excerpts
 
@@ -13,6 +14,16 @@ shapes can be measured before any change to the CLI contract.
 """
 import json
 import sys
+
+
+def print_card(card):
+    """A structural card added by cards.py, in the compact layout."""
+    if not card:
+        return
+    print(f"  card: {card['symbol']}")
+    for label, key in (('called by', 'calledBy'), ('calls', 'calls'), ('related', 'related')):
+        if card.get(key):
+            print(f'    {label}: ' + '; '.join(card[key]))
 
 
 def main():
@@ -43,6 +54,7 @@ def main():
             print(f"{record['path']}:{record['startLine']}-{record['endLine']}")
             for line in (record.get('excerpt') or '').splitlines():
                 print(f'    {line}')
+            print_card(record.get('card'))
     if more:
         print('more: ' + ', '.join(more))
     return 0

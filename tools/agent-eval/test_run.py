@@ -1,3 +1,5 @@
+import sys
+import json
 import subprocess
 import tempfile
 import unittest
@@ -93,3 +95,20 @@ class RawCaptureTest(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class NavigationArmTest(unittest.TestCase):
+    def test_jump_guide_names_the_lookups_and_cards_guide_extends_ygg(self):
+        self.assertIn('ygg-def <name>', run.ARMS['ygg-jump']['guide'])
+        self.assertNotIn('ygg search is the only Bash command', run.ARMS['ygg-jump']['guide'])
+        self.assertTrue(run.ARMS['ygg-cards']['guide'].startswith(run.YGG_GUIDE))
+        self.assertEqual(run.ARMS['ygg-jump']['guard'], 'ygg-jump')
+
+    def test_compact_format_renders_cards(self):
+        envelope = {'ok': True, 'data': {'activeMode': 'lexical', 'morePaths': [], 'records': [
+            {'path': 'a.py', 'startLine': 1, 'endLine': 2, 'excerpt': 'def f():',
+             'card': {'symbol': 'f a.py:1', 'calledBy': ['g b.py:3'], 'calls': [], 'related': ['T c.py:1']}}]}}
+        out = subprocess.run([sys.executable, str(Path(run.__file__).with_name('format.py')), 'compact'],
+                             input=json.dumps(envelope), capture_output=True, text=True).stdout
+        self.assertIn('  card: f a.py:1\n    called by: g b.py:3\n    related: T c.py:1\n', out)
+        self.assertNotIn('calls:', out)
