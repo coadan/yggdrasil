@@ -436,6 +436,17 @@ than 0.6b, whose nine-repository index already took 80 minutes. The held-out
 run was not started, because a confirmed gain of this size would not justify
 that indexing cost as a default.
 
+Three small embedders were compared with MiniLM on held-out titles, each with
+the reranker, and stopped by a paired bootstrap rule (stop once the 95% bound on
+the reciprocal-rank difference excludes a 0.02 gain). `snowflake-arctic-embed`
+33M scored 0.575 against 0.615 on 17 titles. `bge-small-en-v1.5` scored 0.607
+against 0.664 on 31 titles, below MiniLM at the 95% bound. `jina-embeddings-v2-small-en`
+(512 dimensions, 8k context) scored 0.583 against 0.638 on 46 titles, no gain.
+Two rerankers were tried in place of Qwen3-Reranker-0.6B with lexical search on
+dev: `bge-reranker-v2-m3` scored 0.538 against 0.551 with the same 58 hits (15
+titles higher, 16 lower). The available Qwen3-Reranker-4B GGUF conversions
+carry no rerank head (llama.cpp scored every document 0), so it was not measured.
+
 #### LLM query rewriting
 
 Agents and harnesses write the query, so a better query is a guidance change
@@ -952,3 +963,85 @@ issue dev 0.695 → 0.667, ARB 0.178 → 0.128). At 20 paths they raised
 cross-artifact recall from 0.623 to 0.647 but lowered the issue and ARB
 suites. The neighbours displaced ranked hits more often than they added
 missing files, so the enrichment was not built.
+
+## Query vocabulary and embeddings
+
+Issue titles reuse the code's words, so they leave embeddings little to add.
+Two snapshot suites probe the other end, each scored with lexical search and
+MiniLM hybrid search, both with the reranker:
+
+| Suite | Cases | Lexical hits@10 / MRR@10 | MiniLM hits@10 / MRR@10 | Titles only one finds |
+| --- | ---: | ---: | ---: | ---: |
+| Low-overlap symptom tasks | 47 | 27 / 0.387 | 35 / 0.434 | 8 MiniLM, 0 lexical |
+| Agents' first `ygg search` | 67 | 51 / 0.541 | 52 / 0.528 | 1 MiniLM, 0 lexical |
+
+The low-overlap suite takes the generated symptom tasks from the history dev
+split whose content words occur at most 38% in the expected files (the
+agent-trial tercile), searched at the commit's parent. `jina-embeddings-v2-small-en`
+scored 33 / 0.424 on it. The agent suite replays the first plain query the
+control arm wrote in the structural-card and excerpt trials: a median of two
+words such as `X-Sendfile` or `memmap2`, which lexical search already finds.
+Embeddings pay off where the query's words differ from the code's, not on the
+keyword queries agents write today.
+
+## Hub-and-spoke projects
+
+A project of a knowledge hub (decision records with stable codes, boundaries,
+components) and code repositories needs prose-to-code matching across
+repositories. No public project links the two explicitly, so
+`tools/hubspoke/` generates a hub: one decision record per commit, written by
+Claude Haiku from the commit as if decided beforehand, for the 51 history dev
+cases in gin, hono and axios plus 90 distractor commits (141 `AD-n` records,
+114 `BOUND-NNN` boundaries, khub-style folders and front matter). The records
+name no files, paths or internal identifiers. Each case has three queries: the
+symptom task, the task plus `See AD-n.`, and the decision text. Each repository
+is searched separately (the case's spoke at the commit's parent), the lists are
+merged, and the result counts a hit when an expected spoke file or the case's
+record reaches the first ten merged paths.
+
+With reciprocal-rank merging and one rerank pass over the merged first 20:
+
+| Query | Spoke hits, lexical → MiniLM | Record hits, lexical → MiniLM |
+| --- | ---: | ---: |
+| Task | 24 → 31 (8 up, 1 down) | 43 → 50 (7 up, 0 down) |
+| Task + code | 25 → 32 (9 up, 2 down) | 48 → 51 |
+| Decision text | 26 → 32 (7 up, 1 down) | |
+
+Generated records sit closer to the code than records written before a change,
+so the gap on a real hub may differ.
+
+### Merge policies
+
+`ygg search --project` reranks inside each repository and then allocates the
+citation budget round-robin by alias. Over all 153 queries, counting hits in the
+first ten interleaved paths:
+
+| Per-repository search | Spoke hits | Record hits (102 task queries) |
+| --- | ---: | ---: |
+| MiniLM, no reranker | 106 | 98 |
+| MiniLM, ygg reranker (shipped) | 100 | 101 |
+| Lexical, no reranker | 80 | 88 |
+| Lexical, ygg reranker | 95 | 94 |
+
+The shipped policy is within six spoke hits of the best variant and finds the
+most records. Within the spoke alone the ygg reranker raises first-ten hits from
+133 to 140, so the merged loss comes from the four-way budget split, not the
+reranker. Reranking with result excerpts instead of ygg's own reranker input
+lost 26 spoke hits with MiniLM, so emulated global reranks (one pass over the
+merged first 20 or the pooled top ten of each repository) were not adopted.
+Putting the hub first in the round robin raises the record's MRR from 0.244 to
+0.968 and lowers spoke hits from 100 to 95; grouped output makes that order a
+presentation choice, so it was left to configuration order.
+
+### Worktrees
+
+Each case also ran in seeded worktrees: `git worktree add` on one task branch in
+every repository, the case's spoke at the commit's parent and the others at
+their base heads. Members identical to their base searched in hybrid mode at
+once (459 of 459 searches), since seeding copies vectors. The case's spoke
+differed from its base in 9 to 717 files and fell back to lexical on its first
+search every time, because hybrid activation requires complete coverage. After
+`ygg index` (median 1.3 s, at most 3.6 s with MiniLM) results matched a cold
+index exactly. Partial-coverage fusion was rejected earlier because it buries
+freshly edited files, so the fix belongs in the host: a worktree tool's prepare
+step can run `ygg index`.
