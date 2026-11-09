@@ -427,6 +427,15 @@ and 16 down against lexical order. On these suites the embedding lane adds
 indexing cost without improving the reranked ranking, so neither model
 replaces the reranker as the recommended addition to lexical search.
 
+`qwen3-embedding:4b` (2,560 dimensions) was started on dev with the reranker
+and stopped after 48 of 69 titles. On those 48 it scored 44 hits and MRR@10
+0.580, against 44 and 0.556 for the 0.6b model and 41 and 0.541 for lexical
+search with the reranker (13 titles higher, 4 lower). The 0.6b model's similar
+dev lead did not hold on held-out, and 4b embeds several times more slowly
+than 0.6b, whose nine-repository index already took 80 minutes. The held-out
+run was not started, because a confirmed gain of this size would not justify
+that indexing cost as a default.
+
 #### LLM query rewriting
 
 Agents and harnesses write the query, so a better query is a guidance change

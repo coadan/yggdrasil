@@ -475,6 +475,45 @@ On the final dev runs, counting distinct citations per arm:
 - Citation placement is not a target until a task shows an agent stopping
   at the cited window.
 
+## Structural cards and symbol jumps
+
+An offline check found that per-hit structural neighbours surface fewer
+changed files than the same number of extra ranked paths (see
+`docs/retrieval-quality.md`, cross-artifact changes). That left the agent-loop
+claim: line-anchored, checkable edges might save exploratory calls. Two arms
+tested it against the ygg-only arm, with Haiku 5.5, an 8-call budget, compact
+output, lexical search with the extractor plugins and no reranker (the same
+for every arm), on symptom tasks:
+
+- `ygg-cards`: the first five hits that lie inside a declaration carry a card
+  listing up to three callers, three callees and two related types as
+  `name path:line`, from extractor declarations whose name is declared once.
+- `ygg-jump`: `ygg-def NAME` and `ygg-refs NAME` print a declaration and its
+  call sites, a jump-to-definition tool in the spirit of RepoNavigator without
+  its trained policy.
+
+Both live in `tools/agent-eval/cards.py`. The arms build on the ygg-only arm
+because Haiku with shell and ygg used ygg in only 40 of 146 runs. The primary
+set is the 33 low-overlap dev cases whose language has an installed extractor
+(Postgres and Dapper have none), run twice; the 48-case round-robin sample ran
+once.
+
+| Set | Arm | Hit | Recall | Calls | Input tokens | Fewer / more calls than ygg |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Low-overlap, 2 x 33 | ygg | 53 | 0.789 | 3.0 | 35.0k | |
+| Low-overlap, 2 x 33 | ygg-cards | 51 | 0.765 | 3.5 | 41.7k | 20 / 32 |
+| Low-overlap, 2 x 33 | ygg-jump | 51 | 0.762 | 3.5 | 37.3k | 17 / 29 |
+| Sample, 48 | ygg | 39 | 0.764 | 4.2 | 46.5k | |
+| Sample, 48 | ygg-cards | 37 | 0.726 | 4.1 | 52.3k | 23 / 17 |
+| Sample, 48 | ygg-jump | 40 | 0.785 | 4.6 | 49.0k | 13 / 24 |
+
+The agent used `ygg-def` or `ygg-refs` in 33 of the 66 primary jump runs, so
+the tools were found and used. Neither arm met the rule fixed before the run
+(no loss of hits, recall within 0.02, and at least 10% fewer calls or input
+tokens with more paired cases improving than worsening): both used more calls
+and tokens on the primary set and found no more files. Cards and jumps were
+not added to search output.
+
 ## Conclusions
 
 - In the final setup, strong agents find the files about as well with ygg as
