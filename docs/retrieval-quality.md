@@ -1033,6 +1033,16 @@ Putting the hub first in the round robin raises the record's MRR from 0.244 to
 0.968 and lowers spoke hits from 100 to 95; grouped output makes that order a
 presentation choice, so it was left to configuration order.
 
+Reranker scores are comparable across repositories when every member uses the
+same reranker, so a merge by score was tested too: a logging proxy recorded the
+per-path scores of ygg's own per-repository rerank, and the merged list sorted
+every scored candidate by score. With MiniLM it found 98 spoke files (11 up, 13
+down against the shipped policy) and 102 records. It cut results from the other
+spokes in the first ten from 5.2 to 2.0 per query, but filled those places with
+other hub records (2.0 to 4.3), so relevant items per first ten stayed at 1.8.
+Lexical search showed the same exchange (1.68 to 1.78 relevant items). The
+score merge was not adopted.
+
 ### Worktrees
 
 Each case also ran in seeded worktrees: `git worktree add` on one task branch in
