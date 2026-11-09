@@ -387,6 +387,77 @@ refitting on its own. Four frozen opening-search cases showed the same
 pattern: semantic ranked one owner first where hybrid placed it fourth, and
 hybrid moved a second-rank lexical owner to fifth.
 
+#### Reranking issue titles
+
+The 0.6B HTTP reranker from the reranking section below (depth 20, 1500
+characters) was scored on both splits in lexical mode, with a user
+configuration that names only the reranker. Every row reported `rerank.state`
+`applied`.
+
+| Split | Hits@10 | MRR@10 | Higher / lower |
+| --- | ---: | ---: | ---: |
+| Dev (69) | 57 → 58 | 0.534 → 0.551 | 16 / 13 |
+| Held-out (71) | 61 → 63 | 0.591 → 0.627 | 15 / 14 |
+
+The gain is smaller than on the commit-subject suites, but it holds on unseen
+issue titles. Reranking stays opt-in, because it needs a running provider.
+
+#### Embeddings on issue titles
+
+Hybrid search was scored on the same splits with MiniLM (`all-minilm`, 384
+dimensions) and with `qwen3-embedding:0.6b`, in the combinations listed.
+Every snapshot was embedded completely before it was searched.
+
+| Split | Configuration | Hits@10 | MRR@10 |
+| --- | --- | ---: | ---: |
+| Dev | Lexical | 57 | 0.534 |
+| Dev | MiniLM hybrid | 59 | 0.517 |
+| Dev | Qwen 0.6b hybrid | 63 | 0.584 |
+| Dev | Lexical + rerank | 58 | 0.551 |
+| Dev | Qwen 0.6b hybrid + rerank | 62 | 0.562 |
+| Held-out | Lexical | 61 | 0.591 |
+| Held-out | Qwen 0.6b hybrid | 60 | 0.567 |
+| Held-out | Lexical + rerank | 63 | 0.627 |
+| Held-out | MiniLM hybrid + rerank | 63 | 0.609 |
+| Held-out | Qwen 0.6b hybrid + rerank | 63 | 0.591 |
+
+Qwen's dev gain did not hold on held-out titles, as on the history suites
+below. With the reranker, adding MiniLM vectors moved 12 held-out titles up
+and 16 down against lexical order. On these suites the embedding lane adds
+indexing cost without improving the reranked ranking, so neither model
+replaces the reranker as the recommended addition to lexical search.
+
+#### LLM query rewriting
+
+Agents and harnesses write the query, so a better query is a guidance change
+rather than a core one. To see how much query wording matters, the local
+`qwen3.6:27b` model (Ollama, temperature 0, seed 1, no thinking) was asked to
+turn each issue title into one search query of three to eight words: the
+identifiers, function names, error text or code terms most likely to appear
+in the files to change. It saw only the repository name and the title.
+
+| Split | Query | Hits@10 | MRR@10 | Higher / lower |
+| --- | --- | ---: | ---: | ---: |
+| Dev | Title | 57 | 0.534 | |
+| Dev | Rewrite | 60 | 0.622 | 26 / 13 |
+| Dev | Title and rewrite | 60 | 0.621 | |
+| Held-out | Title | 61 | 0.591 | |
+| Held-out | Rewrite | 61 | 0.589 | 15 / 16 |
+
+Only one dev rewrite added an expected file's stem that the title lacked
+(`main` in a Terraform module), so the dev gain did not come from recalled
+paths. It did not carry over to the held-out titles, which already rank
+better than dev's, and the rewrite was rejected. The search tips rejected in
+`docs/agent-eval.md` advised the opposite, starting from a description; this
+result does not support either piece of advice.
+
+A gate that keeps lexical order when lexical retrieval looks confident was
+also considered. Search output carries no scores, and replaying family fusion
+from the saved lexical and semantic path lists reproduced only 35 of the 69
+hybrid ranks, so the gate could not be measured offline. The best weight in
+that replay, 0.25 for the semantic family, is the setting that already failed
+out of fold in the fitted-weight study, so the gate was not built.
+
 ### Long queries
 
 Search refused queries of more than 256 whitespace-separated words. Pasted

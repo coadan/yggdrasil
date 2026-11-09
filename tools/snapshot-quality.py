@@ -8,11 +8,13 @@ in lexical mode with a temporary storage root and an empty user configuration,
 and removed. The rank is the position of the first expected path among the
 result records followed by `morePaths`, as in tools/retrieval-quality.py.
 
-By default only lexical mode is scored, with an empty user configuration. With
-`--config` (a user configuration that names an embedding provider) each
-snapshot is indexed first, which embeds it, and every `--mode` is scored; a
-case whose semantic coverage is incomplete keeps its rows but is counted under
-`incomplete`. Embedding a snapshot per case is slow, so run one scorer at a
+By default only lexical mode is scored, with an empty user configuration.
+`--config` supplies a user configuration instead. When it names an embedding
+provider, each snapshot is indexed first, which embeds it, and a case whose
+semantic coverage is incomplete keeps its rows but is counted under
+`incomplete`. A configuration with only a reranker is not indexed first. Each
+row records the search's `rerank` status, so a run can show that every row was
+reranked. Embedding a snapshot per case is slow, so run one scorer at a
 time against a single local provider. Plugins configured in a snapshot's own
 `.ygg/config.json` are not used, because the user configuration is the trust
 boundary for executables.
@@ -38,7 +40,7 @@ def main():
     parser.add_argument('--suite', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     parser.add_argument('--limit', type=int, default=10)
-    parser.add_argument('--config', type=Path, help='User configuration with an embedding provider')
+    parser.add_argument('--config', type=Path, help='User configuration (embedding provider, reranker)')
     parser.add_argument('--mode', action='append', choices=('lexical', 'auto', 'semantic'),
                         help='Search modes to score (repeatable; default lexical)')
     args = parser.parse_args()
@@ -50,6 +52,7 @@ def main():
         scratch = Path(scratch)
         config = scratch / 'user.json'
         config.write_text(args.config.read_text() if args.config else '{"schema":"ygg.config/v1"}\n')
+        embedded = 'embedding' in json.loads(config.read_text())
         for case in cases:
             clone = Path(args.repos) / case['repo']
             tree, store = scratch / 'tree', scratch / 'store'
@@ -62,7 +65,7 @@ def main():
                 continue
             env = dict(os.environ, YGG_CONFIG=str(config), YGG_STORAGE_ROOT=str(store))
             complete = None
-            if args.config:
+            if embedded:
                 try:
                     indexed = subprocess.run([args.binary, 'index', '--root', str(tree)],
                                              capture_output=True, text=True, env=env, timeout=3600)
@@ -81,7 +84,8 @@ def main():
                     paths = [record['path'] for record in data.get('records', [])] + data.get('morePaths', [])
                     row.update(rank=next((index + 1 for index, path in enumerate(paths)
                                           if path in case['expectedPaths']), None), paths=paths,
-                               activeMode=data.get('activeMode'), fallbackReason=data.get('fallbackReason'))
+                               activeMode=data.get('activeMode'), fallbackReason=data.get('fallbackReason'),
+                               rerank=data.get('rerank'))
                 except (subprocess.TimeoutExpired, json.JSONDecodeError) as error:
                     row['error'] = str(error)
                 row['seconds'] = round(time.monotonic() - start, 3)
