@@ -140,6 +140,9 @@ then a `more:` line of further candidate files.""",
     'files': """It
 prints the matching files, ranked best first, as path:start-end line ranges,
 then a `more:` line of further candidate files. Read a file to see its lines.""",
+    'top2': """It
+prints each result as path:start-end, ranked best first, with the excerpt of the
+first two results only, then a `more:` line of further candidate files.""",
 }
 
 CODEX_JSON_OUTPUT = """It prints JSON: read data.records for cited results (path, line range,
@@ -150,6 +153,8 @@ CODEX_OUTPUT_GUIDES = {
 first, then a `more:` line of further candidate files.""",
     'files': """It prints the matching files, best first, as path:start-end line ranges,
 then a `more:` line of further candidate files.""",
+    'top2': """It prints each result as path:start-end, best first, with the excerpt of
+the first two results only, then a `more:` line of further candidate files.""",
 }
 CODEX_YGG_GUIDE = """Repository search: use `ygg search "<query>"` for bounded repository
 search. """ + CODEX_JSON_OUTPUT + """ Options:

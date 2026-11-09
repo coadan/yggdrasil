@@ -514,6 +514,24 @@ tokens with more paired cases improving than worsening): both used more calls
 and tokens on the primary set and found no more files. Cards and jumps were
 not added to search output.
 
+## Excerpts on the first two results only
+
+The hono patch trials suggested that low-precision second and third cards
+mislead agents, so a `top2` output format keeps excerpts only on the first two
+results and lists the rest as `path:start-end`. It ran in the ygg arm on the
+structural-card trial's cases and setup, against that trial's compact rows.
+
+| Set | Format | Hit | Recall | Calls | Input tokens | Fewer / more calls |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Low-overlap, 2 x 33 | compact | 53 | 0.789 | 3.0 | 35.0k | |
+| Low-overlap, 2 x 33 | top2 | 54 | 0.800 | 3.6 | 37.4k | 8 / 33 |
+| Sample, 48 | compact | 39 | 0.764 | 4.2 | 46.5k | |
+| Sample, 48 | top2 | 38 | 0.747 | 4.7 | 49.9k | 17 / 21 |
+
+Without the later excerpts the agent read more files to check them, so calls
+and tokens rose and answers did not improve. The format failed the same
+decision rule and was not adopted; compact output stays.
+
 ## Conclusions
 
 - In the final setup, strong agents find the files about as well with ygg as

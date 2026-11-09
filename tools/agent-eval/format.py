@@ -6,6 +6,8 @@ Reads the CLI envelope on stdin and prints one of:
   compact  one header line, then each record as `path:start-end` followed by
            its excerpt indented and any structural card (cards.py), then the
            additional candidate paths
+  top2     compact, but only the first two records keep their excerpts; the
+           rest are listed as `path:start-end`
   files    distinct paths in rank order with their matched line ranges, then
            the additional candidate paths, with no excerpts
 
@@ -43,7 +45,13 @@ def main():
     records = data.get('records') or []
     more = data.get('morePaths') or []
     print(f"{len(records)} results ({data.get('activeMode')})")
-    if mode == 'files':
+    if mode == 'top2':
+        for index, record in enumerate(records):
+            print(f"{record['path']}:{record['startLine']}-{record['endLine']}")
+            if index < 2:
+                for line in (record.get('excerpt') or '').splitlines():
+                    print(f'    {line}')
+    elif mode == 'files':
         ranges = {}
         for record in records:
             ranges.setdefault(record['path'], []).append(f"{record['startLine']}-{record['endLine']}")

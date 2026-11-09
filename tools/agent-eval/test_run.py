@@ -112,3 +112,14 @@ class NavigationArmTest(unittest.TestCase):
                              input=json.dumps(envelope), capture_output=True, text=True).stdout
         self.assertIn('  card: f a.py:1\n    called by: g b.py:3\n    related: T c.py:1\n', out)
         self.assertNotIn('calls:', out)
+
+
+class TopTwoFormatTest(unittest.TestCase):
+    def test_only_first_two_records_keep_excerpts(self):
+        records = [{'path': f'f{i}.py', 'startLine': 1, 'endLine': 2, 'excerpt': f'body {i}'} for i in range(4)]
+        envelope = {'ok': True, 'data': {'activeMode': 'lexical', 'morePaths': ['g.py'], 'records': records}}
+        out = subprocess.run([sys.executable, str(Path(run.__file__).with_name('format.py')), 'top2'],
+                             input=json.dumps(envelope), capture_output=True, text=True).stdout
+        self.assertIn('f1.py:1-2\n    body 1\nf2.py:1-2\nf3.py:1-2\nmore: g.py', out)
+        self.assertNotIn('body 2', out)
+        self.assertEqual(set(run.OUTPUT_GUIDES), set(run.CODEX_OUTPUT_GUIDES))

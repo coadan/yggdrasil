@@ -890,6 +890,34 @@ cross-artifact dev MRR 0.581 to 0.643 and P@2 0.356 to 0.432 (top-20
 coverage unchanged by construction), and ARB MRR 0.099 to 0.130 (71 better,
 15 worse).
 
+## Live search without a lexical index
+
+Replacing the SQLite lexical index with live search would remove index
+freshness from the lexical path, so it was measured on the issue-title splits
+before deciding. Every method ranks the same exported snapshot:
+
+- `rg`: files ranked by distinct query words, then matching lines;
+- `rg` BM25: file-level BM25 computed from `rg -c` counts per term;
+- live fallback: `query.RunFilesystem`, ygg's index-free search used while an
+  index is busy;
+- `rg` + rerank: the first 20 `rg` files reranked over each file's densest
+  query-term window, with the same 0.6B reranker and 1,500-character limit.
+
+| Method | Dev MRR@10 | Dev hits@10 | Held-out MRR@10 | Held-out hits@10 |
+| --- | ---: | ---: | ---: | ---: |
+| `rg` | 0.482 | 55 | 0.505 | 60 |
+| `rg` BM25 | 0.476 | 55 | 0.456 | 59 |
+| Live fallback | 0.364 | 47 | 0.388 | 48 |
+| ygg lexical index | 0.534 | 57 | 0.591 | 61 |
+| `rg` + rerank | 0.523 | 56 | 0.563 | 58 |
+| ygg lexical index + rerank | 0.551 | 58 | 0.627 | 63 |
+
+Live search finds about as many files but ranks them lower; BM25 over whole
+files does not recover the index's chunk-level, stemmed and identifier lanes.
+The reranker narrows the held-out gap from 0.086 to 0.064 MRR (21 titles better
+with the index, 16 with `rg`). Because embeddings and extractor records keep
+the SQLite store and its freshness work regardless, the lexical index was kept.
+
 ## Cross-artifact changes
 
 Changes that span code, docs and configuration are where a ranked index should
