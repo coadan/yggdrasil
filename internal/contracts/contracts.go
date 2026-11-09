@@ -11,6 +11,7 @@ const (
 	RerankSchema        = "ygg.rerank/v1"
 	IndexProgressSchema = "ygg.index.progress/v1"
 	SearchSchema        = "ygg.search.result/v5"
+	ProjectSearchSchema = "ygg.project.search.result/v1"
 	CLIEnvelopeSchema   = "ygg.cli/v1"
 )
 

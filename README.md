@@ -93,6 +93,19 @@ the optional path, such as `ygg search "request routing" src/app` or
 repository's one index, filters every retrieval lane to that scope, and keeps
 citations repository-relative (`src/app/...`).
 
+For a hub and its spoke repositories, define a [named project](docs/contracts.md#project-search)
+in user configuration and search it with:
+
+```sh
+ygg search --project platform --format compact "token rotation"
+```
+
+Ygg uses the current Git branch to find a matching worktree in each project
+member. A repo without a matching checkout uses its configured base. Running
+outside Git or from detached HEAD uses the base checkouts. Results show the
+selected checkout for each repo. Dirty bases and bases behind a locally known
+upstream return results with a warning. Git synchronization is explicit.
+
 If `search` starts in a fresh linked worktree and a same-family index exists,
 Yggdrasil snapshots and reconciles that index before answering. Every search
 also refreshes modified, deleted, renamed, and untracked files when repository

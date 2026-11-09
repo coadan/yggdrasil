@@ -22,7 +22,7 @@ embedding provider shared by repositories and linked worktrees:
 }
 ```
 
-Only `schema`, `plugins`, `embedding`, and `rerank` are valid at user scope.
+User configuration accepts `schema`, `plugins`, `embedding`, `rerank`, and `projects`.
 User-scope plugins apply to every repository, so their commands should be
 absolute paths or names on `PATH`. A repository's explicit `plugins` list
 replaces the user list, and `"plugins": []` disables it for that repository.
@@ -130,6 +130,44 @@ request ceiling. The HTTP adapter requests float encoding and performs one
 bounded retry with backoff for
 transport errors, HTTP 429/529, and 5xx responses. Configure a remote-appropriate
 timeout explicitly; the short default is intended for local endpoints.
+
+## Project search
+
+Projects are defined in user configuration. Each project maps repo aliases to
+absolute Git checkout paths and optional upstream refs:
+
+```json
+{
+  "schema": "ygg.config/v1",
+  "projects": {
+    "platform": {
+      "hub": {"root": "/home/dev/repos/hub", "upstream": "origin/main"},
+      "spoke": {"root": "/home/dev/repos/spoke", "upstream": "origin/main"}
+    }
+  }
+}
+```
+
+`ygg search --project platform PATTERN` looks for the current Git branch in
+each member's registered worktrees. A live matching checkout is selected
+when available. Otherwise the configured checkout is used. A detached HEAD
+or invocation outside Git selects the configured checkouts. Multiple
+available worktrees for the same branch in a member produce an error.
+
+The JSON envelope contains `data.schema = "ygg.project.search.result/v1"`
+and a `data.repositories` array sorted by alias. Each entry identifies the
+repo alias, checkout root, commit, selection (`base` or `branch`), and any
+warnings. Its `result` has the repository search result shape. Resolve
+relative citation paths against the entry's `root`. The total `--limit` is
+allocated in rounds across repos with hits, keeping each repo's own order.
+Project output contains the allocated citations.
+
+A selected base with local edits gets a `dirty-base` warning. Drift is
+measured against the configured ref available locally. The `behind-base`
+warning carries the count of commits missing from the base. If the ref
+cannot be compared, the warning is `upstream-unavailable`. Warnings leave
+search results available. Project search reads the selected working trees
+and leaves Git synchronization to the caller.
 
 ## Search records
 

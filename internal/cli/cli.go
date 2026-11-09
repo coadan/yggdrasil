@@ -27,6 +27,7 @@ const usage = `Usage:
   ygg version
   ygg index [--root PATH] [--full] [--no-embed]
   ygg search [--limit N] [--mode auto|lexical|semantic|graph] [--format json|compact] [-F|-E] [--about TEXT] PATTERN [PATH]
+  ygg search --project NAME [search options] PATTERN
   ygg status [--root PATH] [--check]
   ygg plugin check <plugin-id> [--root PATH] [--file RELATIVE_PATH]
 `
@@ -186,6 +187,7 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	args = discardJSONAssertion(args)
 	flags, flagOutput := newOperationalFlagSet("search")
 	root := flags.String("root", "", "repository root, directory, or file scope")
+	projectName := flags.String("project", "", "named project from user configuration")
 	limit := flags.Int("limit", 10, "result limit")
 	mode := flags.String("mode", "auto", "auto, lexical, semantic, or graph")
 	format := flags.String("format", "json", "successful search output: json or compact")
@@ -203,7 +205,8 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		fmt.Fprint(
 			flagOutput,
 			"\nJSON output paths:\n  result records: data.records\n"+
-				"  additional candidate paths, when present: data.morePaths\n",
+				"  additional candidate paths, when present: data.morePaths\n"+
+				"  project results: data.repositories[].result.records\n",
 		)
 	}
 	if err := parseInterspersed(flags, args); err != nil {
@@ -218,6 +221,9 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 		return r.fail(true, 2, fmt.Errorf("unsupported search format %q; use json or compact", *format))
 	}
 	positionals := flags.Args()
+	if *projectName != "" && (*root != "" || len(positionals) > 1) {
+		return r.fail(true, 2, errors.New("project search accepts one quoted pattern and no repository path"))
+	}
 	if *root == "" && len(positionals) > 2 {
 		return r.fail(true, 2, errors.New(
 			"search accepts PATTERN and optional PATH; quote a multiword pattern",
@@ -264,21 +270,37 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 	if *mode == "semantic" && preflightPlan.Semantic == nil {
 		return r.fail(true, 2, errors.New("regexp has no semantic text; use --about"))
 	}
-	paths, cfg, err := resolve(resolvedRoot)
-	if err != nil {
-		return r.fail(true, 2, err)
-	}
-	repository, err := openCLIRepository(ctx, paths, cfg)
-	if err != nil {
-		return r.fail(true, 1, err)
-	}
-	defer repository.Close()
-	// Agent shells merge stderr into the output they read, so the compact
-	// format keeps an inline refresh quiet. JSON search still streams progress.
+	opts := search.Options{Mode: *mode, Limit: *limit, MatchKind: matchKind, About: *about}
+	// Agent shells merge stderr into the output they read. Compact search
+	// keeps an inline refresh quiet.
 	progressOutput := r.stderr
 	if *format == "compact" {
 		progressOutput = io.Discard
 	}
+	if *projectName != "" {
+		return r.runProjectSearch(ctx, *projectName, query, opts, *format, progressOutput)
+	}
+	paths, cfg, err := resolve(resolvedRoot)
+	if err != nil {
+		return r.fail(true, 2, err)
+	}
+	result, err := searchRepository(ctx, paths, cfg, query, opts, progressOutput)
+	if err != nil {
+		return r.failSearch(err)
+	}
+	result.ElapsedMS = time.Since(started).Milliseconds()
+	return r.writeSearchResult(result, *format)
+}
+
+func searchRepository(ctx context.Context, paths project.Paths, cfg config.Config,
+	query string, opts search.Options, progressOutput io.Writer,
+) (search.Result, error) {
+	opts.Scope = paths.Scope
+	repository, err := openCLIRepository(ctx, paths, cfg)
+	if err != nil {
+		return search.Result{}, err
+	}
+	defer repository.Close()
 	progress := newProgressReporter(progressOutput)
 	snapshot, err := repository.index.OpenSnapshot(ctx)
 	if !publicindex.IsBusy(err) &&
@@ -293,40 +315,36 @@ func (r *runner) runSearch(ctx context.Context, args []string) int {
 			snapshot, err = repository.index.OpenSnapshot(ctx)
 		}
 	}
-	if publicindex.IsBusy(err) && (*mode == "auto" || *mode == "lexical") {
+	if publicindex.IsBusy(err) && (opts.Mode == "auto" || opts.Mode == "lexical") {
 		result, fallbackErr := search.RunFilesystem(ctx, paths.Root, query, search.FilesystemOptions{
-			Limit: *limit, Scope: paths.Scope, IgnoreGlobs: cfg.IgnoreGlobs,
-			MaxFileBytes: cfg.MaxFileBytes, RequestedMode: *mode,
-			MatchKind: matchKind, About: *about,
+			Limit: opts.Limit, Scope: opts.Scope, IgnoreGlobs: cfg.IgnoreGlobs,
+			MaxFileBytes: cfg.MaxFileBytes, RequestedMode: opts.Mode,
+			MatchKind: opts.MatchKind, About: opts.About,
 		})
 		if fallbackErr != nil {
-			return r.fail(true, 1, fmt.Errorf("search live working tree: %w", fallbackErr))
+			return search.Result{}, fmt.Errorf("search live working tree: %w", fallbackErr)
 		}
-		result.ElapsedMS = time.Since(started).Milliseconds()
-		return r.writeSearchResult(result, *format)
+		return result, nil
 	}
 	if err != nil {
-		return r.fail(true, 1, err)
+		return search.Result{}, err
 	}
 	defer snapshot.Close()
 	rerank, lazyRerank := lazyRerankCapability(paths.Root, cfg.Rerank)
 	if lazyRerank != nil {
 		defer lazyRerank.Close()
 	}
-	result, err := search.Run(ctx, snapshot, query, search.Options{
-		Mode: *mode, Limit: *limit, Scope: paths.Scope,
-		MatchKind: matchKind, About: *about,
-		HasExtractors: len(cfg.Plugins) > 0, Embedding: repository.index.Embedding(),
-		Rerank: rerank,
-	})
+	opts.HasExtractors = len(cfg.Plugins) > 0
+	opts.Embedding = repository.index.Embedding()
+	opts.Rerank = rerank
+	return search.Run(ctx, snapshot, query, opts)
+}
+
+func (r *runner) failSearch(err error) int {
 	if errors.Is(err, search.ErrSemanticUnavailable) {
 		return r.fail(true, 3, err)
 	}
-	if err != nil {
-		return r.fail(true, 1, err)
-	}
-	result.ElapsedMS = time.Since(started).Milliseconds()
-	return r.writeSearchResult(result, *format)
+	return r.fail(true, 1, err)
 }
 
 func parseInterspersed(flags *flag.FlagSet, args []string) error {

@@ -75,10 +75,35 @@ type Config struct {
 }
 
 type userConfig struct {
-	Schema    string     `json:"schema"`
-	Plugins   []Plugin   `json:"plugins,omitempty"`
-	Embedding *Embedding `json:"embedding,omitempty"`
-	Rerank    *Rerank    `json:"rerank,omitempty"`
+	Schema    string                            `json:"schema"`
+	Plugins   []Plugin                          `json:"plugins,omitempty"`
+	Embedding *Embedding                        `json:"embedding,omitempty"`
+	Rerank    *Rerank                           `json:"rerank,omitempty"`
+	Projects  map[string]map[string]ProjectRepo `json:"projects,omitempty"`
+}
+
+type ProjectRepo struct {
+	Root     string `json:"root"`
+	Upstream string `json:"upstream,omitempty"`
+}
+
+func LoadProject(name string) (map[string]ProjectRepo, error) {
+	path, err := userConfigPath()
+	if err != nil {
+		return nil, err
+	}
+	user, _, err := loadUser(path)
+	if err != nil {
+		return nil, err
+	}
+	members, found := user.Projects[name]
+	if !found {
+		return nil, fmt.Errorf("unknown project %q in %s", name, path)
+	}
+	if len(members) == 0 {
+		return nil, fmt.Errorf("project %q has no repositories", name)
+	}
+	return members, nil
 }
 
 func Default() Config {
@@ -183,9 +208,8 @@ func loadUser(path string) (userConfig, bool, error) {
 	if err := cfg.Validate(); err != nil {
 		return userConfig{}, false, fmt.Errorf("%s: %w", path, err)
 	}
-	return userConfig{
-		Schema: cfg.Schema, Plugins: cfg.Plugins, Embedding: cfg.Embedding, Rerank: cfg.Rerank,
-	}, true, nil
+	user.Plugins, user.Embedding, user.Rerank = cfg.Plugins, cfg.Embedding, cfg.Rerank
+	return user, true, nil
 }
 
 func decodeOne(data []byte, target any) error {

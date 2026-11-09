@@ -320,8 +320,11 @@ func RetiredIndexes(ctx context.Context, paths Paths) ([]RetiredIndex, error) {
 }
 
 type linkedWorktree struct {
-	root string
-	head string
+	root     string
+	head     string
+	branch   string
+	bare     bool
+	prunable bool
 }
 
 func linkedWorktrees(ctx context.Context, root string) ([]linkedWorktree, error) {
@@ -339,6 +342,12 @@ func linkedWorktrees(ctx context.Context, root string) ([]linkedWorktree, error)
 			item.root = strings.TrimPrefix(field, "worktree ")
 		case strings.HasPrefix(field, "HEAD "):
 			item.head = strings.TrimPrefix(field, "HEAD ")
+		case strings.HasPrefix(field, "branch "):
+			item.branch = strings.TrimPrefix(field, "branch ")
+		case field == "bare":
+			item.bare = true
+		case field == "prunable" || strings.HasPrefix(field, "prunable "):
+			item.prunable = true
 		case field == "":
 			if item.root != "" {
 				canonical, err := canonicalDir(item.root)

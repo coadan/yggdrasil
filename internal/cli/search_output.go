@@ -17,12 +17,17 @@ func (r *runner) writeSearchResult(result query.Result, format string) int {
 		return r.writeJSON(envelope{Schema: contracts.CLIEnvelopeSchema, OK: true, Data: result})
 	}
 	var output strings.Builder
-	fmt.Fprintf(&output, "%d results (%s)\n", len(result.Records), result.ActiveMode)
+	appendCompactSearch(&output, result)
+	return r.writeCompactSearch(&output)
+}
+
+func appendCompactSearch(output *strings.Builder, result query.Result) {
+	fmt.Fprintf(output, "%d results (%s)\n", len(result.Records), result.ActiveMode)
 	for _, record := range result.Records {
-		fmt.Fprintf(&output, "%s:%d-%d\n", compactPath(record.Path), record.StartLine, record.EndLine)
+		fmt.Fprintf(output, "%s:%d-%d\n", compactPath(record.Path), record.StartLine, record.EndLine)
 		if record.Excerpt != "" {
 			for line := range strings.SplitSeq(strings.TrimSuffix(record.Excerpt, "\n"), "\n") {
-				fmt.Fprintf(&output, "    %s\n", compactExcerptLine(strings.TrimSuffix(line, "\r")))
+				fmt.Fprintf(output, "    %s\n", compactExcerptLine(strings.TrimSuffix(line, "\r")))
 			}
 		}
 	}
@@ -36,6 +41,9 @@ func (r *runner) writeSearchResult(result query.Result, format string) int {
 		}
 		output.WriteByte('\n')
 	}
+}
+
+func (r *runner) writeCompactSearch(output *strings.Builder) int {
 	if _, err := io.WriteString(r.stdout, output.String()); err != nil {
 		fmt.Fprintln(r.stderr, "ygg: write compact search result:", err)
 		return 1
