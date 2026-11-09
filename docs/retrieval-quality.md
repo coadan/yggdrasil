@@ -809,3 +809,38 @@ Where it applies, reranking lifted every suite measured on 2026-11-08:
 cross-artifact dev MRR 0.581 to 0.643 and P@2 0.356 to 0.432 (top-20
 coverage unchanged by construction), and ARB MRR 0.099 to 0.130 (71 better,
 15 worse).
+
+## Cross-artifact changes
+
+Changes that span code, docs and configuration are where a ranked index should
+beat a grep loop, because no single word ties the files together.
+`tools/cross-artifact.py` draws cases from commits that modified files of at
+least two kinds, classified by file name only, and queries the commit subject
+at the parent commit. It scores coverage of the changed files among the first
+20 paths against an `rg` baseline that ranks files by how many distinct query
+words they contain. The dev suite has 139 cases from 28 repositories and the
+held-out suite has 149 cases from 27, nine of them public in each.
+
+| Suite | Method | Coverage@20 | Complete | MRR | Code | Config | Docs |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dev | rg | 0.605 | 26 | 0.606 | 219/378 | 58/131 | 137/177 |
+| Dev | ygg lexical | 0.623 | 30 | 0.578 | 215/378 | 67/131 | 136/177 |
+| Dev | ygg lexical + rerank | 0.623 | 30 | 0.642 | | | |
+| Dev | ygg lexical + plugins | 0.618 | 29 | 0.583 | 211/378 | 64/131 | 141/177 |
+| Held-out | rg | 0.642 | 39 | 0.590 | 271/432 | 36/99 | 164/204 |
+| Held-out | ygg lexical | 0.664 | 44 | 0.610 | 277/432 | 43/99 | 163/204 |
+
+Ygg's edge over rg is small and comes mostly from configuration files. Per
+case it is close to even: 33 better and 32 worse on dev, 46 and 42 held-out.
+The reranker raises dev MRR (P@1 0.432 → 0.504, 44 cases better and 18 worse)
+without changing which files reach the first 20. Extractor plugins did not
+change coverage.
+
+Structural neighbours were tested offline as a proxy for per-hit "called by"
+and "calls" context: files that share rare identifiers (document frequency
+at most 25) with the first five excerpts, interleaved after each hit. At equal
+path budgets they lowered recall@10 everywhere (cross-artifact 0.503 → 0.447,
+issue dev 0.695 → 0.667, ARB 0.178 → 0.128). At 20 paths they raised
+cross-artifact recall from 0.623 to 0.647 but lowered the issue and ARB
+suites. The neighbours displaced ranked hits more often than they added
+missing files, so the enrichment was not built.
