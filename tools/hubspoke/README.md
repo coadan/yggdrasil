@@ -23,6 +23,12 @@ No public project has explicit hub-to-spoke links, so the hub is generated.
   Pass a configuration with a reranker to cache lists ranked by ygg's own
   per-repository reranker; their `interleave` variant is the shipped policy.
 
+- `agent.py`: Claude agent trial on the same project. Each case gets one task
+  branch with a worktree in every member, indexed as a prepare hook would, and
+  the agent starts in the hub with the symptom task. Arms: per-repository
+  `ygg search --root` and `ygg search --project demo`. Pass an absolute or
+  relative `--config` with the embedding, reranker and a `demo` project.
+
 Setup: `WORK/base/{hub,gin,hono,axios}` are Git checkouts (spokes cloned with
 `--shared` from the eval clones; prefetch each case base with `git archive` in
 the source clone when it is a partial clone), indexed once with the embedding

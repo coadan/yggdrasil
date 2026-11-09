@@ -1058,6 +1058,23 @@ recovers most of that at the cost of paths only:
 Lexical search moved from 95 to 123 with five paths. Project search now keeps
 five uncited paths per repository.
 
+### Agent trial
+
+`tools/hubspoke/agent.py` gave Claude Haiku 5.5 each symptom task in the hub
+worktree of a task branch, with an eight-call budget, MiniLM, the reranker and
+project paths, and asked for the governing record and the code files as
+`repo/path`. Over 51 cases and two repeats:
+
+| Arm | Spoke file named | Record named | Calls | Input tokens |
+| --- | ---: | ---: | ---: | ---: |
+| `ygg search --root` per repository | 100 | 101 | 6.1 | 66.5k |
+| `ygg search --project` | 97 | 102 | 5.3 | 68.0k |
+
+Project search saved about one call per task (fewer in 57 pairs, more in 24)
+at equal tokens; answers matched within noise (spoke file 1 more and 4 fewer).
+Both arms sit near the ceiling: the prompt names every repository and where
+decisions live.
+
 ### Worktrees
 
 Each case also ran in seeded worktrees: `git worktree add` on one task branch in
