@@ -12,6 +12,7 @@ import (
 
 	"github.com/coadan/yggdrasil/internal/config"
 	"github.com/coadan/yggdrasil/internal/contracts"
+	"github.com/coadan/yggdrasil/query"
 )
 
 func TestProjectSearchUsesSameBranchWorktreesAndWarnsOnBase(t *testing.T) {
@@ -151,5 +152,36 @@ func TestProjectSearchUsesSameBranchWorktreesAndWarnsOnBase(t *testing.T) {
 	}
 	if code := run("--root", spokeBase, "decisionneedle"); code != 2 {
 		t.Fatalf("mixed scopes exit=%d stdout=%s", code, stdout.String())
+	}
+}
+
+func TestLimitProjectRecordsKeepsUncitedPathWindow(t *testing.T) {
+	records := func(paths ...string) []query.RankedRecord {
+		out := make([]query.RankedRecord, len(paths))
+		for i, path := range paths {
+			out[i] = query.RankedRecord{Path: path}
+		}
+		return out
+	}
+	repos := []repositoryResult{
+		{Alias: "a", Result: query.Result{
+			Records:   records("a1", "a2", "a1", "a3", "a4"),
+			MorePaths: []string{"a4", "a5", "a6", "a7", "a8"},
+		}},
+		{Alias: "b", Result: query.Result{Records: records("b1")}},
+	}
+	limitProjectRecords(repos, 3)
+	var cited []string
+	for _, record := range repos[0].Result.Records {
+		cited = append(cited, record.Path)
+	}
+	if strings.Join(cited, ",") != "a1,a2" || len(repos[1].Result.Records) != 1 {
+		t.Fatalf("cited a=%v b=%d, want a1,a2 and one b record", cited, len(repos[1].Result.Records))
+	}
+	if got := strings.Join(repos[0].Result.MorePaths, ","); got != "a3,a4,a5,a6,a7" {
+		t.Fatalf("a more paths = %q, want deduplicated window a3,a4,a5,a6,a7", got)
+	}
+	if len(repos[1].Result.MorePaths) != 0 {
+		t.Fatalf("b more paths = %v, want none", repos[1].Result.MorePaths)
 	}
 }

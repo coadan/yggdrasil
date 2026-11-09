@@ -92,8 +92,15 @@ func (r *runner) runProjectSearch(ctx context.Context, name, text string, opts q
 	return r.writeCompactSearch(&output)
 }
 
+// projectMorePaths bounds the uncited ranked paths kept per repository. On the
+// synthetic hub-and-spoke suite five paths per repository raised shown spoke
+// files from 100 to 137 of 153 queries, at the cost of paths only.
+const projectMorePaths = 5
+
 // Allocate citations round-robin across repositories without comparing their
 // local ranking scores. Keep each repository's own order within its group.
+// Records beyond a repository's allocation, then its own more paths, become a
+// short window of uncited paths.
 func limitProjectRecords(repos []repositoryResult, limit int) {
 	counts := make([]int, len(repos))
 	for rank := 0; limit > 0; rank++ {
@@ -114,7 +121,27 @@ func limitProjectRecords(repos []repositoryResult, limit int) {
 		}
 	}
 	for i := range repos {
-		repos[i].Result.Records = repos[i].Result.Records[:counts[i]]
-		repos[i].Result.MorePaths = nil
+		result := &repos[i].Result
+		seen := make(map[string]bool, counts[i])
+		for _, record := range result.Records[:counts[i]] {
+			seen[record.Path] = true
+		}
+		var more []string
+		candidates := make([]string, 0, len(result.Records)-counts[i]+len(result.MorePaths))
+		for _, record := range result.Records[counts[i]:] {
+			candidates = append(candidates, record.Path)
+		}
+		candidates = append(candidates, result.MorePaths...)
+		for _, path := range candidates {
+			if len(more) == projectMorePaths {
+				break
+			}
+			if !seen[path] {
+				seen[path] = true
+				more = append(more, path)
+			}
+		}
+		result.Records = result.Records[:counts[i]]
+		result.MorePaths = more
 	}
 }

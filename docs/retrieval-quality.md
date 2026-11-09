@@ -1043,6 +1043,21 @@ other hub records (2.0 to 4.3), so relevant items per first ten stayed at 1.8.
 Lexical search showed the same exchange (1.68 to 1.78 relevant items). The
 score merge was not adopted.
 
+The budget split, not the order, limits the merged list: within the case's
+spoke alone the expected file reaches the first ten for 140 of 153 queries.
+Keeping each repository's records beyond its allocation as uncited paths
+recovers most of that at the cost of paths only:
+
+| MiniLM per repository | Spoke file shown | Record shown (102) |
+| --- | ---: | ---: |
+| 10 citations (before) | 100 | 101 |
+| 10 citations + 5 paths per repository | 137 | 102 |
+| 10 citations + 10 paths per repository | 141 | 102 |
+| 20 citations | 123 | 102 |
+
+Lexical search moved from 95 to 123 with five paths. Project search now keeps
+five uncited paths per repository.
+
 ### Worktrees
 
 Each case also ran in seeded worktrees: `git worktree add` on one task branch in

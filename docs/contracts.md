@@ -160,7 +160,9 @@ repo alias, checkout root, commit, selection (`base` or `branch`), and any
 warnings. Its `result` has the repository search result shape. Resolve
 relative citation paths against the entry's `root`. The total `--limit` is
 allocated in rounds across repos with hits, keeping each repo's own order.
-Project output contains the allocated citations.
+Project output contains the allocated citations. Each repo's `morePaths`
+holds up to five uncited ranked paths: its records beyond the allocation,
+then its own more paths, without repeating a cited path.
 
 A selected base with local edits gets a `dirty-base` warning. Drift is
 measured against the configured ref available locally. The `behind-base`
